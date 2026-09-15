@@ -3294,6 +3294,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="FileDbMutationReport_Rename" xml:space="preserve"><value>フォルダ名の変更</value></data>
   <data name="FileDbMutationReport_Move" xml:space="preserve"><value>フォルダの移動</value></data>
   <data name="FileDbMutationReport_Merge" xml:space="preserve"><value>重複フォルダの統合</value></data>
+  <data name="Error_MergePostCommitMaintenanceIncomplete" xml:space="preserve"><value>フォルダ統合は確定しましたが、統合後のリソース再検査が完了しませんでした。</value></data>
   <data name="FileDbMutationReport_DestinationTypeConflict_Counts" xml:space="preserve"><value>宛先の型が異なるため拒否した対象: {0} 件</value></data>
   <data name="FileDbMutationReport_DestinationTypeConflict_Successes" xml:space="preserve"><value>この操作で確定した他の対象: {0} 件</value></data>
   <data name="FileDbMutationReport_DestinationTypeConflict_Cleanup" xml:space="preserve"><value>後片付けに失敗した対象: {0} 件</value></data>

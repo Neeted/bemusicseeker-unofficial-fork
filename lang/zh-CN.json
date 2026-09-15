@@ -932,6 +932,7 @@
   "FileDbMutationReport_Rename": "重命名文件夹",
   "FileDbMutationReport_Move": "移动文件夹",
   "FileDbMutationReport_Merge": "合并重复文件夹",
+  "Error_MergePostCommitMaintenanceIncomplete": "文件夹合并已提交，但合并后的资源复查未完成。",
   "FileDbMutationReport_DestinationTypeConflict_Counts": "因目标类型不同而拒绝的对象：{0} 项",
   "FileDbMutationReport_DestinationTypeConflict_Successes": "本次操作中已提交的其他对象：{0} 项",
   "FileDbMutationReport_DestinationTypeConflict_Cleanup": "清理失败的对象：{0} 项",

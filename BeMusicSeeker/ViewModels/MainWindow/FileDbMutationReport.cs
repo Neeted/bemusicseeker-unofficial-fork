@@ -199,19 +199,20 @@ internal static class FileDbMutationReport
     }
 
     /// <summary>
-    /// Creates a bounded terminal report for one operation-scoped library mutation session.
-    /// Confirmed, failed, and unprocessed targets remain session facts rather than synthetic
-    /// per-item durable receipts.
+    /// 一つの session の confirmed / failed / unprocessed facts から bounded terminal を作成します。
+    /// 操作別の表示を選択しても per-item durable receipt は生成しません。
     /// </summary>
     /// <param name="operation">Localized operation label.</param>
     /// <param name="session">The immutable session terminal facts.</param>
     /// <param name="failure">An outer workflow failure not already retained by the session.</param>
     /// <param name="culture">Optional report culture.</param>
+    /// <param name="mergeOperation">型衝突の表示に既存のマージ専用リソースを使用するかどうか。</param>
     internal static UiMessageRequest Create(
         string operation,
         LibraryMutationSessionReceipt session,
         Exception failure = null,
-        CultureInfo culture = null)
+        CultureInfo culture = null,
+        bool mergeOperation = false)
     {
         if (session == null)
         {
@@ -253,16 +254,22 @@ internal static class FileDbMutationReport
             var conflictLines = new List<string>
             {
                 Format(nameof(Resources.FileDbMutationReport_Operation), Limit(operation, ConflictOperationLimit)),
-                Format(nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Counts),
+                Format(mergeOperation
+                    ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeCounts)
+                    : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Counts),
                     destinationTypeConflicts.Count)
             };
             if (session.DurableCommit && session.ConfirmedChangeCount > 0)
             {
                 conflictLines.Add(Format(
-                    nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Successes),
+                    mergeOperation
+                        ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses)
+                        : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Successes),
                     session.ConfirmedChangeCount));
             }
-            conflictLines.Add(Localized(nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Reason)));
+            conflictLines.Add(Localized(mergeOperation
+                ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeReason)
+                : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Reason)));
             foreach ((LibraryMutationSessionItemFailure Item, FileDbMutationDestinationTypeConflict Conflict) detail
                 in conflictDetails.Take(5))
             {
@@ -330,7 +337,9 @@ internal static class FileDbMutationReport
                 }
             }
             string conflictGuidance = Limit(
-                Localized(nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Guidance)),
+                Localized(mergeOperation
+                    ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeGuidance)
+                    : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Guidance)),
                 ConflictGuidanceLimit);
             string conflictBody = string.Join(Environment.NewLine, conflictLines)
                 + Environment.NewLine + conflictGuidance;
@@ -341,7 +350,9 @@ internal static class FileDbMutationReport
                     MaximumMessageLength - Environment.NewLine.Length - conflictGuidance.Length)
                     + Environment.NewLine + conflictGuidance;
             }
-            string conflictTitle = Localized(nameof(Resources.FileDbMutationReport_Title));
+            string conflictTitle = Localized(mergeOperation
+                ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeTitle)
+                : nameof(Resources.FileDbMutationReport_Title));
             return hasNonConflictFailure
                 ? UiMessageRequest.CreateError(conflictBody, conflictTitle)
                 : UiMessageRequest.CreateWarning(conflictBody, conflictTitle);
@@ -462,21 +473,23 @@ internal static class FileDbMutationReport
     }
 
     /// <summary>
-    /// Logs an operation-scoped session once and awaits at most one terminal dialog.
+    /// 操作単位の session を記録し、資源解放後に一回だけ terminal dialog を表示します。
     /// </summary>
     /// <param name="dialogs">UI dialog boundary used after all mutation leases are released.</param>
     /// <param name="operation">Localized operation label.</param>
     /// <param name="session">The immutable session terminal facts.</param>
     /// <param name="failure">An outer workflow failure not already retained by the session.</param>
+    /// <param name="mergeOperation">型衝突の表示に既存のマージ専用リソースを使用するかどうか。</param>
     internal static async Task ShowAsync(
         IUiDialogService dialogs,
         string operation,
         LibraryMutationSessionReceipt session,
-        Exception failure = null)
+        Exception failure = null,
+        bool mergeOperation = false)
     {
         try
         {
-            UiMessageRequest request = Create(operation, session, failure);
+            UiMessageRequest request = Create(operation, session, failure, mergeOperation: mergeOperation);
             if (request == null)
             {
                 return;

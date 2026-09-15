@@ -55,14 +55,14 @@ internal sealed class PackagePhysicalMoveResult
 }
 
 /// <summary>
-/// install session が canonical durable apply 後まで保持する prepared physical mutation です。
+/// 導入・フォルダ統合の session が canonical durable apply 後まで保持する prepared physical mutation です。
 /// </summary>
 internal sealed class PackageInstallSessionPhysicalMutation
 {
     private readonly FileDbMutationPreparedCommit preparedCommit;
     private readonly Action applyLiveState;
 
-    /// <summary>install session が durable point 後まで所有する package physical mutation を作成します。</summary>
+    /// <summary>導入・統合の session が durable point 後まで所有する package physical mutation を作成します。</summary>
     /// <param name="preparedCommit">stage/promotion 済み executor state。</param>
     /// <param name="applyLiveState">canonical internal apply 成功後に package live state を進める callback。</param>
     /// <param name="destinationDirectory">operation-level resource scan に追加する成功 destination root。</param>
@@ -112,7 +112,7 @@ internal sealed class PackageInstallSessionPhysicalMutation
 }
 
 /// <summary>
-/// install session 向けの一 package physical prepare 結果です。
+/// 導入・統合の session 向けの一 package physical prepare 結果です。
 /// </summary>
 internal sealed class PackageInstallSessionMoveResult
 {

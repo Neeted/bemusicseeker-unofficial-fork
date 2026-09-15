@@ -1,6 +1,6 @@
 # Operation-scoped Library Mutation Session 実装計画
 
-状態: S1 auto rename、S2 manual / multi-folder move、S3 delete / extension rename、S4 installation-directory repair、S5 package install 実装済み（2026-09-15）。次の実装単位は S6 merge。S6 以降も調査待ちではなく、本計画の確定スコープとして実装する。
+状態: S1～S5 実装済み（2026-09-15）、S6 merge 実装済み（2026-09-16）。次の実装単位は S7 old API cleanup。S7 も調査待ちではなく、本計画の確定スコープとして実装する。
 
 ## 目的
 
@@ -315,7 +315,7 @@ catalog session 混入とする。共有資源は既存 temp DB / FS と local d
 - [推定の現行ロジック](../spec/install-estimation-current-logic.md#推定先への移動)、[workflow 概要](../spec/workflows.md): per-item durable 記述を session 契約へ置換。
 - [DnD ingress](../spec/drop-install-ingress.md)、[URL / API 取得](../spec/playlist-url-download-resolution.md): 入力 ownership、導入引渡し、未受理と取得成功件数の区別。
 
-merge 固有 helper / post-commit phase の統一と残る互換 API の退役は、引き続き S6 / S7 の範囲とする。
+merge 固有 helper / post-commit phase の統一は S6 で完了し、残る互換 API の退役は S7 の範囲とする。
 
 ### S6 — merge を単一-change session と post-commit phase へ統一する
 
@@ -337,6 +337,16 @@ merge 固有 helper / post-commit phase の統一と残る互換 API の退役�
 
 - 現在の一merge一applyより仕事量を増やさない。
 - destination type conflict、sourceなし、resource-only merge、maintenance failure、通知解放後の既存契約を維持する。
+
+#### S6 実施内容・反映先
+
+merge を `N=1` の `LibraryMutationSession` へ移行した。共通 package helper の physical prepare を使い、actual destination の catalog / package facts を成功時だけ append する。旧 merge 専用 durable callback、storage owner の一時 path 差替え、per-item receipt を workflow terminal へ渡す経路を削除した。source cleanup は durable point 後、reverse lookup の置換は session の derived-state phase へ統合し、既存 install session の処理順は維持した。
+
+maintenance target は canonical owner の移転後・source cleanup 前に固定する。merge 予約の解放と既存 maintenance 予約の再取得は維持し、後続 maintenance を任意通知から required `PostCommitMaintenance` phase へ分離した。例外・予約競合の `Canceled` を同じ session receipt の finalization failure に保持し、merge durable success を取り消さない。workflow は解放後に session 用の共通 report へ一回渡し、型衝突の既存マージ専用表示も維持する。
+
+`BmsLibraryDuplicateServiceTests` / `DuplicateMaintenanceWorkflowOwnerTests` と既存の `FileDbMutationReportTests` のマージ表示ケースを更新し、canonical DB failure、maintenance DB failure / 予約競合、resource-only、型衝突、source 欠落、採番、warm 二操作、cleanup / reporter failure の条件を同じ fixture で扱う。設計・テスト設計・実装・凍結差分レビューを別視点で順に点検し、対象捕捉と cleanup の前後関係を修正した。性能構造は対象 folder / chart 差分と統合先の既存一回 scan のままとし、全 catalog / reverse lookup の新規コピー・走査は追加しない。
+
+恒久契約と `LMS-S6-20260916` / `S6-*` の実装・テスト対応は [ライブラリ変更境界](../spec/library-mutation-boundary.md#フォルダ統合後の保守との区別) と [FS/DB整合](../spec/file-db-consistency.md) へ統合した。残課題は S7 の旧 API・局所 executor receipt の用途整理と operation-level marker 整備であり、S6 に新しい互換経路・retry・rollback は追加しない。
 
 ### S7 — 旧 per-item apply API と receipt 前提を退役する
 
@@ -411,7 +421,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 | S3 delete / extension rename | 完了 | deleteの既存FS batchを一つの`LibraryMutationSession`へ接続し、成功directory subtreeのresource reverse lookup除去をcatalog/required apply成功後のderived-state phaseへ移動。通常invalid-extension renameは `.b*` / `.p*` familyを一つのsessionへappendしてcanonical apply / terminal receiptを一回化し、pending-only renameは既存package/install lifecycle routeに分離したまま維持。 |
 | S4 installation-directory repair | 完了 | N chart repair と approved removal を同一 `LibraryMutationSession` へ接続し、repair loop の canonical DB callback と別 `RemoveLibraryChartsCore` terminal を撤去。successful-repair hash overlay、operation-scoped session receipt、post-commit maintenance failure terminal を統合。 |
 | S5 all install ingress | 完了 | auto/estimated/force/manual shared core/resource-only/cleanup-only を一つの install session path へ統合。先行 physical success だけを operation-local overlay へ追加し、storage + install-row delete/upsert の canonical transaction、resource scan、maintenance、package collection/DST publication を operation 単位へ集約。production terminal は `LibraryMutationSessionReceipt` を正本とし、synthetic per-item durable receipt を生成しない。canonical apply failure は prepared filesystem を recovery facts に残して部分 publication / whole-session rollback を行わず、physical failure は confirmed prefix + failed target + unprocessed suffix を同じ terminal に保持する。 |
-| S6 merge | 未着手 | single-change session、post-commit maintenanceを同一logical operation terminalへ統合 |
+| S6 merge | 完了 | N=1 sessionへphysical merge factsを集約し、catalog/package/reverse lookupとdurable後cleanupを統合。post-commit maintenanceの例外・予約拒否もmerge durable successと同じsession terminalへ保持し、workflowは解放後に一回報告する。 |
 | S7 old API cleanup | 未着手 | item-loopから旧apply API参照0、per-item batch receipt前提をproduction terminalから除去、operation-level marker整備 |
 
 全体完了は、上表の全unitが完了し、複数選択 / 複数package の production route に「item loop 内で canonical mutation owner を完結する」経路が残っていないこととする。新しいcompatibility route、retry queue、persistent journal、global rollback mechanismを追加して完了条件を満たしたことにはしない。

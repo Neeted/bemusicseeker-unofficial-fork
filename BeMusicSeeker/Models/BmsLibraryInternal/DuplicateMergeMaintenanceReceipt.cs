@@ -1,15 +1,15 @@
+using System;
 using System.Collections.Generic;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Immutable facts returned by the internal duplicate-folder merge route.
-/// The public <c>MergeChartDirectory</c> compatibility entry point remains void;
-/// this receipt exists so maintenance dispatch behavior can be verified without
-/// observing private state or changing the merge failure contract.
+/// フォルダ統合とその post-commit maintenance を一つの user operation として返します。
+/// canonical terminal は session receipt とし、merge の確定済み成功を後続 failure と区別します。
 /// </summary>
 internal sealed class DuplicateMergeMaintenanceReceipt
 {
+    /// <summary>統合を開始しなかった操作の空の結果。</summary>
     internal static DuplicateMergeMaintenanceReceipt NotApplied { get; } =
         new(
             mergeApplied: false,
@@ -20,8 +20,9 @@ internal sealed class DuplicateMergeMaintenanceReceipt
             resourceHealthIndexDeferred: false,
             resourceHealthIndexDeltaApplied: false,
             resourceHealthIndexFullRebuilt: false,
-            mutationReceipt: null);
+            sessionReceipt: LibraryMutationSessionReceipt.Empty);
 
+    /// <summary>merge の確定結果、保守結果、同じ session の終端を固定します。</summary>
     internal DuplicateMergeMaintenanceReceipt(
         bool mergeApplied,
         ResourceHealthIndexUpdateMode intermediateMode,
@@ -31,7 +32,7 @@ internal sealed class DuplicateMergeMaintenanceReceipt
         bool resourceHealthIndexDeferred,
         bool resourceHealthIndexDeltaApplied,
         bool resourceHealthIndexFullRebuilt,
-        FileDbMutationReceipt mutationReceipt = null)
+        LibraryMutationSessionReceipt sessionReceipt)
     {
         MergeApplied = mergeApplied;
         IntermediateMode = intermediateMode;
@@ -41,11 +42,11 @@ internal sealed class DuplicateMergeMaintenanceReceipt
         ResourceHealthIndexDeferred = resourceHealthIndexDeferred;
         ResourceHealthIndexDeltaApplied = resourceHealthIndexDeltaApplied;
         ResourceHealthIndexFullRebuilt = resourceHealthIndexFullRebuilt;
-        MutationReceipt = mutationReceipt;
+        SessionReceipt = sessionReceipt ?? throw new ArgumentNullException(nameof(sessionReceipt));
     }
 
     /// <summary>
-    /// Gets whether the source operation completed its filesystem and catalog merge.
+    /// filesystem と catalog の統合が確定したかどうか。後続 maintenance だけの失敗では true を維持します。
     /// </summary>
     internal bool MergeApplied { get; }
 
@@ -85,25 +86,28 @@ internal sealed class DuplicateMergeMaintenanceReceipt
     internal bool ResourceHealthIndexFullRebuilt { get; }
 
     /// <summary>
-    /// Gets the immutable filesystem/DB terminal receipt for the merge.
+    /// 統合から post-commit maintenance までの immutable な session terminal を取得します。
     /// </summary>
-    internal FileDbMutationReceipt MutationReceipt { get; }
+    internal LibraryMutationSessionReceipt SessionReceipt { get; }
 
     /// <summary>マージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        MutationReceipt?.DestinationTypeConflicts ?? [];
+        SessionReceipt.DestinationTypeConflicts;
 
-    internal bool HasDurableCommit => MutationReceipt?.DurableCommit == true;
+    /// <summary>統合の canonical durable point に到達したかどうか。</summary>
+    internal bool HasDurableCommit => SessionReceipt.DurableCommit;
 
     /// <summary>
-    /// Gets whether the merge finalizer failed after the file and catalog
-    /// state became durable.
+    /// durable 確定後の required internal apply または maintenance が失敗したかどうか。
     /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed;
+    internal bool HasDurableFinalizationFailure => SessionReceipt.HasDurableFinalizationFailure;
 
-    internal bool ManualRecoveryRequired => MutationReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired;
+    /// <summary>physical phase に手動確認が必要な失敗があるかどうか。</summary>
+    internal bool ManualRecoveryRequired => SessionReceipt.ManualRecoveryRequired;
 
-    internal bool CompletedWithCleanupFailure => MutationReceipt?.TerminalState == FileDbMutationTerminalState.CompletedWithCleanupFailure;
+    /// <summary>durable success を保った cleanup failure があるかどうか。</summary>
+    internal bool CompletedWithCleanupFailure => SessionReceipt.CompletedWithCleanupFailure;
 
-    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+    /// <summary>session に保持した手動確認・復旧候補 path。</summary>
+    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt.CandidatePaths;
 }

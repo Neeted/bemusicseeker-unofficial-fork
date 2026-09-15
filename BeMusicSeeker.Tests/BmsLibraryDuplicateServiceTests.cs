@@ -409,14 +409,19 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// Merge maintenance runs after the file-mutation reservation is released.
-    /// Both chart formats must recheck resources at the destination, persist
-    /// their health, and publish with the merge's deferred-index policy intact.
+    /// merge 予約解放後の maintenance は BMS/BMSON の移動先 resource を反映します。
+    /// DB 拒否・予約競合でも確定済み merge を戻さず、同じ session 終端へ必須処理失敗を残します。
     /// </summary>
+    /// <param name="bmson">BMSON と BMS の双方で同じ確定・失敗境界を確認します。</param>
+    /// <param name="maintenanceOutcome">0: 正常、1: maintenance DB 書込拒否、2: 予約競合。</param>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation(bool bmson)
+    [DataRow(false, 0)]
+    [DataRow(true, 0)]
+    [DataRow(false, 1)]
+    [DataRow(true, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 2)]
+    public void MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation(bool bmson, int maintenanceOutcome)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(songDbPath =>
@@ -459,6 +464,13 @@ public sealed class BmsLibraryDuplicateServiceTests
                     db.InsertOrReplace(bmsFile!.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                 }
                 db.InsertOrReplace(initialInfo, typeof(LR2SongDBExtended.maintenance));
+                if (maintenanceOutcome == 1)
+                {
+                    // merge の既存情報の path 移転は通し、移動先 resource 再検査の書込だけを拒否します。
+                    db.Execute("CREATE TRIGGER fail_merge_maintenance BEFORE INSERT ON maintenance "
+                        + "WHEN NEW.path = '" + destinationPath.Replace("'", "''") + "' AND NEW.wav_files_existing = 1 "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced post-commit maintenance failure'); END;");
+                }
             }
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
@@ -468,20 +480,67 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.AreEqual(1, library.GetResourceHealthIndexSnapshotForView("merge_health_before").TargetCount);
             bool notifiedWithCurrentHealth = false;
             bool notifiedWhileReserved = false;
+            LibraryFileMutationLease? competingReservation = null;
+            bool competingReservationAcquired = false;
             library.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
                     return;
                 }
-                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("merge_health_notification_probe");
-                notifiedWhileReserved |= probe == null;
+                using (LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("merge_health_notification_probe"))
+                {
+                    notifiedWhileReserved |= probe == null;
+                }
                 notifiedWithCurrentHealth |= (bmsonSong?.MaintenanceInfo ?? bmsFile?.TryGetMaintenanceInfoWithoutCreating())?.wav_files_existing == 1;
+                if (maintenanceOutcome == 2 && competingReservation == null)
+                {
+                    // merge 公開後に別操作が受理される本番経路で、maintenance の予約再取得を拒否させます。
+                    competingReservation = library.TryBeginLibraryFileMutation("competing_after_merge");
+                    competingReservationAcquired = competingReservation != null;
+                }
             };
 
-            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1);
+            DuplicateMergeMaintenanceReceipt receipt;
+            try
+            {
+                receipt = library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1, reportAtTerminal: true);
+            }
+            finally
+            {
+                competingReservation?.Dispose();
+            }
 
             Assert.IsTrue(receipt.MergeApplied);
+            Assert.IsTrue(receipt.SessionReceipt.DurableCommit);
+            Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
+            Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartPathChangeCount);
+            Assert.AreEqual(sourceDirectory, receipt.SessionReceipt.ConfirmedTargets.Single().SourcePath);
+            Assert.AreEqual(destinationDirectory, receipt.SessionReceipt.ConfirmedTargets.Single().DestinationPath);
+            Assert.IsFalse(notifiedWhileReserved);
+            Assert.AreEqual(destinationPath, bmsonSong?.path ?? bmsFile!.path);
+            Assert.IsFalse(Directory.Exists(sourceDirectory));
+            Assert.IsTrue(File.Exists(destinationPath));
+            Assert.AreEqual("destination resource", File.ReadAllText(resourcePath));
+            using var readback = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
+            Assert.AreEqual(1, persisted.wav_files_defined);
+            Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
+            using LibraryFileMutationLease afterMerge = library.TryBeginLibraryFileMutation("merge_health_completion_probe");
+            Assert.IsNotNull(afterMerge);
+            if (maintenanceOutcome != 0)
+            {
+                Assert.IsTrue(receipt.HasDurableFinalizationFailure);
+                Assert.IsNotNull(receipt.SessionReceipt.FinalizationFailure);
+                Assert.AreSame(receipt.SessionReceipt.FinalizationFailure, receipt.SessionReceipt.PrimaryFailure);
+                Assert.IsFalse(receipt.MaintenanceHadUpdates);
+                Assert.IsFalse(notifiedWithCurrentHealth);
+                Assert.AreEqual(0, persisted.wav_files_existing);
+                Assert.AreEqual(maintenanceOutcome == 2, receipt.MaintenanceResult.Canceled);
+                Assert.AreEqual(maintenanceOutcome == 2, competingReservationAcquired);
+                return;
+            }
+            Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
             Assert.IsTrue(receipt.MaintenanceHadUpdates);
             Assert.IsTrue(receipt.MaintenanceResult.CheckedFileCount > 0);
             Assert.AreEqual(ResourceHealthIndexUpdateMode.DeferOnUpdates, receipt.IntermediateMode);
@@ -489,21 +548,10 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.IsFalse(receipt.ResourceHealthIndexDeltaApplied);
             Assert.IsFalse(receipt.ResourceHealthIndexFullRebuilt);
             Assert.IsTrue(notifiedWithCurrentHealth);
-            Assert.IsFalse(notifiedWhileReserved);
-            Assert.AreEqual(destinationPath, bmsonSong?.path ?? bmsFile!.path);
-            Assert.IsFalse(Directory.Exists(sourceDirectory));
-            Assert.IsTrue(File.Exists(destinationPath));
-            Assert.AreEqual("destination resource", File.ReadAllText(resourcePath));
             ChartFile installed = bmson ? ChartFileProjection.FromBmsonSong(bmsonSong!) : ChartFileProjection.FromBmsFile(bmsFile!);
             Assert.IsFalse(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(installed)
                 .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            using var readback = new LR2SongDBExtended(songDbPath);
-            LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
-            Assert.AreEqual(1, persisted.wav_files_defined);
             Assert.AreEqual(1, persisted.wav_files_existing);
-            Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
-            using LibraryFileMutationLease afterMerge = library.TryBeginLibraryFileMutation("merge_health_completion_probe");
-            Assert.IsNotNull(afterMerge);
         });
     }
 
@@ -605,7 +653,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
 
-            Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+            Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
             NormalLibraryRefreshNotificationBatch notificationBatch =
                 library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             bool sourceCleanupExpected = destinationExists || caseVariant;
@@ -730,7 +778,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
 
-            Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+            Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
             NormalLibraryRefreshNotificationBatch notificationBatch =
                 library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(notificationBatch.NotifiesStorageRows);
@@ -881,7 +929,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 2);
 
-                Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsFalse(Directory.Exists(source));
                 string[] expectedPaths = [destinationChartPath, destinationSharedPath];
                 CollectionAssert.AreEquivalent(expectedPaths, Directory.GetFiles(destination, "*" + extension, System.IO.SearchOption.AllDirectories));
@@ -967,7 +1015,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsFalse(receipt.ResourceHealthIndexFullRebuilt);
                 Assert.IsFalse(receipt.MaintenanceResult.ResourceHealthIndexFullRebuilt);
                 Assert.AreSame(ResourceHealthIndexSnapshot.Empty, library.TryGetCurrentResourceHealthIndexSnapshotForView());
-                Assert.IsNotNull(receipt.MutationReceipt);
+                Assert.IsNotNull(receipt.SessionReceipt);
 
                 string dstChartPath = Path.Combine(dstDir, "chart.bmson");
                 Assert.IsFalse(File.Exists(srcChartPath));
@@ -1001,6 +1049,90 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// canonical DB 書込に失敗しても、確認済み physical change と旧登録を失わず、
+    /// source cleanup や filesystem rollback を行わずに復旧候補を session へ残します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MergeChartDirectory_CatalogFailureRetainsPreparedFilesAndSessionFacts(bool bmson)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string sourcePath = Path.Combine(source, bmson ? "chart.bmson" : "chart.bms");
+            string destinationPath = Path.Combine(destination, Path.GetFileName(sourcePath));
+            File.WriteAllText(sourcePath, bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Merge\"}}"
+                : "#PLAYER 1\r\n#TITLE Merge\r\n#00111:01\r\n");
+            byte[] sourceBytes = File.ReadAllBytes(sourcePath);
+            BMSFile? bmsFile = bmson ? null : BMSFile.CreateBMSFileFromFile(sourcePath);
+            LR2SongDBExtended.bmson_song? bmsonSong = bmson ? BmsonSongParser.Parse(sourcePath) : null;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                if (bmson)
+                {
+                    db.InsertOrReplace(bmsonSong!, typeof(LR2SongDBExtended.bmson_song));
+                }
+                else
+                {
+                    db.InsertOrReplace(bmsFile!.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+                db.Execute("CREATE TRIGGER fail_merge_catalog BEFORE INSERT ON " + (bmson ? "bmson_song" : "song")
+                    + " WHEN NEW.path = '" + destinationPath.Replace("'", "''") + "' "
+                    + "BEGIN SELECT RAISE(ABORT, 'forced canonical merge failure'); END;");
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = bmsFile == null ? [] : [bmsFile],
+                BmsonSongs = bmsonSong == null ? [] : [bmsonSong]
+            };
+            int ownedCollectionPublicationCount = 0;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                {
+                    ownedCollectionPublicationCount++;
+                }
+            };
+
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1, reportAtTerminal: true);
+
+            Assert.IsFalse(receipt.MergeApplied);
+            Assert.IsFalse(receipt.HasDurableCommit);
+            Assert.IsNotNull(receipt.SessionReceipt.ApplyFailure);
+            Assert.IsNull(receipt.SessionReceipt.PhysicalFailure);
+            Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
+            Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartPathChangeCount);
+            Assert.AreEqual(sourcePath, bmsonSong?.path ?? bmsFile!.path);
+            CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(sourcePath));
+            CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(destinationPath));
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(sourcePath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(destinationPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsFalse(receipt.MaintenanceHadUpdates);
+            Assert.AreEqual(0, ownedCollectionPublicationCount);
+            using var readback = new LR2SongDBExtended(songDbPath);
+            if (bmson)
+            {
+                Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(sourcePath));
+                Assert.IsNull(readback.Find<LR2SongDBExtended.bmson_song>(destinationPath));
+            }
+            else
+            {
+                Assert.IsNotNull(readback.Find<LR2SongDB.song>(sourcePath));
+                Assert.IsNull(readback.Find<LR2SongDB.song>(destinationPath));
+            }
+        });
+    }
+
+    /// <summary>
+    /// LR2 必須反映の失敗後も durable facts と source cleanup を維持し、成功公開と maintenance を行いません。
+    /// </summary>
     [TestMethod]
     public void MergeChartDirectory_Lr2FinalizationFailureReturnsDurableNonSuccessWithoutMaintenancePublication()
     {
@@ -1074,13 +1206,12 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(receipt.HasDurableFinalizationFailure);
                 Assert.IsFalse(receipt.ManualRecoveryRequired);
                 Assert.IsFalse(receipt.CompletedWithCleanupFailure);
-                Assert.IsNotNull(receipt.MutationReceipt);
-                Assert.AreEqual(
-                    FileDbMutationTerminalState.DurableFinalizationFailed,
-                    receipt.MutationReceipt.TerminalState);
-                Assert.IsTrue(receipt.MutationReceipt.DurableCommit);
-                Assert.IsNotNull(receipt.MutationReceipt.Failure);
-                Assert.AreSame(receipt.MutationReceipt.FinalizationFailure, receipt.MutationReceipt.Failure);
+                Assert.IsNotNull(receipt.SessionReceipt);
+                Assert.IsTrue(receipt.SessionReceipt.HasDurableFinalizationFailure);
+                Assert.IsTrue(receipt.SessionReceipt.DurableCommit);
+                Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.IsNotNull(receipt.SessionReceipt.ApplyFailure);
+                Assert.AreSame(receipt.SessionReceipt.ApplyFailure, receipt.SessionReceipt.PrimaryFailure);
                 Assert.IsFalse(receipt.MaintenanceHadUpdates);
                 Assert.IsFalse(receipt.MaintenanceResult.HasUpdates);
                 Assert.AreEqual(0, ownedCollectionPublicationCount);
@@ -1182,9 +1313,10 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(completedReentryReceipt.MergeApplied);
                 Assert.AreEqual(1, dialogService.ShowCount);
                 Assert.IsFalse(receipt.MergeApplied);
-                Assert.IsNotNull(receipt.MutationReceipt);
-                Assert.IsFalse(receipt.MutationReceipt.DurableCommit);
-                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.MutationReceipt.TerminalState);
+                Assert.IsNotNull(receipt.SessionReceipt);
+                Assert.IsFalse(receipt.SessionReceipt.DurableCommit);
+                Assert.AreEqual(0, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.IsNotNull(receipt.SessionReceipt.PhysicalFailure);
                 Assert.IsTrue(File.Exists(srcChartPath));
                 Assert.IsFalse(File.Exists(Path.Combine(dstDir, "chart.bmson")));
                 using var verify = new LR2SongDBExtended(songDbPath);
@@ -1268,12 +1400,11 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// A different-content same-name merge collision keeps the existing row
-    /// and file at C while every moved-chart projection uses the receipt's
-    /// collision-resolved destination D.
+    /// 内容が異なる同名ファイルの衝突では、既存ファイル・登録を保ったまま、
+    /// 移動した譜面の全 projection に採番後の実 destination を使います。
     /// </summary>
     [TestMethod]
-    public void MergeChartDirectory_DifferentContentCollisionUsesReceiptDestinationEverywhere()
+    public void MergeChartDirectory_DifferentContentCollisionUsesActualDestinationEverywhere()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1318,11 +1449,13 @@ public sealed class BmsLibraryDuplicateServiceTests
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
 
                 Assert.IsTrue(receipt.MergeApplied);
-                Assert.IsNotNull(receipt.MutationReceipt);
-                Assert.IsTrue(receipt.MutationReceipt.DurableCommit);
-                string actualDestinationPath = receipt.MutationReceipt.DestinationPaths.Single(path =>
-                    File.Exists(path)
-                    && !string.Equals(path, collisionPath, StringComparison.Ordinal));
+                Assert.IsNotNull(receipt.SessionReceipt);
+                Assert.IsTrue(receipt.SessionReceipt.DurableCommit);
+                Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartPathChangeCount);
+                Assert.AreEqual(dstDir, receipt.SessionReceipt.ConfirmedTargets.Single().DestinationPath);
+                string actualDestinationPath = Directory.EnumerateFiles(dstDir, "*.bms").Single(path =>
+                    !string.Equals(path, collisionPath, StringComparison.Ordinal));
 
                 Assert.AreEqual(actualDestinationPath, sourceFile.path);
                 Assert.IsFalse(File.Exists(srcChartPath));
@@ -1409,9 +1542,11 @@ public sealed class BmsLibraryDuplicateServiceTests
                     operationId: 1);
 
                 Assert.IsFalse(receipt.MergeApplied);
-                Assert.IsNotNull(receipt.MutationReceipt);
-                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.MutationReceipt.TerminalState);
-                Assert.IsFalse(receipt.MutationReceipt.DurableCommit);
+                Assert.IsNotNull(receipt.SessionReceipt);
+                Assert.IsFalse(receipt.SessionReceipt.DurableCommit);
+                Assert.AreEqual(0, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(1, receipt.SessionReceipt.ItemFailures.Count);
+                Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
                 FileDbMutationDestinationTypeConflict conflict = receipt.DestinationTypeConflicts.Single();
                 Assert.AreEqual(sourceBundledFilePath, conflict.SourcePath);
                 Assert.AreEqual(destinationBundledDirectoryPath, conflict.DestinationPath);
@@ -1439,8 +1574,11 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 全譜面が重複でも resource-only merge を一つの session として確定し、移動先の登録を維持します。
+    /// </summary>
     [TestMethod]
-    public void MergeChartDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
+    public void MergeChartDirectory_BmsonDuplicateSkip_CommitsResourceOnlySession()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1453,6 +1591,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             Directory.CreateDirectory(dstDir);
             File.WriteAllText(srcChartPath, "{}");
             File.WriteAllText(dstChartPath, "{}");
+            File.WriteAllText(Path.Combine(srcDir, "sound.wav"), "source resource");
             string duplicateHash = BmsonSongParser.Parse(srcChartPath).md5;
             try
             {
@@ -1478,8 +1617,14 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(destinationSong, typeof(LR2SongDBExtended.bmson_song));
                 }
 
-                library.MergeChartDirectory(srcDir, dstDir);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
 
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.IsTrue(receipt.SessionReceipt.DurableCommit);
+                Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(0, receipt.SessionReceipt.CatalogChartPathChangeCount);
+                Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartRemovalCount);
+                Assert.AreEqual("source resource", File.ReadAllText(Path.Combine(dstDir, "sound.wav")));
                 Assert.IsFalse(Directory.Exists(srcDir));
                 Assert.IsTrue(File.Exists(dstChartPath));
                 Assert.AreEqual(1, library.BmsonSongs.Count);
@@ -1504,8 +1649,10 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// source に owned chart がない merge は、source確認だけで終了し、
     /// cold/warm いずれも optional lookup を先行構築しない。
     /// </summary>
-    [TestMethod]
-    public void MergeChartDirectory_NoSourceChartsDoesNotBuildLookups()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MergeChartDirectory_NoSourceChartsDoesNotBuildLookups(bool sourceExists)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(songDbPath =>
@@ -1513,7 +1660,10 @@ public sealed class BmsLibraryDuplicateServiceTests
             string root = Path.GetDirectoryName(songDbPath)!;
             string source = Path.Combine(root, "EmptySource");
             string destination = Path.Combine(root, "EmptyDestination");
-            Directory.CreateDirectory(source);
+            if (sourceExists)
+            {
+                Directory.CreateDirectory(source);
+            }
             Directory.CreateDirectory(destination);
             List<TestableBmsFile> files = [];
             for (int index = 0; index < 16; index++)
@@ -1549,7 +1699,9 @@ public sealed class BmsLibraryDuplicateServiceTests
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
             DuplicateMergeMaintenanceReceipt coldReceipt = library.MergeChartDirectory(source, destination, operationId: 1);
             Assert.IsFalse(coldReceipt.MergeApplied);
-            Assert.IsTrue(Directory.Exists(source));
+            Assert.AreEqual(sourceExists, Directory.Exists(source));
+            Assert.IsFalse(coldReceipt.SessionReceipt.DurableCommit);
+            Assert.AreEqual(0, coldReceipt.SessionReceipt.ConfirmedChangeCount);
             Assert.IsTrue(Directory.Exists(destination));
             Assert.AreEqual(files.Count, library.BMSFiles.Count);
             using (var coldVerifyDb = new LR2SongDBExtended(songDbPath))
@@ -1584,6 +1736,8 @@ public sealed class BmsLibraryDuplicateServiceTests
 
             DuplicateMergeMaintenanceReceipt warmReceipt = library.MergeChartDirectory(source, destination, operationId: 2);
             Assert.IsFalse(warmReceipt.MergeApplied);
+            Assert.IsFalse(warmReceipt.SessionReceipt.DurableCommit);
+            Assert.AreEqual(0, warmReceipt.SessionReceipt.ConfirmedChangeCount);
             Assert.AreSame(initialHash, library.GetOwnedChartHashIndexSnapshot());
             Assert.AreSame(initialInstalled, library.CreateInstalledChartLookupSnapshotForDiagnostics());
             BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary = library.WarmInstalledPrimaryHashLookup("u1_empty_merge");
@@ -1703,6 +1857,14 @@ public sealed class BmsLibraryDuplicateServiceTests
             library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
             library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
+            int ownedCollectionPublicationCount = 0;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                {
+                    ownedCollectionPublicationCount++;
+                }
+            };
             for (int operationIndex = 0; operationIndex < operations.Count; operationIndex++)
             {
                 (string source, string destination, TestableBmsFile duplicate, TestableBmsFile unique, TestableBmsFile destinationDuplicate) = operations[operationIndex];
@@ -1715,7 +1877,11 @@ public sealed class BmsLibraryDuplicateServiceTests
                     destination,
                     operationId: operationIndex + 1);
 
-                Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartPathChangeCount);
+                Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartRemovalCount);
+                Assert.AreEqual(operationIndex + 1, ownedCollectionPublicationCount);
                 Assert.IsFalse(Directory.Exists(source));
                 Assert.IsTrue(File.Exists(destinationDuplicate.path));
                 Assert.IsTrue(File.Exists(destinationUniquePath));

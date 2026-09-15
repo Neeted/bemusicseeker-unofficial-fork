@@ -932,6 +932,7 @@
   "FileDbMutationReport_Rename": "폴더 이름 변경",
   "FileDbMutationReport_Move": "폴더 이동",
   "FileDbMutationReport_Merge": "중복 폴더 병합",
+  "Error_MergePostCommitMaintenanceIncomplete": "폴더 병합은 확정되었지만 병합 후 리소스 재검사가 완료되지 않았습니다.",
   "FileDbMutationReport_DestinationTypeConflict_Counts": "대상 형식이 달라 거부된 대상: {0}개",
   "FileDbMutationReport_DestinationTypeConflict_Successes": "이 작업에서 확정된 다른 대상: {0}개",
   "FileDbMutationReport_DestinationTypeConflict_Cleanup": "정리 작업에 실패한 대상: {0}개",

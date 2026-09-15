@@ -70,11 +70,12 @@ internal sealed partial class LibraryMutationOwner
         private readonly List<string> recoveryCandidatePaths = [];
         private readonly HashSet<string> recoveryCandidatePathSet = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<LibraryFolderPathChange> movedFolders = [];
+        private readonly List<LibraryFolderPathChange> mergedFolders = [];
         private readonly HashSet<string> resourceDirectoryRemovals = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<ChartFile> installedPackageCharts = [];
         private readonly HashSet<string> installPathsToDelete = new(StringComparer.Ordinal);
         private readonly List<ChartPackage> installRowsToUpsert = [];
-        private readonly List<PackageInstallSessionPhysicalMutation> installedPackageMutations = [];
+        private readonly List<PackageInstallSessionPhysicalMutation> preparedPackageMutations = [];
         private readonly HashSet<string> installedResourceDirectories = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<Action> requiredDurableFinalizers = [];
         private readonly List<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = [];
@@ -130,6 +131,37 @@ internal sealed partial class LibraryMutationOwner
                 [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
                 facts.StorageRowPathNotificationPolicy);
             movedFolders.Add(new LibraryFolderPathChange
+            {
+                OldFolderPath = sourceDirectory,
+                NewFolderPath = destinationDirectory
+            });
+        }
+
+        /// <summary>
+        /// 確認済みのフォルダ統合を一つの change として受け入れます。
+        /// source cleanup と統合先の逆引き反映は canonical durable apply 後に行います。
+        /// </summary>
+        /// <param name="sourceDirectory">統合元の確定 directory。</param>
+        /// <param name="destinationDirectory">統合先の確定 directory。</param>
+        /// <param name="catalogMutationFacts">実 destination から作った catalog facts。</param>
+        /// <param name="packageMutationFacts">同じ統合に伴う package reference facts。</param>
+        /// <param name="physicalMutation">promotion 済みで source cleanup を保留した physical mutation。</param>
+        internal void AppendFolderMerge(
+            string sourceDirectory,
+            string destinationDirectory,
+            LibraryCatalogMutationFacts catalogMutationFacts,
+            LibraryPackageReferenceFacts packageMutationFacts,
+            PackageInstallSessionPhysicalMutation physicalMutation)
+        {
+            EnsureOpen();
+            ArgumentNullException.ThrowIfNull(physicalMutation);
+            AppendCatalogChange(
+                catalogMutationFacts,
+                packageMutationFacts,
+                [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
+                LibraryStorageRowPathNotificationPolicy.Suppressed);
+            preparedPackageMutations.Add(physicalMutation);
+            mergedFolders.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = sourceDirectory,
                 NewFolderPath = destinationDirectory
@@ -226,7 +258,7 @@ internal sealed partial class LibraryMutationOwner
             {
                 installPathsToDelete.Add(installResult.InstallPathToDelete);
             }
-            installedPackageMutations.Add(physicalMutation);
+            preparedPackageMutations.Add(physicalMutation);
             confirmedTargets.AddRange(physicalMutation.ConfirmedTargets);
             if (!string.IsNullOrWhiteSpace(physicalMutation.DestinationDirectory))
             {
@@ -255,7 +287,10 @@ internal sealed partial class LibraryMutationOwner
                 .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path)));
         }
 
-        /// <summary>canonical durable apply と destination resource scan の後に一度だけ実行する required finalizer を追加します。</summary>
+        /// <summary>
+        /// canonical durable apply 後に一度だけ実行する required finalizer を追加します。
+        /// merge の対象捕捉は source cleanup 前、install の保守・lifecycle 反映は resource scan 後に行います。
+        /// </summary>
         internal void AppendRequiredDurableFinalizer(Action finalizer)
         {
             EnsureOpen();
@@ -330,13 +365,14 @@ internal sealed partial class LibraryMutationOwner
             EnsureOpen();
             committed = true;
 
-            bool hasInstallChanges = installedPackageMutations.Count > 0
+            bool hasInstallChanges = installedResourceDirectories.Count > 0
                 || installPathsToDelete.Count > 0
                 || installRowsToUpsert.Count > 0
                 || installedPackageCharts.Count > 0;
             bool hasGeneralChanges = catalogFacts.Any(item => item?.HasChanges == true)
                 || packageReferenceFacts.Any(item => item?.HasChanges == true)
                 || movedFolders.Count > 0
+                || mergedFolders.Count > 0
                 || resourceDirectoryRemovals.Count > 0;
             if (!hasInstallChanges && !hasGeneralChanges)
             {
@@ -346,7 +382,7 @@ internal sealed partial class LibraryMutationOwner
             {
                 Exception invalidMix = new InvalidOperationException(
                     "Install storage changes and general library mutation facts must not share one session commit.");
-                foreach (PackageInstallSessionPhysicalMutation physicalMutation in installedPackageMutations)
+                foreach (PackageInstallSessionPhysicalMutation physicalMutation in preparedPackageMutations)
                 {
                     AppendRecoveryCandidatePathsCore(physicalMutation.RecoveryCandidatePaths);
                 }
@@ -387,12 +423,9 @@ internal sealed partial class LibraryMutationOwner
                 {
                     postLeaseNotifications.Add(notification);
                 }
-                if (hasInstallChanges)
+                foreach (PackageInstallSessionPhysicalMutation physicalMutation in preparedPackageMutations)
                 {
-                    foreach (PackageInstallSessionPhysicalMutation physicalMutation in installedPackageMutations)
-                    {
-                        AppendRecoveryCandidatePathsCore(physicalMutation.RecoveryCandidatePaths);
-                    }
+                    AppendRecoveryCandidatePathsCore(physicalMutation.RecoveryCandidatePaths);
                 }
                 return CreateReceipt(durableCommit: false, applyFailure: applyResult.Failure);
             }
@@ -410,31 +443,38 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
 
+            if (!hasInstallChanges && finalizationFailure == null)
+            {
+                // merge の maintenance input は canonical owner が移転した直後に固定し、
+                // source cleanup の副作用や lease 解放後の変更から切り離します。
+                finalizationFailure = RunRequiredDurableFinalizers();
+            }
+
             DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
                 DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            foreach (PackageInstallSessionPhysicalMutation physicalMutation in preparedPackageMutations)
+            {
+                bool applyLiveState = finalizationFailure == null;
+                FileDbMutationReceipt receipt = physicalMutation.CompleteAfterDurableCommit(
+                    applyLiveState,
+                    finalizationFailure);
+                AppendRecoveryCandidatePathsCore(receipt?.RecoveryPaths);
+                if (receipt?.CleanupFailure != null)
+                {
+                    cleanupFailure = CombineFailure(cleanupFailure, receipt.CleanupFailure);
+                }
+                if (finalizationFailure == null && receipt?.FinalizationFailure != null)
+                {
+                    finalizationFailure = CombineFailure(finalizationFailure, receipt.FinalizationFailure);
+                }
+                if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                {
+                    manualRecoveryRequired = true;
+                }
+            }
+
             if (hasInstallChanges)
             {
-                foreach (PackageInstallSessionPhysicalMutation physicalMutation in installedPackageMutations)
-                {
-                    bool applyLiveState = finalizationFailure == null;
-                    FileDbMutationReceipt receipt = physicalMutation.CompleteAfterDurableCommit(
-                        applyLiveState,
-                        finalizationFailure);
-                    AppendRecoveryCandidatePathsCore(receipt?.RecoveryPaths);
-                    if (receipt?.CleanupFailure != null)
-                    {
-                        cleanupFailure = CombineFailure(cleanupFailure, receipt.CleanupFailure);
-                    }
-                    if (finalizationFailure == null && receipt?.FinalizationFailure != null)
-                    {
-                        finalizationFailure = CombineFailure(finalizationFailure, receipt.FinalizationFailure);
-                    }
-                    if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
-                    {
-                        manualRecoveryRequired = true;
-                    }
-                }
-
                 if (finalizationFailure == null && installedResourceDirectories.Count > 0)
                 {
                     if (ChartDirectoryScanBuilder.TryBuildFromRoots(
@@ -452,22 +492,6 @@ internal sealed partial class LibraryMutationOwner
                             + " dirs=" + installedResourceDirectories.Count);
                     }
                 }
-
-                if (finalizationFailure == null)
-                {
-                    foreach (Action finalizer in requiredDurableFinalizers)
-                    {
-                        try
-                        {
-                            finalizer();
-                        }
-                        catch (Exception exception)
-                        {
-                            finalizationFailure = CombineFailure(finalizationFailure, exception);
-                            break;
-                        }
-                    }
-                }
             }
             else if (finalizationFailure == null)
             {
@@ -476,6 +500,24 @@ internal sealed partial class LibraryMutationOwner
                     if (movedFolders.Count > 0)
                     {
                         reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
+                    }
+                    foreach (LibraryFolderPathChange mergedFolder in mergedFolders)
+                    {
+                        if (ChartDirectoryScanBuilder.TryBuildFromRoots(
+                            [mergedFolder.NewFolderPath],
+                            out ChartScanResult scan,
+                            out string scanFailureReason))
+                        {
+                            reverseLookupMutation = reverseLookupMutation.Combine(
+                                owner.resourceIndexOwner.ReplaceSourceDirectoryWithScan(
+                                    mergedFolder.OldFolderPath, scan).MutationResult);
+                        }
+                        else
+                        {
+                            owner.LogInstallPerformanceWarning(
+                                reason + " resource_cache_update skipped reason=incomplete_scan detail="
+                                + (scanFailureReason ?? "unknown"));
+                        }
                     }
                     if (resourceDirectoryRemovals.Count > 0)
                     {
@@ -489,6 +531,11 @@ internal sealed partial class LibraryMutationOwner
                 {
                     finalizationFailure = exception;
                 }
+            }
+
+            if (hasInstallChanges && finalizationFailure == null)
+            {
+                finalizationFailure = RunRequiredDurableFinalizers();
             }
 
             if (finalizationFailure == null)
@@ -507,6 +554,22 @@ internal sealed partial class LibraryMutationOwner
                 finalizationFailure: ReferenceEquals(finalizationFailure, applyResult.Failure)
                     ? null
                     : finalizationFailure);
+        }
+
+        private Exception RunRequiredDurableFinalizers()
+        {
+            foreach (Action finalizer in requiredDurableFinalizers)
+            {
+                try
+                {
+                    finalizer();
+                }
+                catch (Exception exception)
+                {
+                    return exception;
+                }
+            }
+            return null;
         }
 
         private void AppendPackagePhysicalFailureCore(FileDbMutationReceipt receipt, bool isPreflightRefusal)

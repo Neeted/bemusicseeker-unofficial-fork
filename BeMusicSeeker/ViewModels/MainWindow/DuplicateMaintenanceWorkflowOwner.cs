@@ -187,15 +187,13 @@ internal sealed class DuplicateMaintenanceMutationResult
         string selectionHeader,
         DuplicateMergeMaintenanceReceipt mutationReceipt)
     {
-        if (mutationReceipt?.MutationReceipt?.DurableCommit == false
-            || mutationReceipt?.ManualRecoveryRequired == true
-            || mutationReceipt?.HasDurableFinalizationFailure == true)
+        if (mutationReceipt?.SessionReceipt.HasRequiredFailure == true)
         {
             return new DuplicateMaintenanceMutationResult(
                 false,
                 selectionHeader,
                 0,
-                mutationReceipt?.MutationReceipt?.Failure,
+                mutationReceipt?.SessionReceipt.PrimaryFailure,
                 mutationReceipt);
         }
         if (mutationReceipt?.MergeApplied != true)
@@ -513,7 +511,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 operationGateTransferred = true;
                 DuplicateMaintenanceMutationResult result = await mutationTask;
                 await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Merge,
-                    result.MutationReceipt?.MutationReceipt is { } receipt ? new FileDbMutationBatchReceipt([receipt]) : null,
+                    result.MutationReceipt?.SessionReceipt ?? LibraryMutationSessionReceipt.Empty,
                     result.Failure,
                     mergeOperation: true);
                 return result;
@@ -710,7 +708,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Exception additionalFailure = failures.Count == 1
             ? failures[0].SourceException
             : new AggregateException(failures.Select(failure => failure.SourceException));
-        Exception primary = mutationReceipt?.MutationReceipt?.Failure;
+        Exception primary = mutationReceipt?.SessionReceipt.PrimaryFailure;
         return DuplicateMaintenanceMutationResult.Failed(
             selectionHeader,
             primary == null ? additionalFailure : new AggregateException(primary, additionalFailure),

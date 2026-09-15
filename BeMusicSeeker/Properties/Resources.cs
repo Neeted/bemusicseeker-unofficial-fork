@@ -2343,6 +2343,9 @@ public class Resources
 
     public static string FileDbMutationReport_Merge => ResourceManager.GetString("FileDbMutationReport_Merge", resourceCulture);
 
+    /// <summary>統合確定後のリソース再検査が未完了であることを示すローカライズ済み表示。</summary>
+    public static string Error_MergePostCommitMaintenanceIncomplete => ResourceManager.GetString("Error_MergePostCommitMaintenanceIncomplete", resourceCulture);
+
     /// <summary>宛先型衝突のローカライズ済み要約。</summary>
     public static string FileDbMutationReport_DestinationTypeConflict_Counts => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Counts", resourceCulture);
 

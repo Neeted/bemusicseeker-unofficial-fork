@@ -932,6 +932,7 @@
   "FileDbMutationReport_Rename": "フォルダ名の変更",
   "FileDbMutationReport_Move": "フォルダの移動",
   "FileDbMutationReport_Merge": "重複フォルダの統合",
+  "Error_MergePostCommitMaintenanceIncomplete": "フォルダ統合は確定しましたが、統合後のリソース再検査が完了しませんでした。",
   "FileDbMutationReport_DestinationTypeConflict_Counts": "宛先の型が異なるため拒否した対象: {0} 件",
   "FileDbMutationReport_DestinationTypeConflict_Successes": "この操作で確定した他の対象: {0} 件",
   "FileDbMutationReport_DestinationTypeConflict_Cleanup": "後片付けに失敗した対象: {0} 件",

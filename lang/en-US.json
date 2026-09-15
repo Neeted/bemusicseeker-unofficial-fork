@@ -931,6 +931,7 @@
   "FileDbMutationReport_Rename": "Rename folder",
   "FileDbMutationReport_Move": "Move folders",
   "FileDbMutationReport_Merge": "Merge duplicate folders",
+  "Error_MergePostCommitMaintenanceIncomplete": "The folder merge was committed, but the post-merge resource check did not complete.",
   "FileDbMutationReport_DestinationTypeConflict_Counts": "Targets rejected because the destination type differed: {0}",
   "FileDbMutationReport_DestinationTypeConflict_Successes": "Other targets committed by this operation: {0}",
   "FileDbMutationReport_DestinationTypeConflict_Cleanup": "Targets with cleanup failures: {0}",

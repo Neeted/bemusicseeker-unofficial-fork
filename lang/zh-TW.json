@@ -932,6 +932,7 @@
   "FileDbMutationReport_Rename": "重新命名資料夾",
   "FileDbMutationReport_Move": "移動資料夾",
   "FileDbMutationReport_Merge": "合併重複資料夾",
+  "Error_MergePostCommitMaintenanceIncomplete": "資料夾合併已提交，但合併後的資源重新檢查未完成。",
   "FileDbMutationReport_DestinationTypeConflict_Counts": "因目的地類型不同而拒絕的項目：{0} 項",
   "FileDbMutationReport_DestinationTypeConflict_Successes": "本次操作中已提交的其他項目：{0} 項",
   "FileDbMutationReport_DestinationTypeConflict_Cleanup": "清理失敗的項目：{0} 項",

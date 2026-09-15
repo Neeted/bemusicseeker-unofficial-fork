@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
-using System.Windows;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -12,8 +10,6 @@ using BeMusicSeeker.Properties;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Ribbit.Logging;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
@@ -41,15 +37,23 @@ internal sealed partial class LibraryMutationOwner
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + sourceDirectory + " dst=" + destinationDirectory);
         List<Action> postLeaseNotifications = [];
+        LibraryMutationSessionReceipt sessionReceipt = LibraryMutationSessionReceipt.Empty;
+        List<ChartFile> destinationMaintenanceCharts = null;
+        bool mergeApplied;
         try
         {
-            return RunWithMergeDirectoryWriteLocks(operationId, mutationCapability =>
+            using (LibraryFileMutationLease mutationLease = EnterMergeWriteScope())
             {
+                if (mutationLease == null)
+                {
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
+                }
+                using LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability();
+                mutationCapability.Validate(lr2SynchronizationOwner);
                 bool mergePrepared = false;
                 List<ChartFile> preparedSourceCharts = [];
                 IPrimaryHashLookup existingHashes = EmptyPrimaryHashLookup.Instance;
                 IInstalledChartLookupIndex independentOwnershipLookup = null;
-                LibraryCatalogMutationFacts catalogFacts = null;
                 LibraryPackageReferenceFacts packageReferenceFacts = LibraryPackageReferenceFacts.Empty;
                 DetachedMergePackage detachedPackage = null;
                 RunWithMergeSnapshotLocks(() =>
@@ -75,18 +79,20 @@ internal sealed partial class LibraryMutationOwner
                 if (!mergePrepared)
                 {
                     LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                    return () => DuplicateMergeMaintenanceReceipt.NotApplied;
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
-                ChartStorageTargetSet movedTargets = null;
-                MaintenanceWorkflowResult maintenanceResult = null;
-                List<Action> mutationPostLeaseNotifications = [];
-                FileDbMutationReceipt mutationReceipt = null;
-                BmsLibraryOptionsSnapshot optionsSnapshot = lr2SynchronizationOwner.CurrentOptionsSnapshot;
-                mutationReceipt = packageInstallService.MovePackageFilesWithReceipt(
+                LibraryMutationSession session = BeginLibraryMutationSession(
+                    mutationCapability,
+                    "duplicate_merge_catalog_transition op=" + operationId,
+                    postLeaseNotifications,
+                    suppressNormalRefreshNotification: false,
+                    suppressLr2NormalFolderSync: false);
+                LibraryCatalogMutationFacts catalogFacts = null;
+                PackageInstallSessionMoveResult physicalMove = packageInstallService.MovePackageFilesForInstallSession(
                     detachedPackage.Package,
                     destinationDirectory,
-                    optionsSnapshot,
+                    lr2SynchronizationOwner.CurrentOptionsSnapshot,
                     createChartFolderPathFromCharts,
                     DisplayedExceptionMessage.Format,
                     fileMutationService,
@@ -94,120 +100,85 @@ internal sealed partial class LibraryMutationOwner
                     targetOnlyFileMutationOptions,
                     recursiveDirectoryTreeFileMutationOptions,
                     LogInstallPerformance,
-                    installResult =>
-                    {
-                        if (catalogFacts == null)
-                        {
-                            return FileDbMutationCommitResult.Durable();
-                        }
-                        FileDbMutationCommitResult databaseResult = ApplyLibraryMutationFactsForFileMutation(
-                            catalogFacts,
-                            packageReferenceFacts,
-                            "duplicate_merge_catalog_transition op=" + operationId,
-                            suppressNormalRefreshNotification: false,
-                            capability: mutationCapability,
-                            postLeaseNotificationObserver: mutationPostLeaseNotifications.Add,
-                            storageRowPathNotificationPolicy: LibraryStorageRowPathNotificationPolicy.Suppressed);
-                        if (!databaseResult.DurableCommit)
-                        {
-                            return databaseResult;
-                        }
-                        List<ChartFile> destinationMaintenanceChartSnapshots = null;
-                        Exception maintenanceInputCaptureFailure = null;
-                        try
-                        {
-                            RunWithMergeSnapshotLocks(() =>
-                            {
-                                destinationMaintenanceChartSnapshots =
-                                    CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
-                            });
-                        }
-                        catch (Exception exception)
-                        {
-                            maintenanceInputCaptureFailure = exception;
-                        }
-                        Exception postCommitFailure = databaseResult.Failure;
-                        if (maintenanceInputCaptureFailure != null)
-                        {
-                            postCommitFailure = postCommitFailure == null
-                                ? maintenanceInputCaptureFailure
-                                : new AggregateException(postCommitFailure, maintenanceInputCaptureFailure);
-                        }
-                        if (postCommitFailure == null)
-                        {
-                            postLeaseNotifications.Add(() =>
-                            {
-                                // The package executor may still report a durable
-                                // finalization failure after this callback returns
-                                // (for example when its live-package finalizer
-                                // throws).  Gate all success publication on the
-                                // terminal receipt that is available by the time
-                                // the lease is released.
-                                if (mutationReceipt?.TerminalState
-                                    == FileDbMutationTerminalState.DurableFinalizationFailed)
-                                {
-                                    return;
-                                }
-                                InvokePostLeaseNotificationsBestEffort(mutationPostLeaseNotifications);
-                                if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                                    [destinationDirectory],
-                                    out ChartScanResult scan,
-                                    out string scanFailureReason))
-                                {
-                                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                                        resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, scan).MutationResult;
-                                    LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
-                                }
-                                else
-                                {
-                                    LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
-                                }
-                                // This callback runs after the merge lease is released.
-                                // Unlike repair's in-lease recheck, merge maintenance
-                                // must acquire its own reservation and defer index updates.
-                                maintenanceResult = applyMergeFolderMaintenanceAfterRelease(destinationMaintenanceChartSnapshots);
-                                LogInstallPerformance("duplicate_merge_model done op=" + operationId
-                                    + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
-                                    + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
-                                    + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                            });
-                        }
-                        return FileDbMutationCommitResult.Durable(durableFailure: postCommitFailure);
-                    },
-                    showMessageBoxOnInstallFail: false,
                     sourceCleanupPolicy: PackageSourceCleanupPolicy.MergeOwnedSourceContents,
+                    showMessageBoxOnInstallFail: false,
                     existingHashes: existingHashes,
                     independentOwnershipLookup: independentOwnershipLookup,
                     onPreflightPrepared: installResult =>
                     {
-                        List<ChartFile> destinationCharts = [.. (installResult?.AddedCharts ?? [])
-                            .Where(chart => chart != null && IsFilePathUnderDirectory(chart.Path, destinationDirectory))];
-                        using IDisposable destinationOwnerPaths = TemporarilyApplyDestinationStorageOwnerPaths(destinationCharts);
-                        movedTargets = ChartStorageTargetSet.FromCharts(destinationCharts);
+                        // 採番済み destination を変更前に固定し、storage owner の一時的な
+                        // path 差替えや、physical success 後の destination 再計算を避けます。
                         catalogFacts = BuildMergeCatalogFacts(
                             preparedSourceCharts,
                             detachedPackage,
-                            movedTargets);
-                    });
-                if (!mutationReceipt.DurableCommit
-                    || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+                            installResult.AddedCharts);
+                    },
+                    enqueueDiagnosticEffect: postLeaseNotifications.Add);
+                if (physicalMove.Succeeded)
                 {
-                    return () =>
+                    session.AppendFolderMerge(
+                        sourceDirectory,
+                        destinationDirectory,
+                        catalogFacts,
+                        packageReferenceFacts,
+                        physicalMove.PhysicalMutation);
+                    session.AppendRequiredDurableFinalizer(() => RunWithMergeSnapshotLocks(() =>
                     {
-                        InvalidateInstalledDirectoryIndex();
-                        if (!reportAtTerminal)
-                            postLeaseNotifications.Add(
-                                () => ShowFolderMergeFailed(sourceDirectory, destinationDirectory));
-                        InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
-                        return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt);
-                    };
+                        destinationMaintenanceCharts =
+                            CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
+                    }));
                 }
-                return () =>
+                else
                 {
-                    InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
-                    return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt, movedTargets);
-                };
-            });
+                    session.AppendPackagePhysicalFailure(physicalMove.FailureReceipt, physicalMove.IsPreflightRefusal);
+                    if (!physicalMove.IsPreflightRefusal)
+                    {
+                        session.RecordStoppedSuffix(
+                            sourceDirectory,
+                            destinationDirectory,
+                            physicalMove.FailureReceipt.Failure,
+                            []);
+                    }
+                }
+                sessionReceipt = session.Commit();
+                mergeApplied = sessionReceipt.DurableCommit && !sessionReceipt.HasDurableFinalizationFailure;
+            }
+
+            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+            MaintenanceWorkflowResult maintenanceResult = null;
+            if (mergeApplied)
+            {
+                // maintenance は独自の既存 reservation を取得するため、merge lease の
+                // 解放後に実行します。任意通知ではなく同じ session の PostCommitMaintenance
+                // phase とし、失敗しても確定済み merge と cleanup の結果を失いません。
+                try
+                {
+                    maintenanceResult = applyMergeFolderMaintenanceAfterRelease(destinationMaintenanceCharts);
+                    if (maintenanceResult.Canceled)
+                    {
+                        sessionReceipt = sessionReceipt.WithFinalizationFailure(
+                            new OperationCanceledException(Resources.Error_MergePostCommitMaintenanceIncomplete));
+                    }
+                }
+                catch (Exception exception)
+                {
+                    sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
+                }
+                LogInstallPerformance("duplicate_merge_model done op=" + operationId
+                    + " movedCharts=" + sessionReceipt.CatalogChartPathChangeCount
+                    + " maintenanceFailed=" + sessionReceipt.HasDurableFinalizationFailure
+                    + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                InvalidateInstalledDirectoryIndex();
+            }
+            if (!reportAtTerminal && (!mergeApplied || sessionReceipt.HasRequiredFailure))
+            {
+                InvokePostLeaseNotificationsBestEffort(
+                    [() => ShowFolderMergeFailed(sourceDirectory, destinationDirectory)]);
+            }
+            return CreateMergeMaintenanceReceipt(maintenanceResult, sessionReceipt, mergeApplied);
         }
         catch (Exception ex)
         {
@@ -372,35 +343,14 @@ internal sealed partial class LibraryMutationOwner
         internal IReadOnlyDictionary<LR2SongDBExtended.bmson_song, LR2SongDBExtended.bmson_song> CanonicalBmsonByDetached { get; }
     }
 
-    private DuplicateMergeMaintenanceReceipt RunWithMergeDirectoryWriteLocks(
-        long operationId,
-        Func<LibraryFileMutationCapability, Func<DuplicateMergeMaintenanceReceipt>> action)
-    {
-        Func<DuplicateMergeMaintenanceReceipt> receiptFactory;
-        using (LibraryFileMutationLease mutationLease = EnterMergeWriteScope())
-        {
-            if (mutationLease == null)
-            {
-                return DuplicateMergeMaintenanceReceipt.NotApplied;
-            }
-            using (LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability())
-            {
-                capability.Validate(lr2SynchronizationOwner);
-                receiptFactory = action(capability);
-            }
-        }
-        return receiptFactory();
-    }
-
     private static DuplicateMergeMaintenanceReceipt CreateMergeMaintenanceReceipt(
         MaintenanceWorkflowResult maintenanceResult,
-        FileDbMutationReceipt mutationReceipt,
-        ChartStorageTargetSet movedTargets = null)
+        LibraryMutationSessionReceipt sessionReceipt,
+        bool mergeApplied)
     {
         maintenanceResult ??= new MaintenanceWorkflowResult();
         return new DuplicateMergeMaintenanceReceipt(
-            mergeApplied: mutationReceipt?.DurableCommit == true
-                && mutationReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed,
+            mergeApplied: mergeApplied,
             intermediateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
             maintenanceResult: MaintenanceWorkflowResultFacts.From(maintenanceResult),
             intermediateDeferred: maintenanceResult.ResourceHealthIndexDeferred,
@@ -408,13 +358,13 @@ internal sealed partial class LibraryMutationOwner
             resourceHealthIndexDeferred: maintenanceResult.ResourceHealthIndexDeferred,
             resourceHealthIndexDeltaApplied: maintenanceResult.ResourceHealthIndexDeltaApplied,
             resourceHealthIndexFullRebuilt: maintenanceResult.ResourceHealthIndexFullRebuilt,
-            mutationReceipt: mutationReceipt);
+            sessionReceipt: sessionReceipt);
     }
 
     private static LibraryCatalogMutationFacts BuildMergeCatalogFacts(
         IEnumerable<ChartFile> preparedSourceCharts,
         DetachedMergePackage detachedPackage,
-        ChartStorageTargetSet movedTargets)
+        IEnumerable<ChartFile> movedCharts)
     {
         if (detachedPackage == null)
         {
@@ -437,37 +387,32 @@ internal sealed partial class LibraryMutationOwner
         HashSet<string> movedBmsSourcePaths = new(StringComparer.Ordinal);
         HashSet<string> movedBmsonSourcePaths = new(StringComparer.Ordinal);
 
-        foreach (BMSFile movedBmsFile in movedTargets?.BmsFiles ?? [])
+        foreach (ChartFile movedChart in movedCharts ?? [])
         {
-            if (!detachedPackage.CanonicalBmsByDetached.TryGetValue(movedBmsFile, out BMSFile canonicalBmsFile)
-                || string.IsNullOrWhiteSpace(canonicalBmsFile?.path)
-                || string.IsNullOrWhiteSpace(movedBmsFile?.path))
+            BMSFile movedBmsFile = movedChart?.GetBmsStorageOwner();
+            LR2SongDBExtended.bmson_song movedBmsonSong = movedChart?.GetBmsonStorageOwner();
+            if (movedBmsFile != null
+                && detachedPackage.CanonicalBmsByDetached.TryGetValue(movedBmsFile, out BMSFile canonicalBmsFile))
             {
-                continue;
+                movedBmsSourcePaths.Add(canonicalBmsFile.path);
+                pathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(canonicalBmsFile),
+                    OldPath = canonicalBmsFile.path,
+                    NewPath = movedChart.Path
+                });
             }
-            movedBmsSourcePaths.Add(canonicalBmsFile.path);
-            pathChanges.Add(new LibraryChartPathChange
+            else if (movedBmsonSong != null
+                && detachedPackage.CanonicalBmsonByDetached.TryGetValue(movedBmsonSong, out LR2SongDBExtended.bmson_song canonicalBmsonSong))
             {
-                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(canonicalBmsFile),
-                OldPath = canonicalBmsFile.path,
-                NewPath = movedBmsFile.path
-            });
-        }
-        foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedTargets?.BmsonSongs ?? [])
-        {
-            if (!detachedPackage.CanonicalBmsonByDetached.TryGetValue(movedBmsonSong, out LR2SongDBExtended.bmson_song canonicalBmsonSong)
-                || string.IsNullOrWhiteSpace(canonicalBmsonSong?.path)
-                || string.IsNullOrWhiteSpace(movedBmsonSong?.path))
-            {
-                continue;
+                movedBmsonSourcePaths.Add(canonicalBmsonSong.path);
+                pathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(canonicalBmsonSong),
+                    OldPath = canonicalBmsonSong.path,
+                    NewPath = movedChart.Path
+                });
             }
-            movedBmsonSourcePaths.Add(canonicalBmsonSong.path);
-            pathChanges.Add(new LibraryChartPathChange
-            {
-                Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(canonicalBmsonSong),
-                OldPath = canonicalBmsonSong.path,
-                NewPath = movedBmsonSong.path
-            });
         }
         foreach (string sourcePath in sourceBmsPaths.Where(path => !movedBmsSourcePaths.Contains(path)))
         {
@@ -490,80 +435,4 @@ internal sealed partial class LibraryMutationOwner
             MessageBoxResult.OK);
     }
 
-    private static bool IsFilePathUnderDirectory(string filePath, string directoryPath)
-    {
-        return !string.IsNullOrWhiteSpace(filePath)
-            && !string.IsNullOrWhiteSpace(directoryPath)
-            && filePath.StartsWith(
-                directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static IDisposable TemporarilyApplyDestinationStorageOwnerPaths(IEnumerable<ChartFile> charts)
-    {
-        return new DestinationStorageOwnerPathScope(charts);
-    }
-
-    private sealed class DestinationStorageOwnerPathScope : IDisposable
-    {
-        private readonly Dictionary<BMSFile, string> bmsPaths = [];
-        private readonly Dictionary<LR2SongDBExtended.bmson_song, (string Path, string Folder)> bmsonPaths = [];
-        private bool disposed;
-
-        internal DestinationStorageOwnerPathScope(IEnumerable<ChartFile> charts)
-        {
-            try
-            {
-                foreach (ChartFile chart in charts ?? [])
-                {
-                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-                    {
-                        continue;
-                    }
-
-                    BMSFile bmsFile = chart.GetBmsStorageOwner();
-                    if (bmsFile != null)
-                    {
-                        if (bmsPaths.TryAdd(bmsFile, bmsFile.path))
-                        {
-                            bmsFile.path = chart.Path;
-                        }
-                        continue;
-                    }
-
-                    LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-                    if (bmsonSong != null && bmsonPaths.TryAdd(
-                        bmsonSong,
-                        (bmsonSong.path, bmsonSong.folder)))
-                    {
-                        bmsonSong.path = chart.Path;
-                        bmsonSong.folder = Path.GetDirectoryName(chart.Path) ?? string.Empty;
-                    }
-                }
-            }
-            catch
-            {
-                Dispose();
-                throw;
-            }
-        }
-
-        public void Dispose()
-        {
-            if (disposed)
-            {
-                return;
-            }
-            disposed = true;
-            foreach ((BMSFile bmsFile, string path) in bmsPaths)
-            {
-                bmsFile.path = path;
-            }
-            foreach ((LR2SongDBExtended.bmson_song bmsonSong, (string Path, string Folder) state) in bmsonPaths)
-            {
-                bmsonSong.path = state.Path;
-                bmsonSong.folder = state.Folder;
-            }
-        }
-    }
 }

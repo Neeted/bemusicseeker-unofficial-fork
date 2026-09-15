@@ -932,6 +932,7 @@
   "FileDbMutationReport_Rename": "Renommer le dossier",
   "FileDbMutationReport_Move": "Déplacer les dossiers",
   "FileDbMutationReport_Merge": "Fusionner les dossiers en double",
+  "Error_MergePostCommitMaintenanceIncomplete": "La fusion des dossiers a été validée, mais la vérification des ressources après la fusion n’a pas été menée à terme.",
   "FileDbMutationReport_DestinationTypeConflict_Counts": "Cibles refusées car le type de destination différait : {0}",
   "FileDbMutationReport_DestinationTypeConflict_Successes": "Autres cibles validées par cette opération : {0}",
   "FileDbMutationReport_DestinationTypeConflict_Cleanup": "Cibles dont le nettoyage a échoué : {0}",

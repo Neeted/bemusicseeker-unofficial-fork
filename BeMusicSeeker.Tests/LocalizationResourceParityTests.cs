@@ -172,6 +172,7 @@ public sealed class LocalizationResourceParityTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.InitialSetupLanguageDialogContinue));
     }
 
+    /// <summary>ファイル・DB 操作の通知が全言語で利用でき、必要な書式引数だけを要求することを確認します。</summary>
     [TestMethod]
     public void FileDbMutationReportResources_PreserveRequiredFormattingArguments()
     {
@@ -196,6 +197,7 @@ public sealed class LocalizationResourceParityTests
             [nameof(Resources.FileDbMutationReport_Rename)] = 0,
             [nameof(Resources.FileDbMutationReport_Move)] = 0,
             [nameof(Resources.FileDbMutationReport_Merge)] = 0,
+            [nameof(Resources.Error_MergePostCommitMaintenanceIncomplete)] = 0,
             [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Counts)] = 1,
             [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Successes)] = 1,
             [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Cleanup)] = 1,

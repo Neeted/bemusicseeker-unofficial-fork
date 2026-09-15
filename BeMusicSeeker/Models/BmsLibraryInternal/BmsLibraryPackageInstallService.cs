@@ -1162,7 +1162,8 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
-    /// install session 向けに filesystem promotion までを実行し、canonical durable apply と source cleanup を outer session へ委譲します。
+    /// 導入・フォルダ統合の session 向けに filesystem promotion までを実行します。
+    /// canonical durable apply と source cleanup は outer session が所有し、ここでは実行しません。
     /// </summary>
     internal PackageInstallSessionMoveResult MovePackageFilesForInstallSession(
         ChartPackage package,

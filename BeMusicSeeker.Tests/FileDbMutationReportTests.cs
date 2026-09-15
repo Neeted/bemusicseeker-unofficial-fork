@@ -295,6 +295,7 @@ public sealed class FileDbMutationReportTests
             Resources.FileDbMutationReport_DestinationTypeConflict_Guidance);
     }
 
+    /// <summary>merge session の型衝突は既存の専用表示を使い、成功0件を案内しません。</summary>
     [TestMethod]
     public void DestinationTypeConflictsUseMergeTerminalWordingWhenRequested()
     {
@@ -303,23 +304,21 @@ public sealed class FileDbMutationReportTests
             @"D:\Destination\destination",
             expectedIsDirectory: false,
             existingIsDirectory: true);
-        var receipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
+        var receipt = new LibraryMutationSessionReceipt(
+            [],
             durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\package"],
-            [@"D:\Destination\package"],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflict),
+            itemFailures:
+            [
+                new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget(@"C:\Source\package", @"D:\Destination\package"),
+                    new FileDbMutationDestinationTypeConflictException(conflict),
+                    [conflict])
+            ],
             destinationTypeConflicts: [conflict]);
 
         UiMessageRequest report = FileDbMutationReport.Create(
             Resources.FileDbMutationReport_Merge,
-            new FileDbMutationBatchReceipt([receipt]),
+            receipt,
             mergeOperation: true);
 
         Assert.AreEqual(MessageBoxImage.Warning, report.Icon);

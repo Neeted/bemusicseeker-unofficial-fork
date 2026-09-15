@@ -57,26 +57,22 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             events);
     }
 
-    [TestMethod]
-    public async Task RunFolderMergeAsync_DurableFinalizationFailurePublishesFailureWithoutSuccess()
+    /// <summary>
+    /// merge 必須反映と後続 maintenance のどちらの失敗も、durable facts を維持して操作の非成功を返します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RunFolderMergeAsync_DurableFinalizationFailurePublishesFailureWithoutSuccess(bool mergeApplied)
     {
         var events = new List<string>();
         var finalizationFailure = new IOException("merge finalization failed");
-        var mutationReceipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.DurableFinalizationFailed,
+        var mutationReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\Songs\Source", @"C:\Songs\Destination")],
             durableCommit: true,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            sourcePaths: [@"C:\Songs\Source"],
-            destinationPaths: [@"C:\Songs\Destination\chart.bms"],
-            stagingPaths: [],
-            backupPaths: [],
-            recoveryPaths: [],
-            failure: finalizationFailure,
             finalizationFailure: finalizationFailure);
         var mergeReceipt = new DuplicateMergeMaintenanceReceipt(
-            mergeApplied: false,
+            mergeApplied: mergeApplied,
             intermediateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
             maintenanceResult: MaintenanceWorkflowResultFacts.From(null),
             intermediateDeferred: false,
@@ -147,13 +143,24 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.IsNotNull(dialogs.ConfirmationRequest);
     }
 
-    [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task RunFolderMergeAsync_ReportsAfterReleaseAndPreservesFactsWhenReporterFails(bool reporterThrows)
+    /// <summary>
+    /// cleanup 警告と maintenance エラーを解放後に一度報告し、reporter 失敗で session の確定事実を変更しません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task RunFolderMergeAsync_ReportsAfterReleaseAndPreservesFactsWhenReporterFails(bool reporterThrows, bool maintenanceFails)
     {
         var events = new List<string>();
-        var mutation = FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure);
+        var maintenanceFailure = maintenanceFails ? new IOException("maintenance failed") : null;
+        var cleanupFailure = new IOException("source cleanup failed");
+        var mutation = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\Source", @"D:\Destination")],
+            durableCommit: true,
+            finalizationFailure: maintenanceFailure,
+            cleanupFailure: cleanupFailure);
         var receipt = new DuplicateMergeMaintenanceReceipt(true, ResourceHealthIndexUpdateMode.DeferOnUpdates,
             MaintenanceWorkflowResultFacts.From(null), false, false, false, false, false, mutation);
         var store = new TerminalRecordingStore(events, receipt);
@@ -173,11 +180,15 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         var owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
         DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(@"C:\Source", @"D:\Destination",
             new DuplicateGroup([], [@"C:\Source", @"D:\Destination"]));
-        Assert.IsTrue(result.Succeeded);
-        Assert.IsNull(result.Failure);
+        Assert.AreEqual(!maintenanceFails, result.Succeeded);
+        Assert.AreSame(maintenanceFailure, result.Failure);
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.AreEqual(maintenanceFails, result.HasDurableFinalizationFailure);
+        Assert.AreSame(mutation, result.MutationReceipt!.SessionReceipt);
+        Assert.AreSame(cleanupFailure, result.MutationReceipt.SessionReceipt.CleanupFailure);
         Assert.AreSame(receipt, result.MutationReceipt);
         Assert.AreEqual(1, dialogs.Messages.Count);
-        Assert.AreEqual(MessageBoxImage.Warning, dialogs.Messages[0].Icon);
+        Assert.AreEqual(maintenanceFails ? MessageBoxImage.Error : MessageBoxImage.Warning, dialogs.Messages[0].Icon);
         Assert.IsTrue(reportAfterRelease);
         Assert.AreEqual(1, store.MergeWithReceiptCallCount);
     }
@@ -308,7 +319,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         var events = new List<string>();
         var receipt = new DuplicateMergeMaintenanceReceipt(true, ResourceHealthIndexUpdateMode.DeferOnUpdates,
             MaintenanceWorkflowResultFacts.From(null), false, false, false, false, false,
-            FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.Completed));
+            new LibraryMutationSessionReceipt(
+                [new LibraryMutationSessionTarget(@"C:\Source", @"D:\Destination")], durableCommit: true));
         var store = new TerminalRecordingStore(events, receipt);
         var dialogs = new FileDbReportRecordingDialogs();
         var presentation = new RecordingPresentation(events)
