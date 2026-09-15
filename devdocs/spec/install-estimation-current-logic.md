@@ -2,7 +2,7 @@
 
 この資料は、BeMusicSeeker の導入先推定処理の正本です。実装履歴ではなく、現行コードが前提にしている入力、候補生成、評価、tie-break、confidence の意味をまとめます。
 
-> 2026-09-14: 本資料の「推定先への移動」「Estimated install mutation boundary」にある package ごとの durable receipt / finalizer は、現行コードの移行前挙動を記録する。恒久的な変更管理契約は [Library Mutation Boundary](library-mutation-boundary.md#mutation-session-契約) の `1 user operation = 1 mutation session / N changes` とし、estimated / auto / force / manual / resource-only / cleanup-only install の具体的な移行は [Operation-scoped Library Mutation Session 実装計画](../plan/library-mutation-session-batching-plan.md#s5--全-package-install-入口を-operation-scoped-install-session-へ統合する) S5 を正本とする。先行 package の**実成功だけ**を後続判定へ反映する correctness は維持し、canonical DB / index / publication の package ごとの確定とは分離する。
+導入先の推定と、推定先への実導入の確定境界は分ける。実導入は [ライブラリ変更境界の mutation session 契約](library-mutation-boundary.md#mutation-session-契約)と [導入の共通受付](library-mutation-boundary.md#導入の共通受付と通知)を正本とし、本資料では推定後の分類・適用内容を説明する。
 
 関連する主な実装は `BMSLibrary` と `BmsLibraryInstallEstimationService` です。package 側の入力 snapshot は `PackageInstallEstimationSnapshot`、resource index は `LibraryResourceIndex` / `DirectoryResourceLookupCache` を正本にします。
 
@@ -182,11 +182,13 @@ Background pending estimate では、directory package の source baseline prefi
 
 `InstallPendingPackagesToEstimatedDestinations` は、短い model guard の中で現在の pending との照合、入力順の重複排除、全有効 entry の `INSTL DST` が空の候補の除外を行います。候補を確定して guard を解放した後、適格候補だけの component snapshot を取得します。除外候補の source、pending row、DST、warning は変更しません。
 
-候補は入力順に一件ずつ分類して実行します。所持判定は開始時の primary hash と、直前までに durable receipt で確定した `AddedEntries` だけを共有 `PrimaryHashGuardLookup` に反映します。package 内の同一 hash は局所的に抑止し、未確定の重複へ `AlreadyInstalled` warning を付けません。既所持 chart と新規 chart が混在する場合は、既所持 chart を除外して新規 chart を一件の work item として扱います。新規対象の DST が空または複数に分かれる場合は実績を追加せず、その package を保留に残します。
+候補は入力順に一件ずつ分類して physical change を行います。所持判定は開始時の primary hash と、直前までの physical success だけを `SessionSuccessOwnershipOverlay` に反映します。package 内の同一 hash は局所的に抑止し、未実行予約・failed / skipped / DST-clear package を成功扱いしません。この overlay は後続分類用であり、DB や所持一覧の durable 確定ではありません。既所持 chart と新規 chart が混在する場合は、既所持 chart を除外して新規 chart を一件の work item として扱います。新規対象の DST が空または複数に分かれる場合は実績を追加せず、その package を保留に残します。
 
-各 work item は filesystem 移動と `song.db` upsert を一つの receipt で確定します。対応する durable receipt がある場合だけ install row の削除、DST のクリア、保留からの除去を行い、manual recovery または durable finalization failure ではその時点で停止して未着手 suffix を維持します。全 chart が既所持になった package は、その時点で resource-only、cleanup-only の条件を評価します。
+outer command は一つの install session を作り、各 work item の確認済み physical result、storage target、resource directory、install-row / package lifecycle facts を蓄積します。`song.db` upsert と install-row の削除・更新は session の canonical transaction で一括確定し、DST clear・保留からの除去・導入済み record の反映は同じ session の required finalization に含めます。各 item に durable receipt を合成しません。全 chart が既所持になった package は、その時点で resource-only、cleanup-only の条件を評価し、chart 追加が 0 件でも必要な session change を残します。
 
-library/cache/index は batch 末尾でまとめて反映します。各 item の追加 chart と変更 directory を `EstimatedInstallBatchApplyContext` に蓄積し、全 item 完了後に `BMSFiles` / `BmsonSongs` の置換、`directoryResourceLookupCache` の追加 directory scan、playlist library index invalidation/prewarm を最大 1 回に寄せます。追加 bmson は追加 chart のうち `Kind=Bmson` のものとして扱い、batch 後の inline chart_info 対象も `AddedCharts` から再投影します。これにより、複数 item install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が item 数分発生しないようにします。
+事前に確認した source 欠落や宛先型衝突は拒否結果を保持して独立した後続を処理できます。実行中の予期しない physical failure は confirmed prefix / failed item / unprocessed suffix を保持して unsafe な後続を止めます。canonical apply failure では prepared filesystem を通常成功として公開せず、確認候補を session receipt へ残します。全体 rollback・自動 replay は行いません。
+
+library/cache/index も session 終端でまとめて反映します。各 item の追加 chart は `EstimatedInstallBatchApplyContext` と session の typed facts へ蓄積し、所持 collection / lookup の反映、成功 directory を重複排除した resource scan、playlist library index の失効・公開を共通反映へ集約します。追加 bmson は追加 chart のうち `Kind=Bmson` のものとして扱い、batch 後の inline chart_info 対象も `AddedCharts` から再投影します。これにより、複数 item install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が item 数分発生しないようにします。
 
 maintenance / chart_info inline 更新も batch 末尾です。maintenance 対象は、追加された BMS / bmson chart に加えて、resource file が移動された destination directory 内の既存 installed chart です。chart も resource も移動しない cleanup-only 成功では maintenance を行いません。
 
@@ -196,7 +198,7 @@ resource health index は delta 更新を優先します。既存 snapshot が�
 
 ログ確認時は次を見ると、処理の粒度を確認できます。
 
-- `install_pending_packages_to_estimated_destinations item`: 入力順一件ごとの移動、receipt 確定、pending 更新。
+- `install_pending_packages_to_estimated_destinations item`: 入力順一件ごとの physical change と失敗件数。canonical receipt / pending 更新の確定回数を表すものではありません。
 - `reverse_lookup_incremental_update reason=install_package`: batch 末尾の reverse lookup 差分更新。複数 item でも原則 1 回。
 - `maintenance_update`: batch 末尾の affected chart maintenance。`resourceHealthIndexMode=delta` なら resource health index は差分更新です。
 - `resource_health_index_delta`: full rebuild ではなく affected chart の projection だけを更新したことを示します。
@@ -406,23 +408,33 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 
 ## Estimated install mutation boundary
 
-以下は S5 移行前の現行実装を説明する。推定処理が選んだ destination へ実際に pending package を導入する処理は、推定結果の計算とは別に、`FileDbMutationBoundary` の receipt-aware route を使う。estimated install、cleanup-only、smart overwrite、auto-install の user-visible route は同じ durable boundary を通り、旧来の source-first delete / copy-default route へ意味を変えた fallback をしない。S5 完了後は package ごとの durable boundary ではなく operation-scoped install session が正本となり、本節も実装に合わせて更新する。
+推定結果の計算とは別に、実導入は operation-scoped install session を使います。estimated、auto、force、manual shared core、resource-only / cleanup-only は同じ session 契約に従い、source-first delete や旧 copy route へ意味を変えた fallback を行いません。
 
-- preflight では対象と destination を immutable に snapshot し、filesystem / DB を変更しない。
-- staging、overwrite backup、promote は destination filesystem 内の sibling に限定する。
-- source package と install row は destination と DB の durable receipt が確定するまで保持する。install row の削除は対象 chart upsert と同じ DB durable mutation に含める。
-- durable receipt 前の failure は一回だけ compensation し、compensation failure は `ManualRecoveryRequired` として batch の後続 mutation を停止する。source / backup / staging / recovery paths は保持する。
-- durable receipt 後は compensation せず、source / staging / backup の cleanup を一度だけ行う。cleanup failure は `CompletedWithCleanupFailure` とし、leftover を保持したまま terminal result として通知する。fresh install retry や pending への自動復帰はしない。
-- durable receipt 後の内部 finalizer exception は `DurableFinalizationFailed` とし、`DurableCommit=true` のまま compensation / retry を行わない。destination と DB を authoritative に保持し、失敗 item を成功登録・maintenance・score・state apply・after-apply から除外して batch の後続 mutation を停止する。cleanup-only failure は従来どおり `CompletedWithCleanupFailure` とし、non-throwing LR2 incomplete や post-lease callback failure はこの terminal state に分類しない。
+- preflight は対象と destination を snapshot し、filesystem / DB を変更しません。staging、overwrite backup、promote は既存の destination filesystem 内の局所安全策を維持します。
+- physical success は次の item の分類へ直ちに使いますが、canonical DB / collection は item ごとに確定しません。失敗した physical primitive 内の限定補償と、session 全体の rollback は別物です。
+- source cleanup は session の durable point 後に一度だけ行います。install-row delete / upsert は chart storage と同じ canonical transaction に含めます。
+- canonical apply failure では確認済み physical result と recovery candidate を保持し、未確定結果を成功 publication しません。全体 rollback、cleanup、自動 replay により成功へ偽装しません。
+- durable 後の required apply / finalization failure でも、確定した destination と DB を取り消しません。`LibraryMutationSessionReceipt` に apply / finalization / cleanup failure を分けて保持し、情報通知失敗を required failure にしません。
+- cleanup だけの失敗は durable success を保持し、残存候補を通知します。fresh install retry や pending への自動復帰をしません。
 
-source cleanup は package ごとの `PackageSourceCleanupPolicy` を receipt batch に明示して決める。設定 snapshot は batch 開始時に固定する。重複分類の hash lookup と独立コピーの path lookup を分け、通常・auto・force・推定・single/resource-only の caller は開始時の所持情報と直前までの確定 destination を根拠に処理する。`DeleteVerifiedResidualContents` の追加削除は、残存候補がすべて BMS / BMSON として読取・hash 確認でき、cleanup 範囲外の既所持コピーまたは当該 plan の確定 destination で一件ずつ裏付けられる場合に限り全候補へ適用する。未所持、非譜面、確認不能、未承認の所持実体が一つでもあれば追加削除を行わず、source 自身や未実行の予約を証拠にしない。統合だけは `MergeOwnedSourceContents` により所持 source の cleanup を認めるが、残るコピーの証拠は必要とする。OFF でも実際に移動・消費した source は削除する。`delete_parent` は候補範囲を指定するだけで再帰削除の許可ではない。directory source と destination の同一・包含関係は mutation 前に拒否し、directory cleanup は空になった範囲だけを深い順で処理する。
+source cleanup は package ごとの `PackageSourceCleanupPolicy` を session change の cleanup に明示して決める。設定 snapshot は batch 開始時に固定する。重複分類の hash lookup と独立コピーの path lookup を分け、通常・auto・force・推定・single/resource-only の caller は開始時の所持情報と先行 physical success の destination を根拠に分類し、削除は session の durable point 後に行う。`DeleteVerifiedResidualContents` の追加削除は、残存候補がすべて BMS / BMSON として読取・hash 確認でき、cleanup 範囲外の既所持コピーまたは当該 plan の確定 destination で一件ずつ裏付けられる場合に限り全候補へ適用する。未所持、非譜面、確認不能、未承認の所持実体が一つでもあれば追加削除を行わず、source 自身や未実行の予約を証拠にしない。統合だけは `MergeOwnedSourceContents` により所持 source の cleanup を認めるが、残るコピーの証拠は必要とする。OFF でも実際に移動・消費した source は削除する。`delete_parent` は候補範囲を指定するだけで再帰削除の許可ではない。directory source と destination の同一・包含関係は mutation 前に拒否し、directory cleanup は空になった範囲だけを深い順で処理する。
 
-package batch、folder move、merge、auto-rename の command result は durable receipt、terminal state、recovery paths を direct caller / UI workflow まで伝播する。receipt 前の collection projection、notification、task start は行わず、durable success 後の projection と notification は post-commit phase に限定する。persistent journal、crash replay、cross-volume atomicity は保証しない。
+導入 command result は `LibraryMutationSessionReceipt` の confirmed / failed / unprocessed facts、durable commit と失敗次元、recovery candidate を direct caller / UI workflow まで保持する。required state apply と任意通知を分け、package entry の公開は model lease 解放後とする。persistent journal、crash replay、cross-volume atomicity は保証しない。folder move / merge / auto rename の適用状態は [ライブラリ変更境界](library-mutation-boundary.md)の操作別表を参照する。
 
 ### Pending install terminal reporting
 
-保留 package／chart の強制・手動導入四 UI route は、owner の終了後に同じ view terminal へ receipt を渡し、異常結果を一度だけ集約する。view 更新／空 section navigation は既存条件を維持し、その有無で報告を省略しない。durable cleanup-only は Warning、未 commit・manual recovery・必須反映失敗は Error、正常時に新しい report は追加しない。報告済みの receipt-backed mutation failure を一般エラーへ二重送出せず、view／navigation や無関係な lifecycle failure は既存どおり伝播する。任意 report の失敗は診断のみで、導入を再実行しない。
+保留 package／chart の強制・手動導入四 UI route は、owner の終了後に同じ view terminal へ receipt を渡し、異常結果を一度だけ集約する。view 更新／空 section navigation は既存条件を維持し、その有無で報告を省略しない。durable cleanup-only は Warning、未 commit・未確認 physical result・必須反映失敗は Error、正常時に新しい report は追加しない。報告済みの receipt-backed mutation failure を一般エラーへ二重送出せず、view／navigation や無関係な lifecycle failure は既存どおり伝播する。任意 report の失敗は診断のみで、導入を再実行しない。
 
 Verification map: `FSDB-B3/B4/B5` は `PendingPackageWorkflowOwnerTests`（receipt と outer cleanup）、`MainWindowPendingPackageMutationViewTerminalTests`（報告と failure 伝播）、`MainWindowPackageMaintenanceWpfTests`（四 UI route）で検証する。通常 Functional lane、既存 dispatcher／awaited task／local recording ports を使用し、翻訳全文を固定しない。共通 report と model 通知 ownership の対応は [library-mutation-boundary.md](library-mutation-boundary.md) の Verification map を参照する。
 
 既存 cleanup-only 案内と異常混在時の通知 ownership は、[library-mutation-boundary.md](library-mutation-boundary.md) の remaining receipt consumer 契約を正本とする。正常／異常と canonical／legacy の対照は `BmsLibraryPackageInstallServiceTests.EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal` で検証する。
+
+### 推定先への実導入の実装・テスト対応
+
+| 契約 | 実装 | 検証 |
+| --- | --- | --- |
+| 現在 pending の選別、DST-clear 対象の保持、先行成功だけによる所持判定 | `BuildEstimatedInstallBatchPlan` / `ExecuteEstimatedInstallBatchPlanForMutationSession` / `SessionSuccessOwnershipOverlay` | `BmsLibraryPackageInstallServiceTests` の estimated install / 同一 hash / manual hold / missing source cases |
+| canonical storage / install-row の一括確定、collection / maintenance の required finalization | `ExecutePendingEstimatedInstall` / `PrepareInstallPackagesForMutationSession` / `AppendInstallCollectionSessionFinalizer` | 同 fixture の session aggregation / canonical failure / resource-only / cleanup-only cases、`BmsLibraryLr2SongDbSyncTests` |
+| session receipt と終了後の異常報告 | `PendingPackageWorkflowOwner` / `MainWindowPendingPackageMutationViewTerminal` | `PendingPackageWorkflowOwnerTests` / `MainWindowPendingPackageMutationViewTerminalTests` / `MainWindowPackageMaintenanceWpfTests` |
+
+具体的な Contract ID、誤実装との識別、共有資源と完了境界は [導入 session の実装・テスト対応](library-mutation-boundary.md#導入-session-の実装テスト対応)に集約する。推定処理の並列計算と、導入の相互排他を混同しない。

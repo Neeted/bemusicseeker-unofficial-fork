@@ -119,7 +119,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
     }
     /// <summary>
     /// An external drop reaches the real mutation boundary so success, cleanup
-    /// failure and failed compensation retain their receipt and UI reporting.
+    /// failure and canonical apply failure retain their session receipt and UI reporting.
     /// </summary>
     [DataTestMethod]
     [DataRow(0)]
@@ -151,9 +151,9 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         db.Execute("CREATE TRIGGER fail_drop BEFORE INSERT ON song WHEN NEW.path LIKE '%DropTarget%' BEGIN SELECT RAISE(ABORT, 'drop-primary-marker'); END;");
                 }
                 var dialogs = new FileDbReportRecordingDialogs();
-                IFileMutationService files = failureKind == 0 ? new ResilientFileMutationService()
-                    : new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(
-                        failureKind == 1 ? source : destination);
+                IFileMutationService files = failureKind == 1
+                    ? new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(source)
+                    : new ResilientFileMutationService();
                 // Register only the destination. Including DropSource in a BMS
                 // root would correctly skip it before this receipt test's mutation.
                 var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
@@ -187,10 +187,15 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     Assert.IsTrue(inactiveAtReport);
                     Assert.AreEqual(failureKind == 1 ? MessageBoxImage.Warning : MessageBoxImage.Error, dialogs.Messages[0].Icon);
                     Assert.AreEqual(failureKind == 1, outcome.HasDurableCommit);
-                    Assert.AreEqual(failureKind == 2, outcome.ManualRecoveryRequired);
-                    // The report is bounded; detailed primary and compensation causes remain
-                    // in the immutable receipt and full diagnostics, not every UI error line.
-                    StringAssert.Contains(outcome.MutationReceipt.Receipts.Single().Failure.ToString(),
+                    Assert.IsFalse(outcome.ManualRecoveryRequired);
+                    if (failureKind == 2)
+                    {
+                        Assert.IsNotNull(outcome.SessionReceipt.ApplyFailure);
+                        Assert.IsNull(outcome.SessionReceipt.FinalizationFailure);
+                    }
+                    // The report is bounded; detailed primary failure facts remain in the immutable
+                    // session receipt and full diagnostics, not every UI error line.
+                    StringAssert.Contains(outcome.SessionReceipt.PrimaryFailure.ToString(),
                         failureKind == 1 ? "injected-destination-delete-failure" : "drop-primary-marker");
                     StringAssert.Contains(dialogs.Messages[0].MessageBoxText, source);
                 }
@@ -349,10 +354,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
     public void CompiledPendingInstallRoutesReportReceipt(bool chartRoute, bool manual)
     {
         var failure = new System.IO.IOException("four-route-cleanup-marker");
-        var receipt = new FileDbMutationReceipt(Guid.NewGuid(),
-            FileDbMutationTerminalState.CompletedWithCleanupFailure, true, 0, 1,
-            [@"C:\pending-source"], [@"D:\installed"], [], [], [], failure, cleanupFailure: failure);
-        var result = PendingPackageMutationResult.FromTerminal(new FileDbMutationBatchReceipt([receipt]));
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\pending-source", @"D:\installed")],
+            durableCommit: true,
+            cleanupFailure: failure);
+        var result = PendingPackageMutationResult.FromTerminal(sessionReceipt);
         var dialogs = new FileDbReportRecordingDialogs();
         var pendingMutationViewTerminal = new MainWindowPendingPackageMutationViewTerminal(
             () => false, () => 1, _ => Task.FromResult(true), dialogs);

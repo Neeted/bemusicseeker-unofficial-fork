@@ -424,6 +424,57 @@ internal sealed class FileDbMutationCommitResult
 }
 
 /// <summary>
+/// operation-scoped mutation session が durable apply 前後を分離して扱うための prepared filesystem mutation です。
+/// </summary>
+internal sealed class FileDbMutationPreparedCommit
+{
+    private readonly FileDbMutationExecutor executor;
+
+    /// <summary>physical prepare の成立状態または prepare failure を immutable に保持します。</summary>
+    /// <param name="executor">promotion 済み状態を所有し、durable 後 completion を実行する executor。</param>
+    /// <param name="failureReceipt">prepare が成立しなかった場合の executor-local terminal receipt。</param>
+    internal FileDbMutationPreparedCommit(
+        FileDbMutationExecutor executor,
+        FileDbMutationReceipt failureReceipt)
+    {
+        this.executor = executor;
+        FailureReceipt = failureReceipt;
+    }
+
+    /// <summary>filesystem promotion が完了し、canonical durable apply を待っているかどうか。</summary>
+    internal bool Prepared => executor != null && FailureReceipt == null;
+
+    /// <summary>prepare が成立しなかった場合の terminal receipt。</summary>
+    internal FileDbMutationReceipt FailureReceipt { get; }
+
+    /// <summary>prepare 済み physical target を session terminal facts 用に返します。</summary>
+    internal IReadOnlyList<LibraryMutationSessionTarget> ConfirmedTargets
+        => executor?.CreateConfirmedTargets() ?? [];
+
+    /// <summary>durable apply が成立しない場合に保持すべき recovery candidate path を返します。</summary>
+    internal IReadOnlyList<string> RecoveryCandidatePaths
+        => executor?.CreateRecoveryCandidatePaths() ?? FailureReceipt?.RecoveryPaths ?? [];
+
+    /// <summary>durable apply 後の cleanup を実行し terminal receipt を確定します。</summary>
+    /// <param name="finalizationFailure">durable point 後の required finalization failure。</param>
+    internal FileDbMutationReceipt CompleteAfterDurableCommit(Exception finalizationFailure = null)
+    {
+        return Prepared
+            ? executor.CompleteAfterDurableCommit(finalizationFailure)
+            : FailureReceipt;
+    }
+
+    /// <summary>durable apply 前の失敗として一度だけ compensation へ渡します。</summary>
+    /// <param name="failure">canonical durable apply が成立しなかった理由。</param>
+    internal FileDbMutationReceipt FailBeforeDurableCommit(Exception failure)
+    {
+        return Prepared
+            ? executor.FailPreparedBeforeDurableCommit(failure)
+            : FailureReceipt;
+    }
+}
+
+/// <summary>
 /// Destination-local staging、promotion、one-shot compensation、finalize を実行します。
 /// </summary>
 internal sealed class FileDbMutationExecutor
@@ -439,6 +490,11 @@ internal sealed class FileDbMutationExecutor
     private int cleanupAttemptCount;
     private bool compensationAttempted;
 
+    /// <summary>一つの immutable file mutation plan の physical stage/promotion/cleanup owner を作成します。</summary>
+    /// <param name="plan">事前確定済みの source/destination mutation plan。</param>
+    /// <param name="fileMutationService">filesystem mutation gateway。</param>
+    /// <param name="targetOnlyOptions">単一 target 操作用 option。</param>
+    /// <param name="recursiveDirectoryOptions">directory tree 操作用 option。</param>
     internal FileDbMutationExecutor(
         FileDbMutationPlan plan,
         IFileMutationService fileMutationService,
@@ -451,13 +507,11 @@ internal sealed class FileDbMutationExecutor
         this.recursiveDirectoryOptions = recursiveDirectoryOptions;
     }
 
-    internal FileDbMutationReceipt Execute(Func<FileDbMutationCommitResult> applyDurableCommit)
+    /// <summary>
+    /// filesystem の stage/promotion までを実行し、canonical durable apply を session owner へ委譲します。
+    /// </summary>
+    internal FileDbMutationPreparedCommit Prepare()
     {
-        if (applyDurableCommit == null)
-        {
-            throw new ArgumentNullException(nameof(applyDurableCommit));
-        }
-
         try
         {
             // どの path も staging する前に immutable な計画全体を検証します。
@@ -465,10 +519,30 @@ internal sealed class FileDbMutationExecutor
             FileDbMutationDestinationTypeGuard.ValidatePlan(plan);
             Stage();
             Promote();
+            return new FileDbMutationPreparedCommit(this, failureReceipt: null);
         }
         catch (Exception exception)
         {
-            return HandlePrecommitFailure(exception);
+            return new FileDbMutationPreparedCommit(
+                executor: null,
+                HandlePrecommitFailure(exception));
+        }
+    }
+
+    /// <summary>legacy route 向けに prepare、durable callback、post-commit completion を一続きで実行します。</summary>
+    /// <param name="applyDurableCommit">physical promotion 後に canonical durable point を確定する callback。</param>
+    /// <returns>physical/DB/finalization/cleanup を集約した executor-local receipt。</returns>
+    internal FileDbMutationReceipt Execute(Func<FileDbMutationCommitResult> applyDurableCommit)
+    {
+        if (applyDurableCommit == null)
+        {
+            throw new ArgumentNullException(nameof(applyDurableCommit));
+        }
+
+        FileDbMutationPreparedCommit preparedCommit = Prepare();
+        if (!preparedCommit.Prepared)
+        {
+            return preparedCommit.FailureReceipt;
         }
 
         FileDbMutationCommitResult commitResult;
@@ -484,12 +558,12 @@ internal sealed class FileDbMutationExecutor
 
         if (!commitResult.DurableCommit)
         {
-            return HandlePrecommitFailure(
+            return preparedCommit.FailBeforeDurableCommit(
                 commitResult.Failure ?? new InvalidOperationException("The durable DB receipt was not produced."));
         }
 
         // A durable finalizer is deliberately executed while the existing
-        // mutation session is still held.  Its failure remains a durable
+        // mutation session is still held. Its failure remains a durable
         // result and therefore never re-enters compensation.
         Exception durableFinalizerFailure = null;
         try
@@ -508,7 +582,41 @@ internal sealed class FileDbMutationExecutor
                 ? durableFinalizerFailure
                 : new AggregateException(finalizerFailure, durableFinalizerFailure);
         }
-        return FinalizePostCommit(finalizerFailure);
+        return preparedCommit.CompleteAfterDurableCommit(finalizerFailure);
+    }
+
+    /// <summary>prepare 済み physical target を immutable session fact に変換します。</summary>
+    internal IReadOnlyList<LibraryMutationSessionTarget> CreateConfirmedTargets()
+    {
+        return Array.AsReadOnly(plan.Paths
+            .Select(path => new LibraryMutationSessionTarget(path.SourcePath, path.DestinationPath))
+            .ToArray());
+    }
+
+    /// <summary>durable point 前に operation が停止した場合の recovery candidate path を返します。</summary>
+    internal IReadOnlyList<string> CreateRecoveryCandidatePaths()
+    {
+        return Array.AsReadOnly(plan.SourceCleanupPaths
+            .Concat(plan.SourceCleanupDirectoryPaths.Select(path => path.Path))
+            .Concat(stagedPaths.Select(path => path.StagingPath))
+            .Concat(backedUpPaths.Select(path => path.BackupPath))
+            .Concat(promotedPaths.Select(path => path.DestinationPath))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+    }
+
+    /// <summary>session の canonical durable apply 成功後に cleanup と terminal receipt を確定します。</summary>
+    internal FileDbMutationReceipt CompleteAfterDurableCommit(Exception finalizationFailure = null)
+    {
+        return FinalizePostCommit(finalizationFailure);
+    }
+
+    /// <summary>session の canonical durable apply 前失敗を既存 compensation 契約へ渡します。</summary>
+    internal FileDbMutationReceipt FailPreparedBeforeDurableCommit(Exception failure)
+    {
+        return HandlePrecommitFailure(
+            failure ?? new InvalidOperationException("The durable DB receipt was not produced."));
     }
 
     private void Stage()

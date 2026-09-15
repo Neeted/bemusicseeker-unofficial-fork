@@ -1456,7 +1456,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallIngressFailed);
                 break;
             case DroppedInstallDropWarningKind.QueueUnavailable:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallQueueUnavailable);
+                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable);
                 break;
         }
 

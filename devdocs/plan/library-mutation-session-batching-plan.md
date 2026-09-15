@@ -1,6 +1,6 @@
 # Operation-scoped Library Mutation Session 実装計画
 
-状態: S1 auto rename、S2 manual / multi-folder move、S3 delete / extension rename、S4 installation-directory repair 実装済み（2026-09-15）。次の実装単位は S5 package install。S5 以降も調査待ちではなく、本計画の確定スコープとして実装する。
+状態: S1 auto rename、S2 manual / multi-folder move、S3 delete / extension rename、S4 installation-directory repair、S5 package install 実装済み（2026-09-15）。次の実装単位は S6 merge。S6 以降も調査待ちではなく、本計画の確定スコープとして実装する。
 
 ## 目的
 
@@ -303,6 +303,20 @@ catalog session 混入とする。共有資源は既存 temp DB / FS と local d
 - smart overwrite ON/OFF、resource-only、cleanup-only、split destination、manual hold、force、auto の既存observable contractを各production ingressで検証する。
 - 途中のunexpected failureは未処理suffixを成功扱いせず、既成功packageと失敗packageを一つのsession terminalへ保持する。
 
+#### S5 実施内容・反映先
+
+全導入入口を operation-scoped session へ移行し、先行 physical success の overlay、canonical storage / install-row の一括確定、required lifecycle / resource 反映、durable 後の source cleanup と session terminal を接続した。事前 source 欠落と実行中の physical failure を区別し、前者は独立した後続処理、後者は prefix / failed / suffix の保持と停止を行う。
+
+受付修正では、保留操作と DnD / URL / 外部 API 由来の導入を既存の共通受付へ接続した。queue は予約から worker / cleanup の終端まで lease を所有し、追加予約は保持する。URL / API は通信時ではなく導入引渡し時に受理結果を返す。汎用 Busy 警告、導入未受理の扱い、OK-only 情報通知を共通化し、LR2 / DnD 名義の汎用警告と通知専用 root event を退役させた。snapshot 再取得、別 gate、retry、scheduler、全 catalog / resource index の追加走査は導入しない。
+
+恒久契約と `LMS-S5-20260915` / `S5-INSTALL-*` の実装・テスト対応は、以下の現行仕様へ統合した。既存 fixture の範囲で検証を追加・更新し、plan を別の正本にしない。
+
+- [ライブラリ変更境界](../spec/library-mutation-boundary.md): 共通受付・通知、session / lifecycle / failure と検証対応。
+- [推定の現行ロジック](../spec/install-estimation-current-logic.md#推定先への移動)、[workflow 概要](../spec/workflows.md): per-item durable 記述を session 契約へ置換。
+- [DnD ingress](../spec/drop-install-ingress.md)、[URL / API 取得](../spec/playlist-url-download-resolution.md): 入力 ownership、導入引渡し、未受理と取得成功件数の区別。
+
+merge 固有 helper / post-commit phase の統一と残る互換 API の退役は、引き続き S6 / S7 の範囲とする。
+
 ### S6 — merge を単一-change session と post-commit phase へ統一する
 
 対象:
@@ -396,7 +410,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 | S2 manual / multi-folder move | 完了 | manual rename と複数 folder move を共通 `LibraryMutationSession` pathへ統合し、confirmed prefix / failed / unprocessed、storage-row policy合成、operation-level reverse lookup / LR2 / publication、ViewModel session terminalへ移行。旧 per-item folder `FileDbMutationExecutor` callback と manual-recovery前提を撤去。 |
 | S3 delete / extension rename | 完了 | deleteの既存FS batchを一つの`LibraryMutationSession`へ接続し、成功directory subtreeのresource reverse lookup除去をcatalog/required apply成功後のderived-state phaseへ移動。通常invalid-extension renameは `.b*` / `.p*` familyを一つのsessionへappendしてcanonical apply / terminal receiptを一回化し、pending-only renameは既存package/install lifecycle routeに分離したまま維持。 |
 | S4 installation-directory repair | 完了 | N chart repair と approved removal を同一 `LibraryMutationSession` へ接続し、repair loop の canonical DB callback と別 `RemoveLibraryChartsCore` terminal を撤去。successful-repair hash overlay、operation-scoped session receipt、post-commit maintenance failure terminal を統合。 |
-| S5 all install ingress | 未着手 | auto/estimated/force/manual/resource-only/cleanup-onlyがinstall session、success overlay、per-package canonical apply撤去 |
+| S5 all install ingress | 完了 | auto/estimated/force/manual shared core/resource-only/cleanup-only を一つの install session path へ統合。先行 physical success だけを operation-local overlay へ追加し、storage + install-row delete/upsert の canonical transaction、resource scan、maintenance、package collection/DST publication を operation 単位へ集約。production terminal は `LibraryMutationSessionReceipt` を正本とし、synthetic per-item durable receipt を生成しない。canonical apply failure は prepared filesystem を recovery facts に残して部分 publication / whole-session rollback を行わず、physical failure は confirmed prefix + failed target + unprocessed suffix を同じ terminal に保持する。 |
 | S6 merge | 未着手 | single-change session、post-commit maintenanceを同一logical operation terminalへ統合 |
 | S7 old API cleanup | 未着手 | item-loopから旧apply API参照0、per-item batch receipt前提をproduction terminalから除去、operation-level marker整備 |
 

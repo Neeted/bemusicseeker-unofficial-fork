@@ -70,13 +70,13 @@ internal sealed class PendingPackageMutationResult
         Exception failure,
         bool shouldApplyView,
         PackageCatalogSection? emptySection,
-        FileDbMutationBatchReceipt mutationReceipt = null)
+        LibraryMutationSessionReceipt sessionReceipt = null)
     {
         Succeeded = succeeded;
         Failure = failure;
         ShouldApplyView = shouldApplyView;
         EmptySection = emptySection;
-        MutationReceipt = mutationReceipt;
+        SessionReceipt = sessionReceipt;
     }
 
     internal bool Succeeded { get; }
@@ -87,24 +87,23 @@ internal sealed class PendingPackageMutationResult
 
     internal PackageCatalogSection? EmptySection { get; }
 
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+    /// <summary>pending package mutation が install session を通った場合の canonical terminal facts。</summary>
+    internal LibraryMutationSessionReceipt SessionReceipt { get; }
 
     /// <summary>保留項目の変更前に見つかった immutable な宛先型衝突を取得します。</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        MutationReceipt?.DestinationTypeConflicts ?? [];
+        SessionReceipt?.DestinationTypeConflicts ?? [];
 
-    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+    internal bool HasDurableCommit => SessionReceipt?.DurableCommit == true;
 
-    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+    internal bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired == true;
 
-    /// <summary>
-    /// Gets whether a durable pending-package finalizer failed.
-    /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+    /// <summary>Gets whether a durable pending-package finalizer failed.</summary>
+    internal bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure == true;
 
-    internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+    internal bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure == true;
 
-    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? [];
 
     internal static PendingPackageMutationResult Completed { get; } = new(true, null, true, null);
 
@@ -112,9 +111,9 @@ internal sealed class PendingPackageMutationResult
 
     internal static PendingPackageMutationResult CompletedFor(
         PackageCatalogSection? emptySection,
-        FileDbMutationBatchReceipt mutationReceipt = null)
+        LibraryMutationSessionReceipt sessionReceipt = null)
     {
-        return new PendingPackageMutationResult(true, null, true, emptySection, mutationReceipt);
+        return new PendingPackageMutationResult(true, null, true, emptySection, sessionReceipt);
     }
 
     internal static PendingPackageMutationResult FailedBeforeMutation(Exception failure)
@@ -129,34 +128,30 @@ internal sealed class PendingPackageMutationResult
     internal static PendingPackageMutationResult FailedAfterMutation(
         Exception failure,
         PackageCatalogSection? emptySection = null,
-        FileDbMutationBatchReceipt mutationReceipt = null)
+        LibraryMutationSessionReceipt sessionReceipt = null)
     {
         return new PendingPackageMutationResult(
             false,
             failure ?? throw new ArgumentNullException(nameof(failure)),
             true,
             emptySection,
-            mutationReceipt);
+            sessionReceipt);
     }
 
     internal static PendingPackageMutationResult FromTerminal(
-        FileDbMutationBatchReceipt mutationReceipt,
+        LibraryMutationSessionReceipt sessionReceipt,
         PackageCatalogSection? emptySection = null)
     {
-        if (mutationReceipt?.ManualRecoveryRequired == true
-            || mutationReceipt?.HasDurableFinalizationFailure == true)
+        if (sessionReceipt?.HasRequiredFailure == true)
         {
             return new PendingPackageMutationResult(
                 false,
-                mutationReceipt.Receipts
-                    .FirstOrDefault(receipt =>
-                        receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                    ?.Failure,
+                sessionReceipt.PrimaryFailure,
                 true,
                 emptySection,
-                mutationReceipt);
+                sessionReceipt);
         }
-        return CompletedFor(emptySection, mutationReceipt);
+        return CompletedFor(emptySection, sessionReceipt);
     }
 }
 
@@ -246,11 +241,13 @@ internal interface IPendingPackageStore
 
 internal interface IPendingPackageTerminalMutationStore
 {
-    FileDbMutationBatchReceipt ForceInstallPackagesWithReceipt(
+    /// <summary>force install を一つの operation-scoped session として実行し、その terminal facts を返します。</summary>
+    LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
         ISet<ChartPackage> approvedNormalInstallOverridePackages);
 
+    /// <summary>manual estimated install を実行し、session receipt を含む batch aggregate を返します。</summary>
     PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages);
@@ -634,6 +631,7 @@ internal sealed class PendingPackageWorkflowOwner
         }
         if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
+            await ShowPendingOperationAdmissionBusyAsync("Pending package installation");
             return PendingPackageMutationResult.Rejected;
         }
         try
@@ -863,6 +861,9 @@ internal sealed class PendingPackageWorkflowOwner
         }
     }
 
+    /// <summary>
+    /// installed-only resource overwrite を実行し、受付解放後に session の異常終端または通常集計を一度だけ通知します。
+    /// </summary>
     internal async Task OverwriteInstalledOnlyPendingPackageResourcesAsync()
     {
         if (!TryEnterPendingOperation(out IDisposable operationGate))
@@ -870,6 +871,7 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Pending package resource overwrite");
             return;
         }
+        PendingInstalledOnlyResourceOverwriteResult overwriteResult = null;
         try
         {
             IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
@@ -900,7 +902,6 @@ internal sealed class PendingPackageWorkflowOwner
                 return;
             }
 
-            PendingInstalledOnlyResourceOverwriteResult overwriteResult = null;
             await RunBulkOperationAsync(
                 packages,
                 BeMusicSeeker.Properties.Resources.Install_to_estimation,
@@ -914,31 +915,44 @@ internal sealed class PendingPackageWorkflowOwner
                     playbackTargets: CreatePlaybackTargetSnapshot(packages),
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
-            if (overwriteResult == null)
-            {
-                return;
-            }
-            await ShowMessageAsync(
-                string.Format(
-                    BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary,
-                    overwriteResult.Requested,
-                    overwriteResult.Processed,
-                    overwriteResult.SucceededInstall,
-                    overwriteResult.SucceededCleanupOnly,
-                    overwriteResult.SkippedNotPending,
-                    overwriteResult.SkippedMissingInstlDst,
-                    overwriteResult.SkippedMultiDestination,
-                    overwriteResult.SkippedNoComponentTarget,
-                    overwriteResult.Failed,
-                    overwriteResult.Canceled),
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxImage.Exclamation,
-                "Installed-only pending-package resource overwrite summary");
         }
         finally
         {
             operationGate.Dispose();
         }
+        if (overwriteResult == null)
+        {
+            return;
+        }
+        LibraryMutationSessionReceipt sessionReceipt = overwriteResult.SessionReceipt;
+        if (sessionReceipt != null
+            && (sessionReceipt.HasRequiredFailure
+                || sessionReceipt.CleanupFailure != null
+                || sessionReceipt.DestinationTypeConflicts.Count > 0))
+        {
+            // 異常終端は集計ダイアログへ丸めず、原因と確認候補を一度だけ通知する。
+            await FileDbMutationReport.ShowAsync(
+                dialogs,
+                BeMusicSeeker.Properties.Resources.Install,
+                sessionReceipt);
+            return;
+        }
+        await ShowMessageAsync(
+            string.Format(
+                BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary,
+                overwriteResult.Requested,
+                overwriteResult.Processed,
+                overwriteResult.SucceededInstall,
+                overwriteResult.SucceededCleanupOnly,
+                overwriteResult.SkippedNotPending,
+                overwriteResult.SkippedMissingInstlDst,
+                overwriteResult.SkippedMultiDestination,
+                overwriteResult.SkippedNoComponentTarget,
+                overwriteResult.Failed,
+                overwriteResult.Canceled),
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            "Installed-only pending-package resource overwrite summary");
     }
 
     private async Task<PendingPackageMutationResult> InstallPackagesAsync(
@@ -947,6 +961,7 @@ internal sealed class PendingPackageWorkflowOwner
     {
         if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
+            await ShowPendingOperationAdmissionBusyAsync("Pending package installation");
             return PendingPackageMutationResult.Rejected;
         }
         try
@@ -997,7 +1012,7 @@ internal sealed class PendingPackageWorkflowOwner
                     if (store is IPendingPackageTerminalMutationStore terminalManualStore)
                     {
                         return await ExecuteInstallAsync(
-                            library => terminalManualStore.ManualInstallPackagesWithReceipt(library, packages)?.MutationReceipt,
+                            library => terminalManualStore.ManualInstallPackagesWithReceipt(library, packages)?.SessionReceipt,
                             packages,
                             acquiredOperationGate);
                     }
@@ -1031,16 +1046,16 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
-        Func<BMSLibrary, FileDbMutationBatchReceipt> mutationWithReceipt,
+        Func<BMSLibrary, LibraryMutationSessionReceipt> mutationWithReceipt,
         IReadOnlyList<ChartPackage> packages,
         IDisposable acquiredOperationGate)
     {
         bool pendingSectionEmpty = false;
-        FileDbMutationBatchReceipt mutationReceipt = null;
+        LibraryMutationSessionReceipt sessionReceipt = null;
         try
         {
             bool executed = await Task.Run(() => Execute(
-                library => mutationReceipt = mutationWithReceipt(library),
+                library => sessionReceipt = mutationWithReceipt(library),
                 PendingPackageRefreshScope.PackageMutation,
                 CreatePlaybackTargetSnapshot(packages),
                 captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library),
@@ -1051,7 +1066,7 @@ internal sealed class PendingPackageWorkflowOwner
                 return PendingPackageMutationResult.Rejected;
             }
             return PendingPackageMutationResult.FromTerminal(
-                mutationReceipt,
+                sessionReceipt,
                 pendingSectionEmpty ? PackageCatalogSection.Pending : null);
         }
         catch (Exception exception)
@@ -1059,7 +1074,7 @@ internal sealed class PendingPackageWorkflowOwner
             return PendingPackageMutationResult.FailedAfterMutation(
                 exception,
                 pendingSectionEmpty ? PackageCatalogSection.Pending : null,
-                mutationReceipt);
+                sessionReceipt);
         }
     }
 
@@ -1229,7 +1244,7 @@ internal sealed class PendingPackageWorkflowOwner
     private Task ShowPendingOperationAdmissionBusyAsync(string routeName)
     {
         return ShowMessageAsync(
-            BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
             routeName + " admission warning");
@@ -1272,12 +1287,47 @@ internal sealed class PendingPackageWorkflowOwner
 
     private bool TryEnterPendingOperation(out IDisposable operationGate)
     {
-        BMSLibrary library = libraryProvider();
-        if (library?.IsPendingOperationAdmissionReady == true)
+        if (!chartFileOperations.TryEnter(out operationGate))
         {
-            return library.TryEnterPendingOperation(out operationGate);
+            return false;
         }
-        return chartFileOperations.TryEnter(out operationGate);
+        try
+        {
+            BMSLibrary library = libraryProvider();
+            if (library?.IsPendingOperationAdmissionReady != true)
+            {
+                return true;
+            }
+            if (library.TryEnterPendingOperation(out IDisposable pendingLease))
+            {
+                operationGate = new PendingOperationLease(operationGate, pendingLease);
+                return true;
+            }
+        }
+        catch
+        {
+            operationGate.Dispose();
+            throw;
+        }
+        operationGate.Dispose();
+        operationGate = null;
+        return false;
+    }
+
+    /// <summary>共通の変更受付と背景推定との排他を、確認から終端まで一緒に所有します。</summary>
+    private sealed class PendingOperationLease(IDisposable chartFileLease, IDisposable pendingLease) : IDisposable
+    {
+        public void Dispose()
+        {
+            try
+            {
+                pendingLease.Dispose();
+            }
+            finally
+            {
+                chartFileLease.Dispose();
+            }
+        }
     }
 
     private bool TryGetInstalledDirectoryByHash(
@@ -1517,7 +1567,7 @@ internal sealed class PendingPackageWorkflowOwner
             if (dialogScope != null)
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureCleanupFailure(dialogScope.Flush, failures);
+                FileDbMutationReport.ShowOperationMessagesAsync(dialogs, dialogScope.Messages).ObserveFault();
             }
         }
         if (failures.Count > 1 && failures[0].SourceException is LibraryChartRemovalException removalFailure)
@@ -1768,7 +1818,8 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
         library.InstallPendingPackagesToEstimatedDestinations(packages);
     }
 
-    public FileDbMutationBatchReceipt ForceInstallPackagesWithReceipt(
+    /// <summary>force install の canonical <see cref="LibraryMutationSessionReceipt"/> を terminal owner へ返します。</summary>
+    public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
         ISet<ChartPackage> approvedNormalInstallOverridePackages)
@@ -1780,6 +1831,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
             reportAtTerminal: true);
     }
 
+    /// <summary>manual estimated install の operation aggregate を terminal owner へ返します。</summary>
     public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -29,8 +29,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
 {
 
     /// <summary>
-    /// Observes the first package's published candidates before the second package is staged,
-    /// then verifies that both the original and intermediate resource snapshots stay unchanged.
+    /// Observes the resource index before the second package is staged and verifies that
+    /// successful package directories are published only once at the operation terminal.
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -131,23 +131,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 movieAtSecondPackage = snapshot.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).ToArray();
             };
 
-            FileDbMutationBatchReceipt mutationReceipt;
+            LibraryMutationSessionReceipt sessionReceipt;
             if (force)
             {
-                mutationReceipt = library.ForceInstallPendingPackagesWithReceipt(
+                sessionReceipt = library.ForceInstallPendingPackagesWithReceipt(
                     packages, approveNormalInstallOverride: true, approvedNormalInstallOverridePackages: null);
-                Assert.IsTrue(mutationReceipt.HasDurableCommit);
-                Assert.IsFalse(mutationReceipt.HasDurableFinalizationFailure);
             }
             else
             {
                 PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
-                Assert.IsTrue(result.HasDurableCommit);
                 Assert.AreEqual(0, result.FailedPackages.Count);
-                mutationReceipt = result.MutationReceipt;
+                sessionReceipt = result.SessionReceipt;
             }
-            Assert.AreEqual(2, mutationReceipt.Receipts.Count);
-            Assert.IsTrue(mutationReceipt.Receipts.All(receipt => receipt.DurableCommit));
+            Assert.IsTrue(sessionReceipt.DurableCommit);
+            Assert.IsFalse(sessionReceipt.HasRequiredFailure);
+            Assert.IsFalse(sessionReceipt.HasDurableFinalizationFailure);
 
             string[] installedPaths = names.Select(name => library.BMSFiles.Single(file =>
                 Path.GetFileName(file.path) == name).path).ToArray();
@@ -163,21 +161,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
             }
             LibraryResourceIndexSnapshot intermediate = beforeSecondPackage
                 ?? throw new AssertFailedException("The second package must reach real filesystem staging.");
-            Assert.AreEqual(before.Generation + 1, intermediate.Generation);
-            CollectionAssert.AreEquivalent(new[] { existingDirectory, destinations[0] }, audioAtSecondPackage);
-            CollectionAssert.AreEqual(new[] { destinations[0] }, imageAtSecondPackage);
-            CollectionAssert.AreEqual(new[] { destinations[0] }, movieAtSecondPackage);
+            Assert.AreEqual(before.Generation, intermediate.Generation);
+            CollectionAssert.AreEqual(new[] { existingDirectory }, audioAtSecondPackage);
+            Assert.AreEqual(0, imageAtSecondPackage.Length);
+            Assert.AreEqual(0, movieAtSecondPackage.Length);
 
             LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
-            Assert.AreEqual(before.Generation + 2, after.Generation);
-            Assert.AreNotSame(before.DirectoryLookupCache, intermediate.DirectoryLookupCache);
+            Assert.AreEqual(before.Generation + 1, after.Generation);
+            Assert.AreSame(before.DirectoryLookupCache, intermediate.DirectoryLookupCache);
             Assert.AreNotSame(intermediate.DirectoryLookupCache, after.DirectoryLookupCache);
-            CollectionAssert.AreEquivalent(new[] { existingDirectory, destinations[0] },
+            CollectionAssert.AreEqual(new[] { existingDirectory },
                 intermediate.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
-            CollectionAssert.AreEqual(new[] { destinations[0] },
-                intermediate.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).ToArray());
-            CollectionAssert.AreEqual(new[] { destinations[0] },
-                intermediate.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).ToArray());
+            Assert.AreEqual(0,
+                intermediate.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).Count);
+            Assert.AreEqual(0,
+                intermediate.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).Count);
             CollectionAssert.AreEquivalent(new[] { existingDirectory }.Concat(destinations).ToArray(),
                 after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             CollectionAssert.AreEquivalent(destinations, after.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).ToArray());
@@ -850,8 +848,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                 [first, second], reportAtTerminal: reportAtTerminal);
             Assert.AreEqual(2, result.CleanupOnlySucceeded);
-            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
-            Assert.IsTrue(result.MutationReceipt.Receipts.All(receipt => receipt.DurableCommit));
+            Assert.IsTrue(result.SessionReceipt.DurableCommit);
+            Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
             Assert.AreEqual(cleanupFails, result.CompletedWithCleanupFailure);
             Assert.AreEqual(reportAtTerminal && cleanupFails ? 0 : 1, dialogs.ModelMessages);
             Assert.IsFalse(Directory.Exists(firstSource));
@@ -938,18 +936,17 @@ public sealed class BmsLibraryPackageInstallServiceTests
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedSharedPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedUniquePath));
-            Assert.IsTrue(result.MutationReceipt.HasDurableCommit);
+            Assert.IsTrue(result.SessionReceipt.DurableCommit);
             Assert.IsFalse(result.FailedPackages.Contains(secondPackage));
         });
     }
 
     /// <summary>
-    /// 推定先移動は package を入力順に一件ずつ durable receipt まで確定し、
-    /// manual recovery に到達した package の後ろを実行しません。
-    /// resource 候補も先行成功分だけを保持し、失敗分・未実行分を公開しません。
+    /// 複数 package の physical prepare 後に canonical transaction が失敗しても、
+    /// package/catalog/resource publication を部分確定せず recovery candidate を一つの session terminal に保持します。
     /// </summary>
     [TestMethod]
-    public void InstallPendingPackagesToEstimatedDestinations_AppliesDurablePrefixBeforeManualRecoveryStopsSuffix()
+    public void InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -999,7 +996,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 songDbPath,
                 null,
                 null,
-                new FailingDestinationDeleteFileMutationService(secondDestinationChartPath),
+                new RealFileMutationService(),
                 new RecordingDialogService(),
                 new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
@@ -1026,31 +1023,27 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                 [firstPackage, secondPackage, thirdPackage]);
 
-            Assert.IsTrue(result.HasDurableCommit);
-            Assert.IsTrue(result.ManualRecoveryRequired);
-            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[0].TerminalState);
-            Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, result.MutationReceipt.Receipts[1].TerminalState);
-            Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
-            Assert.IsTrue(result.PendingPackagesToRemove.Contains(firstPackage));
-            Assert.IsTrue(result.FailedPackages.Contains(secondPackage));
-            Assert.IsFalse(result.FailedPackages.Contains(thirdPackage));
-            Assert.IsTrue(library.ChartPackagesInstalled.Any(package =>
-                string.Equals(package.path, firstDestinationDirectoryPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(library.ChartPackagesPending.Any(package => ReferenceEquals(package, secondPackage)));
-            Assert.IsTrue(library.ChartPackagesPending.Any(package => ReferenceEquals(package, thirdPackage)));
-            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
-            Assert.IsTrue(Directory.Exists(secondDestinationDirectoryPath));
-            Assert.IsFalse(File.Exists(Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+            Assert.IsFalse(result.SessionReceipt.DurableCommit);
+            Assert.IsTrue(result.SessionReceipt.HasRequiredFailure);
+            Assert.IsNotNull(result.SessionReceipt.ApplyFailure);
+            Assert.IsFalse(result.SessionReceipt.ManualRecoveryRequired);
+            Assert.AreEqual(0, result.FailedPackages.Count);
+            Assert.AreEqual(3, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            string firstDestinationChartPath = Path.Combine(firstDestinationDirectoryPath, "first.bms");
+            string thirdDestinationChartPath = Path.Combine(thirdDestinationDirectoryPath, "third.bms");
+            Assert.IsTrue(File.Exists(firstDestinationChartPath));
+            Assert.IsTrue(File.Exists(secondDestinationChartPath));
+            Assert.IsTrue(File.Exists(thirdDestinationChartPath));
+            CollectionAssert.IsSubsetOf(
+                new[] { firstDestinationChartPath, secondDestinationChartPath, thirdDestinationChartPath },
+                result.SessionReceipt.CandidatePaths.ToArray());
 
             LibraryResourceIndexSnapshot after = resourceOwner.CaptureSnapshot();
-            Assert.AreEqual(before.Generation + 1, after.Generation);
-            CollectionAssert.AreEquivalent(new[] { firstDestinationDirectoryPath },
-                after.DirectoryLookupCache.Keys.ToArray());
-            AssertResourceCandidates(after, "first-resource", firstDestinationDirectoryPath);
+            Assert.AreEqual(before.Generation, after.Generation);
+            Assert.AreEqual(0, after.DirectoryLookupCache.Count);
+            AssertResourceCandidates(after, "first-resource");
             AssertResourceCandidates(after, "second-resource");
-            // The estimated-install suffix shares the first destination; distinct resource keys
-            // also detect accidental publication there, not just an extra directory entry.
             AssertResourceCandidates(after, "third-resource");
             foreach (string resourceKey in new[] { "first-resource", "second-resource", "third-resource" })
             {
@@ -1065,7 +1058,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(
-                1,
+                0,
                 verifySongDb.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
                     Path.Combine(firstDestinationDirectoryPath, "first.bms")));
@@ -1074,6 +1067,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 verifySongDb.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
                     secondDestinationChartPath));
+            Assert.AreEqual(
+                0,
+                verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
             Assert.AreEqual(firstSourceDirectoryPath, firstPackage.path, ignoreCase: true);
             Assert.AreEqual(secondSourceDirectoryPath, secondPackage.path, ignoreCase: true);
             Assert.AreEqual(thirdSourceDirectoryPath, thirdPackage.path, ignoreCase: true);
@@ -1081,11 +1079,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// DB precommit failure は hash を durable guard に追加せず、後続の同一 hash
-    /// package が入力順に再試行できることを実FSと song.dbで検証します。
+    /// 後続 duplicate 判定は DB commit ではなく先行 physical success overlay を使い、
+    /// canonical apply が後で失敗しても未実行予約を成功扱いしません。
     /// </summary>
     [TestMethod]
-    public void InstallPendingPackagesToEstimatedDestinations_DoesNotReserveHashAfterPrecommitFailure()
+    public void InstallPendingPackagesToEstimatedDestinations_UsesPhysicalSuccessOverlayBeforeCanonicalApplyFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -1144,26 +1142,22 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                 [firstPackage, secondPackage]);
 
-            Assert.IsTrue(result.HasDurableCommit);
-            Assert.IsFalse(result.ManualRecoveryRequired);
-            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
-            Assert.AreEqual(FileDbMutationTerminalState.Failed, result.MutationReceipt.Receipts[0].TerminalState);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[1].TerminalState);
-            Assert.AreEqual(1, result.FailedPackages.Count);
-            Assert.AreSame(firstPackage, result.FailedPackages[0]);
-            Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
-            Assert.IsTrue(result.PendingPackagesToRemove.Contains(secondPackage));
-            Assert.IsTrue(library.ChartPackagesPending.Any(package => ReferenceEquals(package, firstPackage)));
-            Assert.IsFalse(library.ChartPackagesPending.Any(package => ReferenceEquals(package, secondPackage)));
-            Assert.IsFalse(File.Exists(firstDestinationChartPath));
-            Assert.IsTrue(File.Exists(secondDestinationChartPath));
+            Assert.IsFalse(result.SessionReceipt.DurableCommit);
+            Assert.IsTrue(result.SessionReceipt.HasRequiredFailure);
+            Assert.IsNotNull(result.SessionReceipt.ApplyFailure);
+            Assert.IsFalse(result.SessionReceipt.ManualRecoveryRequired);
+            Assert.AreEqual(0, result.FailedPackages.Count);
+            Assert.AreEqual(2, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(File.Exists(firstDestinationChartPath));
+            Assert.IsFalse(File.Exists(secondDestinationChartPath));
             Assert.IsTrue(File.Exists(firstChartPath));
-            Assert.IsTrue(library.BMSFiles.Any(file => string.Equals(file.path, secondDestinationChartPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.AreEqual(string.Empty, secondPackage.ChartEntries.Single().Chart.InstallDestination);
+            Assert.IsTrue(File.Exists(secondChartPath));
+            CollectionAssert.Contains(result.SessionReceipt.CandidatePaths.ToArray(), firstDestinationChartPath);
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", firstDestinationChartPath));
-            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", secondDestinationChartPath));
+            Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", secondDestinationChartPath));
         });
     }
 
@@ -1528,14 +1522,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 先行 package の durable 導入後に source cleanup だけが失敗しても、
-    /// 後続 package が同じ推定導入 loop で固有譜面または resource-only として
-    /// 再評価され、batch の cleanup failure を保持することを検証します。
+    /// 先行 package の physical success 後に source cleanup だけが失敗しても、
+    /// 後続 package が同じ推定導入 session で固有譜面または resource-only として
+    /// 再評価され、operation terminal に cleanup failure を保持することを検証します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierCommit(
+    public void InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierPhysicalSuccess(
         bool includeUniqueChart)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1689,17 +1683,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.IsTrue(result.PendingPackagesToRemove.Contains(firstPackage));
             Assert.IsTrue(result.PendingPackagesToRemove.Contains(secondPackage));
-            Assert.IsTrue(result.HasDurableCommit);
-            Assert.IsTrue(result.CompletedWithCleanupFailure);
-            Assert.IsFalse(result.HasDurableFinalizationFailure);
-            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
-            Assert.AreEqual(
-                FileDbMutationTerminalState.CompletedWithCleanupFailure,
-                result.MutationReceipt.Receipts[0].TerminalState);
-            Assert.IsTrue(result.MutationReceipt.Receipts[0].DurableCommit);
-            Assert.IsNull(result.MutationReceipt.Receipts[0].FinalizationFailure);
-            Assert.IsNotNull(result.MutationReceipt.Receipts[0].CleanupFailure);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.IsTrue(result.SessionReceipt.DurableCommit);
+            Assert.IsTrue(result.SessionReceipt.CompletedWithCleanupFailure);
+            Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
+            Assert.IsFalse(result.SessionReceipt.HasDurableFinalizationFailure);
+            Assert.IsNotNull(result.SessionReceipt.CleanupFailure);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM bmson_song WHERE path = ?;",
@@ -1713,8 +1701,100 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    [TestMethod]
-    public void OverwritePendingInstalledOnlyPackagesResources_ReleasesOuterWritersBeforeEstimatedInstallPublication()
+    /// <summary>
+    /// S5-FAILURE-TERMINAL / S5-RESOURCE-CLEANUP: resource-only / cleanup-only の
+    /// canonical install-row apply が失敗した場合、prepare 件数を成功として公開しません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OverwritePendingInstalledOnlyPackagesResources_CanonicalFailureDoesNotPublishSuccessCounts(
+        bool cleanupOnly)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installedDirectory = Path.Combine(root, "installed");
+            string pendingDirectory = Path.Combine(root, "pending");
+            const string chartBody = "#TITLE Resource Overwrite Failure";
+            string installedChartPath = CreateBmsFile(installedDirectory, "chart.bms", chartBody);
+            string pendingChartPath = CreateBmsFile(pendingDirectory, "chart.bms", chartBody);
+            BMSFile installedChart = BMSFile.CreateBMSFileFromFile(installedChartPath);
+            BMSFile pendingChart = BMSFile.CreateBMSFileFromFile(pendingChartPath);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingChart]);
+            pendingPackage.path = pendingDirectory;
+            pendingPackage.delete_parent = false;
+            string pendingResourcePath = Path.Combine(pendingDirectory, "sound.wav");
+            string installedResourcePath = Path.Combine(installedDirectory, "sound.wav");
+            if (!cleanupOnly)
+            {
+                File.WriteAllBytes(pendingResourcePath, [1, 2, 3]);
+            }
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                seedSongDb.CreateTable<LR2SongDBExtended.install>();
+                seedSongDb.InsertOrReplace(installedChart, typeof(LR2SongDB.song));
+                seedSongDb.InsertOrReplace(pendingPackage, typeof(LR2SongDBExtended.install));
+                seedSongDb.Execute(
+                    "CREATE TRIGGER fail_resource_overwrite_install_delete BEFORE DELETE ON install "
+                    + "BEGIN SELECT RAISE(ABORT, 'resource-overwrite-canonical-marker'); END;");
+            }
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    DeletePendingPackageSourceAfterInstall = true
+                })
+            {
+                BMSFiles = [installedChart],
+                ChartPackagesPending = CreatePackageCollection([pendingPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstalledOnlyResourceOverwriteResult result =
+                library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage]);
+
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(0, result.SucceededInstall);
+            Assert.AreEqual(0, result.SucceededCleanupOnly);
+            Assert.AreEqual(0, result.Failed, "canonical failure を架空の item failure に置き換えません。");
+            Assert.IsFalse(result.HasDurableCommit);
+            Assert.IsNotNull(result.SessionReceipt);
+            Assert.IsTrue(result.SessionReceipt.HasRequiredFailure);
+            Assert.IsNotNull(result.SessionReceipt.ApplyFailure);
+            StringAssert.Contains(result.SessionReceipt.ApplyFailure.Message, "resource-overwrite-canonical-marker");
+            Assert.AreSame(pendingPackage, library.ChartPackagesPending.Single());
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(File.Exists(pendingChartPath));
+            if (!cleanupOnly)
+            {
+                Assert.IsTrue(File.Exists(pendingResourcePath));
+                Assert.IsTrue(File.Exists(installedResourcePath));
+                CollectionAssert.Contains(result.RecoveryPaths.ToArray(), installedResourcePath);
+            }
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM install WHERE path = ?;", pendingDirectory));
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM song WHERE path = ?;", installedChartPath));
+        });
+    }
+
+    /// <summary>
+    /// S5-LIFECYCLE-FINALIZE: DST 通知は outer file mutation lease 解放後に行い、
+    /// 購読者の例外を required finalization failure に変換しません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OverwritePendingInstalledOnlyPackagesResources_ReleasesOuterWritersBeforeEstimatedInstallPublication(
+        bool subscriberThrows)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -1773,6 +1853,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 {
                     Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
                     Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
+                    using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation(
+                        "test_notification_after_resource_overwrite",
+                        showMessage: false);
+                    Assert.IsNotNull(lease, "DST 通知中に outer file mutation lease が保持されています。");
+                    Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                    Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
                     Assert.AreSame(installedBmson, library.BmsonSongs.Single());
                     using var notifiedSongDb = new LR2SongDBExtended(songDbPath);
                     Assert.AreEqual(
@@ -1786,6 +1872,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     packageEntryInspectionFailure = exception;
                 }
                 packageEntryNotificationObserved = true;
+                if (subscriberThrows)
+                {
+                    throw new InvalidOperationException("resource-overwrite-subscriber-marker");
+                }
             };
 
             PendingInstalledOnlyResourceOverwriteResult result =
@@ -1793,6 +1883,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.SucceededInstall);
             Assert.AreEqual(0, result.Failed);
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsFalse(result.HasDurableFinalizationFailure);
+            Assert.IsNotNull(result.SessionReceipt);
+            Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
+            Assert.AreSame(pendingEntry, pendingPackage.ChartEntries.Single());
             Assert.IsTrue(packageEntryNotificationObserved);
             Assert.IsNull(
                 packageEntryInspectionFailure,
@@ -2040,7 +2135,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     }
                     packageEntryNotificationObserved = true;
                 }
-                step.Package.ChartEntries[0].PropertyChanged += InspectPackageEntryNotification;
+                PackageChartEntry observedPendingEntry = step.Package.ChartEntries[0];
+                observedPendingEntry.PropertyChanged += InspectPackageEntryNotification;
                 int previousHashWorkCount = hashWork.Count;
                 int previousInstalledWorkCount = installedWork.Count;
                 int previousPlaylistWorkCount = playlistWork.Count;
@@ -2054,9 +2150,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 }
                 finally
                 {
-                    step.Package.ChartEntries[0].PropertyChanged -= InspectPackageEntryNotification;
+                    observedPendingEntry.PropertyChanged -= InspectPackageEntryNotification;
                 }
 
+                Assert.AreEqual(2, step.Package.ChartEntries.Count);
+                Assert.AreSame(observedPendingEntry, step.Package.ChartEntries[0]);
                 Assert.IsTrue(packageEntryNotificationObserved);
                 Assert.IsNull(packageEntryInspectionFailure, packageEntryInspectionFailure?.ToString());
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
@@ -2558,15 +2656,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.hash));
             Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.hash));
 
-            FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+            LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
                 approveNormalInstallOverride: true,
                 approvedNormalInstallOverridePackages: null);
 
-            Assert.IsTrue(receipt.HasDurableCommit);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsFalse(receipt.HasRequiredFailure);
             Assert.IsFalse(receipt.HasDurableFinalizationFailure);
-            Assert.AreEqual(1, receipt.Receipts.Count);
-            Assert.IsTrue(receipt.Receipts[0].DurableCommit);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             BMSFile installed = library.BMSFiles.Single(file => file.hash == source.hash);
@@ -2676,11 +2773,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PendingInstallBatchResult result =
                 library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
 
-            Assert.IsTrue(result.HasDurableCommit);
-            Assert.IsFalse(result.HasDurableFinalizationFailure);
+            Assert.IsTrue(result.SessionReceipt.DurableCommit);
+            Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
+            Assert.IsFalse(result.SessionReceipt.HasDurableFinalizationFailure);
             Assert.AreEqual(0, result.FailedPackages.Count);
-            Assert.AreEqual(1, result.MutationReceipt.Receipts.Count);
-            Assert.IsTrue(result.MutationReceipt.Receipts[0].DurableCommit);
             Assert.AreEqual(
                 2,
                 library.BMSFiles.Count,
@@ -2809,12 +2905,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
 
-            FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+            LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
                 approveNormalInstallOverride: true,
                 approvedNormalInstallOverridePackages: null);
 
-            Assert.IsTrue(receipt.HasDurableCommit);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsFalse(receipt.HasRequiredFailure);
             Assert.IsFalse(receipt.HasDurableFinalizationFailure);
             Assert.AreEqual(
                 2,
@@ -3083,39 +3180,34 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 int previousNotificationCount = notificationCount;
                 notificationInspectionFailure = null;
 
-                FileDbMutationBatchReceipt mutationReceipt;
+                LibraryMutationSessionReceipt sessionReceipt;
                 if (isAutoRoute)
                 {
                     PackageInstallCommandResult command = library.InstallChartPackagesAutoWithProgress(
                         [step.SourceDirectoryPath],
                         CancellationToken.None,
                         NullPackageInstallProgressWriter.Instance);
-                    Assert.IsTrue(command.HasDurableCommit);
-                    Assert.IsFalse(command.HasDurableFinalizationFailure);
                     Assert.AreEqual(1, command.RegisteredPackages.Count);
-                    mutationReceipt = command.MutationReceipt;
+                    sessionReceipt = command.SessionReceipt;
                 }
                 else if (isEstimatedRoute)
                 {
                     PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                         [step.Package]);
-                    Assert.IsTrue(result.HasDurableCommit);
-                    Assert.IsFalse(result.HasDurableFinalizationFailure);
                     Assert.AreEqual(0, result.FailedPackages.Count);
-                    mutationReceipt = result.MutationReceipt;
+                    sessionReceipt = result.SessionReceipt;
                 }
                 else
                 {
-                    mutationReceipt = library.ForceInstallPendingPackagesWithReceipt(
+                    sessionReceipt = library.ForceInstallPendingPackagesWithReceipt(
                         [step.Package],
                         approveNormalInstallOverride: true,
                         approvedNormalInstallOverridePackages: null);
-                    Assert.IsTrue(mutationReceipt.HasDurableCommit);
-                    Assert.IsFalse(mutationReceipt.HasDurableFinalizationFailure);
                 }
 
-                Assert.AreEqual(1, mutationReceipt.Receipts.Count);
-                Assert.IsTrue(mutationReceipt.Receipts.All(receipt => receipt.DurableCommit));
+                Assert.IsTrue(sessionReceipt.DurableCommit);
+                Assert.IsFalse(sessionReceipt.HasRequiredFailure);
+                Assert.IsFalse(sessionReceipt.HasDurableFinalizationFailure);
                 Assert.AreEqual(stepIndex + 1, library.ChartPackagesInstalled.Count);
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
                 BMSFile firstInstalled = library.BMSFiles.Single(file => file.hash == step.FirstSource.hash);
@@ -5622,15 +5714,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                 [firstPackage, conflictPackage, thirdPackage]);
 
-            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsTrue(result.SessionReceipt.DurableCommit);
+            Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
             Assert.AreEqual(2, result.PendingPackagesToRemove.Count);
             Assert.AreEqual(2, result.DeferredInstalledPackages.Count);
             Assert.AreEqual(1, result.FailedPackages.Count);
             Assert.AreSame(conflictPackage, result.FailedPackages.Single());
-            Assert.AreEqual(3, result.MutationReceipt.Receipts.Count);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[0].TerminalState);
-            Assert.AreEqual(FileDbMutationTerminalState.Failed, result.MutationReceipt.Receipts[1].TerminalState);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[2].TerminalState);
+            Assert.AreEqual(1, result.SessionReceipt.ItemFailures.Count);
+            Assert.IsTrue(result.SessionReceipt.ItemFailures[0].IsDestinationTypeConflictRefusal);
             Assert.AreEqual(1, result.DestinationTypeConflicts.Count);
             Assert.AreEqual(conflictBundledFilePath, result.DestinationTypeConflicts[0].SourcePath);
             Assert.AreEqual(
@@ -5664,6 +5755,106 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 verifySongDb.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
                     Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+        });
+    }
+
+    /// <summary>
+    /// 操作開始前に消えた source は item failure として保持し、正常な後続を継続します。
+    /// 欠落 package と同じ hash の後続も、予約を成功扱いせず導入できることを検証します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void InstallPendingPackages_RejectsMissingSourceAndContinuesIndependentPackages(bool force)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installationRoot = Path.Combine(root, "Installed");
+            string[] sources = [Path.Combine(root, "First"), Path.Combine(root, "Missing"), Path.Combine(root, "Last")];
+            string[] titles = ["First", "Shared", "Shared"];
+            var packages = new List<ChartPackage>();
+            for (int i = 0; i < sources.Length; i++)
+            {
+                string chartPath = CreateBmsFile(sources[i], "chart.bms", "#TITLE " + titles[i]);
+                ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                    ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                        BMSFile.CreateBMSFileFromFile(chartPath),
+                        Path.Combine(installationRoot, titles[i])));
+                package.path = sources[i];
+                package.delete_parent = false;
+                packages.Add(package);
+            }
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                seedSongDb.CreateTable<LR2SongDBExtended.install>();
+                foreach (ChartPackage package in packages)
+                {
+                    seedSongDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+                }
+            }
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installationRoot,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection(packages),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            // 保留一覧への読み込み後、導入操作を開始する前に source が削除された状態です。
+            Directory.Delete(sources[1], recursive: true);
+
+            LibraryMutationSessionReceipt receipt = force
+                ? library.ForceInstallPendingPackagesWithReceipt(
+                    packages, approveNormalInstallOverride: true,
+                    approvedNormalInstallOverridePackages: null, reportAtTerminal: true)
+                : library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                    packages, reportAtTerminal: true).SessionReceipt;
+
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsTrue(receipt.HasRequiredFailure);
+            Assert.IsFalse(receipt.HasDurableFinalizationFailure);
+            Assert.IsNull(receipt.PhysicalFailure);
+            Assert.IsNull(receipt.FailedTarget);
+            Assert.AreEqual(0, receipt.UnprocessedTargets.Count);
+            Assert.AreEqual(0, receipt.DestinationTypeConflicts.Count);
+            Assert.AreEqual(1, receipt.ItemFailures.Count);
+            Assert.AreEqual(sources[1], receipt.ItemFailures[0].Target.SourcePath);
+            Assert.IsInstanceOfType(receipt.ItemFailures[0].Failure, typeof(FileNotFoundException));
+            Assert.AreEqual(1, library.ChartPackagesPending.Count);
+            Assert.AreSame(packages[1], library.ChartPackagesPending.Single());
+            Assert.AreEqual(sources[1], packages[1].path);
+            Assert.AreEqual(
+                Path.Combine(installationRoot, "Shared"),
+                packages[1].ChartEntries.Single().Chart.InstallDestination);
+            Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(File.Exists(Path.Combine(installationRoot, "First", "chart.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(installationRoot, "Shared", "chart.bms")));
+            Assert.IsFalse(Directory.Exists(sources[1]));
+
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    Path.Combine(installationRoot, "First", "chart.bms"),
+                    Path.Combine(installationRoot, "Shared", "chart.bms")
+                },
+                verifySongDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+            Assert.AreEqual(sources[1], verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
         });
     }
 
@@ -5948,7 +6139,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 }
             };
 
-            FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+            LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
                 approveNormalInstallOverride: true,
                 approvedNormalInstallOverridePackages: null);
@@ -5958,11 +6149,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(secondNotificationCount > 0);
             Assert.IsTrue(firstNotificationAcquiredLease);
             Assert.IsTrue(secondNotificationAcquiredLease);
-            Assert.IsTrue(receipt.HasDurableCommit);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsFalse(receipt.HasRequiredFailure);
             Assert.IsFalse(receipt.ManualRecoveryRequired);
-            Assert.AreEqual(1, receipt.Receipts.Count);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.Receipts[0].TerminalState);
-            Assert.IsNull(receipt.Receipts[0].Failure);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             Assert.AreSame(package, library.ChartPackagesInstalled.Single());
@@ -5986,12 +6175,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// Auto-install keeps the durable success prefix registered when a later
-    /// package reaches manual recovery, while unattempted packages remain
-    /// pending and are not installed.
+    /// auto-install の package physical prepare がすべて成功しても canonical transaction が失敗した場合、
+    /// DB/package/resource publication を部分適用せず、prepared destination を session recovery facts に保持します。
     /// </summary>
     [TestMethod]
-    public void InstallChartPackagesAutoWithProgress_AppliesDurablePrefixBeforeManualRecoveryStopsBatch()
+    public void InstallChartPackagesAutoWithProgress_CanonicalApplyFailurePublishesNoPartialPackageState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -6000,13 +6188,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstSourceDirectoryPath = Path.Combine(tempRootPath, "AutoPendingFirst");
             string secondSourceDirectoryPath = Path.Combine(tempRootPath, "AutoPendingSecond");
             string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "AutoPendingThird");
-            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Auto Prefix First");
-            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Auto Prefix Second");
-            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Auto Prefix Third");
+            CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Auto Prefix First");
+            CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Auto Prefix Second");
+            CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Auto Prefix Third");
             string firstDestinationChartPath = Path.Combine(installRootPath, "Auto Prefix First", "first.bms");
-            string secondDestinationDirectoryPath = Path.Combine(installRootPath, "Auto Prefix Second");
-            string secondDestinationChartPath = Path.Combine(secondDestinationDirectoryPath, "second.bms");
-            string thirdDestinationDirectoryPath = Path.Combine(installRootPath, "Auto Prefix Third");
+            string secondDestinationChartPath = Path.Combine(installRootPath, "Auto Prefix Second", "second.bms");
+            string thirdDestinationChartPath = Path.Combine(installRootPath, "Auto Prefix Third", "third.bms");
+            string firstDestinationDirectoryPath = Path.GetDirectoryName(firstDestinationChartPath)!;
+            string secondDestinationDirectoryPath = Path.GetDirectoryName(secondDestinationChartPath)!;
+            string thirdDestinationDirectoryPath = Path.GetDirectoryName(thirdDestinationChartPath)!;
 
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
@@ -6021,7 +6211,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 songDbPath,
                 null,
                 null,
-                new FailingDestinationDeleteFileMutationService(secondDestinationDirectoryPath),
+                new RealFileMutationService(),
                 new RecordingDialogService(),
                 new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
@@ -6040,41 +6230,32 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 CancellationToken.None,
                 NullPackageInstallProgressWriter.Instance);
 
-            Assert.IsTrue(commandResult.ManualRecoveryRequired);
-            Assert.IsTrue(commandResult.HasDurableCommit);
-            Assert.AreEqual(2, commandResult.MutationReceipt.Receipts.Count);
-            Assert.AreEqual(
-                FileDbMutationTerminalState.Completed,
-                commandResult.MutationReceipt.Receipts[0].TerminalState);
-            Assert.AreEqual(
-                FileDbMutationTerminalState.ManualRecoveryRequired,
-                commandResult.MutationReceipt.Receipts[1].TerminalState);
-            Assert.IsTrue(commandResult.RegisteredPackages.Any(package =>
-                string.Equals(package.path, Path.Combine(installRootPath, "Auto Prefix First"), StringComparison.OrdinalIgnoreCase)),
-                "registered=" + string.Join("|", commandResult.RegisteredPackages.Select(package => package?.path ?? "<null>")));
-            Assert.IsTrue(library.ChartPackagesInstalled.Any(package =>
-                string.Equals(package.path, Path.Combine(installRootPath, "Auto Prefix First"), StringComparison.OrdinalIgnoreCase)));
-            Assert.IsFalse(library.ChartPackagesPending.Any(package =>
-                string.Equals(package.path, Path.Combine(installRootPath, "Auto Prefix First"), StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(library.ChartPackagesPending.Any(package =>
-                string.Equals(package.path, secondSourceDirectoryPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(library.ChartPackagesPending.Any(package =>
-                string.Equals(package.path, thirdSourceDirectoryPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsFalse(library.ChartPackagesInstalled.Any(package =>
-                string.Equals(package.path, secondSourceDirectoryPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsFalse(library.ChartPackagesInstalled.Any(package =>
-                string.Equals(package.path, thirdSourceDirectoryPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(commandResult.HasDurableCommit);
+            Assert.IsTrue(commandResult.HasRequiredFailure);
+            Assert.IsNotNull(commandResult.SessionReceipt.ApplyFailure);
+            Assert.IsFalse(commandResult.ManualRecoveryRequired);
+            Assert.AreEqual(0, commandResult.RegisteredPackages.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
 
-            Assert.IsFalse(Directory.Exists(firstSourceDirectoryPath));
+            // session-wide DB failure does not invent per-item compensation. All physical prepares remain
+            // observable for recovery and source cleanup has not run because the durable point was not reached.
             Assert.IsTrue(File.Exists(firstDestinationChartPath));
+            Assert.IsTrue(File.Exists(secondDestinationChartPath));
+            Assert.IsTrue(File.Exists(thirdDestinationChartPath));
+            Assert.IsTrue(Directory.Exists(firstSourceDirectoryPath));
             Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
-            Assert.IsTrue(Directory.Exists(secondDestinationDirectoryPath));
             Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
-            Assert.IsFalse(Directory.Exists(thirdDestinationDirectoryPath));
+            // Auto-named directory packages are prepared as one directory mutation per package,
+            // so session recovery facts retain the promoted directory boundary rather than
+            // synthesizing per-chart mutation paths that were never executor targets.
+            Assert.IsTrue(commandResult.RecoveryPaths.Contains(firstDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(commandResult.RecoveryPaths.Contains(secondDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(commandResult.RecoveryPaths.Contains(thirdDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
-            Assert.IsTrue(installedRows.Any(row => string.Equals(
+            Assert.IsFalse(installedRows.Any(row => string.Equals(
                 row.path,
                 firstDestinationChartPath,
                 StringComparison.OrdinalIgnoreCase)));
@@ -6082,30 +6263,26 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 row.path,
                 secondDestinationChartPath,
                 StringComparison.OrdinalIgnoreCase)));
-            List<LR2SongDBExtended.install> installRows = [.. verifySongDb.Table<LR2SongDBExtended.install>()];
-            Assert.IsFalse(installRows.Any(row => string.Equals(
+            Assert.IsFalse(installedRows.Any(row => string.Equals(
                 row.path,
-                firstSourceDirectoryPath,
+                thirdDestinationChartPath,
                 StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(installRows.Any(row => string.Equals(
-                row.path,
-                secondSourceDirectoryPath,
-                StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(installRows.Any(row => string.Equals(
-                row.path,
-                thirdSourceDirectoryPath,
-                StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.install>().Count());
         });
     }
 
     /// <summary>
-    /// A manual-recovery receipt stops the batch, while the successful prefix
-    /// is still applied to the pending and installed collections and the resource index.
+    /// 先行 package の physical success を durable prefix として一回 commit し、
+    /// current physical failure と未処理 suffix を同じ session terminal に保持します。
     /// </summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void ForceInstallPendingPackages_AppliesDurablePrefixBeforeManualRecoveryStopsBatch(bool reportAtTerminal)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void ForceInstallPendingPackages_PreservesPhysicalSuccessPrefixAndUnprocessedSuffix(
+        bool reportAtTerminal,
+        bool sourceFileMissingDuringCopy)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -6136,21 +6313,30 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstDestinationDirectoryPath = Path.Combine(installRootPath, "Prefix First");
             string secondDestinationDirectoryPath = Path.Combine(installRootPath, "Prefix Second");
             string secondDestinationChartPath = Path.Combine(secondDestinationDirectoryPath, "second.bms");
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            var fileMutations = new RealFileMutationService();
+            fileMutations.BeforeCopy = sourcePath =>
             {
-                string escapedSecondDestinationChartPath = secondDestinationChartPath.Replace("'", "''");
-                seedSongDb.Execute(
-                    "CREATE TRIGGER fail_second_force_install_target BEFORE INSERT ON song WHEN NEW.path = '"
-                    + escapedSecondDestinationChartPath
-                    + "' BEGIN SELECT RAISE(ABORT, 'forced second force-install target failure'); END;");
-            }
+                if (string.Equals(sourcePath, secondSourceDirectoryPath, StringComparison.OrdinalIgnoreCase)
+                    || sourcePath.StartsWith(secondSourceDirectoryPath + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    if (sourceFileMissingDuringCopy)
+                    {
+                        // 開始前の存在確認を通過後、コピー中に一ファイルが失われるケースです。
+                        // 同じ FileNotFoundException でも事前拒否へ格下げしてはいけません。
+                        File.Delete(secondChartPath);
+                        throw new FileNotFoundException("source disappeared during copy", secondChartPath);
+                    }
+                    throw new IOException("forced second force-install physical failure");
+                }
+            };
 
             var dialogs = new FileDbReportRecordingDialogs();
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
                 null,
-                new FailingDestinationDeleteFileMutationService(secondDestinationDirectoryPath),
+                fileMutations,
                 dialogs,
                 new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
@@ -6168,19 +6354,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [], [], [], [], [], [], [], new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
 
-            FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+            LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [firstPackage, secondPackage, thirdPackage],
                 approveNormalInstallOverride: true,
                 approvedNormalInstallOverridePackages: null, reportAtTerminal: reportAtTerminal);
             Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.ModelMessages);
 
-            Assert.IsTrue(receipt.HasDurableCommit);
-            Assert.IsTrue(receipt.ManualRecoveryRequired);
-            Assert.AreEqual(2, receipt.Receipts.Count);
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.Receipts[0].TerminalState);
-            Assert.IsTrue(receipt.Receipts[0].DurableCommit);
-            Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, receipt.Receipts[1].TerminalState);
-            Assert.IsFalse(receipt.Receipts[1].DurableCommit);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsTrue(receipt.HasRequiredFailure);
+            Assert.IsNotNull(receipt.PhysicalFailure);
+            Assert.AreEqual(0, receipt.ItemFailures.Count);
+            Assert.IsFalse(receipt.ManualRecoveryRequired);
+            Assert.IsNotNull(receipt.FailedTarget);
+            StringAssert.StartsWith(receipt.FailedTarget.SourcePath, secondSourceDirectoryPath);
+            Assert.AreEqual(1, receipt.UnprocessedTargets.Count);
+            Assert.AreEqual(thirdSourceDirectoryPath, receipt.UnprocessedTargets[0].SourcePath, ignoreCase: true);
 
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             Assert.AreSame(firstPackage, library.ChartPackagesInstalled.Single());
@@ -6196,7 +6384,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 firstPackage.ChartEntries.Single().Chart.Path);
             Assert.AreEqual(secondSourceDirectoryPath, secondPackage.path);
             Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
-            Assert.IsTrue(Directory.Exists(secondDestinationDirectoryPath));
+            Assert.IsFalse(Directory.Exists(secondDestinationDirectoryPath));
             Assert.AreEqual(thirdSourceDirectoryPath, thirdPackage.path);
             Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
             Assert.IsFalse(Directory.Exists(Path.Combine(installRootPath, "Prefix Third")));

@@ -156,7 +156,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
         {
             if (throwOnBusyRace)
             {
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
             }
             return null;
         }

@@ -35,12 +35,17 @@ internal sealed class LibraryMutationSessionItemFailure
     /// <summary>Creates immutable item-failure facts for the session terminal.</summary>
     /// <param name="target">The source/destination candidate that failed.</param>
     /// <param name="failure">The observed physical-operation failure.</param>
+    /// <param name="destinationTypeConflicts">Read-only destination type conflicts that caused this item refusal.</param>
     internal LibraryMutationSessionItemFailure(
         LibraryMutationSessionTarget target,
-        Exception failure)
+        Exception failure,
+        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null)
     {
         Target = target ?? throw new ArgumentNullException(nameof(target));
         Failure = failure ?? throw new ArgumentNullException(nameof(failure));
+        DestinationTypeConflicts = Array.AsReadOnly((destinationTypeConflicts ?? [])
+            .Where(conflict => conflict != null)
+            .ToArray());
     }
 
     /// <summary>Gets the failed source/destination candidate.</summary>
@@ -48,6 +53,12 @@ internal sealed class LibraryMutationSessionItemFailure
 
     /// <summary>Gets the observed physical-operation failure.</summary>
     internal Exception Failure { get; }
+
+    /// <summary>Gets destination type conflicts that made this item a read-only refusal.</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts { get; }
+
+    /// <summary>Gets whether the item was refused before mutation solely because the destination type was incompatible.</summary>
+    internal bool IsDestinationTypeConflictRefusal => DestinationTypeConflicts.Count > 0;
 }
 
 /// <summary>
@@ -75,6 +86,8 @@ internal sealed class LibraryMutationSessionReceipt
     /// <param name="resourceDirectoryRemovalCount">Successfully deleted directory roots registered for post-commit resource-index removal.</param>
     /// <param name="itemFailures">Attempted targets that did not produce confirmed physical changes.</param>
     /// <param name="recoveryCandidatePaths">Executor-local paths retained for manual confirmation or recovery.</param>
+    /// <param name="manualRecoveryRequired">Whether any physical mutation requires manual recovery.</param>
+    /// <param name="destinationTypeConflicts">Read-only destination type conflicts observed while preparing items.</param>
     internal LibraryMutationSessionReceipt(
         IEnumerable<LibraryMutationSessionTarget> confirmedTargets,
         bool durableCommit,
@@ -92,7 +105,9 @@ internal sealed class LibraryMutationSessionReceipt
         Exception cleanupFailure = null,
         int resourceDirectoryRemovalCount = 0,
         IEnumerable<LibraryMutationSessionItemFailure> itemFailures = null,
-        IEnumerable<string> recoveryCandidatePaths = null)
+        IEnumerable<string> recoveryCandidatePaths = null,
+        bool manualRecoveryRequired = false,
+        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null)
     {
         ConfirmedTargets = FreezeTargets(confirmedTargets);
         DurableCommit = durableCommit;
@@ -111,6 +126,8 @@ internal sealed class LibraryMutationSessionReceipt
         FinalizationFailure = finalizationFailure;
         CleanupFailure = cleanupFailure;
         RecoveryCandidatePaths = FreezePaths(recoveryCandidatePaths);
+        ManualRecoveryRequired = manualRecoveryRequired;
+        DestinationTypeConflicts = FreezeDestinationTypeConflicts(destinationTypeConflicts);
     }
 
     /// <summary>Gets filesystem changes whose success was confirmed and appended to the session.</summary>
@@ -161,7 +178,7 @@ internal sealed class LibraryMutationSessionReceipt
     /// </summary>
     internal Exception ApplyFailure { get; }
 
-    /// <summary>Gets a later required operation finalizer failure, such as LR2 normal-folder synchronization.</summary>
+    /// <summary>Gets a later required operation finalizer failure, such as maintenance or package collection publication.</summary>
     internal Exception FinalizationFailure { get; }
 
     /// <summary>Gets a post-commit cleanup failure that does not change durable state.</summary>
@@ -169,6 +186,19 @@ internal sealed class LibraryMutationSessionReceipt
 
     /// <summary>Gets executor-local paths retained for manual confirmation or recovery.</summary>
     internal IReadOnlyList<string> RecoveryCandidatePaths { get; }
+
+    /// <summary>Gets whether any physical mutation requires manual recovery.</summary>
+    internal bool ManualRecoveryRequired { get; }
+
+    /// <summary>Gets destination type conflicts observed while preparing package mutations.</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts { get; }
+
+    /// <summary>Gets whether required operation work ended in a failure.</summary>
+    internal bool HasRequiredFailure => ManualRecoveryRequired
+        || PhysicalFailure != null
+        || ApplyFailure != null
+        || FinalizationFailure != null
+        || ItemFailures.Any(item => !item.IsDestinationTypeConflictRefusal);
 
     /// <summary>Gets whether required operation finalization failed after the durable point.</summary>
     internal bool HasDurableFinalizationFailure => DurableCommit
@@ -180,7 +210,11 @@ internal sealed class LibraryMutationSessionReceipt
         && CleanupFailure != null;
 
     /// <summary>Gets the first terminal failure retained by the session.</summary>
-    internal Exception PrimaryFailure => PhysicalFailure ?? ApplyFailure ?? FinalizationFailure ?? CleanupFailure;
+    internal Exception PrimaryFailure => PhysicalFailure
+        ?? ApplyFailure
+        ?? FinalizationFailure
+        ?? ItemFailures.FirstOrDefault(item => !item.IsDestinationTypeConflictRefusal)?.Failure
+        ?? CleanupFailure;
 
     /// <summary>
     /// Gets terminal confirmation candidates without creating per-item mutation receipts.
@@ -223,7 +257,9 @@ internal sealed class LibraryMutationSessionReceipt
             CleanupFailure,
             ResourceDirectoryRemovalCount,
             ItemFailures,
-            RecoveryCandidatePaths);
+            RecoveryCandidatePaths,
+            ManualRecoveryRequired,
+            DestinationTypeConflicts);
     }
 
     /// <summary>Gets an immutable empty session receipt.</summary>
@@ -234,6 +270,20 @@ internal sealed class LibraryMutationSessionReceipt
         return Array.AsReadOnly((paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+    }
+
+    private static IReadOnlyList<FileDbMutationDestinationTypeConflict> FreezeDestinationTypeConflicts(
+        IEnumerable<FileDbMutationDestinationTypeConflict> values)
+    {
+        return Array.AsReadOnly((values ?? [])
+            .Where(value => value != null)
+            .GroupBy(value => string.Join("\u001f",
+                value.SourcePath,
+                value.DestinationPath,
+                value.ExpectedIsDirectory,
+                value.ExistingIsDirectory), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
             .ToArray());
     }
 

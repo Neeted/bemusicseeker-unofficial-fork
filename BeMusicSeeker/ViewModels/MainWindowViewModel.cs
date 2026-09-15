@@ -2956,7 +2956,7 @@ public partial class MainWindowViewModel : ViewModel,
                 {
                     throw new InvalidOperationException("Package install workflow is not composed.");
                 }
-                PackageInstallWorkflow.Enqueue(paths);
+                return PackageInstallWorkflow.Enqueue(paths);
             },
             uri => ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(uri.ToString())),
             LogExternalPlaylistImportWarning,
@@ -5662,7 +5662,7 @@ public partial class MainWindowViewModel : ViewModel,
             FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages));
         }
         await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-            BeMusicSeeker.Properties.Resources.Install, receipt?.MutationReceipt);
+            BeMusicSeeker.Properties.Resources.Install, receipt?.SessionReceipt);
     }
 
     private async void PackageInstallWorkflowFailurePublished(PackageInstallFailure failure)
@@ -5671,12 +5671,12 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        if (failure.CommandResult?.MutationReceipt != null)
+        if (failure.CommandResult?.SessionReceipt != null)
         {
             if (failure.CommandResult.RegisteredPackages.Count > 0)
                 FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(failure.CommandResult.RegisteredPackages));
             await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-                BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.MutationReceipt, failure.Exception);
+                BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.SessionReceipt, failure.Exception);
             return;
         }
         ShowUiMessage(

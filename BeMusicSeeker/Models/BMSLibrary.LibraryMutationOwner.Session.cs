@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models;
 
@@ -70,10 +71,19 @@ internal sealed partial class LibraryMutationOwner
         private readonly HashSet<string> recoveryCandidatePathSet = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<LibraryFolderPathChange> movedFolders = [];
         private readonly HashSet<string> resourceDirectoryRemovals = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<ChartFile> installedPackageCharts = [];
+        private readonly HashSet<string> installPathsToDelete = new(StringComparer.Ordinal);
+        private readonly List<ChartPackage> installRowsToUpsert = [];
+        private readonly List<PackageInstallSessionPhysicalMutation> installedPackageMutations = [];
+        private readonly HashSet<string> installedResourceDirectories = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<Action> requiredDurableFinalizers = [];
+        private readonly List<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = [];
+        private readonly HashSet<string> destinationTypeConflictKeys = new(StringComparer.OrdinalIgnoreCase);
         private LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy =
             LibraryStorageRowPathNotificationPolicy.Suppressed;
         private Exception physicalFailure;
         private Exception cleanupFailure;
+        private bool manualRecoveryRequired;
         private LibraryMutationSessionTarget failedTarget;
         private IReadOnlyList<LibraryMutationSessionTarget> unprocessedTargets = [];
         private bool committed;
@@ -190,13 +200,78 @@ internal sealed partial class LibraryMutationOwner
         internal void AppendRecoveryCandidatePaths(IEnumerable<string> paths)
         {
             EnsureOpen();
+            AppendRecoveryCandidatePathsCore(paths);
+        }
+
+        /// <summary>
+        /// Appends one physically prepared package change to the operation-scoped install session.
+        /// Exact chart identity normalization is intentionally delegated to <see cref="ChartStorageTargetSet"/> at commit.
+        /// cleanup-only の zero-file change は install-row fact で session change を表し、physical confirmed target を捏造しません。
+        /// </summary>
+        internal void AppendInstalledPackageChange(
+            PackageInstallExecutionResult installResult,
+            PackageInstallSessionPhysicalMutation physicalMutation)
+        {
+            EnsureOpen();
+            ArgumentNullException.ThrowIfNull(installResult);
+            ArgumentNullException.ThrowIfNull(physicalMutation);
+
+            IReadOnlyList<ChartFile> charts = installResult.AddedCharts.Count > 0
+                ? installResult.AddedCharts
+                : [.. installResult.AddedEntries
+                    .Select(entry => entry?.Chart)
+                    .Where(chart => chart != null)];
+            installedPackageCharts.AddRange(charts);
+            if (!string.IsNullOrWhiteSpace(installResult.InstallPathToDelete))
+            {
+                installPathsToDelete.Add(installResult.InstallPathToDelete);
+            }
+            installedPackageMutations.Add(physicalMutation);
+            confirmedTargets.AddRange(physicalMutation.ConfirmedTargets);
+            if (!string.IsNullOrWhiteSpace(physicalMutation.DestinationDirectory))
+            {
+                installedResourceDirectories.Add(physicalMutation.DestinationDirectory);
+            }
+        }
+
+        /// <summary>同じ install session の canonical transaction で削除する pending install row path を追加します。</summary>
+        internal void AppendInstallPathsToDelete(IEnumerable<string> paths)
+        {
+            EnsureOpen();
             foreach (string path in paths ?? [])
             {
-                if (!string.IsNullOrWhiteSpace(path) && recoveryCandidatePathSet.Add(path))
+                if (!string.IsNullOrWhiteSpace(path))
                 {
-                    recoveryCandidatePaths.Add(path);
+                    installPathsToDelete.Add(path);
                 }
             }
+        }
+
+        /// <summary>同じ install session の canonical transaction で upsert する pending install row を追加します。</summary>
+        internal void AppendInstallRowsToUpsert(IEnumerable<ChartPackage> packages)
+        {
+            EnsureOpen();
+            installRowsToUpsert.AddRange((packages ?? [])
+                .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path)));
+        }
+
+        /// <summary>canonical durable apply と destination resource scan の後に一度だけ実行する required finalizer を追加します。</summary>
+        internal void AppendRequiredDurableFinalizer(Action finalizer)
+        {
+            EnsureOpen();
+            if (finalizer != null)
+            {
+                requiredDurableFinalizers.Add(finalizer);
+            }
+        }
+
+        /// <summary>一 package の事前拒否または physical prepare failure を session terminal facts に集約します。</summary>
+        /// <param name="receipt">拒否または physical prepare failure の receipt。</param>
+        /// <param name="isPreflightRefusal">変更開始前に確定した、後続を停止しない拒否かどうか。</param>
+        internal void AppendPackagePhysicalFailure(FileDbMutationReceipt receipt, bool isPreflightRefusal = false)
+        {
+            EnsureOpen();
+            AppendPackagePhysicalFailureCore(receipt, isPreflightRefusal);
         }
 
         /// <summary>
@@ -230,15 +305,19 @@ internal sealed partial class LibraryMutationOwner
             IEnumerable<LibraryMutationSessionTarget> remainingTargets)
         {
             EnsureOpen();
+            LibraryMutationSessionTarget[] remaining = [.. (remainingTargets ?? [])
+                .Where(target => target != null)];
             if (physicalFailure != null)
             {
+                if (unprocessedTargets.Count == 0 && remaining.Length > 0)
+                {
+                    unprocessedTargets = Array.AsReadOnly(remaining);
+                }
                 return;
             }
             physicalFailure = failure;
             failedTarget = new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory);
-            unprocessedTargets = Array.AsReadOnly((remainingTargets ?? [])
-                .Where(target => target != null)
-                .ToArray());
+            unprocessedTargets = Array.AsReadOnly(remaining);
         }
 
         /// <summary>
@@ -250,52 +329,170 @@ internal sealed partial class LibraryMutationOwner
         {
             EnsureOpen();
             committed = true;
-            if (confirmedTargets.Count == 0
-                && !catalogFacts.Any(item => item?.HasChanges == true)
-                && !packageReferenceFacts.Any(item => item?.HasChanges == true)
-                && movedFolders.Count == 0
-                && resourceDirectoryRemovals.Count == 0)
+
+            bool hasInstallChanges = installedPackageMutations.Count > 0
+                || installPathsToDelete.Count > 0
+                || installRowsToUpsert.Count > 0
+                || installedPackageCharts.Count > 0;
+            bool hasGeneralChanges = catalogFacts.Any(item => item?.HasChanges == true)
+                || packageReferenceFacts.Any(item => item?.HasChanges == true)
+                || movedFolders.Count > 0
+                || resourceDirectoryRemovals.Count > 0;
+            if (!hasInstallChanges && !hasGeneralChanges)
             {
                 return CreateReceipt(durableCommit: false);
             }
+            if (hasInstallChanges && hasGeneralChanges)
+            {
+                Exception invalidMix = new InvalidOperationException(
+                    "Install storage changes and general library mutation facts must not share one session commit.");
+                foreach (PackageInstallSessionPhysicalMutation physicalMutation in installedPackageMutations)
+                {
+                    AppendRecoveryCandidatePathsCore(physicalMutation.RecoveryCandidatePaths);
+                }
+                return CreateReceipt(durableCommit: false, applyFailure: invalidMix);
+            }
 
-            LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
-            LibraryPackageReferenceFacts combinedPackageFacts = CombinePackageReferenceFacts(packageReferenceFacts);
             var sessionNotifications = new List<Action>();
-            FileDbMutationCommitResult applyResult = owner.ApplyLibraryMutationFactsForFileMutation(
-                combinedCatalogFacts,
-                combinedPackageFacts,
-                reason,
-                mutationCapability,
-                sessionNotifications.Add,
-                suppressNormalRefreshNotification,
-                suppressLr2NormalFolderSync,
-                storageRowPathNotificationPolicy);
+            FileDbMutationCommitResult applyResult;
+            if (hasInstallChanges)
+            {
+                ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(installedPackageCharts);
+                applyResult = owner.ApplyInstalledChartStorageTargetsForFileMutation(
+                    installedTargets,
+                    installPathsToDelete,
+                    installRowsToUpsert,
+                    reason,
+                    mutationCapability,
+                    sessionNotifications.Add);
+            }
+            else
+            {
+                LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
+                LibraryPackageReferenceFacts combinedPackageFacts = CombinePackageReferenceFacts(packageReferenceFacts);
+                applyResult = owner.ApplyLibraryMutationFactsForFileMutation(
+                    combinedCatalogFacts,
+                    combinedPackageFacts,
+                    reason,
+                    mutationCapability,
+                    sessionNotifications.Add,
+                    suppressNormalRefreshNotification,
+                    suppressLr2NormalFolderSync,
+                    storageRowPathNotificationPolicy);
+            }
+
             if (!applyResult.DurableCommit)
             {
+                foreach (Action notification in sessionNotifications)
+                {
+                    postLeaseNotifications.Add(notification);
+                }
+                if (hasInstallChanges)
+                {
+                    foreach (PackageInstallSessionPhysicalMutation physicalMutation in installedPackageMutations)
+                    {
+                        AppendRecoveryCandidatePathsCore(physicalMutation.RecoveryCandidatePaths);
+                    }
+                }
                 return CreateReceipt(durableCommit: false, applyFailure: applyResult.Failure);
             }
-            if (applyResult.Failure != null)
+
+            Exception finalizationFailure = applyResult.Failure;
+            if (finalizationFailure == null)
             {
-                return CreateReceipt(durableCommit: true, applyFailure: applyResult.Failure);
+                try
+                {
+                    applyResult.DurableFinalizer?.Invoke();
+                }
+                catch (Exception exception)
+                {
+                    finalizationFailure = exception;
+                }
             }
 
-            try
+            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            if (hasInstallChanges)
             {
-                applyResult.DurableFinalizer?.Invoke();
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                    DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                if (movedFolders.Count > 0)
+                foreach (PackageInstallSessionPhysicalMutation physicalMutation in installedPackageMutations)
                 {
-                    reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
+                    bool applyLiveState = finalizationFailure == null;
+                    FileDbMutationReceipt receipt = physicalMutation.CompleteAfterDurableCommit(
+                        applyLiveState,
+                        finalizationFailure);
+                    AppendRecoveryCandidatePathsCore(receipt?.RecoveryPaths);
+                    if (receipt?.CleanupFailure != null)
+                    {
+                        cleanupFailure = CombineFailure(cleanupFailure, receipt.CleanupFailure);
+                    }
+                    if (finalizationFailure == null && receipt?.FinalizationFailure != null)
+                    {
+                        finalizationFailure = CombineFailure(finalizationFailure, receipt.FinalizationFailure);
+                    }
+                    if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                    {
+                        manualRecoveryRequired = true;
+                    }
                 }
-                if (resourceDirectoryRemovals.Count > 0)
+
+                if (finalizationFailure == null && installedResourceDirectories.Count > 0)
                 {
-                    reverseLookupMutation = reverseLookupMutation.Combine(
-                        owner.resourceIndexOwner
-                            .RemoveUnderSourceDirectories(resourceDirectoryRemovals)
-                            .MutationResult);
+                    if (ChartDirectoryScanBuilder.TryBuildFromRoots(
+                        installedResourceDirectories,
+                        out ChartScanResult scan,
+                        out string scanFailureReason))
+                    {
+                        reverseLookupMutation = owner.AddReverseLookupDirectories(scan);
+                    }
+                    else
+                    {
+                        owner.LogInstallPerformanceWarning(
+                            reason + " resource_cache_update skipped reason=incomplete_scan detail="
+                            + (scanFailureReason ?? "unknown")
+                            + " dirs=" + installedResourceDirectories.Count);
+                    }
                 }
+
+                if (finalizationFailure == null)
+                {
+                    foreach (Action finalizer in requiredDurableFinalizers)
+                    {
+                        try
+                        {
+                            finalizer();
+                        }
+                        catch (Exception exception)
+                        {
+                            finalizationFailure = CombineFailure(finalizationFailure, exception);
+                            break;
+                        }
+                    }
+                }
+            }
+            else if (finalizationFailure == null)
+            {
+                try
+                {
+                    if (movedFolders.Count > 0)
+                    {
+                        reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
+                    }
+                    if (resourceDirectoryRemovals.Count > 0)
+                    {
+                        reverseLookupMutation = reverseLookupMutation.Combine(
+                            owner.resourceIndexOwner
+                                .RemoveUnderSourceDirectories(resourceDirectoryRemovals)
+                                .MutationResult);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    finalizationFailure = exception;
+                }
+            }
+
+            if (finalizationFailure == null)
+            {
                 foreach (Action notification in sessionNotifications)
                 {
                     postLeaseNotifications.Add(notification);
@@ -303,12 +500,67 @@ internal sealed partial class LibraryMutationOwner
                 postLeaseNotifications.Add(() => owner.LogReverseLookupMutationAndQueueWarmupIfNeeded(
                     reason,
                     reverseLookupMutation));
-                return CreateReceipt(durableCommit: true);
             }
-            catch (Exception exception)
+            return CreateReceipt(
+                durableCommit: true,
+                applyFailure: applyResult.Failure,
+                finalizationFailure: ReferenceEquals(finalizationFailure, applyResult.Failure)
+                    ? null
+                    : finalizationFailure);
+        }
+
+        private void AppendPackagePhysicalFailureCore(FileDbMutationReceipt receipt, bool isPreflightRefusal)
+        {
+            if (receipt == null)
             {
-                return CreateReceipt(durableCommit: true, finalizationFailure: exception);
+                return;
             }
+            AppendRecoveryCandidatePathsCore(receipt.RecoveryPaths);
+            manualRecoveryRequired |= receipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired;
+            foreach (FileDbMutationDestinationTypeConflict conflict in receipt.DestinationTypeConflicts ?? [])
+            {
+                string key = string.Join("\u001f",
+                    conflict.SourcePath,
+                    conflict.DestinationPath,
+                    conflict.ExpectedIsDirectory,
+                    conflict.ExistingIsDirectory);
+                if (destinationTypeConflictKeys.Add(key))
+                {
+                    destinationTypeConflicts.Add(conflict);
+                }
+            }
+            // 継続可能な item-level refusal だけを ItemFailures に保持します。
+            // suffix を停止する failure は RecordStoppedSuffix が PhysicalFailure/FailedTarget として
+            // 同じ terminal に保持するため、ここでも追加すると terminal count と failure 選択が二重になります。
+            if (receipt.Failure != null && (isPreflightRefusal || receipt.DestinationTypeConflicts.Count > 0))
+            {
+                string sourcePath = receipt.SourcePaths.FirstOrDefault() ?? string.Empty;
+                string destinationPath = receipt.DestinationPaths.FirstOrDefault() ?? string.Empty;
+                itemFailures.Add(new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget(sourcePath, destinationPath),
+                    receipt.Failure,
+                    receipt.DestinationTypeConflicts));
+            }
+        }
+
+        private void AppendRecoveryCandidatePathsCore(IEnumerable<string> paths)
+        {
+            foreach (string path in paths ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(path) && recoveryCandidatePathSet.Add(path))
+                {
+                    recoveryCandidatePaths.Add(path);
+                }
+            }
+        }
+
+        private static Exception CombineFailure(Exception current, Exception next)
+        {
+            if (next == null)
+            {
+                return current;
+            }
+            return current == null ? next : new AggregateException(current, next);
         }
 
         private LibraryMutationSessionReceipt CreateReceipt(
@@ -335,7 +587,9 @@ internal sealed partial class LibraryMutationOwner
                 cleanupFailure: cleanupFailure,
                 resourceDirectoryRemovalCount: resourceDirectoryRemovals.Count,
                 recoveryCandidatePaths: recoveryCandidatePaths,
-                itemFailures: itemFailures);
+                itemFailures: itemFailures,
+                manualRecoveryRequired: manualRecoveryRequired,
+                destinationTypeConflicts: destinationTypeConflicts);
         }
 
         private void EnsureOpen()

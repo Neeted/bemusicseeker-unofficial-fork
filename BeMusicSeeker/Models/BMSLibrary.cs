@@ -1140,7 +1140,7 @@ public partial class BMSLibrary : ObservableObject
                 showMessage: false);
             if (mutationReservation == null)
             {
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
             }
             ApplyCatalogStorageRows(
                 value,
@@ -1205,7 +1205,7 @@ public partial class BMSLibrary : ObservableObject
                 showMessage: false);
             if (mutationReservation == null)
             {
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
             }
             ApplyCatalogStorageRows(
                 BMSFiles,

@@ -270,13 +270,13 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
     {
         var cleanup = new IOException("pending-cleanup-marker");
         var primary = finalizationFailed ? new IOException("pending-finalizer-marker") : null;
-        var receipt = new FileDbMutationReceipt(Guid.NewGuid(),
-            finalizationFailed ? FileDbMutationTerminalState.DurableFinalizationFailed
-                : FileDbMutationTerminalState.CompletedWithCleanupFailure,
-            true, 0, 1, [@"C:\pending-source"], [@"D:\installed"], [], [], [@"C:\pending-candidate"],
-            primary ?? cleanup, primary, cleanup);
-        var batch = new FileDbMutationBatchReceipt([receipt]);
-        var result = PendingPackageMutationResult.FromTerminal(batch);
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\pending-source", @"D:\installed")],
+            durableCommit: true,
+            finalizationFailure: primary,
+            cleanupFailure: cleanup,
+            recoveryCandidatePaths: [@"C:\pending-candidate"]);
+        var result = PendingPackageMutationResult.FromTerminal(sessionReceipt);
         var dialogs = new FileDbReportRecordingDialogs
         {
             MessageFailure = reporterThrows ? new IOException("optional reporter failed") : null
@@ -294,21 +294,23 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(finalizationFailed ? System.Windows.MessageBoxImage.Error : System.Windows.MessageBoxImage.Warning, dialogs.Messages[0].Icon);
         StringAssert.Contains(dialogs.Messages[0].MessageBoxText, cleanup.Message);
         if (primary != null) StringAssert.Contains(dialogs.Messages[0].MessageBoxText, primary.Message);
-        Assert.AreSame(batch, result.MutationReceipt);
+        Assert.AreSame(sessionReceipt, result.SessionReceipt);
         Assert.IsTrue(result.HasDurableCommit);
     }
 
     [TestMethod]
     public async Task ReceiptDoesNotHideUnrelatedLifecycleFailure()
     {
-        var receipt = new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Completed,
-            true, 0, 0, [@"C:\source"], [@"D:\destination"], [], [], [], null);
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\source", @"D:\destination")],
+            durableCommit: true);
         var failure = new IOException("unrelated-lifecycle-marker");
         var dialogs = new FileDbReportRecordingDialogs();
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () => false, () => 1, _ => Task.FromResult(true), dialogs);
-        var result = PendingPackageMutationResult.FailedAfterMutation(failure,
-            mutationReceipt: new FileDbMutationBatchReceipt([receipt]));
+        var result = PendingPackageMutationResult.FailedAfterMutation(
+            failure,
+            sessionReceipt: sessionReceipt);
         Exception observed = await Assert.ThrowsExceptionAsync<IOException>(() => terminal.ApplyAsync(
             result, PackageCatalogSection.Pending, MainViewUpdateMode.PendingInstallFolderSelected,
             nameof(ReceiptDoesNotHideUnrelatedLifecycleFailure)));

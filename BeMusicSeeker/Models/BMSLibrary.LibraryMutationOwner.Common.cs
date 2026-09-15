@@ -634,7 +634,8 @@ internal sealed partial class LibraryMutationOwner
         string lookupReason,
         LibraryFileMutationCapability mutationCapability,
         Action<string> logOverride = null,
-        string installPathToDelete = null)
+        IEnumerable<string> installPathsToDelete = null,
+        IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
         if (addedTargets == null)
         {
@@ -664,7 +665,8 @@ internal sealed partial class LibraryMutationOwner
                         addedTargets,
                         out deferredFailureFact,
                         () => catalogValidationPassed = true,
-                        installPathToDelete);
+                        installPathsToDelete,
+                        installRowsToUpsert);
                     mutationResult.OwnedCollectionVersion = installedTargetReceipt.OwnedCollectionVersion;
                     mutationResult.OwnedCollectionVersionAlreadyAdvanced = installedTargetReceipt.OwnedCollectionApplied;
                     mutationResult.BmsonCanonicalOrderNormalized = installedTargetReceipt.BmsonCanonicalOrderNormalized;
@@ -2591,10 +2593,47 @@ internal sealed partial class LibraryMutationOwner
         LibraryFileMutationCapability mutationCapability,
         Action<Action> postLeaseNotificationObserver)
     {
+        return ApplyInstalledChartStorageTargetsForFileMutation(
+            CreateAddedStorageTargets(installResult),
+            string.IsNullOrWhiteSpace(installResult?.InstallPathToDelete)
+                ? []
+                : [installResult.InstallPathToDelete],
+            [],
+            lookupReason,
+            mutationCapability,
+            postLeaseNotificationObserver);
+    }
+
+    /// <summary>
+    /// operation-scoped install session が集約した storage target と pending install row mutation を
+    /// 一つの durable apply として適用します。
+    /// </summary>
+    /// <param name="addedTargets">全成功 package の exact identity 規則で正規化済み target。</param>
+    /// <param name="installPathsToDelete">同じ transaction で削除する pending install row path。</param>
+    /// <param name="installRowsToUpsert">同じ transaction で upsert する pending install row。</param>
+    /// <param name="lookupReason">reverse lookup / publication の診断理由。</param>
+    /// <param name="mutationCapability">outer file mutation lease の capability。</param>
+    /// <param name="postLeaseNotificationObserver">lease 解放後に行う公開 action の collector。</param>
+    /// <returns>durable point と required internal apply failure を表す commit result。</returns>
+    internal FileDbMutationCommitResult ApplyInstalledChartStorageTargetsForFileMutation(
+        ChartStorageTargetSet addedTargets,
+        IEnumerable<string> installPathsToDelete,
+        IEnumerable<ChartPackage> installRowsToUpsert,
+        string lookupReason,
+        LibraryFileMutationCapability mutationCapability,
+        Action<Action> postLeaseNotificationObserver)
+    {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         mutationCapability.Validate(lr2SynchronizationOwner);
-        ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
-        if (addedTargets == null)
+        addedTargets ??= ChartStorageTargetSet.FromInstalledCharts([]);
+        List<string> installPaths = [.. (installPathsToDelete ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)];
+        List<ChartPackage> installRows = [.. (installRowsToUpsert ?? [])
+            .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))
+            .GroupBy(package => package.path, StringComparer.Ordinal)
+            .Select(group => group.Last())];
+        if (addedTargets.Charts.Count == 0 && installPaths.Count == 0 && installRows.Count == 0)
         {
             return FileDbMutationCommitResult.Durable();
         }
@@ -2604,7 +2643,8 @@ internal sealed partial class LibraryMutationOwner
                 addedTargets,
                 lookupReason,
                 mutationCapability,
-                installPathToDelete: installResult?.InstallPathToDelete);
+                installPathsToDelete: installPaths,
+                installRowsToUpsert: installRows);
         if (storageReceipt.Failure != null)
         {
             postLeaseNotificationObserver?.Invoke(

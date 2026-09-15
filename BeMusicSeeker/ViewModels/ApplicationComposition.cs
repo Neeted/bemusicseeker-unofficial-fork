@@ -247,6 +247,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainChartColumnSettingsStore);
     }
 
+    /// <summary>プレイリストの通信・表示と、受理結果を返す共通導入受付を接続します。</summary>
     internal PlaylistWorkspaceViewModel CreatePlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentationAction,
         MainChartListViewModel mainChartList,
@@ -255,7 +256,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
         Func<bool> playlistUrlInstallQueueActiveProvider,
-        Action<IReadOnlyList<string>> playlistUrlInstallSink,
+        Func<IReadOnlyList<string>, bool> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
@@ -760,6 +761,7 @@ internal sealed class MainWindowChildComposition
             uiScheduler,
             installDestinationDialogService);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
+            installDestinationDialogService,
             chartFileOperations,
             ChartMutationActivity,
             packageInstallMutationPort ?? new BmsLibraryPackageInstallMutationPort(),

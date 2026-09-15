@@ -700,6 +700,7 @@ public sealed class OperationProgressHubViewModelTests
             var folderProgressStarted = new ManualResetEventSlim(false);
             ProgressWorkflowFixture fixture = null!;
             var package = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort((current, paths, token, onPath, onArchive) =>

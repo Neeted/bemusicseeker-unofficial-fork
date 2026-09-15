@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models;
 
@@ -52,4 +53,7 @@ public sealed class PendingInstalledOnlyResourceOverwriteResult
     /// manual inspection when cleanup or compensation could not finish.
     /// </summary>
     public IReadOnlyList<string> RecoveryPaths { get; internal set; } = [];
+
+    /// <summary>operation-scoped install session の canonical terminal facts。</summary>
+    internal LibraryMutationSessionReceipt SessionReceipt { get; set; }
 }

@@ -4216,7 +4216,7 @@ public partial class BMSPlaylist : ObservableObject
     private LibraryFileMutationLease AcquirePlaylistMutationLease(string operation, bool showMessage = true)
     {
         return tryBeginMutationLease(operation, showMessage)
-            ?? throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            ?? throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
     }
 
     private static void LogLr2FolderSyncResult(string operation, Lr2FolderFileDbSyncResult result, int scopeCount, int itemCount)

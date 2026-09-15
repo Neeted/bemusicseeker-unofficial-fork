@@ -35,7 +35,7 @@ acquisition 成功時の request は durable path、user-visible original path�
 ownership は次の一方向に遷移する。
 
 1. acquisition 完了時は request が unconsumed ingress root を所有する。
-2. `PackageInstallWorkflowOwner.TryEnqueue` は current library context の確認と physical queue insertion を一つの線形化操作として行う。成功時だけ queue が request を受け取り、library 未接続、shutdown、generation close、cancel drain 中の拒否では caller が request を lock 外で abandon する。
+2. `PackageInstallWorkflowOwner.TryEnqueue` は current library context の確認、共通変更受付の取得、physical queue insertion を一つの線形化操作として行う。成功時だけ queue が request を受け取り、競合する保留操作等の Busy、library 未接続、shutdown、generation close、cancel drain 中の拒否では caller が request を lock 外で abandon する。
 3. pending cancellation、library generation 切替、shutdown、または installer 呼び出し前の cancellation / generation mismatch では `TryAbandonUnconsumedSources` が root を一度だけ削除する。
 4. installer 呼び出し直前に `TransferSourceOwnershipToInstaller` を行う。以後、queue `finally` の abandon は no-op である。
 
@@ -45,14 +45,26 @@ library generation 切替と shutdown は owner lock 内で current queue contex
 
 installer handoff 後は既存の managed-temp / pending package lifecycle が source を所有する。archive 展開失敗、展開後 cancel、package 非検出では既存 cleanup が managed input の回収を試みる。pending package が managed source を参照する場合は pending 削除まで保持する。partial mutation または例外では pending source を壊す可能性があるため queue は無条件削除せず、残った session allocation は終了時または次回起動時 cleanup に委ねる。
 
+## 共通の導入受付
+
+保留操作との相互排他、queue が lease を所有する期間、URL / API 取得との境界、情報通知は [ライブラリ変更境界の共通契約](library-mutation-boundary.md#導入の共通受付と通知)に従う。DnD 固有の入力確保と ownership は上記のままとし、共通受付の拒否時も acquisition が確保した未引渡し source を既存経路で回収する。受理済み queue への追加 drop は維持するが、競合する別の通常変更要求を queue に保存しない。
+
 ## WPF terminal behavior
 
 baseline の supported format は WPF `DataFormats.FileDrop` である。DragOver は `GetDataPresent(DataFormats.FileDrop, autoConvert: true)` が true の場合だけ `Copy` を advertise する。Drop は同じ presence check と `GetData(DataFormats.FileDrop, autoConvert: true)` を使う。
 
-Drop は常に `Handled = true` とする。acquisition と enqueue の両方が成功した場合だけ `Effects = Copy` とし、pending tree を展開する。playlist URL download 中、unsupported format、acquisition failure、enqueue rejection は `Effects = None` とし、多言語 UI feedback を表示する。unsupported actual Drop の format summary は診断ログへ出してよいが、DragOver hot path では記録しない。
+Drop は常に `Handled = true` とする。acquisition と enqueue の両方が成功した場合だけ `Effects = Copy` とし、pending tree を展開する。playlist URL download 中、unsupported format、acquisition failure、enqueue rejection は `Effects = None` とし、多言語 UI feedback を表示する。queue 未受理の案内は URL / API 経由と同じ `Warn_PackageInstallUnavailable` を使い、拒否を例外へ変換しない。unsupported actual Drop の format summary は診断ログへ出してよいが、DragOver hot path では記録しない。
 
 `FileGroupDescriptorW` / `FileContents` だけを提示する virtual-file-only source は現在の非対象である。実装していない format を DragOver で `Copy` として advertise しない。
 
 ## テスト契約
 
 テストは production の global temp session に依存せず、system-temp root、managed 判定、root factory、cleanup を注入する。固定 sleep は使わず、queue の待機や cancellation は barrier / event で同期する。少なくとも materializer から owner / queue / mutation port までの durable-source 回帰、stable / managed passthrough、relative layout、atomic rollback、trusted root とその配下の reparse 境界、pending background cleanup、cleanup 完了までの non-idle、drain 中 rejection、fresh post-drain admission、library 未接続 / generation 切替 / shutdown rejection、installer handoff 後の非削除、failure 後の queue 継続を observable behavior として検証する。
+
+### 実装・テスト対応
+
+| 契約 | 実装 | 検証 |
+| --- | --- | --- |
+| 短命 source の確保、未引渡し入力の回収 | `DroppedInstallIngressMaterializer` / `DroppedInstallBatchRequest` | `DroppedInstallIngressMaterializerTests`、`PackageInstallWorkflowOwnerTests.GateBusy_AbandonsOwnedIngressWithoutCallingInstaller` と同 fixture の ownership / drain tests |
+| 追加 drop の維持、取消・generation / shutdown と受付解放 | `PackageInstallWorkflowOwner` / `DropInstallQueueProcessor` | 同 owner / processor の既存 fixture。相互排他の検証対応は [共通受付](library-mutation-boundary.md#導入の共通受付と通知)を参照 |
+| 受理時だけ Copy / tree 展開、未受理は警告 | `DroppedInstallDropTerminal`、`Warn_PackageInstallUnavailable` | `DroppedInstallDropTerminalTests`、`LocalizationResourceParityTests` |

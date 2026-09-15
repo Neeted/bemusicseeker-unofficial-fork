@@ -58,7 +58,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         Assert.AreEqual(1, store.RescanCalls);
         Assert.AreEqual(0, completionCalls);
         Assert.AreEqual(1, dialogs.MessageCalls);
-        StringAssert.Contains(dialogs.LastMessage, BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning);
+        StringAssert.Contains(dialogs.LastMessage, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
     }
 
     [TestMethod]

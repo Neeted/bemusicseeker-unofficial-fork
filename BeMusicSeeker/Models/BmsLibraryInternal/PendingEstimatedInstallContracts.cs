@@ -250,6 +250,9 @@ internal sealed class PendingEstimatedInstallExecutionReceipt
 
     internal long InstalledApplyMs { get; init; }
 
+    /// <summary>operation-scoped session で集約した maintenance / score / inline apply 時間。</summary>
+    internal long MaintenanceMs { get; init; }
+
     internal bool DeletePendingPackageSourceAfterInstall { get; init; }
 
     internal bool IsSkipped => BatchResult == null;

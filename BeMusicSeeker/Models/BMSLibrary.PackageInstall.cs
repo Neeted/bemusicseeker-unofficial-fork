@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -189,7 +189,7 @@ public partial class BMSLibrary
         PendingEstimateSourceBatchSnapshot pendingBatchSourceSnapshot = null;
         List<Action> postLeaseEffects = [];
         List<Action> diagnosticEffects = [];
-        FileDbMutationBatchReceipt autoInstallMutationReceipt = null;
+        LibraryMutationSessionReceipt autoInstallSessionReceipt = null;
         if (installPaths == null || installPaths.Any(path => !LongPathFileSystem.EntryExists(path)))
         {
             ShowOperationDialog(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
@@ -204,7 +204,7 @@ public partial class BMSLibrary
             showMessage: true);
         if (lr2SongDbSyncMutation == null)
         {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
         }
         Exception primaryFailure = null;
         try
@@ -278,7 +278,9 @@ public partial class BMSLibrary
                     DeferPackageEntryNotifications(discoveredPackages.SelectMany(package => package.ChartEntries));
                 postLeaseEffects.Add(() =>
                 {
-                    if (autoInstallMutationReceipt?.HasDurableFinalizationFailure == true)
+                    if (autoInstallSessionReceipt != null
+                        && (!autoInstallSessionReceipt.DurableCommit
+                            || autoInstallSessionReceipt.HasDurableFinalizationFailure))
                     {
                         DiscardPackageEntryNotificationPublication(packageEntryNotificationDeferrals);
                         return;
@@ -298,88 +300,106 @@ public partial class BMSLibrary
                     CatalogPathConvergenceBlockReason blockReason = catalogFileMutationAdmissionOwner.BlockReason;
                     diagnosticEffects.Add(() => ShowCatalogFileMutationRequiresFileDiffWarning(blockReason));
                 }
+                LibraryMutationOwner.LibraryMutationSession mutationSession =
+                    libraryMutationOwner.BeginLibraryMutationSession(
+                        mutationCapability,
+                        "install_package",
+                        postLeaseEffects,
+                        suppressNormalRefreshNotification: false,
+                        suppressLr2NormalFolderSync: false);
+                List<ChartFile> deferredMaintenanceCharts = [];
+                List<ChartPackage> deferredInstalledPackages = [];
+                IInstalledChartLookupIndex sessionSuccessLookup =
+                    packageInstallService.CreateSessionSuccessOwnershipOverlay(
+                        installedChartLookup,
+                        installedChartLookup);
+                AppendStandardInstallSessionFinalizer(
+                    mutationSession,
+                    deferredMaintenanceCharts,
+                    postLeaseEffects);
                 AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflowWithFileMutationReceipts(
                     workflow,
                     options.KeepInstallablePackagesPending,
                     canAutoInstallToLibrary && catalogPathConverged,
                     packagesToInstall =>
                     {
-                        List<ChartPackage> packageList = [.. (packagesToInstall ?? []).Where(package => package != null)];
-                        PackageInstallExecutionResult installExecutionResult = installChartPackages(
-                            packageList,
-                            installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
-                                installResult,
-                                "install_package",
-                                mutationCapability,
-                                postLeaseEffects.Add),
-                            mutationReceiptObserver: null,
-                            mutationBatchReceiptObserver: receipt => autoInstallMutationReceipt = receipt,
-                            diagnosticEffectObserver: diagnosticEffects.Add,
-                            postLeaseEffectObserver: postLeaseEffects.Add,
-                            reportAtTerminal: reportAtTerminal,
-                            existingHashes: installedChartLookup,
-                            independentOwnershipLookup: installedChartLookup,
-                            optionsSnapshot: options,
-                            sourceCleanupPolicy: options.DeletePendingPackageSourceAfterInstall
-                                ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
-                                : PackageSourceCleanupPolicy.PreserveUnconsumedContents);
-                        List<ChartPackage> failedPackages = installExecutionResult.FailedPackages;
-                        if (autoInstallMutationReceipt?.ManualRecoveryRequired == true
-                            || autoInstallMutationReceipt?.HasDurableFinalizationFailure == true)
-                        {
-                            // The package executor stopped at a terminal mutation
-                            // failure.  Keep the durable prefix successful and add
-                            // only the unattempted suffix to the failure set so the
-                            // classifier retains that suffix as pending.
-                            int attemptedPackageCount = Math.Min(
-                                autoInstallMutationReceipt.Receipts.Count,
-                                packageList.Count);
-                            var failedPackageSet = new HashSet<ChartPackage>(failedPackages);
-                            for (int packageIndex = attemptedPackageCount;
-                                packageIndex < packageList.Count;
-                                packageIndex++)
-                            {
-                                failedPackageSet.Add(packageList[packageIndex]);
-                            }
-                            failedPackages = [.. packageList.Where(failedPackageSet.Contains)];
-                        }
+                        PackageInstallExecutionResult installExecutionResult =
+                            PrepareInstallPackagesForMutationSession(
+                                packagesToInstall,
+                                mutationSession,
+                                sourceCleanupPolicy: options.DeletePendingPackageSourceAfterInstall
+                                    ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                                    : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                                deferredMaintenanceCharts: deferredMaintenanceCharts,
+                                deferredInstalledPackages: deferredInstalledPackages,
+                                diagnosticEffectObserver: diagnosticEffects.Add,
+                                reportAtTerminal: reportAtTerminal,
+                                existingHashes: sessionSuccessLookup,
+                                independentOwnershipLookup: sessionSuccessLookup,
+                                optionsSnapshot: options);
                         return new AutoInstallCandidateApplyResult(
-                            failedPackages,
-                            autoInstallMutationReceipt);
+                            installExecutionResult.FailedPackages,
+                            mutationReceipt: null,
+                            installExecutionResult.StoppedByPhysicalFailure,
+                            installExecutionResult.PhysicalFailureReceipt,
+                            installExecutionResult.AddedCharts);
                     },
+                    mutationSession,
                     token);
-                LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
-                registeredPackages = [.. applyResult.AutoInstalledPackages];
-                if (applyResult.PendingPackagesToRemove.Count > 0
-                    || applyResult.PendingPackagesToAdd.Count > 0
-                    || applyResult.InstallRowsToUpsert.Count > 0)
+                mutationSession.AppendInstallPathsToDelete(applyResult.InstallRowsToDelete);
+                mutationSession.AppendInstallRowsToUpsert(applyResult.InstallRowsToUpsert);
+
+                bool hasPendingMutation = applyResult.PendingPackagesToRemove.Count > 0
+                    || applyResult.PendingPackagesToAdd.Count > 0;
+                PendingPackageMutationDelta pendingMutationDelta = null;
+                if (hasPendingMutation)
                 {
-                    List<ChartPackage> currentPendingPackages;
-                    using (rwlockPendingInstallCharts.GetReaderGuard())
-                    {
-                        currentPendingPackages = [.. ChartPackagesPending.Where(package => package != null)];
-                    }
-                    PendingPackageMutationDelta pendingMutationDelta = packageInstallService.BuildPendingPackageMutationDelta(
-                        currentPendingPackages,
+                    pendingMutationDelta = packageInstallService.BuildPendingPackageMutationDelta(
+                        pendingPackageSnapshot,
                         packagesToRemove: applyResult.PendingPackagesToRemove);
-                    Action pendingMutationEffect = ApplyPendingPackageMutationDeltaUnderExistingReservation(
-                        pendingMutationDelta,
-                        applyResult.PendingPackagesToAdd,
+                    // install row delete/upsert belongs to the session's canonical transaction.
+                    pendingMutationDelta.InstallPathsToDelete.Clear();
+                    PackageLifecycleOwner.ValidatePendingPackagePathUniqueness(
+                        pendingMutationDelta.RemainingPackages.Concat(applyResult.PendingPackagesToAdd),
                         applyResult.InstallRowsToUpsert);
-                    if (pendingMutationEffect != null)
-                    {
-                        postLeaseEffects.Add(pendingMutationEffect);
-                    }
                 }
-                if (applyResult.ManualRecoveryRequired
-                    || applyResult.HasDurableFinalizationFailure)
+                if (hasPendingMutation || deferredInstalledPackages.Count > 0)
                 {
-                    // The durable prefix has already been registered above;
-                    // retain only the failed/manual and unattempted suffix as
-                    // pending and stop before any later estimate work starts.
+                    AppendInstallCollectionSessionFinalizer(
+                        mutationSession,
+                        scope => postLeaseEffects.Add(scope.Dispose),
+                        () =>
+                        {
+                            if (hasPendingMutation)
+                            {
+                                packageLifecycleOwner.ApplyPendingPackageMutationDelta(
+                                    pendingMutationDelta,
+                                    applyResult.PendingPackagesToAdd,
+                                    installRowsToUpsert: null);
+                            }
+                            if (deferredInstalledPackages.Count > 0)
+                            {
+                                packageLifecycleOwner.AddInstalledPackages(deferredInstalledPackages);
+                            }
+                        });
+                }
+
+                LibraryMutationSessionReceipt sessionReceipt = mutationSession.Commit();
+                applyResult.SessionReceipt = sessionReceipt;
+                autoInstallSessionReceipt = sessionReceipt;
+                LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
+
+                bool publishInstalledSuccess = sessionReceipt.DurableCommit
+                    && !sessionReceipt.HasDurableFinalizationFailure;
+                registeredPackages = publishInstalledSuccess
+                    ? [.. deferredInstalledPackages]
+                    : [];
+
+                if (sessionReceipt.HasRequiredFailure)
+                {
                     return CreatePackageInstallCommandResult(
                         registeredPackages,
-                        applyResult.MutationReceipt);
+                        sessionReceipt);
                 }
 
                 BackgroundPendingEstimatePreparationResult estimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall);
@@ -407,7 +427,7 @@ public partial class BMSLibrary
                 }
                 return CreatePackageInstallCommandResult(
                     registeredPackages,
-                    applyResult.MutationReceipt);
+                    sessionReceipt);
             }
             catch (Exception exception)
             {
@@ -448,9 +468,9 @@ public partial class BMSLibrary
 
     private static PackageInstallCommandResult CreatePackageInstallCommandResult(
         IEnumerable<ChartPackage> registeredPackages,
-        FileDbMutationBatchReceipt mutationReceipt)
+        LibraryMutationSessionReceipt sessionReceipt)
     {
-        return new PackageInstallCommandResult(registeredPackages, mutationReceipt);
+        return new PackageInstallCommandResult(registeredPackages, sessionReceipt);
     }
 
     private static void FlushPostLeaseEffects(
@@ -547,18 +567,11 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// pending source cleanup is a zero-file promotion whose install row is
-    /// deleted by the same durable receipt owner as a normal install.  Keeping
-    /// the source in the plan until that receipt exists prevents source-first
-    /// deletion when the catalog transaction fails.
+    /// cleanup-only package source を physical prepare し、install row delete と source cleanup を session commit へ委譲します。
     /// </summary>
-    private FileDbMutationReceipt ExecutePendingPackageSourceCleanupWithReceipt(
-        ChartPackage package,
-        Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
-        EstimatedInstallDeferredFeedback deferredFeedback = null,
-        Action<Action> postLeaseNotificationObserver = null)
+    private PackageInstallSessionMoveResult PreparePendingPackageSourceCleanupForMutationSession(
+        ChartPackage package)
     {
-        ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
         string sourcePath = package?.path;
         bool sourceDirectoryExists = !string.IsNullOrWhiteSpace(sourcePath)
             && LongPathFileSystem.DirectoryExists(sourcePath);
@@ -577,106 +590,66 @@ public partial class BMSLibrary
         {
             InstallPathToDelete = sourcePath
         };
-        FileDbMutationReceipt receipt = new FileDbMutationExecutor(
+        FileDbMutationPreparedCommit preparedCommit = new FileDbMutationExecutor(
             plan,
             fileMutationService,
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions)
-            .Execute(() => applyDurableStorageRows(installResult));
-        if (receipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-            || receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+            .Prepare();
+        if (!preparedCommit.Prepared)
         {
-            deferredFeedback?.LogInstallWarning(
-                receipt.Failure,
-                "estimated_install_cleanup_only_manual_recovery path="
-                + sourcePath
-                + " recoveryPaths="
-                + string.Join("|", receipt.RecoveryPaths ?? []));
+            return new PackageInstallSessionMoveResult(
+                executionResult: null,
+                physicalMutation: null,
+                preparedCommit.FailureReceipt);
         }
-        else if (!receipt.DurableCommit)
-        {
-            deferredFeedback?.LogInstallWarning(
-                receipt.Failure,
-                "estimated_install_cleanup_only_failed path=" + sourcePath);
-        }
-        return receipt;
+        return new PackageInstallSessionMoveResult(
+            installResult,
+            new PackageInstallSessionPhysicalMutation(
+                preparedCommit,
+                applyLiveState: null,
+                destinationDirectory: null),
+            failureReceipt: null);
     }
 
-    private PackageInstallExecutionResult installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, PackageSourceCleanupPolicy sourceCleanupPolicy, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, IInstalledChartLookupIndex independentOwnershipLookup = null, bool skipInstalledPackageWhenNoBms = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null, bool reportAtTerminal = false, BmsLibraryOptionsSnapshot optionsSnapshot = null)
+    /// <summary>
+    /// package の filesystem prepare だけを実行し、storage apply / source cleanup / resource scan を一つの install session へ集約します。
+    /// maintenance と package collection publication は caller が operation 単位で finalizer 登録します。
+    /// </summary>
+    private PackageInstallExecutionResult PrepareInstallPackagesForMutationSession(
+        IEnumerable<ChartPackage> chartPackagesInstall,
+        LibraryMutationOwner.LibraryMutationSession mutationSession,
+        PackageSourceCleanupPolicy sourceCleanupPolicy,
+        string installationDirectory = null,
+        List<ChartFile> deferredMaintenanceCharts = null,
+        List<ChartPackage> deferredInstalledPackages = null,
+        Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
+        IPrimaryHashLookup existingHashes = null,
+        IInstalledChartLookupIndex independentOwnershipLookup = null,
+        bool skipInstalledPackageWhenNoBms = false,
+        EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null,
+        EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null,
+        Action<Action> diagnosticEffectObserver = null,
+        bool reportAtTerminal = false,
+        BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
-        ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
+        ArgumentNullException.ThrowIfNull(mutationSession);
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         optionsSnapshot ??= CurrentOptionsSnapshot;
-        List<ChartFile> addedChartsForChartInfo = [];
         IBmsLibraryDialogService installDialogService = estimatedInstallDeferredFeedback?.DialogService;
         Action<string> installPerformanceLogger = estimatedInstallDeferredFeedback == null
             ? LogInstallPerformance
             : estimatedInstallDeferredFeedback.LogInstallPerformance;
         if (diagnosticEffectObserver == null && estimatedInstallDeferredFeedback != null)
         {
-            diagnosticEffectObserver = effect =>
-                estimatedInstallDeferredFeedback.DeferDiagnosticEffect(effect);
+            diagnosticEffectObserver = effect => estimatedInstallDeferredFeedback.DeferDiagnosticEffect(effect);
         }
 
-        void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
-        {
-            IReadOnlyList<ChartFile> addedCharts = LibraryMutationOwner.CreateAddedStorageTargets(installResult).Charts;
-            if (deferredMaintenanceCharts != null)
-            {
-                deferredMaintenanceCharts.AddRange(addedCharts);
-                return;
-            }
-            if (addedCharts.Count > 0)
-            {
-                ApplyCatalogMaintenanceUnderExistingReservation(
-                    addedCharts,
-                    forceUpdate: true,
-                    resourceHealthMutationReason: "install_package",
-                    postLeaseNotificationObserver: postLeaseEffectObserver);
-            }
-        }
-
-        void ApplyInstalledChartScores(PackageInstallExecutionResult installResult)
-        {
-            ChartStorageTargetSet addedTargets = LibraryMutationOwner.CreateAddedStorageTargets(installResult);
-            SetBMSScore(addedTargets.BmsFiles);
-        }
-
-        void AddReverseLookupDirectoriesForInstall(IEnumerable<string> addedDirectories)
-        {
-            List<string> directoryList = [.. addedDirectories ?? []];
-            if (directoryList.Count == 0)
-            {
-                return;
-            }
-            if (ChartDirectoryScanBuilder.TryBuildFromRoots(directoryList, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
-            {
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                    libraryResourceIndexOwner.AddScanDirectories(addedDirectoryScan).MutationResult;
-                diagnosticEffectObserver?.Invoke(
-                    () => LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation));
-            }
-            else
-            {
-                LogInstallPerformanceWarn("install_package resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + directoryList.Count);
-            }
-        }
-
-        void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
-        {
-            ChartStorageTargetSet addedTargets = LibraryMutationOwner.CreateAddedStorageTargets(installResult);
-            IReadOnlyList<ChartFile> addedCharts = addedTargets.Charts;
-            addedChartsForChartInfo.AddRange(addedCharts);
-            AddReverseLookupDirectoriesForInstall(addedTargets.GetDistinctChartDirectories());
-            estimatedInstallBatchApplyContext?.AddInstalledTargets(addedTargets, installationDirectory);
-        }
-
-        PackageInstallExecutionResult result = packageInstallService.InstallPackagesWithFileMutationReceipts(
+        PackageInstallExecutionResult result = packageInstallService.InstallPackagesForMutationSession(
             installPackageList,
             installationDirectory,
-            (package, destinationDirectory, cleanupPolicy, hashSnapshot, ownershipLookup, excludedComponentPaths, applyDurableCommit) =>
-            {
-                FileDbMutationReceipt receipt = packageInstallService.MovePackageFilesWithReceipt(
+            (package, destinationDirectory, cleanupPolicy, hashSnapshot, ownershipLookup, excludedComponentPaths) =>
+                packageInstallService.MovePackageFilesForInstallSession(
                     package,
                     destinationDirectory,
                     optionsSnapshot,
@@ -687,53 +660,106 @@ public partial class BMSLibrary
                     targetOnlyFileMutationOptions,
                     recursiveDirectoryTreeFileMutationOptions,
                     installPerformanceLogger,
-                    applyDurableCommit,
+                    cleanupPolicy,
                     showMessageBoxOnInstallFail: !reportAtTerminal,
-                    sourceCleanupPolicy: cleanupPolicy,
                     existingHashes: hashSnapshot,
-                    independentOwnershipLookup: independentOwnershipLookup,
+                    independentOwnershipLookup: ownershipLookup,
                     excludedComponentPaths: excludedComponentPaths,
-                    enqueueDiagnosticEffect: diagnosticEffectObserver);
-                return receipt;
-            },
-            applyDurableStorageRows,
-            UpdateInstalledChartMaintenance,
-            ApplyInstalledChartScores,
-            ApplyInstalledChartState,
-            sourceCleanupPolicy: sourceCleanupPolicy,
-            excludedComponentPathsByPackage: excludedComponentPathsByPackage,
-            existingHashes: existingHashes,
-            skipInstalledPackageWhenNoBms: skipInstalledPackageWhenNoBms,
-            independentOwnershipLookup: independentOwnershipLookup);
-        foreach (FileDbMutationReceipt mutationReceipt in result.MutationReceipt?.Receipts ?? [])
+                    enqueueDiagnosticEffect: diagnosticEffectObserver),
+            mutationSession,
+            sourceCleanupPolicy,
+            excludedComponentPathsByPackage,
+            existingHashes,
+            skipInstalledPackageWhenNoBms,
+            independentOwnershipLookup);
+
+        ChartStorageTargetSet addedTargets = LibraryMutationOwner.CreateAddedStorageTargets(result);
+        if (deferredMaintenanceCharts != null && addedTargets.Charts.Count > 0)
         {
-            mutationReceiptObserver?.Invoke(mutationReceipt);
+            deferredMaintenanceCharts.AddRange(addedTargets.Charts);
         }
-        mutationBatchReceiptObserver?.Invoke(result.MutationReceipt);
-        if (result.InstalledPackagesToRegister.Count > 0)
+        if (deferredInstalledPackages != null && result.InstalledPackagesToRegister.Count > 0)
         {
-            if (deferredInstalledPackages != null)
-            {
-                deferredInstalledPackages.AddRange(result.InstalledPackagesToRegister);
-            }
-            else
-            {
-                Action installedPackagesEffect = AddInstalledPackagesUnderExistingReservation(
-                    result.InstalledPackagesToRegister);
-                if (installedPackagesEffect != null)
-                {
-                    postLeaseEffectObserver?.Invoke(installedPackagesEffect);
-                }
-            }
+            deferredInstalledPackages.AddRange(result.InstalledPackagesToRegister);
         }
-        installPerformanceLogger("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " sourceCleanupPolicy=" + sourceCleanupPolicy + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
-        if (deferredMaintenanceCharts == null)
+        estimatedInstallBatchApplyContext?.AddInstalledTargets(addedTargets, installationDirectory);
+        installPerformanceLogger(
+            "install_chart_packages_session_prepare dst="
+            + (installationDirectory ?? "(auto)")
+            + " packages="
+            + installPackageList.Count
+            + " addedFiles="
+            + result.AddedEntries.Count
+            + " failedPackages="
+            + result.FailedPackages.Count
+            + " sourceCleanupPolicy="
+            + sourceCleanupPolicy
+            + " moveMs="
+            + result.MoveMs
+            + " totalMs="
+            + result.TotalMs);
+        return result;
+    }
+
+    /// <summary>
+    /// install session の成功 chart に対する maintenance / score / inline apply を operation 終端へ集約します。
+    /// </summary>
+    private void AppendStandardInstallSessionFinalizer(
+        LibraryMutationOwner.LibraryMutationSession mutationSession,
+        List<ChartFile> deferredMaintenanceCharts,
+        ICollection<Action> postLeaseEffects)
+    {
+        ArgumentNullException.ThrowIfNull(mutationSession);
+        ArgumentNullException.ThrowIfNull(deferredMaintenanceCharts);
+        ArgumentNullException.ThrowIfNull(postLeaseEffects);
+        mutationSession.AppendRequiredDurableFinalizer(() =>
         {
+            ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(
+                deferredMaintenanceCharts);
+            if (installedTargets.Charts.Count == 0)
+            {
+                return;
+            }
+            ApplyCatalogMaintenanceUnderExistingReservation(
+                installedTargets.Charts,
+                forceUpdate: true,
+                resourceHealthMutationReason: "install_package",
+                postLeaseNotificationObserver: postLeaseEffects.Add);
+            SetBMSScore(installedTargets.BmsFiles);
             BuildAndPersistInlineChartInfoForInstalledCharts(
                 "install_package_inline",
-                addedChartsForChartInfo);
+                installedTargets.Charts);
+        });
+    }
+
+    /// <summary>install session の package collection state と公開 scope を required finalizer として一度だけ適用します。</summary>
+    private void AppendInstallCollectionSessionFinalizer(
+        LibraryMutationOwner.LibraryMutationSession mutationSession,
+        Action<IDisposable> publicationScopeObserver,
+        Action applyCollectionState)
+    {
+        ArgumentNullException.ThrowIfNull(mutationSession);
+        ArgumentNullException.ThrowIfNull(publicationScopeObserver);
+        ArgumentNullException.ThrowIfNull(applyCollectionState);
+        mutationSession.AppendRequiredDurableFinalizer(() =>
+        {
+            IDisposable publicationScope =
+                packageLifecycleOwner.BeginCollectionMutationScope(queuePublication: true);
+            publicationScopeObserver(publicationScope);
+            applyCollectionState();
+        });
+    }
+
+    /// <summary>session durable success 後に install destination を一括 clear します。</summary>
+    private static void ClearInstallDestinationsAfterSessionCommit(IEnumerable<ChartPackage> packages)
+    {
+        foreach (ChartPackage package in (packages ?? []).Where(package => package != null).Distinct())
+        {
+            foreach (PackageChartEntry entry in package.ChartEntries ?? [])
+            {
+                entry?.ClearInstallDestination();
+            }
         }
-        return result;
     }
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallReverseLookupPreparationUnderGuard(
@@ -1413,7 +1439,7 @@ public partial class BMSLibrary
     }
 
     /// <summary>Returns force-install facts, optionally assigning receipt-backed dialogs to the caller terminal.</summary>
-    internal FileDbMutationBatchReceipt ForceInstallPendingPackagesWithReceipt(
+    internal LibraryMutationSessionReceipt ForceInstallPendingPackagesWithReceipt(
         IEnumerable<ChartPackage> packages,
         bool? approveNormalInstallOverride,
         ISet<ChartPackage> approvedNormalInstallOverridePackages,
@@ -1425,11 +1451,12 @@ public partial class BMSLibrary
         }
         if (TryBlockCatalogFileMutation(nameof(ForceInstallPendingPackages)))
         {
-            return new FileDbMutationBatchReceipt([]);
+            return LibraryMutationSessionReceipt.Empty;
         }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool hasInitializedBmsFiles;
         List<ChartPackage> pendingPackageSnapshot;
+        List<ChartPackage> installedPackageSnapshot;
         InstalledChartLookupIndexSnapshot installedChartHashSnapshot;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         using (rwlockPendingInstallCharts.GetReaderGuard())
@@ -1437,11 +1464,12 @@ public partial class BMSLibrary
         {
             hasInitializedBmsFiles = BMSFiles != null;
             pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
+            installedPackageSnapshot = [.. ChartPackagesInstalled.Where(package => package != null)];
             installedChartHashSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
         }
         if (!hasInitializedBmsFiles)
         {
-            return new FileDbMutationBatchReceipt([]);
+            return LibraryMutationSessionReceipt.Empty;
         }
 
         // Normal-install confirmations are a user decision, not mutation
@@ -1485,7 +1513,7 @@ public partial class BMSLibrary
             showMessage: true);
         if (mutationReservation == null)
         {
-            return new FileDbMutationBatchReceipt([]);
+            return LibraryMutationSessionReceipt.Empty;
         }
         List<Action> postLeaseEffects = [];
         List<Action> diagnosticEffects = [];
@@ -1494,7 +1522,8 @@ public partial class BMSLibrary
             DeferPackageEntryNotifications(approvedNormalInstallPackages.SelectMany(package => package.ChartEntries));
         postLeaseEffects.Add(() =>
         {
-            if (result?.HasDurableFinalizationFailure == true)
+            if (result?.SessionReceipt is LibraryMutationSessionReceipt terminal
+                && (!terminal.DurableCommit || terminal.HasDurableFinalizationFailure))
             {
                 DiscardPackageEntryNotificationPublication(packageEntryNotificationDeferrals);
                 return;
@@ -1508,69 +1537,48 @@ public partial class BMSLibrary
             {
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();
-                result = packageInstallService.ForceInstallPackagesWithFileMutationReceipts(
+                LibraryMutationOwner.LibraryMutationSession mutationSession =
+                    libraryMutationOwner.BeginLibraryMutationSession(
+                        mutationCapability,
+                        "install_package",
+                        postLeaseEffects,
+                        suppressNormalRefreshNotification: false,
+                        suppressLr2NormalFolderSync: false);
+                List<ChartFile> deferredMaintenanceCharts = [];
+                AppendStandardInstallSessionFinalizer(
+                    mutationSession,
+                    deferredMaintenanceCharts,
+                    postLeaseEffects);
+                result = packageInstallService.ForceInstallPackagesForMutationSession(
                     packages,
                     pendingPackageSnapshot,
-                    pendingPackage =>
-                    {
-                        return approvedNormalInstallPackages.Contains(pendingPackage);
-                    },
-                    (packagesToInstall, deferredInstalledPackages) =>
-                    {
-                        bool manualRecoveryRequired = false;
-                        FileDbMutationBatchReceipt mutationBatchReceipt = null;
-                        PackageInstallExecutionResult installExecutionResult = installChartPackages(
-                            packagesToInstall,
-                            installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
-                                installResult,
-                                "install_package",
-                                mutationCapability,
-                                postLeaseEffects.Add),
-                            sourceCleanupPolicy: options.DeletePendingPackageSourceAfterInstall
-                                ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
-                                : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
-                            deferredInstalledPackages: deferredInstalledPackages,
-                            mutationReceiptObserver: receipt =>
-                            {
-                                manualRecoveryRequired |=
-                                    receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                                    || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed;
-                            },
-                            mutationBatchReceiptObserver: batchReceipt => mutationBatchReceipt = batchReceipt,
-                            diagnosticEffectObserver: diagnosticEffects.Add,
-                            postLeaseEffectObserver: postLeaseEffects.Add,
-                            reportAtTerminal: reportAtTerminal,
-                            existingHashes: installedChartHashSnapshot,
-                            independentOwnershipLookup: installedChartHashSnapshot,
-                            optionsSnapshot: options);
-                        List<ChartPackage> failedPackages = installExecutionResult.FailedPackages;
-                        return new ForceInstallPackageApplyResult(
-                            failedPackages,
-                            manualRecoveryRequired,
-                            mutationBatchReceipt);
-                    },
+                    pendingPackage => approvedNormalInstallPackages.Contains(pendingPackage),
+                    (packagesToInstall, sessionSuccessLookup) => PrepareInstallPackagesForMutationSession(
+                        packagesToInstall,
+                        mutationSession,
+                        sourceCleanupPolicy: options.DeletePendingPackageSourceAfterInstall
+                            ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                            : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                        deferredMaintenanceCharts: deferredMaintenanceCharts,
+                        diagnosticEffectObserver: diagnosticEffects.Add,
+                        reportAtTerminal: reportAtTerminal,
+                        existingHashes: sessionSuccessLookup,
+                        independentOwnershipLookup: sessionSuccessLookup,
+                        optionsSnapshot: options),
+                    mutationSession,
+                    installedChartHashSnapshot,
+                    installedChartHashSnapshot,
                     info => NLogWrapper.FileLogger?.Info(info));
-                if (result.Requested == 0)
-                {
-                    return result.MutationReceipt ?? new FileDbMutationBatchReceipt([]);
-                }
 
-                diagnosticEffects.Add(
-                    () => NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + result.Requested));
-                List<ChartPackage> currentPendingPackages = [];
+                PendingPackageMutationDelta pendingMutationDelta = null;
                 if (result.PendingPackagesToRemove.Count > 0)
                 {
-                    using (rwlockPendingInstallCharts.GetReaderGuard())
-                    {
-                        currentPendingPackages = [.. ChartPackagesPending.Where(package => package != null)];
-                    }
+                    pendingMutationDelta = packageInstallService.BuildPendingPackageMutationDelta(
+                        pendingPackageSnapshot,
+                        packagesToRemove: result.PendingPackagesToRemove);
+                    pendingMutationDelta.InstallPathsToDelete.Clear();
                 }
-                List<ChartPackage> installedPackages;
-                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    installedPackages = [.. ChartPackagesInstalled.Where(package => package != null)];
-                }
+                List<ChartPackage> installedPackages = [.. installedPackageSnapshot];
                 var installedSet = new HashSet<ChartPackage>(installedPackages);
                 int installedAdded = 0;
                 foreach (ChartPackage deferredInstalledPackage in result.DeferredInstalledPackages)
@@ -1581,30 +1589,40 @@ public partial class BMSLibrary
                         installedAdded++;
                     }
                 }
-                IDisposable collectionPublicationScope = packageLifecycleOwner.BeginCollectionMutationScope(queuePublication: true);
-                try
+                if (result.PendingPackagesToRemove.Count > 0
+                    || installedAdded > 0
+                    || result.PackagesToClearInstallDestinations.Count > 0)
                 {
-                    if (result.PendingPackagesToRemove.Count > 0)
-                    {
-                        PendingPackageMutationDelta pendingMutationDelta = packageInstallService.BuildPendingPackageMutationDelta(
-                            currentPendingPackages,
-                            packagesToRemove: result.PendingPackagesToRemove);
-                        packageLifecycleOwner.ApplyPendingPackageMutationDelta(pendingMutationDelta);
-                    }
-                    if (installedAdded > 0)
-                    {
-                        packageLifecycleOwner.ReplaceInstalledPackages(installedPackages);
-                    }
+                    AppendInstallCollectionSessionFinalizer(
+                        mutationSession,
+                        scope => postLeaseEffects.Add(scope.Dispose),
+                        () =>
+                        {
+                            if (result.PendingPackagesToRemove.Count > 0)
+                            {
+                                packageLifecycleOwner.ApplyPendingPackageMutationDelta(pendingMutationDelta);
+                            }
+                            if (installedAdded > 0)
+                            {
+                                packageLifecycleOwner.ReplaceInstalledPackages(installedPackages);
+                            }
+                            ClearInstallDestinationsAfterSessionCommit(
+                                result.PackagesToClearInstallDestinations);
+                        });
                 }
-                catch
+
+                LibraryMutationSessionReceipt sessionReceipt = mutationSession.Commit();
+                result.SessionReceipt = sessionReceipt;
+                if (result.Requested == 0)
                 {
-                    postLeaseEffects.Add(collectionPublicationScope.Dispose);
-                    throw;
+                    return sessionReceipt;
                 }
-                postLeaseEffects.Add(collectionPublicationScope.Dispose);
+
                 diagnosticEffects.Add(
-                    () => NLogWrapper.FileLogger?.Info("force_install_batch summary requested=" + result.Requested + " processed=" + result.Processed + " succeeded=" + result.Succeeded + " failed=" + result.Failed + " skipped=" + result.Skipped + " pendingRemoved=" + result.PendingPackagesToRemove.Count + " installedAdded=" + installedAdded));
-                return result.MutationReceipt ?? new FileDbMutationBatchReceipt([]);
+                    () => NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + result.Requested));
+                diagnosticEffects.Add(
+                    () => NLogWrapper.FileLogger?.Info("force_install_batch summary requested=" + result.Requested + " processed=" + result.Processed + " succeeded=" + result.Succeeded + " failed=" + result.Failed + " skipped=" + result.Skipped + " pendingRemoved=" + (sessionReceipt.DurableCommit && !sessionReceipt.HasDurableFinalizationFailure ? result.PendingPackagesToRemove.Count : 0) + " installedAdded=" + (sessionReceipt.DurableCommit && !sessionReceipt.HasDurableFinalizationFailure ? installedAdded : 0)));
+                return sessionReceipt;
             }
             catch (Exception exception)
             {
@@ -1638,7 +1656,7 @@ public partial class BMSLibrary
         {
             ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
-        return new FileDbMutationBatchReceipt([]);
+        return LibraryMutationSessionReceipt.Empty;
     }
 
     internal void ForceInstallPendingPackages(
@@ -1833,7 +1851,7 @@ public partial class BMSLibrary
     private PendingEstimatedInstallExecutionReceipt ExecutePendingEstimatedInstall(
         IEnumerable<ChartPackage> packages,
         PendingEstimatedInstallExecutionContext executionContext,
-        Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
+        LibraryMutationOwner.LibraryMutationSession mutationSession,
         bool reportAtTerminal = false)
     {
         if (packages == null)
@@ -1844,7 +1862,7 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(executionContext));
         }
-        ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
+        ArgumentNullException.ThrowIfNull(mutationSession);
 
         var totalStopwatch = Stopwatch.StartNew();
         EstimatedInstallDeferredFeedback deferredFeedback = executionContext.DeferredFeedback;
@@ -1898,10 +1916,45 @@ public partial class BMSLibrary
             + installPlan.PlanBuildMs);
 
         var batchApplyContext = new EstimatedInstallBatchApplyContext();
-        List<FileDbMutationReceipt> mutationReceipts = [];
         List<ChartFile> deferredMaintenanceCharts = [];
         List<ChartPackage> deferredInstalledPackages = [];
-        PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
+        PendingEstimatedInstallPostGuardResult maintenanceReceipt = null;
+        PendingEstimatedInstallPostGuardResult inlineChartInfoReceipt = null;
+        Action maintenancePublication = null;
+        Action inlineChartInfoPublication = null;
+        long maintenanceMs = 0;
+        mutationSession.AppendRequiredDurableFinalizer(() =>
+        {
+            var maintenanceStopwatch = Stopwatch.StartNew();
+            try
+            {
+                maintenanceReceipt = ApplyEstimatedInstallMaintenanceForDeferredDispatch(
+                    deferredMaintenanceCharts,
+                    deferredFeedback,
+                    out maintenancePublication);
+                maintenanceReceipt.ThrowIfFailed();
+                ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(
+                    deferredMaintenanceCharts);
+                SetBMSScore(installedTargets.BmsFiles);
+                List<ChartFile> targets =
+                    BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts);
+                List<ChartFile> inlineTargets = BuildEstimatedInstallMaintenanceTargets(
+                    targets.Concat(CreateAddedBmsonChartProjections(batchApplyContext.AddedCharts)));
+                inlineChartInfoReceipt = BuildEstimatedInstallInlineChartInfoForDeferredDispatch(
+                    "install_package_estimated_inline",
+                    inlineTargets,
+                    deferredFeedback,
+                    out inlineChartInfoPublication);
+                inlineChartInfoReceipt.ThrowIfFailed();
+            }
+            finally
+            {
+                maintenanceStopwatch.Stop();
+                maintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
+            }
+        });
+
+        PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlanForMutationSession(
             installPlan,
             deletePendingPackageSourceAfterInstall,
             item =>
@@ -1914,9 +1967,9 @@ public partial class BMSLibrary
                         [item.InstallWorkPackage] = item.ExcludedComponentPaths
                     };
                 }
-                return installChartPackages(
+                return PrepareInstallPackagesForMutationSession(
                     [item.InstallWorkPackage],
-                    applyDurableStorageRows,
+                    mutationSession,
                     sourceCleanupPolicy: deletePendingPackageSourceAfterInstall
                         ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
                         : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
@@ -1929,21 +1982,13 @@ public partial class BMSLibrary
                     skipInstalledPackageWhenNoBms: true,
                     estimatedInstallBatchApplyContext: batchApplyContext,
                     estimatedInstallDeferredFeedback: deferredFeedback,
-                    mutationReceiptObserver: receipt => mutationReceipts.Add(receipt),
                     reportAtTerminal: reportAtTerminal,
                     optionsSnapshot: options);
             },
             CreateInstalledDisplayPackageForResourceOnlyMerge,
-            cleanupPendingPackageSource: null,
+            PreparePendingPackageSourceCleanupForMutationSession,
+            mutationSession,
             logInfo: deferredFeedback.LogInstallPerformance,
-            cleanupPendingPackageSourceWithReceipt: package => ExecutePendingPackageSourceCleanupWithReceipt(
-                package,
-                applyDurableStorageRows,
-                deferredFeedback),
-            mutationReceiptObserver: receipt => mutationReceipts.Add(receipt),
-            manualRecoveryObserved: () => mutationReceipts.Any(receipt =>
-                receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                    || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed),
             countComponentMoveTargets: (package, destinationDirectory, excludedComponentPaths) =>
                 CountComponentMoveTargetsFromSnapshot(
                     package,
@@ -1952,54 +1997,51 @@ public partial class BMSLibrary
                     componentFilesByPackage));
         batchResult.DeferredMaintenanceCharts.AddRange(deferredMaintenanceCharts);
         batchResult.DeferredInstalledPackages.AddRange(deferredInstalledPackages);
-        if (mutationReceipts.Count > 0)
+
+        long pendingApplyMs = 0;
+        long installedApplyMs = 0;
+        var pendingApplyResult = new PendingEstimatedInstallCollectionApplyResult();
+        var installedApplyResult = new PendingEstimatedInstallCollectionApplyResult();
+        IDisposable collectionPublicationScope = null;
+        if (batchResult.PendingPackagesToRemove.Count > 0
+            || batchResult.DeferredInstalledPackages.Count > 0
+            || batchResult.PackagesToClearInstallDestinations.Count > 0)
         {
-            batchResult.MutationReceipt = new FileDbMutationBatchReceipt(
-                mutationReceipts,
-                batchResult.MutationReceipt?.FinalizationFailure);
+            List<ChartPackage> currentPendingPackages;
+            using (PendingEstimatedInstallMutationLease.Acquire(
+                rwlockBMSFilesInitializedAll.GetReaderGuard,
+                rwlockPendingInstallCharts.GetReaderGuard))
+            {
+                currentPendingPackages = [.. packageLifecycleOwner.PendingPackages.Where(package => package != null)];
+            }
+            PendingPackageMutationDelta pendingDelta = packageInstallService.BuildPendingPackageMutationDelta(
+                currentPendingPackages,
+                packagesToRemove: batchResult.PendingPackagesToRemove);
+            pendingDelta.InstallPathsToDelete.Clear();
+            pendingDelta.HasChanges = pendingDelta.HasChanges
+                || batchResult.PendingPackagesToRemove.Count > 0;
+            AppendInstallCollectionSessionFinalizer(
+                mutationSession,
+                scope => collectionPublicationScope = scope,
+                () =>
+                {
+                    (
+                        pendingApplyResult,
+                        installedApplyResult,
+                        pendingApplyMs,
+                        installedApplyMs) = packageLifecycleOwner.ApplyEstimatedInstallCollections(
+                            pendingDelta,
+                            batchResult.PendingPackagesToRemove.Count,
+                            batchResult.DeferredInstalledPackages);
+                    ClearInstallDestinationsAfterSessionCommit(
+                        batchResult.PackagesToClearInstallDestinations);
+                });
         }
 
-        long libraryStateApplyMs;
-        long pendingApplyMs;
-        long installedApplyMs;
-        PendingEstimatedInstallCollectionApplyResult pendingApplyResult;
-        PendingEstimatedInstallCollectionApplyResult installedApplyResult;
         var libraryStateApplyStopwatch = Stopwatch.StartNew();
+        LibraryMutationSessionReceipt sessionReceipt = mutationSession.Commit();
         libraryStateApplyStopwatch.Stop();
-        libraryStateApplyMs = libraryStateApplyStopwatch.ElapsedMilliseconds;
-        List<ChartPackage> currentPendingPackages;
-        using (PendingEstimatedInstallMutationLease.Acquire(
-            rwlockBMSFilesInitializedAll.GetReaderGuard,
-            rwlockPendingInstallCharts.GetReaderGuard))
-        {
-            currentPendingPackages = [.. packageLifecycleOwner.PendingPackages.Where(package => package != null)];
-        }
-        PendingPackageMutationDelta pendingDelta = packageInstallService.BuildPendingPackageMutationDelta(
-            currentPendingPackages,
-            packagesToRemove: batchResult.PendingPackagesToRemove);
-        // Every selected package's install row is deleted by its durable
-        // catalog receipt.  The collection delta removes in-memory entries but
-        // must not issue a second DB delete after that receipt.
-        pendingDelta.InstallPathsToDelete.Clear();
-        pendingDelta.HasChanges = pendingDelta.HasChanges
-            || batchResult.PendingPackagesToRemove?.Count > 0;
-        IDisposable collectionPublicationScope = packageLifecycleOwner.BeginCollectionMutationScope(queuePublication: true);
-        try
-        {
-            (
-                pendingApplyResult,
-                installedApplyResult,
-                pendingApplyMs,
-                installedApplyMs) = packageLifecycleOwner.ApplyEstimatedInstallCollections(
-                    pendingDelta,
-                    batchResult.PendingPackagesToRemove?.Count ?? 0,
-                    batchResult.DeferredInstalledPackages);
-        }
-        catch
-        {
-            collectionPublicationScope.Dispose();
-            throw;
-        }
+        batchResult.SessionReceipt = sessionReceipt;
 
         return new PendingEstimatedInstallExecutionReceipt
         {
@@ -2010,9 +2052,14 @@ public partial class BMSLibrary
             PendingApplyResult = pendingApplyResult,
             InstalledApplyResult = installedApplyResult,
             CollectionPublicationScope = collectionPublicationScope,
-            LibraryStateApplyMs = libraryStateApplyMs,
+            MaintenanceReceipt = maintenanceReceipt,
+            MaintenancePublication = maintenancePublication,
+            InlineChartInfoReceipt = inlineChartInfoReceipt,
+            InlineChartInfoPublication = inlineChartInfoPublication,
+            LibraryStateApplyMs = libraryStateApplyStopwatch.ElapsedMilliseconds,
             PendingApplyMs = pendingApplyMs,
             InstalledApplyMs = installedApplyMs,
+            MaintenanceMs = maintenanceMs,
             DeletePendingPackageSourceAfterInstall = deletePendingPackageSourceAfterInstall
         };
     }
@@ -2029,29 +2076,14 @@ public partial class BMSLibrary
         {
             return;
         }
-        var maintenanceStopwatch = Stopwatch.StartNew();
-        Action maintenancePublication;
-        receipt.MaintenanceReceipt = ApplyEstimatedInstallMaintenanceForDeferredDispatch(
-            receipt.BatchResult.DeferredMaintenanceCharts,
-            deferredFeedback,
-            out maintenancePublication);
-        receipt.MaintenancePublication = maintenancePublication;
-        receipt.MaintenanceReceipt.ThrowIfFailed();
-        List<ChartFile> targets =
-            BuildEstimatedInstallMaintenanceTargets(receipt.BatchResult.DeferredMaintenanceCharts);
-        List<ChartFile> inlineTargets = BuildEstimatedInstallMaintenanceTargets(
-            targets.Concat(CreateAddedBmsonChartProjections(receipt.BatchApplyContext.AddedCharts)));
-        Action inlineChartInfoPublication;
-        receipt.InlineChartInfoReceipt = BuildEstimatedInstallInlineChartInfoForDeferredDispatch(
-            "install_package_estimated_inline",
-            inlineTargets,
-            deferredFeedback,
-            out inlineChartInfoPublication);
-        receipt.InlineChartInfoPublication = inlineChartInfoPublication;
-        receipt.InlineChartInfoReceipt.ThrowIfFailed();
-        maintenanceStopwatch.Stop();
+        receipt.MaintenanceReceipt ??= new PendingEstimatedInstallPostGuardResult(0);
+        receipt.InlineChartInfoReceipt ??= new PendingEstimatedInstallPostGuardResult(0);
 
-        if (receipt.DeletePendingPackageSourceAfterInstall && receipt.BatchResult.CleanupOnlySucceeded > 0)
+        if (receipt.DeletePendingPackageSourceAfterInstall
+            && receipt.BatchResult.CleanupOnlySucceeded > 0
+            && receipt.BatchResult.SessionReceipt?.DurableCommit == true
+            && receipt.BatchResult.SessionReceipt.HasRequiredFailure == false
+            && receipt.BatchResult.SessionReceipt.DestinationTypeConflicts.Count == 0)
         {
             deferredFeedback.ShowEstimatedCleanupOnlyCompletedWarning(
                 receipt.BatchResult.CleanupOnlySucceeded);
@@ -2080,7 +2112,7 @@ public partial class BMSLibrary
             + " maintenanceTargets="
             + receipt.MaintenanceReceipt.AffectedCount
             + " maintenanceMs="
-            + maintenanceStopwatch.ElapsedMilliseconds
+            + receipt.MaintenanceMs
             + " cleanupOnlyCandidates="
             + receipt.InstallPlan.CleanupOnlyCandidates.Count
             + " cleanupOnlySucceeded="
@@ -2244,16 +2276,11 @@ public partial class BMSLibrary
                 }
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();
-                Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows =
-                    installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
-                        installResult,
-                        "install_package",
-                        mutationCapability,
-                        postLeaseNotifications.Add);
                 result = ExecutePendingPackagesToEstimatedDestinations(
                     packages,
-                    applyDurableStorageRows,
-                    postLeaseNotifications, reportAtTerminal);
+                    mutationCapability,
+                    postLeaseNotifications,
+                    reportAtTerminal);
             }
         }
         catch (Exception exception)
@@ -2276,7 +2303,7 @@ public partial class BMSLibrary
     /// </summary>
     private PendingInstallBatchResult ExecutePendingPackagesToEstimatedDestinations(
         IEnumerable<ChartPackage> packages,
-        Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
+        LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
         bool reportAtTerminal = false)
     {
@@ -2284,7 +2311,8 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
+        ArgumentNullException.ThrowIfNull(mutationCapability);
+        ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         List<ChartPackage> requestedPackages =
             [.. packages.Where(package => package != null)];
         var executionContext = new PendingEstimatedInstallExecutionContext();
@@ -2294,10 +2322,18 @@ public partial class BMSLibrary
 
         try
         {
+            LibraryMutationOwner.LibraryMutationSession mutationSession =
+                libraryMutationOwner.BeginLibraryMutationSession(
+                    mutationCapability,
+                    "install_package",
+                    postLeaseNotifications,
+                    suppressNormalRefreshNotification: false,
+                    suppressLr2NormalFolderSync: false);
             receipt = ExecutePendingEstimatedInstall(
                 requestedPackages,
                 executionContext,
-                applyDurableStorageRows, reportAtTerminal);
+                mutationSession,
+                reportAtTerminal);
             CompletePendingEstimatedInstallUnderGuard(
                 receipt,
                 executionContext.DeferredFeedback);
@@ -2315,9 +2351,8 @@ public partial class BMSLibrary
                 PublishPendingEstimatedInstallFeedback(executionContext?.DeferredFeedback,
                     suppressCleanupOnlyWarning: reportAtTerminal
                         && (result.CompletedWithCleanupFailure
-                            || result.HasDurableFinalizationFailure
-                            || result.ManualRecoveryRequired
-                            || result.MutationReceipt?.Receipts.Any(item => !item.DurableCommit) == true));
+                            || result.SessionReceipt?.HasRequiredFailure == true
+                            || result.DestinationTypeConflicts.Count > 0));
             }
             catch (Exception exception)
             {
@@ -2361,47 +2396,6 @@ public partial class BMSLibrary
     private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
     {
         packageLifecycleOwner.ApplyPendingPackageMutationDelta(delta);
-    }
-
-    private Action ApplyPendingPackageMutationDeltaUnderExistingReservation(
-        PendingPackageMutationDelta delta,
-        IEnumerable<ChartPackage> packagesToAdd,
-        IEnumerable<ChartPackage> installRowsToUpsert)
-    {
-        IDisposable collectionPublicationScope = packageLifecycleOwner.BeginCollectionMutationScope(queuePublication: true);
-        try
-        {
-            packageLifecycleOwner.ApplyPendingPackageMutationDelta(
-                delta,
-                packagesToAdd,
-                installRowsToUpsert);
-        }
-        catch
-        {
-            collectionPublicationScope.Dispose();
-            throw;
-        }
-        return collectionPublicationScope.Dispose;
-    }
-
-    private Action AddInstalledPackagesUnderExistingReservation(
-        IEnumerable<ChartPackage> packages)
-    {
-        if (packages == null || !packages.Any())
-        {
-            return null;
-        }
-        IDisposable collectionPublicationScope = packageLifecycleOwner.BeginCollectionMutationScope(queuePublication: true);
-        try
-        {
-            packageLifecycleOwner.AddInstalledPackages(packages);
-        }
-        catch
-        {
-            collectionPublicationScope.Dispose();
-            throw;
-        }
-        return collectionPublicationScope.Dispose;
     }
 
     /// <summary>
@@ -2795,6 +2789,14 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>
+    /// 導入済み譜面だけを含む保留 package の resource overwrite / cleanup を一つの session で確定します。
+    /// 成功件数は required apply の完了を基準とし、DST の公開通知は file mutation lease 解放後に行います。
+    /// </summary>
+    /// <param name="packages">処理対象の保留 package。</param>
+    /// <param name="token">未処理 package の取消要求。</param>
+    /// <param name="onEachProcessed">lease 解放後に発行する処理済み package の進捗通知。</param>
+    /// <returns>確定済み成功件数と、失敗・確認候補を保持する session terminal を含む結果。</returns>
     public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
     {
         if (packages == null)
@@ -2860,58 +2862,108 @@ public partial class BMSLibrary
                 }
                 logInfo("advanced_pending_resource_overwrite scan pendingTotal=" + pendingPackageSnapshot.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
                 logInfo("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
-                bool manualRecoveryObserved = false;
-                Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows =
-                    installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
-                        installResult,
-                        "install_package",
+                LibraryMutationOwner.LibraryMutationSession mutationSession =
+                    libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
-                        terminalEffects.Add);
-                PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwrite(
+                        "install_package",
+                        terminalEffects,
+                        suppressNormalRefreshNotification: false,
+                        suppressLr2NormalFolderSync: false);
+                IInstalledChartLookupIndex sessionSuccessLookup =
+                    packageInstallService.CreateSessionSuccessOwnershipOverlay(
+                        installedDirectoryIndexSnapshot,
+                        installedDirectoryIndexSnapshot);
+                PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwriteForMutationSession(
                     packages,
                     pendingPackageSnapshot,
                     deletePendingPackageSourceAfterInstall,
-                    pendingPackage => CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(pendingPackage, installedDirectoryIndexSnapshot),
+                    pendingPackage => CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(
+                        pendingPackage,
+                        installedDirectoryIndexSnapshot),
                     DescribeSkipDetail,
                     HasResourceOverwriteTargetsForInstalledOnlyPackage,
-                    (_, _) => false,
-                    _ => (false, CleanupSourceKind.MissingSource),
-                    IsPackageStillPending,
+                    (pendingPackage, destinationDirectory) =>
+                    {
+                        var excludedChartPaths = new HashSet<string>(
+                            (pendingPackage.ChartEntries ?? [])
+                                .Select(entry => entry?.Chart?.Path)
+                                .Where(path => !string.IsNullOrWhiteSpace(path)),
+                            StringComparer.OrdinalIgnoreCase);
+                        Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage =
+                            excludedChartPaths.Count == 0
+                                ? null
+                                : new Dictionary<ChartPackage, HashSet<string>>
+                                {
+                                    [pendingPackage] = excludedChartPaths
+                                };
+                        return PrepareInstallPackagesForMutationSession(
+                            [pendingPackage],
+                            mutationSession,
+                            sourceCleanupPolicy: deletePendingPackageSourceAfterInstall
+                                ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                                : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                            installationDirectory: destinationDirectory,
+                            excludedComponentPathsByPackage: excludedComponentPathsByPackage,
+                            existingHashes: sessionSuccessLookup,
+                            independentOwnershipLookup: sessionSuccessLookup,
+                            skipInstalledPackageWhenNoBms: true,
+                            diagnosticEffectObserver: terminalEffects.Add,
+                            reportAtTerminal: true,
+                            optionsSnapshot: options);
+                    },
+                    PreparePendingPackageSourceCleanupForMutationSession,
+                    CreateInstalledDisplayPackageForResourceOnlyMerge,
+                    mutationSession,
                     token,
                     () => deferredProcessedCount++,
-                    logInfo,
-                    installPackageToEstimatedDestinationWithReceipt: (pendingPackage, _) =>
-                        ExecutePendingPackagesToEstimatedDestinations(
-                            [pendingPackage],
-                            applyDurableStorageRows,
-                            terminalEffects),
-                    cleanupPendingPackageSourceWithReceipt: package =>
-                        ExecutePendingPackageSourceCleanupWithReceipt(
-                            package,
-                            applyDurableStorageRows),
-                    mutationReceiptObserver: mutationReceipt =>
-                    {
-                        manualRecoveryObserved |= mutationReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                            || mutationReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed;
-                        logInfo(
-                            "advanced_pending_resource_overwrite mutation_receipt state="
-                            + mutationReceipt?.TerminalState
-                            + " durable="
-                            + (mutationReceipt?.DurableCommit == true)
-                            + " recoveryPaths="
-                            + string.Join("|", mutationReceipt?.RecoveryPaths ?? []));
-                    },
-                    manualRecoveryObserved: () => manualRecoveryObserved);
-                terminalEffects.AddRange(executionResult.PostLeaseEffects);
-                if (executionResult.PendingPackagesToRemove.Count > 0)
+                    logInfo);
+                if (executionResult.PendingPackagesToRemove.Count > 0
+                    || executionResult.DeferredInstalledPackages.Count > 0
+                    || executionResult.PackagesToClearInstallDestinations.Count > 0)
                 {
-                    Action pendingEffect =
-                        RemovePendingPackagesFromPendingListAfterDurableMutation(
-                        executionResult.PendingPackagesToRemove);
-                    if (pendingEffect != null)
+                    // DST clear は required state apply だが、購読者の呼出しは optional notification。
+                    // 成功した対象だけを遅延し、lease 解放後に個別発行して購読者の例外を terminal へ混入させない。
+                    foreach (Func<Action> completeNotificationDeferral in DeferPackageEntryNotifications(
+                        executionResult.PackagesToClearInstallDestinations.SelectMany(package => package.ChartEntries)))
                     {
-                        terminalEffects.Add(pendingEffect);
+                        terminalEffects.Add(() =>
+                        {
+                            Action publication = completeNotificationDeferral();
+                            if (publicResult?.SessionReceipt?.DurableCommit == true
+                                && !publicResult.SessionReceipt.HasDurableFinalizationFailure)
+                            {
+                                publication?.Invoke();
+                            }
+                        });
                     }
+                    PendingPackageMutationDelta pendingDelta = packageInstallService.BuildPendingPackageMutationDelta(
+                        pendingPackageSnapshot,
+                        packagesToRemove: executionResult.PendingPackagesToRemove);
+                    pendingDelta.InstallPathsToDelete.Clear();
+                    pendingDelta.HasChanges = pendingDelta.HasChanges
+                        || executionResult.PendingPackagesToRemove.Count > 0;
+                    AppendInstallCollectionSessionFinalizer(
+                        mutationSession,
+                        scope => terminalEffects.Add(scope.Dispose),
+                        () =>
+                        {
+                            packageLifecycleOwner.ApplyEstimatedInstallCollections(
+                                pendingDelta,
+                                executionResult.PendingPackagesToRemove.Count,
+                                executionResult.DeferredInstalledPackages);
+                            ClearInstallDestinationsAfterSessionCommit(
+                                executionResult.PackagesToClearInstallDestinations);
+                        });
+                }
+
+                LibraryMutationSessionReceipt sessionReceipt = mutationSession.Commit();
+                executionResult.SessionReceipt = sessionReceipt;
+                // prepare の成功件数をそのまま公開しない。physical failure の先行成功分と
+                // cleanup だけが失敗した durable success は残し、canonical / required apply failure を除く。
+                if (!sessionReceipt.DurableCommit || sessionReceipt.HasDurableFinalizationFailure)
+                {
+                    executionResult.SucceededInstall = 0;
+                    executionResult.SucceededCleanupOnly = 0;
                 }
                 publicResult = executionResult.ToPublicResult();
                 logInfo("advanced_pending_resource_overwrite summary requested=" + publicResult.Requested + " processed=" + publicResult.Processed + " succeededInstall=" + publicResult.SucceededInstall + " succeededCleanupOnly=" + publicResult.SucceededCleanupOnly + " skippedNotPending=" + publicResult.SkippedNotPending + " skippedMissingInstlDst=" + publicResult.SkippedMissingInstlDst + " skippedMultiDst=" + publicResult.SkippedMultiDestination + " skippedNoComponentTarget=" + publicResult.SkippedNoComponentTarget + " failed=" + publicResult.Failed + " canceled=" + publicResult.Canceled);
@@ -3138,17 +3190,4 @@ public partial class BMSLibrary
         return collectionPublicationScope.Dispose;
     }
 
-    private Action RemovePendingPackagesFromPendingListAfterDurableMutation(
-        IEnumerable<ChartPackage> packages)
-    {
-        PendingPackageMutationDelta delta = BuildPendingPackageMutationDelta(packagesToRemove: packages);
-        // The package's receipt owner already deleted each install row in the
-        // same durable transaction as its target upsert.  This follow-up only
-        // publishes the in-memory pending collection removal.
-        delta.InstallPathsToDelete.Clear();
-        return ApplyPendingPackageMutationDeltaUnderExistingReservation(
-            delta,
-            packagesToAdd: null,
-            installRowsToUpsert: null);
-    }
 }

@@ -28,6 +28,12 @@ internal sealed class PendingResourceOverwriteExecutionResult
 
     public List<ChartPackage> PendingPackagesToRemove { get; } = [];
 
+    /// <summary>session required finalizer で install destination を一括 clear する package。</summary>
+    internal List<ChartPackage> PackagesToClearInstallDestinations { get; } = [];
+
+    /// <summary>durable success 後の collection finalizer で installed collection に反映する package。</summary>
+    internal List<ChartPackage> DeferredInstalledPackages { get; } = [];
+
     public List<string> InstallRowsToDelete { get; } = [];
 
     /// <summary>
@@ -36,24 +42,27 @@ internal sealed class PendingResourceOverwriteExecutionResult
     /// </summary>
     public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
 
+    /// <summary>operation-scoped install session の canonical terminal facts。</summary>
+    internal LibraryMutationSessionReceipt SessionReceipt { get; set; }
+
     /// <summary>
     /// Deferred authoritative package/catalog publications.  The outer
     /// overwrite command owns their invocation after its lease is released.
     /// </summary>
     public List<Action> PostLeaseEffects { get; } = [];
 
-    public bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+    public bool HasDurableCommit => SessionReceipt?.DurableCommit ?? (MutationReceipt?.HasDurableCommit == true);
 
-    public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired ?? (MutationReceipt?.ManualRecoveryRequired == true);
 
     /// <summary>
     /// Gets whether a post-durable finalizer failed for this overwrite batch.
     /// </summary>
-    public bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure ?? (MutationReceipt?.HasDurableFinalizationFailure == true);
 
-    public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure ?? (MutationReceipt?.CompletedWithCleanupFailure == true);
 
-    public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+    public IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? MutationReceipt?.RecoveryPaths ?? [];
 
     public PendingInstalledOnlyResourceOverwriteResult ToPublicResult()
     {
@@ -73,7 +82,8 @@ internal sealed class PendingResourceOverwriteExecutionResult
             ManualRecoveryRequired = ManualRecoveryRequired,
             HasDurableFinalizationFailure = HasDurableFinalizationFailure,
             CompletedWithCleanupFailure = CompletedWithCleanupFailure,
-            RecoveryPaths = RecoveryPaths
+            RecoveryPaths = RecoveryPaths,
+            SessionReceipt = SessionReceipt
         };
     }
 }

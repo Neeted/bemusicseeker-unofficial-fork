@@ -70,7 +70,8 @@ library の full file scan とは別操作である。reload 実行は bounded p
 
 - install / merge 後は catalog、song DB、resource index、maintenance、chart_info の更新境界を明確に保つ。
 - 新規インストールで即時 auto install を行う場合は、同一 workflow 内で先に auto install 対象として予約した hash を使って install 試行対象を一意化し、後続の重複 package は保留へ回して同一バッチ内の重複譜面を複数回導入しない。先行 package の導入に成功した場合だけ、後続 package の同一譜面へ `AlreadyInstalled` warning を付ける。auto install を行わない設定や先行導入失敗時は、後続 package に導入済み warning を付けない。
-- 保留から推定導入先へインストールする場合は、入力順に一件ずつ分類・実行・receipt 確定を行う。開始時所持と先行の durable `AddedEntries` だけを共有 primary hash guard へ反映し、package 内の重複は局所的に抑止する。先行 package が実際には導入されなかった場合、その hash で後続 package を除外しない。
+- 自動・推定先・強制導入、manual shared core、resource-only / cleanup-only 導入は一回の利用者操作を一つの mutation session にする。package の分類・physical change は入力順に行い、開始時所持と先行 physical success だけを操作内の ownership overlay に反映する。未実行予約・failed / skipped package の hash で後続を導入済みと判定しない。canonical storage / install-row apply と required publication は session 終端へ集約する。
+- 保留操作と DnD / URL / 外部 API 由来の導入は既存の共通受付で相互排他する。通信中は現在許可するライブラリ操作を維持し、取得済み path の導入引渡しで受理結果を返す。受付・通知と実装／テスト対応は [ライブラリ変更境界](library-mutation-boundary.md#導入の共通受付と通知)、推定先への導入の詳細は [推定仕様](install-estimation-current-logic.md#推定先への移動)を正本にする。
 - folder operation 後の resource index cleanup は `DirectoryResourceLookupCache.Keys` を正本にする。
 - reinstall correction は candidate-only の health 評価を使い、source/bundled resource を混ぜない。
 

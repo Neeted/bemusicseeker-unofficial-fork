@@ -476,14 +476,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 PendingInstallBatchResult installResult = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                     [package]);
-                FileDbMutationBatchReceipt receipt = installResult.MutationReceipt;
+                LibraryMutationSessionReceipt sessionReceipt = installResult.SessionReceipt;
                 Assert.IsTrue(installResult.HasDurableCommit);
                 Assert.IsTrue(installResult.HasDurableFinalizationFailure);
-                Assert.AreEqual(1, receipt.Receipts.Count);
-                Assert.AreEqual(
-                    FileDbMutationTerminalState.DurableFinalizationFailed,
-                    receipt.Receipts[0].TerminalState);
-                StringAssert.Contains(receipt.Receipts[0].FinalizationFailure?.Message, "forced normal-folder failure");
+                Assert.IsTrue(sessionReceipt.DurableCommit);
+                Assert.IsNotNull(sessionReceipt.ApplyFailure);
+                Assert.IsNull(sessionReceipt.FinalizationFailure);
+                StringAssert.Contains(sessionReceipt.ApplyFailure.Message, "forced normal-folder failure");
 
                 using var verify = new LR2SongDBExtended(scope.SongDbPath);
                 Assert.IsNotNull(verify.Find<LR2SongDB.song>(destinationChartPath));
@@ -590,7 +589,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             library.ReloadFileDiff();
             Assert.AreEqual(1, dialogs.Calls.Count);
-            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, dialogs.Calls[0].Message);
+            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.Calls[0].Message);
             library.RequestShutdown("lr2-file-diff-blocked-test");
         }
         finally
@@ -628,7 +627,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             library.ReloadFileDiff();
             Assert.AreEqual(1, dialogs.Calls.Count);
-            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, dialogs.Calls[0].Message);
+            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.Calls[0].Message);
             library.RequestShutdown("lr2-file-diff-already-running-test");
         }
         finally
@@ -657,7 +656,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             await workflow.OverwriteAsync(new BMSTable());
 
             Assert.IsNotNull(dialogs.LastMessageRequest);
-            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, dialogs.LastMessageRequest.MessageBoxText);
+            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.LastMessageRequest.MessageBoxText);
             Assert.AreEqual(Resources.MessageBoxTitle_Warning, dialogs.LastMessageRequest.Caption);
         }
         finally
@@ -915,13 +914,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 PendingInstallBatchResult installResult = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                     [package]);
                 Assert.IsFalse(installResult.HasDurableCommit);
-                Assert.AreEqual(1, installResult.FailedPackages.Count);
-                Assert.AreSame(package, installResult.FailedPackages.Single());
-                FileDbMutationBatchReceipt receipt = installResult.MutationReceipt;
-                Assert.AreEqual(1, receipt.Receipts.Count);
-                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.Receipts[0].TerminalState);
-                Assert.IsInstanceOfType(receipt.Receipts[0].Failure, typeof(SQLite.SQLiteException));
-                StringAssert.Contains(receipt.Receipts[0].Failure.Message, "forced install-target song failure");
+                Assert.AreEqual(0, installResult.FailedPackages.Count);
+                LibraryMutationSessionReceipt sessionReceipt = installResult.SessionReceipt;
+                Assert.IsTrue(sessionReceipt.HasRequiredFailure);
+                Assert.IsInstanceOfType(sessionReceipt.ApplyFailure, typeof(SQLite.SQLiteException));
+                StringAssert.Contains(sessionReceipt.ApplyFailure.Message, "forced install-target song failure");
 
                 using var verify = new LR2SongDBExtended(scope.SongDbPath);
                 LR2SongDBExtended.lr2_song_db_sync_status row =

@@ -868,6 +868,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var packageInstall = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort((_, _, _, _, _) =>

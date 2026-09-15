@@ -27,6 +27,23 @@ public sealed class LocalizationResourceParityTests
             AssertLocalizedFormat(Path.GetFileName(path), key, ReadLanguageJsonObject(path)[key]?.Value<string>()!, 2);
     }
 
+    /// <summary>S5-INSTALL-BUSY-TEXT: 受付拒否の通知が全言語で利用でき、書式引数を要求しないことを確認します。</summary>
+    [TestMethod]
+    public void InstallAdmissionMessages_AreAvailableWithoutFormatArgumentsInAllLanguages()
+    {
+        string root = FindRepositoryRoot();
+        string[] keys = [nameof(Resources.Warn_LibraryOperationBusy), nameof(Resources.Warn_PackageInstallUnavailable)];
+        var resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        foreach (string key in keys)
+            AssertLocalizedFormat("Resources.resx", key, resx.GetValueOrDefault(key)!, 0);
+        foreach (string path in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            JObject language = ReadLanguageJsonObject(path);
+            foreach (string key in keys)
+                AssertLocalizedFormat(Path.GetFileName(path), key, language[key]?.Value<string>()!, 0);
+        }
+    }
+
     private static readonly HashSet<string> JsonOnlyKeys = new(StringComparer.Ordinal)
     {
         "_language_name"

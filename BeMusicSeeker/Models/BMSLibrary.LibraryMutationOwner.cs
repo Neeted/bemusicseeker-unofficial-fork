@@ -412,7 +412,7 @@ internal sealed partial class LibraryMutationOwner
         {
             if (mutationLease == null)
             {
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
             }
             using LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability();
             capability.Validate(lr2SynchronizationOwner);

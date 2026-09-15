@@ -325,6 +325,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 mutationPort,
@@ -555,6 +556,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 mutationPort,
@@ -843,9 +845,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.Enqueue(["first.zip"]);
             await firstStarted.Task;
             owner.AttachLibrary(second);
-            owner.Enqueue(["second.zip"]);
-            PackageInstallFailure failure = await busyFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.IsInstanceOfType<InvalidOperationException>(failure.Exception);
+            Assert.IsFalse(owner.Enqueue(["second.zip"]));
+            Assert.IsFalse(busyFailure.Task.IsCompleted, "未受理を実行済み batch の失敗として通知しない。");
             lock (calls)
             {
                 CollectionAssert.AreEqual(new[] { "first.zip" }, calls);
@@ -1062,6 +1063,9 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// S5-INSTALL-QUEUE: 先行 batch の失敗も後続の完了も、queue 全体の受付解放後に一度だけ通知します。
+    /// </summary>
     [TestMethod]
     public async Task Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
     {
@@ -1078,6 +1082,8 @@ public sealed class PackageInstallWorkflowOwnerTests
         var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var terminalInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observationLock = new object();
+        var chartFileOperations = new ChartFileOperationSynchronizer();
+        var terminalAdmissions = new List<bool>();
         PackageInstallWorkflowOwner? owner = null;
         bool workerStarted = false;
         try
@@ -1118,7 +1124,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                 {
                     action();
                     return true;
-                });
+                },
+                chartFileOperations: chartFileOperations);
             owner.AttachLibrary(library);
             owner.StatusChanged += snapshot =>
             {
@@ -1133,16 +1140,23 @@ public sealed class PackageInstallWorkflowOwnerTests
             };
             owner.FailurePublished += failure =>
             {
+                bool admissionAvailable = chartFileOperations.TryEnter(out IDisposable admission);
+                admission?.Dispose();
                 lock (observationLock)
                 {
                     failures.Add(failure);
+                    eventOrder.Add("failure");
+                    terminalAdmissions.Add(admissionAvailable);
                 }
             };
             owner.CompletionPublished += _ =>
             {
+                bool admissionAvailable = chartFileOperations.TryEnter(out IDisposable admission);
+                admission?.Dispose();
                 lock (observationLock)
                 {
                     eventOrder.Add("completion");
+                    terminalAdmissions.Add(admissionAvailable);
                 }
                 completed.TrySetResult(true);
             };
@@ -1153,6 +1167,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             releaseFirstInstall.Set();
 
             await secondInstallEntered.Task;
+            lock (observationLock)
+            {
+                Assert.AreEqual(0, failures.Count, "後続 batch の実行中に先行 batch の terminal を発行しない。");
+            }
+            bool admittedWhileRunning = chartFileOperations.TryEnter(out IDisposable duringInstall);
+            duringInstall?.Dispose();
+            Assert.IsFalse(admittedWhileRunning, "受理済みの後続 batch まで共通受付を保持する。");
             Assert.IsFalse(completed.Task.IsCompleted, "Completion must not be published before the live install returns.");
             Assert.IsFalse(terminalInactive.Task.IsCompleted, "The queue must remain active while the following batch is running.");
             Assert.IsFalse(owner.IsIdle, "The workflow must not become idle before the live install returns.");
@@ -1174,7 +1195,9 @@ public sealed class PackageInstallWorkflowOwnerTests
             await completed.Task;
             Assert.AreEqual(1, failureSnapshot.Length);
             CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, callSnapshot);
-            CollectionAssert.AreEqual(new[] { "completion", "inactive" }, eventOrderSnapshot);
+            CollectionAssert.AreEqual(new[] { "failure", "completion", "inactive" }, eventOrderSnapshot);
+            CollectionAssert.AreEqual(new[] { true, true }, terminalAdmissions,
+                "失敗・完了の subscriber を呼ぶ前に共通受付を解放する。");
             Assert.IsTrue(owner.IsIdle, "The workflow must be idle after its terminal inactive status.");
         }
         finally
@@ -1183,7 +1206,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             releaseSecondInstall.Set();
             if (workerStarted && owner != null)
             {
-                terminalInactive.Task.Wait(TimeSpan.FromSeconds(5));
+                await owner.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
             if (Directory.Exists(root))
             {
@@ -1251,7 +1274,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task InstallBatch_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
+    public async Task Enqueue_RejectsBusyBeforeQueueingThenRunsAfterRelease()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1279,6 +1302,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var failure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<PackageInstallCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 chartMutationActivity,
                 new DelegatePackageInstallMutationPort(
@@ -1299,9 +1323,9 @@ public sealed class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
             try
             {
-                owner.Enqueue([Path.Combine(root, "first-generation.zip")]);
+                Assert.IsFalse(owner.Enqueue([Path.Combine(root, "first-generation.zip")]));
                 await AssertOwnerIdleAsync(owner);
-                await failure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsFalse(failure.Task.IsCompleted);
                 Assert.AreEqual(0, mutationCalls);
             }
             finally
@@ -1312,7 +1336,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
             await AssertOwnerIdleAsync(owner);
             await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.AreEqual(1, failure.Task.IsCompletedSuccessfully ? 1 : 0);
+            Assert.IsFalse(failure.Task.IsCompleted);
             Assert.AreEqual(1, mutationCalls);
         }
         finally
@@ -1344,6 +1368,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
             var owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 chartMutationActivity,
                 new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
@@ -1363,9 +1388,9 @@ public sealed class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
             try
             {
-                Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
+                Assert.IsFalse(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
                 await AssertOwnerIdleAsync(owner);
-                await failure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsFalse(failure.Task.IsCompleted);
             }
             finally
             {
@@ -1404,6 +1429,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             int completionPublished = 0;
             int failurePublished = 0;
             var owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
@@ -1473,6 +1499,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             int failurePublished = 0;
             int diagnosticReports = 0;
             var owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
@@ -1524,6 +1551,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
@@ -1572,6 +1600,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
@@ -1709,6 +1738,9 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// S5-INSTALL-NOTIFICATION: 型付き session の異常結果と終了処理の例外も、受付解放後に通知します。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1729,31 +1761,29 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
 
             var finalizationFailure = new IOException("package finalization failed");
-            var mutationReceipt = new FileDbMutationBatchReceipt([
-                new FileDbMutationReceipt(
-                    Guid.NewGuid(),
-                    FileDbMutationTerminalState.DurableFinalizationFailed,
-                    durableCommit: true,
-                    compensationAttemptCount: 0,
-                    cleanupAttemptCount: 0,
-                    sourcePaths: [Path.Combine(root, "source.zip")],
-                    destinationPaths: [Path.Combine(root, "installed", "chart.bms")],
-                    stagingPaths: [],
-                    backupPaths: [],
-                    recoveryPaths: [],
-                    failure: finalizationFailure,
-                    finalizationFailure: finalizationFailure)]);
+            var sessionReceipt = new LibraryMutationSessionReceipt(
+                confirmedTargets:
+                [
+                    new LibraryMutationSessionTarget(
+                        Path.Combine(root, "source.zip"),
+                        Path.Combine(root, "installed", "chart.bms"))
+                ],
+                durableCommit: true,
+                finalizationFailure: finalizationFailure);
             int installCalls = 0;
             var port = new DelegatePackageInstallTerminalMutationPort(
                 (_, _, _, _, _) =>
                 {
                     Interlocked.Increment(ref installCalls);
-                    return new PackageInstallCommandResult([], mutationReceipt);
+                    return new PackageInstallCommandResult([], sessionReceipt);
                 });
             var completion = new TaskCompletionSource<PackageInstallCompletionReceipt>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+            var chartFileOperations = new ChartFileOperationSynchronizer();
+            var terminalAdmissions = new List<bool>();
             var owner = new PackageInstallWorkflowOwner(
-                new ChartFileOperationSynchronizer(),
+                new FileDbReportRecordingDialogs(),
+                chartFileOperations,
                 new ChartMutationActivityOwner(),
                 port,
                 action =>
@@ -1767,8 +1797,22 @@ public sealed class PackageInstallWorkflowOwnerTests
             {
                 if (failSuppressionCleanup && !args.IsSuppressed) throw cleanupFailure;
             };
-            owner.FailurePublished += failure => failed.TrySetResult(failure);
-            owner.CompletionPublished += published => completion.TrySetResult(published);
+            void RecordTerminalAdmission()
+            {
+                bool admissionAvailable = chartFileOperations.TryEnter(out IDisposable admission);
+                admission?.Dispose();
+                terminalAdmissions.Add(admissionAvailable);
+            }
+            owner.FailurePublished += failure =>
+            {
+                RecordTerminalAdmission();
+                failed.TrySetResult(failure);
+            };
+            owner.CompletionPublished += published =>
+            {
+                RecordTerminalAdmission();
+                completion.TrySetResult(published);
+            };
             owner.AttachLibrary(new TestBmsLibrary(songDbPath, null, null, string.Empty));
             owner.Enqueue([Path.Combine(root, "source.zip")]);
 
@@ -1778,7 +1822,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 PackageInstallFailure failure = await failed.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreSame(cleanupFailure, failure.Exception);
                 Assert.IsNotNull(failure.CommandResult);
-                Assert.AreSame(mutationReceipt, failure.CommandResult.MutationReceipt);
+                Assert.AreSame(sessionReceipt, failure.CommandResult.SessionReceipt);
                 Assert.IsFalse(completion.Task.IsCompleted);
                 publishedReceipt = new PackageInstallCompletionReceipt(failure.Generation,
                     failure.CommandResult.RegisteredPackages, failure.CommandResult);
@@ -1789,11 +1833,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             await AssertOwnerIdleAsync(owner);
 
+            CollectionAssert.AreEqual(new[] { true }, terminalAdmissions,
+                "型付き session の異常結果も workflow 終了処理の例外も、受付解放後に一度だけ通知する。");
             Assert.AreEqual(1, installCalls);
             Assert.IsTrue(publishedReceipt.HasDurableFinalizationFailure);
             Assert.IsTrue(publishedReceipt.HasDurableCommit);
             Assert.AreEqual(0, publishedReceipt.Packages.Count);
-            Assert.AreSame(finalizationFailure, publishedReceipt.MutationReceipt.Receipts.Single().Failure);
+            Assert.AreSame(finalizationFailure, publishedReceipt.SessionReceipt.FinalizationFailure);
         }
         finally
         {
@@ -1863,9 +1909,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             await firstStarted.Task;
 
             owner.AttachLibrary(second);
-            owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
-            PackageInstallFailure failure = await busyFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.IsInstanceOfType<InvalidOperationException>(failure.Exception);
+            Assert.IsFalse(owner.Enqueue([Path.Combine(root, "second-generation.zip")]));
+            Assert.IsFalse(busyFailure.Task.IsCompleted, "未受理の要求は batch として開始しない。");
             Assert.IsFalse(secondStarted.Task.IsCompleted, "A busy replacement request must not enter mutation.");
 
             releaseFirst.Set();
@@ -2009,6 +2054,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         using var enqueueStatusDispatchEntered = new ManualResetEventSlim(false);
         using var releaseEnqueueStatusDispatch = new ManualResetEventSlim(false);
+        var chartFileOperations = new ChartFileOperationSynchronizer();
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
@@ -2034,7 +2080,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                     }
                     action();
                     return true;
-                });
+                },
+                chartFileOperations: chartFileOperations);
             owner.AttachLibrary(library);
             Volatile.Write(ref blockNextDispatch, 1);
 
@@ -2051,6 +2098,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             bool enqueueAccepted = await enqueue.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsTrue(enqueueAccepted, "Physical insertion preceding shutdown remains an accepted transfer.");
             await AssertOwnerIdleAsync(owner);
+            Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable afterDrain));
+            afterDrain.Dispose();
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -2077,6 +2126,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         using var enqueueStatusDispatchEntered = new ManualResetEventSlim(false);
         using var releaseEnqueueStatusDispatch = new ManualResetEventSlim(false);
         var freshInstallCalled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var chartFileOperations = new ChartFileOperationSynchronizer();
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
@@ -2106,7 +2156,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                     }
                     action();
                     return true;
-                });
+                },
+                chartFileOperations: chartFileOperations);
             owner.AttachLibrary(library);
             Volatile.Write(ref blockNextDispatch, 1);
 
@@ -2117,10 +2168,15 @@ public sealed class PackageInstallWorkflowOwnerTests
                 "Physical insertion did not reach its lock-free status publication boundary.");
 
             owner.CancelAll();
+            bool acquiredDuringDrain = chartFileOperations.TryEnter(out IDisposable duringDrain);
+            duringDrain?.Dispose();
+            Assert.IsFalse(acquiredDuringDrain, "取消要求だけでは受理済み queue の受付を解放しない。");
             releaseEnqueueStatusDispatch.Set();
 
             Assert.IsTrue(await enqueue.WaitAsync(TimeSpan.FromSeconds(5)));
             await AssertOwnerIdleAsync(owner);
+            Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable afterDrain));
+            afterDrain.Dispose();
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
 
@@ -2202,6 +2258,74 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// S5-INSTALL-NOTIFICATION: model の OK 通知を UI に渡し、表示待ち・表示失敗で queue の終端を止めません。
+    /// </summary>
+    [TestMethod]
+    public async Task OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var notifications = new Queue<Action>();
+        PackageInstallWorkflowOwner? owner = null;
+        try
+        {
+            var immediateDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+            var library = new TestBmsLibrary(
+                songDbPath, null, null,
+                new BmsLibraryInitializationTestSupport.TestFileMutationService(), immediateDialogs);
+            var bufferedDialogs = new ScopedOperationDialogCoordinator(immediateDialogs);
+            var chartFileOperations = new ChartFileOperationSynchronizer();
+            var reportedFailures = new List<Exception>();
+            var displayFailure = new InvalidOperationException("notification failure marker");
+            var displayed = new FileDbReportRecordingDialogs { MessageFailure = displayFailure };
+            int completions = 0;
+            int failures = 0;
+            owner = new PackageInstallWorkflowOwner(
+                displayed,
+                chartFileOperations,
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                {
+                    bufferedDialogs.Show("notice marker", "caption marker", UiDialogButton.OK,
+                        UiDialogIcon.Information, UiDialogDefaultResult.OK);
+                    return [new ChartPackage()];
+                }),
+                action =>
+                {
+                    lock (notifications) notifications.Enqueue(action);
+                    return true;
+                },
+                reportedFailures.Add);
+            owner.CompletionPublished += _ => completions++;
+            owner.FailurePublished += _ => failures++;
+            owner.AttachLibrary(library);
+            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "source.zip")]));
+            await owner.WaitForIdleAsync();
+
+            Assert.AreEqual(0, immediateDialogs.Calls.Count, "worker から同期 dialog port を呼ばない。");
+            Assert.AreEqual(0, displayed.Messages.Count, "UI dispatch を drain する前に表示処理を呼ばない。");
+            Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable afterCompletion));
+            afterCompletion.Dispose();
+            DrainNotifications(notifications);
+
+            Assert.AreEqual(1, displayed.Messages.Count);
+            Assert.AreEqual("notice marker", displayed.Messages[0].MessageBoxText);
+            Assert.AreEqual(System.Windows.MessageBoxButton.OK, displayed.Messages[0].Button);
+            Assert.AreEqual(1, completions);
+            Assert.AreEqual(0, failures);
+            CollectionAssert.AreEqual(new[] { displayFailure }, reportedFailures);
+        }
+        finally
+        {
+            if (owner != null) await owner.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static DroppedInstallBatchRequest CreateOwnedRequest(string root, string originalPath)
     {
         return new DroppedInstallBatchRequest(
@@ -2229,10 +2353,12 @@ public sealed class PackageInstallWorkflowOwnerTests
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
         Func<Action, bool> dispatchToUi,
         Action<Exception>? reportNotificationFailure = null,
-        DroppedInstallIngressMaterializer? droppedInstallIngressMaterializer = null)
+        DroppedInstallIngressMaterializer? droppedInstallIngressMaterializer = null,
+        ChartFileOperationSynchronizer? chartFileOperations = null)
     {
         return new PackageInstallWorkflowOwner(
-            new ChartFileOperationSynchronizer(),
+            new FileDbReportRecordingDialogs(),
+            chartFileOperations ?? new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new DelegatePackageInstallMutationPort(installBatch),
             dispatchToUi,

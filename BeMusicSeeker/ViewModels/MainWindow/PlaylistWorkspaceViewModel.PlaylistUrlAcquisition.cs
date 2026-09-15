@@ -83,7 +83,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         SelectedUrlsNoTargets,
         SelectedUrlsBlockedByInstallQueue,
         ExternalPackagesNoTargets,
-        ExternalPackagesBlockedByInstallQueue
+        ExternalPackagesBlockedByInstallQueue,
+        InstallUnavailable
     }
 
     private readonly object playlistUrlAcquisitionSync = new();
@@ -92,7 +93,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Func<bool> playlistUrlInstallQueueActiveProvider;
 
-    private readonly Action<IReadOnlyList<string>> playlistUrlInstallSink;
+    private readonly Func<IReadOnlyList<string>, bool> playlistUrlInstallSink;
 
     private readonly Action<Uri> playlistUrlBrowserOpenSink;
 
@@ -226,8 +227,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url).ConfigureAwait(false);
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded
-                && await QueuePlaylistUrlInstallPathsAsync([result.FilePath]).ConfigureAwait(true))
+                && playlistUrlAcquisitionWorkflow.IsStagedFileReady(result.FilePath))
             {
+                // 取得成功後の導入拒否は、URL 解決失敗によるブラウザ fallback とは別の終端。
+                await QueuePlaylistUrlInstallPathsAsync([result.FilePath]).ConfigureAwait(true);
                 return;
             }
             if (result.Kind == PlaylistUrlDownloadResultKind.BlockedBySizeLimit)
@@ -769,6 +772,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
             PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue
                 => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
+            PlaylistUrlAcquisitionNotificationKind.InstallUnavailable
+                => BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         };
         UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
@@ -860,20 +865,24 @@ public sealed partial class PlaylistWorkspaceViewModel
             result.Exception);
     }
 
-    private async Task<bool> QueuePlaylistUrlInstallPathsAsync(IEnumerable<string> paths)
+    private async Task QueuePlaylistUrlInstallPathsAsync(IEnumerable<string> paths)
     {
         string[] pathSnapshot = [.. (paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Where(path => playlistUrlAcquisitionWorkflow.IsStagedFileReady(path))];
         if (pathSnapshot.Length == 0)
         {
-            return false;
+            return;
         }
-        playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot));
+        if (!playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot)))
+        {
+            await ShowPlaylistUrlAcquisitionNotificationAsync(
+                PlaylistUrlAcquisitionNotificationKind.InstallUnavailable).ConfigureAwait(true);
+            return;
+        }
         await playlistUrlAcquisitionPresentationScheduler(
             () => PlaylistUrlInstallTreeExpansionRequested?.Invoke())
             .ConfigureAwait(true);
-        return true;
     }
 
 }

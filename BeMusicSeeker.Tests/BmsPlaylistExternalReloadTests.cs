@@ -48,7 +48,7 @@ public sealed class BmsPlaylistExternalReloadTests
             var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
-            synchronization.Failure = new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            synchronization.Failure = new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
             var table = new BMSTable
             {
                 playlist_id = 9001,
@@ -65,7 +65,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_mutation_guard"));
 
             CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, synchronization.Operations);
-            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
+            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, exception.Message);
         }
         finally
         {

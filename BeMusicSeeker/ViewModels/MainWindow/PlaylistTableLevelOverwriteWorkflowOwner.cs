@@ -63,7 +63,7 @@ internal sealed class PlaylistTableLevelOverwriteWorkflowOwner
         if (outcome == BmsFileLevelOverwriteOutcome.BlockedByLr2Synchronization)
         {
             await ShowMessageAsync(
-                    BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
                     BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
                     MessageBoxImage.Exclamation,
                     "Playlist table level overwrite LR2 synchronization warning")

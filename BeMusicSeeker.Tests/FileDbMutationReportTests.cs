@@ -19,6 +19,39 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FileDbMutationReportTests
 {
+    /// <summary>情報通知は順次 await し、表示失敗を診断しても後続通知を失わない。</summary>
+    [TestMethod]
+    public async Task OperationMessages_PreserveOrderAndContinueAfterDisplayFailure()
+    {
+        var first = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var displayFailure = new IOException("notification failure marker");
+        var failures = new List<Exception>();
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageHandler = request => request.MessageBoxText == "first"
+                ? first.Task
+                : Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK))
+        };
+        Task display = FileDbMutationReport.ShowOperationMessagesAsync(dialogs,
+            [new BMSLibrary.OperationDialogMessage("first", "caption", UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK),
+             new BMSLibrary.OperationDialogMessage("second", "caption", UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK)],
+            failures.Add);
+        try
+        {
+            Assert.IsFalse(display.IsCompleted);
+            Assert.AreEqual(1, dialogs.Messages.Count, "先行通知が表示中なら後続を重ねない。");
+            first.SetException(displayFailure);
+            await display.WaitAsync(TimeSpan.FromSeconds(5));
+            CollectionAssert.AreEqual(new[] { "first", "second" }, dialogs.Messages.Select(message => message.MessageBoxText).ToArray());
+            CollectionAssert.AreEqual(new[] { displayFailure }, failures);
+        }
+        finally
+        {
+            first.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            await display.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     [TestMethod]
     public async Task NormalReceiptsAreSilent()
     {
@@ -447,12 +480,14 @@ internal sealed class FileDbReportRecordingDialogs : IUiDialogService, IBmsLibra
     internal int ModelMessages { get; private set; }
     internal Action? OnMessage { get; set; }
     internal Exception? MessageFailure { get; set; }
+    internal Func<UiMessageRequest, Task<UiDialogResult>>? MessageHandler { get; set; }
 
     public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
     {
         Messages.Add(request);
         OnMessage?.Invoke();
         if (MessageFailure != null) throw MessageFailure;
+        if (MessageHandler != null) return MessageHandler(request);
         return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
     }
 

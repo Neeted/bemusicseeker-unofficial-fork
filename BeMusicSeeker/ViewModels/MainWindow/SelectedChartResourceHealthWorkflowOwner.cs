@@ -131,7 +131,7 @@ internal sealed class SelectedChartResourceHealthWorkflowOwner
     private async Task ShowBlockedWarningAsync()
     {
         UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
-            BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxButton.OK,
             MessageBoxImage.Exclamation,

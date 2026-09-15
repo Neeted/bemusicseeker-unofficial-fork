@@ -283,7 +283,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                     AutoInstall = true
                 },
                 acquisitionWorkflow: workflow,
-                installSink: _ => installCount++,
+                installSink: _ => { installCount++; return true; },
                 browserSink: _ => browserOpenCount++);
 
             await workspace.RunSinglePlaylistUrlAsync(requestUri);
@@ -571,7 +571,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                     AutoInstall = false
                 },
                 acquisitionWorkflow: workflow,
-                installSink: _ => installCount++,
+                installSink: _ => { installCount++; return true; },
                 browserSink: _ => browserOpenCount++);
 
             await workspace.RunSinglePlaylistUrlAsync(new Uri(uriText));
@@ -1037,6 +1037,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     events.Add("sink");
                     capturedPaths = paths;
+                    return true;
                 },
                 treeExpansionSink: () => events.Add("expanded"));
 
@@ -1080,6 +1081,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     events.Add("sink");
                     capturedPaths = paths;
+                    return true;
                 },
                 treeExpansionSink: () => events.Add("expanded"),
                 dialogService: dialogs);
@@ -1267,18 +1269,149 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             null!));
     }
 
+    /// <summary>
+    /// URL-HANDOFF: 単体列・本体/差分取り込み・外部 API の取得成功後に共通受付が Busy の場合、
+    /// 警告で終わり、導入・tree 展開・ブラウザ fallback・後続の自動再実行を行いません。
+    /// 通信段階ではライブラリ変更受付を占有しない契約を、実 queue への引渡しで検証します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("single")]
+    [DataRow("url")]
+    [DataRow("diff")]
+    [DataRow("api")]
+    public async Task DownloadedPackages_BusyHandoffWarnsWithoutFallbackOrReplay(string ingress)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var gate = new ChartFileOperationSynchronizer();
+        IDisposable? competingOperation = null;
+        PackageInstallWorkflowOwner? installOwner = null;
+        try
+        {
+            string songDbPath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            int installCount = 0;
+            installOwner = new PackageInstallWorkflowOwner(
+                new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                {
+                    installCount++;
+                    return [];
+                }), action => { action(); return true; });
+            installOwner.AttachLibrary(library);
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            Uri first = new("https://example.invalid/first.zip");
+            Uri second = new("https://example.invalid/second.zip");
+            foreach (Uri uri in new[] { first, second })
+            {
+                gateway.AddResponse(uri, () =>
+                {
+                    // 通信中に通常の変更要求が受理され、取得完了時も受付を保持している。
+                    if (competingOperation == null)
+                    {
+                        Assert.IsTrue(gate.TryEnter(out IDisposable lease));
+                        competingOperation = lease;
+                    }
+                    return new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false));
+                });
+            }
+            var dialogs = new RecordingPlaylistUrlDialogService();
+            int handoffCount = 0;
+            int browserCount = 0;
+            int expansionCount = 0;
+            IReadOnlyList<string>? downloaded = null;
+            var workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                paths =>
+                {
+                    handoffCount++;
+                    downloaded = paths;
+                    return installOwner.Enqueue(paths);
+                },
+                browserSink: _ => browserCount++,
+                treeExpansionSink: () => expansionCount++,
+                dialogService: dialogs,
+                installQueueActiveProvider: () => installOwner.IsActive,
+                externalLookupService: new PlaylistExternalPackageLookupService([new HandoffLookupProvider(first)]));
+            if (ingress == "api")
+            {
+                await workspace.RunPlaylistExternalPackageLookupAsync(
+                    [CreatePlaylistExternalPackageRow("11111111111111111111111111111111")]);
+            }
+            else if (ingress == "single")
+            {
+                await workspace.RunSinglePlaylistUrlAsync(first);
+            }
+            else
+            {
+                await workspace.RunPlaylistUrlActionAsync(
+                    [CreatePlaylistUrlRow(first.AbsoluteUri, second.AbsoluteUri),
+                     CreatePlaylistUrlRow(second.AbsoluteUri, first.AbsoluteUri)],
+                    isDiffUrl: ingress == "diff");
+            }
+
+            Assert.AreEqual(1, handoffCount);
+            Assert.AreEqual(0, installCount);
+            Assert.AreEqual(0, browserCount);
+            Assert.AreEqual(0, expansionCount);
+            Assert.IsFalse(installOwner.IsActive);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+            Assert.IsNotNull(downloaded);
+            string[] expectedNames = ingress switch
+            {
+                "url" => ["first.zip", "second.zip"],
+                "diff" => ["second.zip", "first.zip"],
+                _ => ["first.zip"]
+            };
+            CollectionAssert.AreEqual(expectedNames, downloaded.Select(Path.GetFileName).ToArray());
+            Assert.IsTrue(downloaded.All(File.Exists), "未受理を理由に取得済み source を削除しない。");
+            Assert.AreEqual(1, dialogs.Messages.Count(message => message.Icon == MessageBoxImage.Warning));
+            Assert.IsFalse(dialogs.Messages.Any(message => message.Icon == MessageBoxImage.Error));
+            Assert.AreEqual(ingress == "single" ? 1 : 2, dialogs.Messages.Count);
+            Assert.IsNotNull(competingOperation);
+            competingOperation.Dispose();
+            competingOperation = null;
+            await installOwner.WaitForIdleAsync();
+            Assert.AreEqual(1, handoffCount, "拒否した要求を保存・再試行しない。");
+            Assert.AreEqual(0, installCount);
+            Assert.IsTrue(gate.TryEnter(out IDisposable afterRejection));
+            afterRejection.Dispose();
+        }
+        finally
+        {
+            competingOperation?.Dispose();
+            if (installOwner != null)
+                await installOwner.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>取得先だけを固定し、外部 API 検索 owner の実引渡し経路を通す provider。</summary>
+    private sealed class HandoffLookupProvider(Uri downloadUri) : IPlaylistExternalPackageLookupProvider
+    {
+        public string ProviderId => "handoff-test";
+
+        public Task<PlaylistExternalPackageLookupResult> LookupAsync(string chartMd5, CancellationToken cancellationToken)
+            => Task.FromResult(new PlaylistExternalPackageLookupResult(ProviderId, chartMd5, downloadUri));
+    }
+
     private PlaylistWorkspaceViewModel CreateWorkspace(
         Action<Action> dispatch,
         Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null,
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
-        Action<IReadOnlyList<string>>? installSink = null,
+        Func<IReadOnlyList<string>, bool>? installSink = null,
         Action<Uri>? browserSink = null,
         bool useDefaultBrowserSink = true,
         Action? treeExpansionSink = null,
         bool useDefaultTreeExpansionSink = true,
         IUiDialogService? dialogService = null,
         Func<Action, Task>? presentationScheduler = null,
-        Func<bool>? installQueueActiveProvider = null)
+        Func<bool>? installQueueActiveProvider = null,
+        PlaylistExternalPackageLookupService? externalLookupService = null)
     {
         PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
             PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
@@ -1301,7 +1434,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             _ => { },
             () => new CustomFolderOutputSettingsSnapshot(),
             acquisitionWorkflow ?? PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            externalLookupService ?? PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             installQueueActiveProvider ?? PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             installSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,

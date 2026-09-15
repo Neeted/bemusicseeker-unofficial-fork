@@ -17,7 +17,7 @@ internal static class PlaylistWorkspaceTestPorts
         Action<Action> dispatch,
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
         IUiDialogService? dialogService = null,
-        Action<IReadOnlyList<string>>? installSink = null,
+        Func<IReadOnlyList<string>, bool>? installSink = null,
         Action<Uri>? browserSink = null,
         Func<bool>? installQueueActiveProvider = null,
         Func<Task>? reloadCleanupDispatcherIdleWaiter = null,
@@ -158,7 +158,7 @@ internal static class PlaylistWorkspaceTestPorts
 
     internal static Func<bool> InactiveInstallQueueProvider => () => false;
 
-    internal static Action<IReadOnlyList<string>> PlaylistUrlInstallSink => _ => { };
+    internal static Func<IReadOnlyList<string>, bool> PlaylistUrlInstallSink => _ => true;
 
     internal static Action<Uri> PlaylistUrlBrowserOpenSink => _ => { };
 

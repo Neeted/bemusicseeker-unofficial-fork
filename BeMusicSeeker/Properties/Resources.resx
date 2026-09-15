@@ -2394,7 +2394,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>プレイリスト URL 取り込み結果
 
 対象: {0}
-導入対象: {1}
+ダウンロード成功: {1}
 スキップ(ブラウザ): {2}
 スキップ(サイズ上限): {3}
 スキップ(重複): {4}
@@ -2419,8 +2419,13 @@ URL 取り込みの完了後に再実行してください。</value>
     <value>ドロップされたファイルまたはフォルダーを導入用に確保できませんでした。
 元データがまだ利用可能か、アクセスできるか確認してください。</value>
   </data>
-  <data name="Warn_DropInstallQueueUnavailable" xml:space="preserve">
-    <value>導入キューが終了処理中のため、ドロップされた項目を追加できませんでした。</value>
+  <data name="Warn_PackageInstallUnavailable" xml:space="preserve">
+    <value>別のライブラリ操作が実行中か、現在インストールを受け付けていないため、導入を開始できませんでした。
+受付が再開してからもう一度実行してください。</value>
+  </data>
+  <data name="Warn_LibraryOperationBusy" xml:space="preserve">
+    <value>別のライブラリ操作が実行中のため、操作を開始できません。
+完了後にもう一度実行してください。</value>
   </data>
   <data name="Confirm_SelectedPlaylistExternalPackageLookup" xml:space="preserve">
     <value>選択範囲の譜面 MD5 {0} 件を外部 API に問い合わせ、見つかった本体パッケージをダウンロードして対応ファイルのみ導入処理へ渡します。
@@ -2446,7 +2451,7 @@ URL 取り込みの完了後に再実行してください。</value>
     <value>外部 API 入手先検索結果
 
 対象 MD5: {0}
-導入対象: {1}
+ダウンロード成功: {1}
 入手先なし: {2}
 スキップ(成功済み URL): {3}
 スキップ(失敗済み URL): {4}
@@ -2558,10 +2563,6 @@ URL 取り込みの完了後に再実行してください。</value>
     <value>変更先ファイルが既に存在するため中止しました。
 変更元: {0}
 変更先: {1}</value>
-  </data>
-  <data name="Warn_Lr2SongDbSyncRunning" xml:space="preserve">
-    <value>LR2 song.db の同期中です。
-完了後にもう一度実行してください。</value>
   </data>
   <data name="Warn_EverythingFallbackScanUsed" xml:space="preserve">
     <value>Everything 連携に失敗したため、通常のファイル列挙へ切り替えます。

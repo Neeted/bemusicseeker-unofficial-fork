@@ -2312,7 +2312,7 @@ public partial class BMSLibrary
             if (showMessage)
             {
                 runtime.ShowOperationDialog(
-                    Resources.Warn_Lr2SongDbSyncRunning,
+                    Resources.Warn_LibraryOperationBusy,
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,
@@ -2360,7 +2360,7 @@ public partial class BMSLibrary
             if (showMessage)
             {
                 runtime.ShowOperationDialog(
-                    Resources.Warn_Lr2SongDbSyncRunning,
+                    Resources.Warn_LibraryOperationBusy,
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,

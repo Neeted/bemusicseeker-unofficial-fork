@@ -1085,13 +1085,15 @@ internal sealed class CatalogMutationOwner
     /// <param name="targets">確定destinationとlive ownerを保持する導入target。</param>
     /// <param name="failureFact">DB書込み失敗のimmutable fact。</param>
     /// <param name="onValidationPassed">DB validation通過時に一度だけ呼ぶcallback。</param>
-    /// <param name="installPathToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
     /// <returns>DB・storage・owned collectionの確定receipt。</returns>
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertWithDeferredFailurePublication(
         ChartStorageTargetSet targets,
         out CatalogWriteFailureFact failureFact,
         Action onValidationPassed = null,
-        string installPathToDelete = null)
+        IEnumerable<string> installPathsToDelete = null,
+        IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
         if (targets == null)
         {
@@ -1106,7 +1108,7 @@ internal sealed class CatalogMutationOwner
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 CatalogInstalledTargetUpsertReceipt receipt = ApplyInstalledTargetUpsertUnsafe(
-                    CreateInstalledTargetUpsertRequestUnsafe(targets, installPathToDelete),
+                    CreateInstalledTargetUpsertRequestUnsafe(targets, installPathsToDelete, installRowsToUpsert),
                     onValidationPassed,
                     fact => capturedFailureFact = fact);
                 failureFact = null;
@@ -1191,20 +1193,22 @@ internal sealed class CatalogMutationOwner
 
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
         ChartStorageTargetSet targets,
-        string installPathToDelete = null)
+        IEnumerable<string> installPathsToDelete = null,
+        IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
         StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
         return new CatalogInstalledTargetUpsertRequest(
             targets,
             currentVersions.BmsRowsVersion,
             currentVersions.BmsonRowsVersion,
-            installPathToDelete);
+            installPathsToDelete,
+            installRowsToUpsert);
     }
 
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
-        string installPathToDelete = null)
+        IEnumerable<string> installPathsToDelete = null)
     {
         StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
         return new CatalogInstalledTargetUpsertRequest(
@@ -1212,7 +1216,7 @@ internal sealed class CatalogMutationOwner
             bmsonRows,
             currentVersions.BmsRowsVersion,
             currentVersions.BmsonRowsVersion,
-            installPathToDelete);
+            installPathsToDelete);
     }
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
@@ -1228,11 +1232,13 @@ internal sealed class CatalogMutationOwner
         }
 
         ChartStorageTargetSet targets = request.Targets;
-        bool hasInstallRowDeletion = !string.IsNullOrWhiteSpace(request.InstallPathToDelete);
+        bool hasInstallRowDeletion = request.InstallPathsToDelete.Count > 0;
+        bool hasInstallRowUpsert = request.InstallRowsToUpsert.Count > 0;
         if (targets == null
             || (targets.DatabaseBmsFiles.Count == 0
                 && targets.DatabaseBmsonSongs.Count == 0
-                && !hasInstallRowDeletion))
+                && !hasInstallRowDeletion
+                && !hasInstallRowUpsert))
         {
             return CatalogInstalledTargetUpsertReceipt.NotApplied;
         }
@@ -1269,7 +1275,14 @@ internal sealed class CatalogMutationOwner
                 }
                 if (hasInstallRowDeletion)
                 {
-                    songDb.Delete<LR2SongDBExtended.install>(request.InstallPathToDelete);
+                    foreach (string installPath in request.InstallPathsToDelete)
+                    {
+                        songDb.Delete<LR2SongDBExtended.install>(installPath);
+                    }
+                }
+                if (hasInstallRowUpsert)
+                {
+                    songDb.InsertAll(request.InstallRowsToUpsert, typeof(LR2SongDBExtended.install));
                 }
             });
         }
@@ -1306,7 +1319,10 @@ internal sealed class CatalogMutationOwner
             ? ownedCollectionOwner.IncrementVersion()
             : ownedCollectionOwner.CollectionVersion;
         return new CatalogInstalledTargetUpsertReceipt(
-            applied: targets.DatabaseBmsFiles.Count > 0 || targets.DatabaseBmsonSongs.Count > 0 || hasInstallRowDeletion,
+            applied: targets.DatabaseBmsFiles.Count > 0
+                || targets.DatabaseBmsonSongs.Count > 0
+                || hasInstallRowDeletion
+                || hasInstallRowUpsert,
             ownedCollectionApplied,
             versions,
             ownedCollectionVersion,
@@ -1512,19 +1528,28 @@ internal sealed class CatalogStorageRowsReplacementReceipt
 /// </summary>
 internal sealed class CatalogInstalledTargetUpsertRequest
 {
+    /// <summary>detached storage row と同じ transaction に含める pending install row mutation を immutable に固定します。</summary>
+    /// <param name="bmsRows">upsert 対象の detached BMS row。</param>
+    /// <param name="bmsonRows">upsert 対象の detached BMSON row。</param>
+    /// <param name="previousBmsRowsVersion">request 作成時の BMS storage version。</param>
+    /// <param name="previousBmsonRowsVersion">request 作成時の BMSON storage version。</param>
+    /// <param name="installPathsToDelete">同じ transaction で削除する pending install row path。</param>
+    /// <param name="installRowsToUpsert">同じ transaction で upsert する pending install row。</param>
     internal CatalogInstalledTargetUpsertRequest(
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
         int previousBmsRowsVersion,
         int previousBmsonRowsVersion,
-        string installPathToDelete = null)
+        IEnumerable<string> installPathsToDelete = null,
+        IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
         Targets = ChartStorageTargetSet.FromRows(bmsRows, bmsonRows);
         BmsRows = Snapshot(Targets.DatabaseBmsFiles);
         BmsonRows = Snapshot(Targets.DatabaseBmsonSongs);
         PreviousBmsRowsVersion = previousBmsRowsVersion;
         PreviousBmsonRowsVersion = previousBmsonRowsVersion;
-        InstallPathToDelete = installPathToDelete;
+        InstallPathsToDelete = SnapshotInstallPaths(installPathsToDelete);
+        InstallRowsToUpsert = SnapshotInstallRows(installRowsToUpsert);
         AddedCharts = CatalogChartMutationFact.CreateFacts(Targets.Charts);
     }
 
@@ -1534,19 +1559,22 @@ internal sealed class CatalogInstalledTargetUpsertRequest
     /// <param name="targets">live ownerとDB用detached rowを保持する導入target。</param>
     /// <param name="previousBmsRowsVersion">request作成時のBMS storage version。</param>
     /// <param name="previousBmsonRowsVersion">request作成時のBMSON storage version。</param>
-    /// <param name="installPathToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
     internal CatalogInstalledTargetUpsertRequest(
         ChartStorageTargetSet targets,
         int previousBmsRowsVersion,
         int previousBmsonRowsVersion,
-        string installPathToDelete = null)
+        IEnumerable<string> installPathsToDelete = null,
+        IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
         Targets = targets ?? ChartStorageTargetSet.FromRows([], []);
         BmsRows = Targets.DatabaseBmsFiles;
         BmsonRows = Targets.DatabaseBmsonSongs;
         PreviousBmsRowsVersion = previousBmsRowsVersion;
         PreviousBmsonRowsVersion = previousBmsonRowsVersion;
-        InstallPathToDelete = installPathToDelete;
+        InstallPathsToDelete = SnapshotInstallPaths(installPathsToDelete);
+        InstallRowsToUpsert = SnapshotInstallRows(installRowsToUpsert);
         AddedCharts = CatalogChartMutationFact.CreateFacts(Targets.Charts);
     }
 
@@ -1561,13 +1589,34 @@ internal sealed class CatalogInstalledTargetUpsertRequest
 
     internal int PreviousBmsonRowsVersion { get; }
 
-    internal string InstallPathToDelete { get; }
+    /// <summary>installed target upsert と同じ transaction で削除する pending install row path。</summary>
+    internal IReadOnlyList<string> InstallPathsToDelete { get; }
+
+    /// <summary>installed target upsert と同じ transaction で upsert する pending install row。</summary>
+    internal IReadOnlyList<ChartPackage> InstallRowsToUpsert { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
 
     private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)
     {
         return Array.AsReadOnly([.. values ?? []]);
+    }
+
+    private static IReadOnlyList<string> SnapshotInstallPaths(IEnumerable<string> values)
+    {
+        return Array.AsReadOnly((values ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray());
+    }
+
+    private static IReadOnlyList<ChartPackage> SnapshotInstallRows(IEnumerable<ChartPackage> values)
+    {
+        return Array.AsReadOnly((values ?? [])
+            .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))
+            .GroupBy(package => package.path, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToArray());
     }
 }
 

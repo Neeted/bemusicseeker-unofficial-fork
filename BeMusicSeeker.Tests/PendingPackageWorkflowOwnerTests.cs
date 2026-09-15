@@ -845,7 +845,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task SearchPackagesAsync_EndActivityFailureStillDetachesAndFlushesDialogScope()
+    public async Task SearchPackagesAsync_EndActivityFailureStillDetachesAndDispatchesDialogScope()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -866,11 +866,12 @@ public sealed class PendingPackageWorkflowOwnerTests
             };
             var failure = new InvalidOperationException("activity end failed");
             var presentation = new RecordingPresentation(events) { EndActivityFailure = failure };
+            var dialogs = AcceptedDialogs();
             var owner = CreateOwner(
                 () => library,
                 events,
                 store,
-                AcceptedDialogs(),
+                dialogs,
                 presentation: presentation,
                 playback: new NoOpPendingPackageMutationPlaybackPort());
 
@@ -880,7 +881,8 @@ public sealed class PendingPackageWorkflowOwnerTests
                     [new ChartPackage()]));
 
             Assert.AreSame(failure, exception);
-            Assert.AreEqual(1, dialogService.CallCount);
+            Assert.AreEqual(0, dialogService.CallCount, "worker から同期 dialog port を呼ばない。");
+            Assert.AreEqual(1, dialogs.MessageRequests.Count);
             CollectionAssert.AreEqual(
                 new[]
                 {
@@ -899,7 +901,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task SearchPackagesAsync_MultipleFailuresPreserveMutationAndEveryCleanupFailure()
+    public async Task SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -909,9 +911,11 @@ public sealed class PendingPackageWorkflowOwnerTests
             var mutationFailure = new InvalidOperationException("mutation failed");
             var suppressionFailure = new InvalidOperationException("suppression end failed");
             var activityFailure = new InvalidOperationException("activity end failed");
-            var flushFailure = new InvalidOperationException("dialog flush failed");
+            var notificationFailure = new InvalidOperationException("dialog notification failed");
             var events = new List<string>();
-            var dialogService = new RecordingLibraryDialogService { Failure = flushFailure };
+            var dialogService = new RecordingLibraryDialogService();
+            var dialogs = AcceptedDialogs();
+            dialogs.MessageResult = UiDialogResult.Failed(notificationFailure);
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
@@ -932,7 +936,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 () => library,
                 events,
                 store,
-                AcceptedDialogs(),
+                dialogs,
                 presentation: presentation,
                 playback: new NoOpPendingPackageMutationPlaybackPort());
 
@@ -942,8 +946,10 @@ public sealed class PendingPackageWorkflowOwnerTests
                     [new ChartPackage()]));
 
             CollectionAssert.AreEqual(
-                new Exception[] { mutationFailure, suppressionFailure, activityFailure, flushFailure },
+                new Exception[] { mutationFailure, suppressionFailure, activityFailure },
                 exception.InnerExceptions);
+            Assert.AreEqual(0, dialogService.CallCount);
+            Assert.AreEqual(1, dialogs.MessageRequests.Count);
             CollectionAssert.AreEqual(
                 new[]
                 {
@@ -1475,6 +1481,89 @@ public sealed class PendingPackageWorkflowOwnerTests
         StringAssert.Contains(dialogs.MessageRequest!.MessageBoxText, "1");
     }
 
+    /// <summary>
+    /// S5-FAILURE-TERMINAL: resource overwrite の異常終端を通常集計で隠さず、
+    /// operation gate と activity の解放後に session report を一度だけ表示します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("apply", false)]
+    [DataRow("finalization", false)]
+    [DataRow("physical", false)]
+    [DataRow("cleanup", false)]
+    [DataRow("conflict", false)]
+    [DataRow("apply", true)]
+    public async Task OverwriteInstalledOnlyPendingPackageResourcesAsync_ReportsSessionAfterRelease(
+        string failureKind,
+        bool reporterThrows)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        var failure = new IOException("resource-overwrite-terminal-" + failureKind);
+        var target = new LibraryMutationSessionTarget(@"C:\pending", @"D:\installed");
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\pending\BGA", @"D:\installed\BGA",
+            expectedIsDirectory: false, existingIsDirectory: true);
+        bool durable = failureKind is "finalization" or "cleanup";
+        bool conflictOnly = failureKind == "conflict";
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            confirmedTargets: failureKind is "physical" or "conflict" ? [] : [target],
+            durableCommit: durable,
+            physicalFailure: failureKind == "physical" ? failure : null,
+            failedTarget: failureKind == "physical" ? target : null,
+            applyFailure: failureKind == "apply" ? failure : null,
+            finalizationFailure: failureKind == "finalization" ? failure : null,
+            cleanupFailure: failureKind == "cleanup" ? failure : null,
+            itemFailures: conflictOnly
+                ? [new LibraryMutationSessionItemFailure(
+                    target, new FileDbMutationDestinationTypeConflictException(conflict), [conflict])]
+                : [],
+            destinationTypeConflicts: conflictOnly ? [conflict] : []);
+        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+        var store = new RecordingStore(events)
+        {
+            InstalledOnlyPendingPackages = [package],
+            OverwriteResult = new PendingInstalledOnlyResourceOverwriteResult
+            {
+                Requested = 1,
+                Processed = 1,
+                SucceededInstall = failureKind == "cleanup" ? 1 : 0,
+                Failed = failureKind is "physical" or "conflict" ? 1 : 0,
+                SessionReceipt = sessionReceipt
+            }
+        };
+        var gate = new ChartFileOperationSynchronizer();
+        bool releasedAtReport = false;
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageFailure = reporterThrows ? new IOException("optional-report-marker") : null,
+            OnMessage = () =>
+            {
+                bool acquired = gate.TryEnter(out IDisposable lease);
+                releasedAtReport = acquired && events.Contains("activity-end");
+                lease?.Dispose();
+            }
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
+
+        await owner.OverwriteInstalledOnlyPendingPackageResourcesAsync();
+
+        Assert.IsTrue(releasedAtReport);
+        Assert.AreEqual(1, events.Count(value => value == "store-overwrite-resources"));
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(
+            failureKind is "cleanup" or "conflict" ? MessageBoxImage.Warning : MessageBoxImage.Error,
+            dialogs.Messages[0].Icon);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, target.SourcePath);
+        if (conflictOnly)
+        {
+            StringAssert.Contains(dialogs.Messages[0].MessageBoxText, conflict.DestinationPath);
+        }
+        else
+        {
+            StringAssert.Contains(dialogs.Messages[0].MessageBoxText, failure.Message);
+        }
+    }
+
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_MultiplePackagesUsesProgressRoute()
     {
@@ -1574,12 +1663,14 @@ public sealed class PendingPackageWorkflowOwnerTests
             var events = new List<string>();
             var store = new RecordingStore(events);
             FakeUiDialogService dialogs = AcceptedDialogs();
+            var gate = new ChartFileOperationSynchronizer();
             var owner = CreateOwner(
                 () => library,
                 events,
                 store,
                 dialogs,
-                playback: new NoOpPendingPackageMutationPlaybackPort());
+                playback: new NoOpPendingPackageMutationPlaybackPort(),
+                chartFileOperations: gate);
             Assert.IsTrue(library.TryEnterPendingOperation(out IDisposable incumbent));
             try
             {
@@ -1587,8 +1678,10 @@ public sealed class PendingPackageWorkflowOwnerTests
                     PendingInstallDestinationSearchKind.InstallDestination,
                     [new ChartPackage()]);
                 Assert.AreEqual(0, store.SearchPackagesCount);
+                Assert.IsTrue(gate.TryEnter(out IDisposable afterRejection));
+                afterRejection.Dispose();
                 Assert.AreEqual(
-                    BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
                     dialogs.MessageRequest?.MessageBoxText);
             }
             finally
@@ -1617,11 +1710,13 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         var events = new List<string>();
         var primary = new IOException("pending-primary-marker");
-        var receipt = new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.DurableFinalizationFailed,
-            true, 0, 1, [@"C:\source"], [@"D:\destination"], [], [], [], primary, primary,
-            new IOException("pending-cleanup-marker"));
-        var batch = new FileDbMutationBatchReceipt([receipt]);
-        var store = new RecordingStore(events) { TerminalReceipt = batch };
+        var cleanup = new IOException("pending-cleanup-marker");
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\source", @"D:\destination")],
+            durableCommit: true,
+            finalizationFailure: primary,
+            cleanupFailure: cleanup);
+        var store = new RecordingStore(events) { TerminalReceipt = sessionReceipt };
         var gate = new ChartFileOperationSynchronizer();
         var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), chartFileOperations: gate);
         var scopeFailure = new IOException("pending-scope-marker");
@@ -1633,7 +1728,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
         PendingPackageMutationResult result = manual
             ? await owner.ManualInstallPackagesAsync([package]) : await owner.ForceInstallPackagesAsync([package]);
-        Assert.AreSame(batch, result.MutationReceipt);
+        Assert.AreSame(sessionReceipt, result.SessionReceipt);
         Assert.AreSame(scopeFailure, result.Failure);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsTrue(result.HasDurableFinalizationFailure);
@@ -1651,23 +1746,22 @@ public sealed class PendingPackageWorkflowOwnerTests
             @"D:\installed\BGA",
             expectedIsDirectory: false,
             existingIsDirectory: true);
-        var receipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
+        var conflictFailure = new FileDbMutationDestinationTypeConflictException(conflict);
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [],
             durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\pending"],
-            [@"D:\installed"],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflict),
+            itemFailures:
+            [
+                new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget(@"C:\pending", @"D:\installed"),
+                    conflictFailure,
+                    [conflict])
+            ],
             destinationTypeConflicts: [conflict]);
         var events = new List<string>();
         var store = new RecordingStore(events)
         {
-            TerminalReceipt = new FileDbMutationBatchReceipt([receipt])
+            TerminalReceipt = sessionReceipt
         };
         var gate = new ChartFileOperationSynchronizer();
         bool releasedAtReport = false;
@@ -1708,6 +1802,207 @@ public sealed class PendingPackageWorkflowOwnerTests
         StringAssert.Contains(dialogs.Messages[0].MessageBoxText, conflict.DestinationPath);
         Assert.AreSame(conflict, result.DestinationTypeConflicts[0]);
         Assert.AreEqual(1, events.Count(value => value == "store-manual-install"));
+    }
+
+    /// <summary>
+    /// S5-INSTALL-ADMISSION: 実 library の保留受付が準備済みでも、確認待ちから drop を拒否します。
+    /// 拒否した drop を後で自動実行せず、手動操作の成功・失敗・確認取消後には新しい要求を受け付けます。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(true, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(true, false, true)]
+    public async Task PendingInstall_RejectsDropDuringConfirmationAndReleasesAdmission(
+        bool manual, bool failMutation, bool cancelConfirmation)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var confirmationEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PackageInstallWorkflowOwner? automatic = null;
+        Task<PendingPackageMutationResult>? pending = null;
+        try
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            var gate = new ChartFileOperationSynchronizer();
+            var events = new List<string>();
+            var mutationFailure = new IOException("pending install failure marker");
+            var store = new RecordingStore(events) { Failure = failMutation ? mutationFailure : null };
+            ChartFile chart = CreateChart(installDestination: Path.Combine(root, "Installed"));
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+            var dialogs = new FakeUiDialogService
+            {
+                ConfirmationHandler = _ =>
+                {
+                    confirmationEntered.TrySetResult(true);
+                    return confirmation.Task;
+                }
+            };
+            var owner = CreateOwner(() => library, events, store, dialogs,
+                chartFileOperations: gate,
+                settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(true, false));
+            int autoCalls = 0;
+            automatic = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                {
+                    Interlocked.Increment(ref autoCalls);
+                    return [];
+                }), action => { action(); return true; });
+            automatic.AttachLibrary(library);
+
+            pending = manual ? owner.ManualInstallPackagesAsync([package]) : owner.ForceInstallPackagesAsync([package]);
+            await confirmationEntered.Task;
+            Assert.IsFalse(automatic.TryEnqueue(new DroppedInstallBatchRequest([Path.Combine(root, "rejected.zip")])));
+            Assert.IsTrue(automatic.IsIdle);
+            Assert.AreEqual(0, autoCalls);
+            Assert.AreEqual(0, events.Count, "確認完了前に store・再生・一覧へ副作用を出さない。");
+
+            confirmation.SetResult(UiDialogResult.FromMessageBoxResult(cancelConfirmation
+                ? MessageBoxResult.Cancel : manual ? MessageBoxResult.OK : MessageBoxResult.Yes));
+            PendingPackageMutationResult result = await pending;
+            Assert.AreEqual(!failMutation && !cancelConfirmation, result.Succeeded);
+            Assert.AreSame(failMutation ? mutationFailure : null, result.Failure);
+            if (cancelConfirmation)
+            {
+                Assert.IsFalse(result.ShouldApplyView);
+                Assert.AreEqual(0, events.Count, "確認取消では実行や一覧更新を始めない。");
+            }
+            Assert.IsTrue(library.TryEnterPendingOperation(out IDisposable pendingAfterCompletion));
+            pendingAfterCompletion.Dispose();
+            Assert.IsTrue(gate.TryEnter(out IDisposable chartAfterCompletion));
+            chartAfterCompletion.Dispose();
+            Assert.AreEqual(0, autoCalls, "拒否した drop を受付解放後に自動実行しない。");
+
+            Assert.IsTrue(automatic.TryEnqueue(new DroppedInstallBatchRequest([Path.Combine(root, "fresh.zip")])));
+            await automatic.WaitForIdleAsync();
+            Assert.AreEqual(1, autoCalls);
+        }
+        finally
+        {
+            confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            if (pending != null) await pending.WaitAsync(TimeSpan.FromSeconds(5));
+            if (automatic != null) await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// S5-INSTALL-ADMISSION / S5-INSTALL-QUEUE: worker 開始前と各 batch の実行中は保留導入を拒否し、
+    /// 追加 drop は FIFO で処理します。完了通知では全 batch の処理済みと受付解放を確認します。
+    /// 行選択 request と package 行からの手動・強制導入をそれぞれ通します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task DropQueue_RejectsPendingInstallUntilAllAcceptedBatchesFinish(bool manual, bool selectedRows)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        using var releaseEnqueue = new ManualResetEventSlim(false);
+        var enqueueEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PackageInstallWorkflowOwner? automatic = null;
+        Task<bool>? enqueue = null;
+        try
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            var gate = new ChartFileOperationSynchronizer();
+            var events = new List<string>();
+            ChartFile chart = CreateChart(installDestination: Path.Combine(root, "Installed"));
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+            var store = new RecordingStore(events) { ResolvedPackages = [package] };
+            var dialogs = new FakeUiDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(manual ? MessageBoxResult.OK : MessageBoxResult.Yes)
+            };
+            var owner = CreateOwner(() => library, events, store, dialogs,
+                chartFileOperations: gate,
+                settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(true, false));
+            PendingInstallPackageOperationRequest request = manual
+                ? PendingInstallPackageOperationRequest.CreateManualInstall([CreateTarget(chart)])
+                : PendingInstallPackageOperationRequest.CreateForceInstall([CreateTarget(chart)]);
+            Task<PendingPackageMutationResult> Install() => selectedRows
+                ? owner.InstallPendingAsync(request)
+                : manual ? owner.ManualInstallPackagesAsync([package]) : owner.ForceInstallPackagesAsync([package]);
+            var paths = new List<string>();
+            var rejectionsDuringBatch = new List<Task<PendingPackageMutationResult>>();
+            var completionObservations = new List<(int ProcessedPathCount, bool AdmissionAvailable)>();
+            int blockEnqueue = 0;
+            automatic = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, batch, _, _, _) =>
+                {
+                    paths.AddRange(batch);
+                    // 完了通知は受付解放後なので、競合拒否は実変更が戻る前に観測する。
+                    rejectionsDuringBatch.Add(Install());
+                    return [new ChartPackage()];
+                }), action =>
+                {
+                    if (Interlocked.Exchange(ref blockEnqueue, 0) == 1)
+                    {
+                        enqueueEntered.TrySetResult(true);
+                        if (!releaseEnqueue.Wait(TimeSpan.FromSeconds(5)))
+                            throw new TimeoutException("enqueue publication barrier was not released");
+                    }
+                    action();
+                    return true;
+                });
+            automatic.AttachLibrary(library);
+            automatic.CompletionPublished += _ =>
+            {
+                bool admissionAvailable = gate.TryEnter(out IDisposable completionLease);
+                completionLease?.Dispose();
+                completionObservations.Add((paths.Count, admissionAvailable));
+            };
+            Volatile.Write(ref blockEnqueue, 1);
+            string firstPath = Path.Combine(root, "first.zip");
+            string secondPath = Path.Combine(root, "second.zip");
+            enqueue = Task.Run(() => automatic.TryEnqueue(new DroppedInstallBatchRequest([firstPath])));
+            await enqueueEntered.Task;
+
+            PendingPackageMutationResult beforeWorker = await Install();
+            Assert.IsFalse(beforeWorker.Succeeded);
+            Assert.IsFalse(beforeWorker.ShouldApplyView);
+            Assert.IsNull(dialogs.ConfirmationRequest);
+            Assert.AreEqual(0, events.Count, "受付前に対象解決・確認・再生停止・store 変更を行わない。");
+            Assert.IsTrue(automatic.TryEnqueue(new DroppedInstallBatchRequest([secondPath])));
+            releaseEnqueue.Set();
+            Assert.IsTrue(await enqueue);
+            await automatic.WaitForIdleAsync();
+
+            CollectionAssert.AreEqual(new[] { firstPath, secondPath }, paths);
+            Assert.AreEqual(2, rejectionsDuringBatch.Count);
+            foreach (Task<PendingPackageMutationResult> attempt in rejectionsDuringBatch)
+            {
+                PendingPackageMutationResult rejection = await attempt;
+                Assert.IsFalse(rejection.Succeeded, "各 batch の実行中は競合する保留導入を拒否する。");
+                Assert.IsFalse(rejection.ShouldApplyView);
+                Assert.IsNull(rejection.Failure, "Busy 拒否を実行失敗へ変換しない。");
+            }
+            CollectionAssert.AreEqual(new[] { (2, true), (2, true) }, completionObservations,
+                "全受理 batch の処理と受付解放を終えてから、それぞれ一度だけ完了を通知する。");
+            Assert.IsNull(dialogs.ConfirmationRequest);
+            Assert.AreEqual(0, events.Count, "拒否した手動操作を後で実行しない。");
+            Assert.AreEqual(3, dialogs.MessageRequests.Count);
+            PendingPackageMutationResult fresh = await Install();
+            Assert.IsTrue(fresh.Succeeded);
+            Assert.AreEqual(1, events.Count(value => value == (manual ? "store-manual-install" : "store-force-install")));
+        }
+        finally
+        {
+            releaseEnqueue.Set();
+            if (enqueue != null) await enqueue.WaitAsync(TimeSpan.FromSeconds(5));
+            if (automatic != null) await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static PendingPackageWorkflowOwner CreateOwner(
@@ -2074,9 +2369,9 @@ public sealed class PendingPackageWorkflowOwnerTests
             ThrowIfConfigured();
         }
 
-        internal FileDbMutationBatchReceipt? TerminalReceipt { get; set; }
+        internal LibraryMutationSessionReceipt? TerminalReceipt { get; set; }
 
-        public FileDbMutationBatchReceipt ForceInstallPackagesWithReceipt(BMSLibrary library,
+        public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(BMSLibrary library,
             IReadOnlyList<ChartPackage> packages, ISet<ChartPackage> approvedNormalInstallOverridePackages)
         {
             ForceInstallPackages(library, packages, approvedNormalInstallOverridePackages);
@@ -2087,7 +2382,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             IReadOnlyList<ChartPackage> packages)
         {
             ManualInstallPackages(library, packages);
-            return new PendingInstallBatchResult { MutationReceipt = TerminalReceipt };
+            return new PendingInstallBatchResult { SessionReceipt = TerminalReceipt };
         }
 
         public bool IsPendingSectionEmpty(BMSLibrary library)
@@ -2219,6 +2514,8 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal UiConfirmationRequest? ConfirmationRequest { get; private set; }
 
+        internal Func<UiConfirmationRequest, Task<UiDialogResult>>? ConfirmationHandler { get; set; }
+
         internal UiMessageRequest? MessageRequest { get; private set; }
 
         internal List<UiMessageRequest> MessageRequests { get; } = [];
@@ -2244,6 +2541,10 @@ public sealed class PendingPackageWorkflowOwnerTests
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationRequest = request;
+            if (ConfirmationHandler != null)
+            {
+                return ConfirmationHandler(request);
+            }
             if (confirmationResults.Count > 0)
             {
                 return Task.FromResult(confirmationResults.Dequeue());
@@ -2271,8 +2572,6 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         internal int CallCount { get; private set; }
 
-        internal Exception? Failure { get; set; }
-
         public UiDialogDefaultResult Show(
             string messageBoxText,
             string caption,
@@ -2281,10 +2580,6 @@ public sealed class PendingPackageWorkflowOwnerTests
             UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
             CallCount++;
-            if (Failure != null)
-            {
-                throw Failure;
-            }
             return defaultResult == UiDialogDefaultResult.None ? UiDialogDefaultResult.OK : defaultResult;
         }
     }

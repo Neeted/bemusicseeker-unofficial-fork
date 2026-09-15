@@ -4,11 +4,11 @@ using System.Threading;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Serializes chart-file mutations and temporary playback copies that share physical paths.
+/// 物理 path を共有する譜面変更・一時再生コピー・保留操作・導入予約を相互排他します。
 ///
-/// <para>The gate is deliberately fail-fast.  A caller that cannot acquire it
-/// must return its route-specific busy result without touching dialogs,
-/// playback, filesystem state, or catalog state.</para>
+/// <para>受付は非待機とし、競合時は経路ごとの Busy 結果を返します。Busy の案内以外の確認、
+/// 再生停止、filesystem / catalog の変更は始めません。自動導入は最初の受理から queue の drain まで
+/// 一つの lease を所有し、追加 drop では取り直しません。</para>
 /// </summary>
 internal sealed class ChartFileOperationSynchronizer
 {

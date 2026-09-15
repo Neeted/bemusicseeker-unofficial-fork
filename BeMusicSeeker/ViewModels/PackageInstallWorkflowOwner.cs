@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
@@ -109,31 +111,30 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
     {
         Generation = generation;
         Packages = [.. (packages ?? []).Where(package => package != null)];
-        MutationReceipt = commandResult?.MutationReceipt;
+        SessionReceipt = commandResult?.SessionReceipt;
     }
 
     internal long Generation { get; }
 
     internal IReadOnlyList<ChartPackage> Packages { get; }
 
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+    /// <summary>package install command が返した canonical operation-scoped terminal facts。</summary>
+    internal LibraryMutationSessionReceipt SessionReceipt { get; }
 
     /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        MutationReceipt?.DestinationTypeConflicts ?? [];
+        SessionReceipt?.DestinationTypeConflicts ?? [];
 
-    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+    internal bool HasDurableCommit => SessionReceipt?.DurableCommit == true;
 
-    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+    internal bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired == true;
 
-    /// <summary>
-    /// Gets whether package finalization failed after durable state.
-    /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+    /// <summary>Gets whether package finalization failed after durable state.</summary>
+    internal bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure == true;
 
-    internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+    internal bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure == true;
 
-    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? [];
 }
 
 internal sealed class PackageInstallFailure : EventArgs
@@ -166,6 +167,8 @@ internal sealed class PackageInstallWorkflowOwner
 {
     private readonly object syncRoot = new();
 
+    private readonly IUiDialogService dialogs;
+
     private readonly ChartFileOperationSynchronizer chartFileOperations;
 
     private readonly ChartMutationActivityOwner chartMutationActivity;
@@ -194,7 +197,9 @@ internal sealed class PackageInstallWorkflowOwner
 
     private long latestStatusSequence;
 
+    /// <summary>共通の変更受付と UI 通知サービスを受け取り、導入予約から queue 終端までを所有します。</summary>
     internal PackageInstallWorkflowOwner(
+        IUiDialogService dialogs,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IPackageInstallMutationPort mutationPort,
@@ -202,6 +207,7 @@ internal sealed class PackageInstallWorkflowOwner
         Action<Exception> reportNotificationFailure = null,
         DroppedInstallIngressMaterializer droppedInstallIngressMaterializer = null)
     {
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.mutationPort = mutationPort ?? throw new ArgumentNullException(nameof(mutationPort));
@@ -302,20 +308,17 @@ internal sealed class PackageInstallWorkflowOwner
         AttachLibrary(null);
     }
 
-    internal void Enqueue(IEnumerable<string> paths)
+    /// <summary>入力を導入 queue へ渡し、Busy・受付停止を含む未受理を呼出元へ返します。</summary>
+    internal bool Enqueue(IEnumerable<string> paths)
     {
         string[] pathSnapshot = [.. (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-        if (pathSnapshot.Length == 0)
-        {
-            return;
-        }
-
-        TryEnqueue(new DroppedInstallBatchRequest(pathSnapshot));
+        return pathSnapshot.Length > 0
+            && TryEnqueue(new DroppedInstallBatchRequest(pathSnapshot));
     }
 
     /// <summary>
-    /// Attempts to transfer an acquired drop request to the current library generation.
-    /// Rejected requests are abandoned outside the owner lock.
+    /// 現行 generation の最初の drop は、queue へ挿入する前に共通の変更受付を取得します。
+    /// 同じ queue への追加 drop は既存の ownership で受理し、拒否時の入力回収は lock 外で行います。
     /// </summary>
     internal bool TryEnqueue(DroppedInstallBatchRequest request)
     {
@@ -329,8 +332,22 @@ internal sealed class PackageInstallWorkflowOwner
                 QueueProcessorContext candidate = queueProcessors[queueProcessors.Count - 1];
                 if (candidate.AcceptingAdmissions && candidate.Library != null)
                 {
-                    queue = candidate;
-                    transition = candidate.Processor.TryEnqueueCore(request);
+                    IDisposable queueLease = candidate.OperationLease;
+                    bool acquiredLease = queueLease == null;
+                    if (!acquiredLease || chartFileOperations.TryEnter(out queueLease))
+                    {
+                        queue = candidate;
+                        transition = candidate.Processor.TryEnqueueCore(request);
+                        if (transition.Accepted)
+                        {
+                            candidate.OperationLease = queueLease;
+                        }
+                        else if (acquiredLease)
+                        {
+                            // この lease の解放は atomic state 更新だけで、callback を呼ばない。
+                            queueLease.Dispose();
+                        }
+                    }
                 }
             }
         }
@@ -344,9 +361,10 @@ internal sealed class PackageInstallWorkflowOwner
         return true;
     }
 
-    internal void EnqueueSingle(string path)
+    /// <summary>単一 path の導入予約が受理されたかを返します。</summary>
+    internal bool EnqueueSingle(string path)
     {
-        Enqueue(string.IsNullOrWhiteSpace(path) ? [] : [path]);
+        return Enqueue(string.IsNullOrWhiteSpace(path) ? [] : [path]);
     }
 
     /// <summary>
@@ -367,7 +385,7 @@ internal sealed class PackageInstallWorkflowOwner
         }
         return DroppedInstallIngressAcquisitionResult.Failure(
             DroppedInstallIngressFailureKind.QueueRejected,
-            new InvalidOperationException("The package install queue is shutting down."));
+            new InvalidOperationException("The package install queue is busy or not accepting requests."));
     }
 
     internal void CancelAll()
@@ -468,7 +486,7 @@ internal sealed class PackageInstallWorkflowOwner
         {
             var failure = new PackageInstallFailure(currentGeneration, request.OriginalPaths,
                 terminalFailure, commandResult);
-            DispatchNotification(() =>
+            QueueTerminalNotification(context, () =>
             {
                 if (IsCurrentGeneration(currentGeneration, currentLibrary))
                     FailurePublished?.Invoke(failure);
@@ -476,15 +494,14 @@ internal sealed class PackageInstallWorkflowOwner
             return;
         }
         if (packages.Count == 0
-            && commandResult.MutationReceipt?.Receipts.Any(receipt => !receipt.DurableCommit) != true
-            && !commandResult.ManualRecoveryRequired
-            && !commandResult.HasDurableFinalizationFailure
+            && !commandResult.HasRequiredFailure
+            && commandResult.DestinationTypeConflicts.Count == 0
             && !commandResult.CompletedWithCleanupFailure)
         {
             return;
         }
         var receipt = new PackageInstallCompletionReceipt(currentGeneration, packages, commandResult);
-        DispatchNotification(() =>
+        QueueTerminalNotification(context, () =>
         {
             if (IsCurrentGeneration(currentGeneration, currentLibrary))
             {
@@ -513,7 +530,6 @@ internal sealed class PackageInstallWorkflowOwner
 
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
-        IDisposable operationGate = null;
         bool suppressionStarted = false;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
@@ -521,10 +537,7 @@ internal sealed class PackageInstallWorkflowOwner
         PackageInstallCommandResult commandResult = null;
         try
         {
-            if (!chartFileOperations.TryEnter(out operationGate))
-            {
-                throw new InvalidOperationException("A chart-file operation is already active.");
-            }
+            // queue が受理から drain 終端まで共通受付を所有する。batch ごとに再取得しない。
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
             if (token.IsCancellationRequested
@@ -587,10 +600,6 @@ internal sealed class PackageInstallWorkflowOwner
             {
                 CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
             }
-            if (operationGate != null)
-            {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
-            }
             if (activityLease != null)
             {
                 CaptureCleanupFailure(activityLease.Dispose, failures);
@@ -598,11 +607,23 @@ internal sealed class PackageInstallWorkflowOwner
             if (dialogScope != null)
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureCleanupFailure(dialogScope.Flush, failures);
+                IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = dialogScope.Messages;
+                if (messages.Count > 0)
+                {
+                    // OK-only の情報通知で worker を止めない。確認が必要な入力は mutation 前に解決済み。
+                    DispatchNotification(() =>
+                    {
+                        if (IsCurrentGeneration(expectedGeneration, library))
+                        {
+                            FileDbMutationReport.ShowOperationMessagesAsync(
+                                dialogs, messages, reportNotificationFailure).ObserveFault();
+                        }
+                    });
+                }
             }
         }
 
-        if (failures.Count > 0 && commandResult?.MutationReceipt != null)
+        if (failures.Count > 0 && commandResult?.SessionReceipt != null)
         {
             terminalFailure = failures.Count == 1 ? failures[0].SourceException
                 : new AggregateException(failures.Select(failure => failure.SourceException));
@@ -613,14 +634,14 @@ internal sealed class PackageInstallWorkflowOwner
             case 0:
                 return mutationAllowed
                     ? commandResult ?? new PackageInstallCommandResult(packages, null)
-                    : new PackageInstallCommandResult([], commandResult?.MutationReceipt);
+                    : new PackageInstallCommandResult([], commandResult?.SessionReceipt);
             case 1:
                 failures[0].Throw();
                 break;
             default:
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
         }
-        return new PackageInstallCommandResult([], commandResult?.MutationReceipt);
+        return new PackageInstallCommandResult([], commandResult?.SessionReceipt);
     }
 
     private void PublishRefreshSuppressionChanged(bool isSuppressed)
@@ -645,6 +666,35 @@ internal sealed class PackageInstallWorkflowOwner
     private void PublishQueueStatus(QueueProcessorContext context, DropInstallQueueStatusSnapshot snapshot)
     {
         DropInstallQueueStatusSnapshot copy = snapshot ?? new DropInstallQueueStatusSnapshot();
+        (Action Notification, Exception Failure)[] terminalNotifications = [];
+        if (!copy.IsActive)
+        {
+            lock (syncRoot)
+            {
+                // 表示の generation 判定より先に drain 済み lease を解放する。
+                // 遅い inactive 通知の間に追加された batch の lease は解放しない。
+                if (context.Processor.IsIdle)
+                {
+                    context.OperationLease?.Dispose();
+                    context.OperationLease = null;
+                    terminalNotifications = [.. context.TerminalNotifications];
+                    context.TerminalNotifications.Clear();
+                }
+            }
+        }
+        // 後続 batch と source cleanup が受付を所有する間は terminal を呼ばない。
+        // 受付解放と切り離した通知を lock 外で発行し、subscriber の再入も許可する。
+        foreach ((Action notification, Exception failure) in terminalNotifications)
+        {
+            if (IsCurrentGeneration(context.Generation, context.Library))
+            {
+                DispatchNotification(notification, failure);
+            }
+            else if (failure != null)
+            {
+                ReportNotificationFailure(failure);
+            }
+        }
         if (!IsCurrentGeneration(context.Generation, null, allowNullLibrary: true))
         {
             return;
@@ -838,7 +888,7 @@ internal sealed class PackageInstallWorkflowOwner
             return;
         }
         var failure = new PackageInstallFailure(context.Generation, context.ActiveBatch?.OriginalPaths, exception);
-        DispatchNotification(() =>
+        QueueTerminalNotification(context, () =>
         {
             if (IsCurrentGeneration(context.Generation, context.Library))
             {
@@ -849,6 +899,17 @@ internal sealed class PackageInstallWorkflowOwner
                 ReportNotificationFailure(exception);
             }
         }, exception);
+    }
+
+    private void QueueTerminalNotification(
+        QueueProcessorContext context,
+        Action notification,
+        Exception failure = null)
+    {
+        lock (syncRoot)
+        {
+            context.TerminalNotifications.Add((notification, failure));
+        }
     }
 
     private bool DispatchNotification(Action notification, Exception dispatchFailure = null)
@@ -935,6 +996,12 @@ internal sealed class PackageInstallWorkflowOwner
         internal DropInstallQueueProcessor Processor { get; set; }
 
         internal DroppedInstallBatchRequest ActiveBatch { get; set; }
+
+        /// <summary>最初の受理から worker・未引渡し source cleanup の終端まで所有する共通受付。</summary>
+        internal IDisposable OperationLease { get; set; }
+
+        /// <summary>受理済み batch の結果を、共通受付の解放後に一度だけ発行するため保持します。</summary>
+        internal List<(Action Notification, Exception Failure)> TerminalNotifications { get; } = [];
 
         /// <summary>
         /// Gets or sets whether the owner may linearize a new admission against this generation.

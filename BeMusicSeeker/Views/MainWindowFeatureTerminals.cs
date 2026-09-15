@@ -552,16 +552,13 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         }
 
         await FileDbMutationReport.ShowAsync(dialogs,
-            BeMusicSeeker.Properties.Resources.Install, result.MutationReceipt, result.Failure);
+            BeMusicSeeker.Properties.Resources.Install, result.SessionReceipt, result.Failure);
 
         Exception mutationFailure = null;
         try
         {
             if (result.Failure != null
-                && !ReferenceEquals(result.Failure, result.MutationReceipt?.FinalizationFailure)
-                && result.MutationReceipt?.Receipts.Any(receipt =>
-                    ReferenceEquals(receipt.Failure, result.Failure)
-                    || ReferenceEquals(receipt.FinalizationFailure, result.Failure)) != true)
+                && !ReferenceEquals(result.Failure, result.SessionReceipt?.PrimaryFailure))
             {
                 await Task.FromException(result.Failure).LoggingAndPropagate(routeName);
             }

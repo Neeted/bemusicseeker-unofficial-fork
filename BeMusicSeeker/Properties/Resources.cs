@@ -1576,7 +1576,10 @@ public class Resources
     public static string Warn_DropInstallIngressFailed => ResourceManager.GetString("Warn_DropInstallIngressFailed", resourceCulture);
 
 
-    public static string Warn_DropInstallQueueUnavailable => ResourceManager.GetString("Warn_DropInstallQueueUnavailable", resourceCulture);
+    public static string Warn_PackageInstallUnavailable => ResourceManager.GetString("Warn_PackageInstallUnavailable", resourceCulture);
+
+    /// <summary>競合するライブラリ操作が実行中であることを通知します。</summary>
+    public static string Warn_LibraryOperationBusy => ResourceManager.GetString("Warn_LibraryOperationBusy", resourceCulture);
 
 
     public static string Confirm_SelectedPlaylistExternalPackageLookup => ResourceManager.GetString("Confirm_SelectedPlaylistExternalPackageLookup", resourceCulture);
@@ -1646,8 +1649,6 @@ public class Resources
 
 
     public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
-
-    public static string Warn_Lr2SongDbSyncRunning => ResourceManager.GetString("Warn_Lr2SongDbSyncRunning", resourceCulture);
 
     public static string Warn_EverythingFallbackScanUsed => ResourceManager.GetString("Warn_EverythingFallbackScanUsed", resourceCulture);
 

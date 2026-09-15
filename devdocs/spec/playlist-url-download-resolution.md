@@ -27,6 +27,14 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
 
 [共通並行性契約 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外)に従い、通信待ち中のプレイリスト編集はBusy拒否できるが、現在の実入口で許可するライブラリ操作は通信中という理由だけで一括禁止しない。ここでいう取得は、LR2 DBの実同期や取得後の導入を無保護で並行実行してよいという意味ではない。URL取得中の追加ドロップ拒否、導入queueとの競合、取得済み入力のhandoff、cancel時の取得済みファイルの扱いは下記の現行契約を維持する。
 
+## 導入受付への引渡し
+
+単体 URL、本体・差分 URL 一括取り込み（`Import_Selected_Url` / `Import_Selected_Url_diff`）、外部 API からの入手先検索は、取得済み path を `QueuePlaylistUrlInstallPathsAsync` から同じ `PackageInstallWorkflowOwner.Enqueue` へ渡す。通信開始からライブラリ変更を一括禁止せず、引渡し時だけ [導入の共通受付](library-mutation-boundary.md#導入の共通受付と通知)へ進む。
+
+sink は受理結果を返す。未受理の場合は導入元に依存しない `Warn_PackageInstallUnavailable` を一度表示して終了し、予期しない例外、tree 展開、ブラウザ fallback、自動再試行へ変換しない。単体 URL でも「ダウンロードには成功したが導入は未受理」を、URL 解決失敗と混同しない。取得済みファイルは既存の一時領域 lifecycle に留め、拒否を理由に削除したり、再実行用の別状態を保存したりしない。
+
+一括 URL / API の結果サマリはダウンロード結果を表し、成功件数は「ダウンロード成功」と表示する。導入受付、アーカイブ解凍、譜面検出、導入確定の成功件数ではない。引渡しが拒否された場合も取得結果は改変せず、未受理の警告と区別する。
+
 ## 操作ごとの挙動
 
 ### 単体 URL 操作
@@ -36,7 +44,7 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
 
 `URL1` / `URL2` 列クリックなど、右クリックメニュー以外の単体 URL 操作では、`AutoInstall` が有効、かつ起動時ファイルチェックを省略していない場合に、先に自動ダウンロード導入を試みます。
 
-- 対応ファイルを取得できた場合は `installChartPackages` へ渡します。
+- 対応ファイルを取得できた場合は、共通の引渡し処理から `PackageInstallWorkflowOwner` へ導入を要求します。未受理なら警告して終了し、ブラウザを開きません。
 - 自動ダウンロード導入を試みる間は、1 件分の進捗をステータスバーへ表示します。
 - サイズ上限超過の場合はブラウザを開かず終了します。
 - 対応できない URL、HTML ページ、通信失敗などはブラウザで開きます。
@@ -63,7 +71,7 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
   - キャンセル後は新しい URL のダウンロードを開始しません。
   - 進行中の HTTP 接続、共有ページ HTML 読み取り、ファイル保存はキャンセル要求を受け取ります。
   - 通信先や実行環境によっては、現在の非同期処理がキャンセルを観測するまで待つ場合があります。
-  - キャンセル時点までに取得できたファイルは、通常通り導入キューへ渡します。
+  - キャンセル時点までに取得できたファイルは、通常と同じ受付判定で導入キューへ渡します。競合や受付停止による未受理も通常と同じ警告で扱います。
 - 取得できたファイルは、画面へのドラッグアンドドロップと同じ導入キューへまとめて渡します。
 - ブラウザフォールバック URL は開かず、結果件数の「ブラウザで開く必要がある URL」として集計します。
 - キャンセルにより開始しなかった URL は、結果件数の「キャンセルにより未処理」として集計します。
@@ -131,7 +139,7 @@ API は直 DL 相当 URL を返す前提であり、共有ページや配布ペ�
 - キャンセル後は新しい MD5 の問い合わせやダウンロードを開始しません。
 - 進行中の API 通信、HTTP 接続、ファイル保存はキャンセル要求を受け取ります。
 - 通信先や実行環境によっては、現在の非同期処理がキャンセルを観測するまで待つ場合があります。
-- キャンセル時点までに取得できたファイルは、通常通り導入キューへ渡します。
+- キャンセル時点までに取得できたファイルは、通常と同じ受付判定で導入キューへ渡します。競合や受付停止による未受理も通常と同じ警告で扱います。
 
 取得できたファイルは、画面へのドラッグアンドドロップと同じ導入キューへまとめて渡します。
 結果サマリには、対象 MD5 数、ダウンロード成功、候補なし、成功済み URL 重複、失敗済み URL 重複、サイズ上限、導入対象外、失敗、キャンセル件数を表示します。
@@ -262,3 +270,14 @@ URL 取り込みでは、共有ページ解決、解決不能、HTML スキッ�
 - `KonmaiPlaylistExternalPackageLookupProvider`
 - `MainWindowContextMenuResourceTests.PlaylistUrlDownload_*`
 - `PlaylistExternalPackageLookupServiceTests`
+
+## 取得から導入までの実装・テスト対応
+
+| 契約 | 実装 | 検証 |
+| --- | --- | --- |
+| 単体の取得成功時だけ導入要求し、受理後に tree を展開する | `RunSinglePlaylistUrlCoreAsync` / `QueuePlaylistUrlInstallPathsAsync` | `PlaylistUrlAcquisitionOwnershipTests.SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation` |
+| 一括取得の path snapshot を一度引き渡し、取得結果を集計する | `RunPlaylistUrlBatchCoreAsync` / `RunExternalPackageLookupCoreAsync` | `PlaylistUrlAcquisitionOwnershipTests.BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary`、既存 `PlaylistExternalPackageLookupServiceTests` |
+| 通信中に受理された通常変更と、取得後の導入要求の競合 | 上記三入口 → `QueuePlaylistUrlInstallPathsAsync`、composition の受理結果を返す sink → `PackageInstallWorkflowOwner.Enqueue` | `PlaylistUrlAcquisitionOwnershipTests.DownloadedPackages_BusyHandoffWarnsWithoutFallbackOrReplay` の single / url / diff / api。警告は一度、Error・browser・tree・再実行なし、取得済み source を保持 |
+| 読めない URL の通常 fallback と導入未受理の区別 | `RunSinglePlaylistUrlCoreAsync` | 上記 Busy case と `WorkspaceBrowserFallbackRemainsAvailableAfterOrdinaryHttpAcquisitionFailure` / `WorkspaceDoesNotBrowserFallbackAfterUnsupportedResponseScheme` |
+
+network / temp / UI は既存 local port、導入受付は実 owner と共有 gate を使う。通信中に別変更の受付が成立する時点を gateway で固定し、取得後の共通 handoff を拒否させる。URL 種類別の gate、sleep、retry は追加しない。queue 自体と保留操作の相互排他の検証は [共通契約](library-mutation-boundary.md#導入の共通受付と通知)に集約する。
