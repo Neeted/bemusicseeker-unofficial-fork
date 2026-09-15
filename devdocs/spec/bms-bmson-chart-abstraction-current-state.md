@@ -713,8 +713,8 @@ chart-common mutation の入口は次の 3 種に分類する。
 
 | 入口 | 用途 | 方針 |
 | :--- | :--- | :--- |
-| `ApplyLibraryMutationFactsForFileMutationUnderExistingLease(...)` | uninstall / delete / rename / repair / merge など、既存 owner に対する差分 mutation | storage row 変更、owned collection 変更、派生 index 同期を同一 boundary で行う。 |
-| install upsert entrypoint | 通常 install / deferred install / batch install が追加した BMS / bmson storage row の登録 | `ChartStorageTargetSet` を直接特別扱いし続けず、追加 chart mutation result として dispatcher に流す。 |
+| `LibraryMutationSession.Commit()` | uninstall / delete / rename / repair / merge など、既存 owner に対する差分 mutation | 複数 change の storage row 変更、owned collection 変更、派生 index 同期を操作単位で行う。共通 catalog / installed-target apply は session 内の private primitive とする。 |
+| `LibraryMutationSession.Commit()` の installed-target apply | 一操作の install が追加した BMS / bmson storage row の一括登録 | `ChartStorageTargetSet` を直接特別扱いし続けず、追加 chart mutation result として dispatcher に流す。 |
 | external full replacement | DB reload、startup load、外部 setter による `BMSFiles` / `BmsonSongs` 丸ごと置換 | 差分同期しない。owned collection と派生 index を full invalidate し、次回利用時に lazy rebuild する。 |
 
 変更結果の組立て・索引への必須反映・公開順序は、既存file ownerを再編した `LibraryMutationOwner` が管理する。file facts、確定destinationのinstall target、scan replacement、digest/maintenance receiptからprivateな操作内結果を作り、同じ共通反映へ接続する。duplicate mergeも除去と移動の確定factsをこの境界へ渡す。明示scanは全置換とresource世代を保持し、空residualは追加反映を行わない。rootの旧任意applyと汎用Deltaは退役済みである。操作別の入口・writer・索引・公開・検証の正本は [変更境界の対応表](library-mutation-boundary.md#操作から確定公開までの対応) を参照する。
@@ -824,7 +824,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 
 | 領域 | 状態 | 現行仕様 |
 | :--- | :--- | :--- |
-| mutation dispatcher | 完了、監査継続 | `OwnedChartCollectionMutationResult` と `DispatchOwnedChartCollectionMutation(...)` が、`ApplyLibraryMutationFactsForFileMutationUnderExistingLease(...)`、install upsert、file scan diff、duplicate merge、library delete の派生 index 同期を受け持つ。startup DB load / external replacement だけ setter full invalidate 境界に残す。 |
+| mutation dispatcher | 完了、監査継続 | `OwnedChartCollectionMutationResult` と `DispatchOwnedChartCollectionMutation(...)` が、`LibraryMutationSession.Commit()`、install upsert、file scan diff、duplicate merge、library delete の派生 index 同期を受け持つ。startup DB load / external replacement だけ setter full invalidate 境界に残す。 |
 | dispatcher 接続済み index | 完了、delta 精度は監査継続 | installed primary hash lookup、installed directory lookup、duplicate row index / duplicate groups cache、parent folder cache、playlist summary owned hash、playlist detail resolve index、resource health index は dispatcher から差分同期または dirty 化する。未構築 index は mutation 時に build しない。 |
 | path / hash / overlay adjacent index | 完了、delta 精度は監査継続 | md5 primary hash -> path lookup、owner/path canonical lookup、path-only exact lookup、real path directory view、subtree counts、install destination overlay view は用途を分ける。path / hash / overlay change は old-side capture を持つ mutation result として dispatcher に流す。 |
 | resource / maintenance target | 完了、currentness / 性能監査継続 | `ResourceMaintenanceTargetSet`、`ResourceHealthIndexMutation`、`ResourceHealthIndexUpdateMode`、dispatcher が resource-health contract である。subset は delta / invalidate / defer、明示 full operation は version metadata 付き full targetとして扱う。 |
@@ -910,7 +910,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - chart_info full backfillのsuccess/reuse対象BMSは、path+MD5が一致する既存songのchart-info由来9列だけをfactsと同じtransactionでupdateする。基本列を再生成せず、missing rowをINSERTしない。receipt後だけDBでmatchedしたcanonical ownerとsession/index/eventへpublishする。BMSONはLR2 `song` rowを作らない。
 - normal library route skip / required failure は通常 hot path から外れ、sortable column の不整合を隠す全件 materialize 経路になっていない。
 - owned chart collection、installed lookup、playlist summary owned hash、playlist detail owned resolve index、parent folder cache、directory view、resource maintenance target が同じ mutation 境界で同期または無効化される。
-- `ApplyLibraryMutationFactsForFileMutationUnderExistingLease(...)`、install upsert、external full replacement の 3 入口が、同じ mutation result / dispatcher 契約に整理されている。
+- `LibraryMutationSession.Commit()`、install upsert、external full replacement の 3 入口が、同じ mutation result / dispatcher 契約に整理されている。
 - internal mutation で `BMSFiles` / `BmsonSongs` setter 由来の派生 index full invalidation に依存していない。full replacement だけが setter full invalidate を使う。
 - BMS / bmson の install、uninstall、merge、repair、folder move、path rename、maintenance、playlist reference、duplicate search の既存挙動が維持される。
 - 既存の LR2 DB、app-owned bmson DB、playlist DB / JSON、settings、UI 文言の互換性を壊していない。

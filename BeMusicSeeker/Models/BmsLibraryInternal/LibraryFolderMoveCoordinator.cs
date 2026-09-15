@@ -160,9 +160,7 @@ internal static class LibraryFolderMoveCoordinator
         LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             mutationCapability,
             "move_folder",
-            postLeaseNotifications,
-            suppressNormalRefreshNotification: false,
-            suppressLr2NormalFolderSync: false);
+            postLeaseNotifications);
 
         for (int index = 0; index < movePlans.Count; index++)
         {

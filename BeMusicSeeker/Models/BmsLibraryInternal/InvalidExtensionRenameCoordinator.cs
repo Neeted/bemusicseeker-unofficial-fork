@@ -74,9 +74,7 @@ internal static class InvalidExtensionRenameCoordinator
                 LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
                     mutationCapability,
                     "invalid_ext_rename",
-                    postLeaseNotifications,
-                    suppressNormalRefreshNotification: false,
-                    suppressLr2NormalFolderSync: false);
+                    postLeaseNotifications);
                 for (int index = 0; index < targetBatches.Count; index++)
                 {
                     LibraryFileExtensionRenameBatch batch = targetBatches[index];

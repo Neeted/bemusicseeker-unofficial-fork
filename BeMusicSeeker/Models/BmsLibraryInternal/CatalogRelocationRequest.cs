@@ -105,6 +105,12 @@ internal sealed class BmsonSongPathReplacement
 /// </summary>
 internal sealed class CatalogRelocationDbReceipt
 {
+    /// <summary>exact path query で取得し移転した folder 行数。</summary>
+    internal int FolderDbTargetRows { get; set; }
+
+    /// <summary>folder query の全件走査回数。対象 path query のみを使用するため 0 です。</summary>
+    internal int FolderDbFullScanCount { get; }
+
     internal long FolderDbMs { get; set; }
 
     internal long BmsPathDbMs { get; set; }
@@ -139,6 +145,10 @@ internal sealed class CatalogMutationReceipt
              removalRequests: [],
              bmsonCanonicalOrderNormalized: false);
 
+    /// <summary>
+    /// canonical DB と live catalog の確定結果を、関連参照の反映と操作内診断へ渡します。
+    /// folder の件数は要求 path 数ではなく、実際に取得して移転した行数です。
+    /// </summary>
     internal CatalogMutationReceipt(
         bool applied,
         StorageRowsVersionSnapshot storageRowsVersion,
@@ -153,11 +163,15 @@ internal sealed class CatalogMutationReceipt
         IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<CatalogRelocationPathFact> pathFacts,
         IEnumerable<OwnedChartRemoveRequest> removalRequests,
-        bool bmsonCanonicalOrderNormalized = false)
+        bool bmsonCanonicalOrderNormalized = false,
+        int folderDbTargetRows = 0,
+        int folderDbFullScanCount = 0)
     {
         Applied = applied;
         StorageRowsVersion = storageRowsVersion;
         FolderDbMs = folderDbMs;
+        FolderDbTargetRows = folderDbTargetRows;
+        FolderDbFullScanCount = folderDbFullScanCount;
         BmsPathDbMs = bmsPathDbMs;
         BmsonPathDbMs = bmsonPathDbMs;
         BmsRemovalDbMs = bmsRemovalDbMs;
@@ -178,6 +192,12 @@ internal sealed class CatalogMutationReceipt
     internal bool Applied { get; }
 
     internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+
+    /// <summary>確定した folder DB 対象行数。</summary>
+    internal int FolderDbTargetRows { get; }
+
+    /// <summary>folder DB 全件走査回数。</summary>
+    internal int FolderDbFullScanCount { get; }
 
     internal long FolderDbMs { get; }
 

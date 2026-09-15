@@ -90,27 +90,23 @@ internal sealed class AutoRenameBatchDiagnostic
 internal sealed class AutoRenameBatchResult
 {
     /// <summary>
-    /// Creates immutable terminal facts for a folder auto-rename command.
+    /// 自動リネームの session 結果と解放後の診断を保持します。
     /// </summary>
     /// <param name="hasActionablePlan">Whether at least one plan produced a confirmed physical change.</param>
     /// <param name="appliedPlanCount">Number of confirmed folder moves appended to the operation session.</param>
     /// <param name="sessionReceipt">Operation-scoped durable and failure facts.</param>
-    /// <param name="lr2NormalFolderPathChanges">Confirmed BMS path changes for the one LR2 finalization pass.</param>
     /// <param name="diagnostics">Immutable diagnostics safe to publish after lease release.</param>
     /// <param name="primaryFailure">First unexpected operation failure, preserving its throw identity.</param>
     internal AutoRenameBatchResult(
         bool hasActionablePlan,
         int appliedPlanCount,
         LibraryMutationSessionReceipt sessionReceipt,
-        IEnumerable<Lr2NormalFolderPathChange> lr2NormalFolderPathChanges = null,
         IEnumerable<AutoRenameBatchDiagnostic> diagnostics = null,
         ExceptionDispatchInfo primaryFailure = null)
     {
         HasActionablePlan = hasActionablePlan;
         AppliedPlanCount = appliedPlanCount;
         SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
-        Lr2NormalFolderPathChanges = Array.AsReadOnly([.. (lr2NormalFolderPathChanges ?? [])
-            .Where(change => change != null)]);
         Diagnostics = Array.AsReadOnly([.. (diagnostics ?? [])
             .Where(diagnostic => diagnostic != null)]);
         PrimaryFailure = primaryFailure;
@@ -122,13 +118,6 @@ internal sealed class AutoRenameBatchResult
 
     /// <summary>Gets the operation-scoped mutation session receipt.</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; }
-
-    /// <summary>
-    /// Gets immutable BMS path facts synchronized once while the batch's
-    /// original capability is live, or recorded as incomplete after release
-    /// when the batch already has a primary failure.
-    /// </summary>
-    internal IReadOnlyList<Lr2NormalFolderPathChange> Lr2NormalFolderPathChanges { get; }
 
     /// <summary>
     /// Gets immutable diagnostics that are safe to publish after lease release.
@@ -184,7 +173,6 @@ internal sealed class AutoRenameBatchResult
             HasActionablePlan,
             AppliedPlanCount,
             SessionReceipt.WithFinalizationFailure(failure.SourceException),
-            Lr2NormalFolderPathChanges,
             Diagnostics,
             PrimaryFailure ?? failure);
     }

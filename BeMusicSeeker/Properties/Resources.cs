@@ -2325,8 +2325,6 @@ public class Resources
 
     public static string FileDbMutationReport_Operation => ResourceManager.GetString("FileDbMutationReport_Operation", resourceCulture);
 
-    public static string FileDbMutationReport_Counts => ResourceManager.GetString("FileDbMutationReport_Counts", resourceCulture);
-
     public static string LibraryMutationSessionReport_Counts => ResourceManager.GetString("LibraryMutationSessionReport_Counts", resourceCulture);
 
     public static string FileDbMutationReport_TerminalFailure => ResourceManager.GetString("FileDbMutationReport_TerminalFailure", resourceCulture);

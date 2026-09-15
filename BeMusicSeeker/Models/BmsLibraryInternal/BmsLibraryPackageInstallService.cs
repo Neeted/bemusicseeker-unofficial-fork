@@ -64,36 +64,6 @@ internal sealed class PendingPackageSourceDeletionTarget
 }
 
 /// <summary>
-/// One force-install callback result, including the terminal filesystem/DB state
-/// that determines whether the enclosing batch may continue.
-/// </summary>
-internal sealed class ForceInstallPackageApplyResult
-{
-    internal ForceInstallPackageApplyResult(
-        IEnumerable<ChartPackage> failedPackages,
-        bool manualRecoveryRequired,
-        FileDbMutationBatchReceipt mutationReceipt = null)
-    {
-        FailedPackages = new List<ChartPackage>((failedPackages ?? [])
-            .Where(package => package != null))
-            .AsReadOnly();
-        ManualRecoveryRequired = manualRecoveryRequired;
-        MutationReceipt = mutationReceipt;
-    }
-
-    internal IReadOnlyList<ChartPackage> FailedPackages { get; }
-
-    internal bool ManualRecoveryRequired { get; }
-
-    /// <summary>
-    /// Gets whether a post-durable finalizer failed in this apply result.
-    /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
-
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
-}
-
-/// <summary>
 /// Executes pending/package workflows against caller-owned state snapshots.
 /// The facade must acquire the required locks before invoking this service.
 /// </summary>
@@ -1097,7 +1067,7 @@ internal sealed class BmsLibraryPackageInstallService
                     validationFailure = exception;
                 }
                 // FileDbMutationExecutor needs a durable boundary before it releases source cleanup.
-                // For this S4 physical-only route the marker authorizes that physical transition only;
+                // この局所物理経路の marker は source cleanup の許可だけを表します。
                 // canonical library durability is established later by the owning mutation session.
                 return validationFailure == null
                     ? FileDbMutationCommitResult.Durable()
@@ -2098,13 +2068,6 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
 
-        /// <summary>legacy receipt route の確定 entry を同じ success overlay 表現へ追加する互換 helper。</summary>
-        internal void AddCommittedEntries(IEnumerable<PackageChartEntry> entries)
-        {
-            AddSuccessfulCharts((entries ?? [])
-                .Select(entry => entry?.Chart)
-                .Where(chart => chart != null));
-        }
     }
 
     /// <summary>operation 開始時 snapshot に success overlay を重ねた install lookup を作成します。</summary>
@@ -2462,43 +2425,6 @@ internal sealed class BmsLibraryPackageInstallService
         return (entry?.Chart?.Warnings ?? []).Any(warning => warning?.Kind == ChartWarningKind.AlreadyInstalled);
     }
 
-    public AutoInstallApplyResult ApplyAutoInstallWorkflow(
-        AutoInstallWorkflowResult workflow,
-        bool keepInstallablePackagesPending,
-        bool canAutoInstallImmediately,
-        Func<IEnumerable<ChartPackage>, List<ChartPackage>> installPackages,
-        CancellationToken token = default)
-    {
-        return ApplyAutoInstallWorkflowCore(
-            workflow,
-            keepInstallablePackagesPending,
-            canAutoInstallImmediately,
-            packages => new AutoInstallCandidateApplyResult(
-                installPackages?.Invoke(packages),
-                mutationReceipt: null),
-            token);
-    }
-
-    /// <summary>
-    /// Applies auto-install candidates through the durable filesystem/DB
-    /// receipt route.  A manual-recovery receipt stops candidate classification
-    /// so an unattempted candidate is never reported as installed.
-    /// </summary>
-    internal AutoInstallApplyResult ApplyAutoInstallWorkflowWithFileMutationReceipts(
-        AutoInstallWorkflowResult workflow,
-        bool keepInstallablePackagesPending,
-        bool canAutoInstallImmediately,
-        Func<IEnumerable<ChartPackage>, AutoInstallCandidateApplyResult> installPackages,
-        CancellationToken token = default)
-    {
-        return ApplyAutoInstallWorkflowCore(
-            workflow,
-            keepInstallablePackagesPending,
-            canAutoInstallImmediately,
-            installPackages,
-            token);
-    }
-
     /// <summary>
     /// auto-install 候補を一つの operation-scoped mutation session へ逐次追加します。
     /// 後続候補の重複判定には、この session で実際に physical success した chart のみを使用します。
@@ -2510,7 +2436,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <param name="mutationSession">外側 ingress が所有する唯一の install mutation session。</param>
     /// <param name="token">cancellation token。</param>
     /// <returns>session commit 前の auto-install aggregate。</returns>
-    internal AutoInstallApplyResult ApplyAutoInstallWorkflowWithFileMutationReceipts(
+    internal AutoInstallApplyResult ApplyAutoInstallWorkflowForMutationSession(
         AutoInstallWorkflowResult workflow,
         bool keepInstallablePackagesPending,
         bool canAutoInstallImmediately,
@@ -2519,23 +2445,6 @@ internal sealed class BmsLibraryPackageInstallService
         CancellationToken token = default)
     {
         ArgumentNullException.ThrowIfNull(mutationSession);
-        return ApplyAutoInstallWorkflowForMutationSessionCore(
-            workflow,
-            keepInstallablePackagesPending,
-            canAutoInstallImmediately,
-            installPackages,
-            mutationSession,
-            token);
-    }
-
-    private AutoInstallApplyResult ApplyAutoInstallWorkflowForMutationSessionCore(
-        AutoInstallWorkflowResult workflow,
-        bool keepInstallablePackagesPending,
-        bool canAutoInstallImmediately,
-        Func<IEnumerable<ChartPackage>, AutoInstallCandidateApplyResult> installPackages,
-        LibraryMutationOwner.LibraryMutationSession mutationSession,
-        CancellationToken token)
-    {
         var result = new AutoInstallApplyResult();
         if (workflow == null)
         {
@@ -2589,15 +2498,10 @@ internal sealed class BmsLibraryPackageInstallService
                         }
 
                         AutoInstallCandidateApplyResult candidateApplyResult = installPackages?.Invoke([package])
-                            ?? new AutoInstallCandidateApplyResult([package], null);
-                        result.MutationReceipt = CombineMutationReceipts(
-                            result.MutationReceipt,
-                            candidateApplyResult.MutationReceipt);
+                            ?? new AutoInstallCandidateApplyResult([package]);
                         List<ChartPackage> failedPackages = [.. candidateApplyResult.FailedPackages
                             .Where(failedPackage => failedPackage != null)];
-                        bool stopped = candidateApplyResult.StoppedByPhysicalFailure
-                            || candidateApplyResult.ManualRecoveryRequired
-                            || candidateApplyResult.HasDurableFinalizationFailure;
+                        bool stopped = candidateApplyResult.StoppedByPhysicalFailure;
                         bool failed = failedPackages.Count > 0 || stopped;
                         if (failed)
                         {
@@ -2662,80 +2566,6 @@ internal sealed class BmsLibraryPackageInstallService
         var applyStopwatch = Stopwatch.StartNew();
         result.PendingPackagesToAdd.AddRange(pendingPackagesToAdd);
         result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where(package => !string.IsNullOrWhiteSpace(package.path)));
-        result.EstimateTargets.AddRange(pendingPackagesToAdd);
-        applyStopwatch.Stop();
-        result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
-        totalStopwatch.Stop();
-        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
-        return result;
-    }
-
-    private AutoInstallApplyResult ApplyAutoInstallWorkflowCore(
-        AutoInstallWorkflowResult workflow,
-        bool keepInstallablePackagesPending,
-        bool canAutoInstallImmediately,
-        Func<IEnumerable<ChartPackage>, AutoInstallCandidateApplyResult> installPackages,
-        CancellationToken token)
-    {
-        var result = new AutoInstallApplyResult();
-        if (workflow == null)
-        {
-            return result;
-        }
-        var totalStopwatch = Stopwatch.StartNew();
-        var installStopwatch = Stopwatch.StartNew();
-        if (workflow.PendingPackagesToRemove.Count > 0)
-        {
-            result.PendingPackagesToRemove.AddRange(workflow.PendingPackagesToRemove.Where(pkg => pkg != null));
-            result.InstallRowsToDelete.AddRange(
-                workflow.PendingPackagesToRemove
-                    .Where(pkg => pkg != null && !string.IsNullOrWhiteSpace(pkg.path))
-                    .Select(pkg => pkg.path)
-                    .Distinct(StringComparer.OrdinalIgnoreCase));
-        }
-        List<ChartPackage> pendingPackagesToAdd = [.. workflow.PendingPackagesToAdd.Where(pkg => pkg != null)];
-        if (workflow.AutoInstallCandidates.Count > 0)
-        {
-            if (token.IsCancellationRequested)
-            {
-                installStopwatch.Stop();
-                result.InstallMs = installStopwatch.ElapsedMilliseconds;
-                totalStopwatch.Stop();
-                result.TotalMs = totalStopwatch.ElapsedMilliseconds;
-                return result;
-            }
-            if (!keepInstallablePackagesPending && canAutoInstallImmediately)
-            {
-                AutoInstallCandidateBatchClassification autoInstallClassification = ClassifyAutoInstallCandidateBatch(workflow.AutoInstallCandidates);
-                AutoInstallCandidateApplyResult candidateApplyResult = installPackages?.Invoke(autoInstallClassification.InstallCandidates)
-                    ?? new AutoInstallCandidateApplyResult([], null);
-                result.MutationReceipt = candidateApplyResult.MutationReceipt;
-                List<ChartPackage> failedPackages = [.. candidateApplyResult.FailedPackages];
-                var failedSet = new HashSet<ChartPackage>(failedPackages);
-                result.AutoInstallFailures.AddRange(failedPackages.Where(pkg => pkg != null));
-                List<ChartPackage> succeededPackages = [.. autoInstallClassification.InstallCandidates.Where(pkg => pkg != null && !failedSet.Contains(pkg))];
-                result.AutoInstalledPackages.AddRange(succeededPackages);
-                IPrimaryHashLookup succeededHashes = CreatePackagePrimaryHashLookup(succeededPackages);
-                foreach (AutoInstallDuplicateCandidate duplicateCandidate in autoInstallClassification.DuplicateCandidates)
-                {
-                    ApplyAlreadyInstalledWarning(GetEntriesMatchedByPrimaryHashes(
-                        duplicateCandidate.Package?.ChartEntries,
-                        succeededHashes,
-                        duplicateCandidate.DuplicatePrimaryHashes));
-                }
-                pendingPackagesToAdd = [.. pendingPackagesToAdd, .. failedPackages, .. autoInstallClassification.DuplicateCandidates.Select(candidate => candidate.Package).Where(pkg => pkg != null)];
-            }
-            else
-            {
-                pendingPackagesToAdd = [.. pendingPackagesToAdd, .. workflow.AutoInstallCandidates.Where(pkg => pkg != null)];
-            }
-        }
-        installStopwatch.Stop();
-        result.InstallMs = installStopwatch.ElapsedMilliseconds;
-
-        var applyStopwatch = Stopwatch.StartNew();
-        result.PendingPackagesToAdd.AddRange(pendingPackagesToAdd);
-        result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where(pkg => !string.IsNullOrWhiteSpace(pkg.path)));
         result.EstimateTargets.AddRange(pendingPackagesToAdd);
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
@@ -3048,168 +2878,6 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingInstallBatchResult ExecuteEstimatedInstallBatchPlan(
-        PendingInstallBatchPlan plan,
-        bool deletePendingPackageSourceAfterInstall,
-        Func<PendingInstallBatchItem, PackageInstallExecutionResult> installPackage,
-        Func<ChartPackage, string, ChartPackage> createInstalledDisplayPackage,
-        Func<ChartPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
-        Action<string> logInfo = null,
-        Func<ChartPackage, FileDbMutationReceipt> cleanupPendingPackageSourceWithReceipt = null,
-        Action<FileDbMutationReceipt> mutationReceiptObserver = null,
-        Func<bool> manualRecoveryObserved = null,
-        Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets = null)
-    {
-        var result = new PendingInstallBatchResult();
-        List<FileDbMutationReceipt> mutationReceipts = [];
-        Exception batchFinalizationFailure = null;
-        if (plan == null)
-        {
-            return result;
-        }
-        plan.IndependentOwnershipLookup = plan.IndependentOwnershipLookup
-            is SessionSuccessOwnershipOverlay sessionSuccessOwnershipOverlay
-                ? sessionSuccessOwnershipOverlay
-                : new SessionSuccessOwnershipOverlay(plan.IndependentOwnershipLookup);
-
-        foreach (ChartPackage originalPackage in plan.SelectedPendingPackages)
-        {
-            if (originalPackage == null)
-            {
-                continue;
-            }
-            var itemStopwatch = Stopwatch.StartNew();
-            PendingInstallBatchItem item = PrepareEstimatedInstallBatchItem(
-                originalPackage,
-                plan.MoveGuardLookup);
-            if (item == null)
-            {
-                itemStopwatch.Stop();
-                continue;
-            }
-            if (item.IsResourceOnlyInstall
-                && (countComponentMoveTargets?.Invoke(
-                        item.InstallWorkPackage,
-                        item.DestinationDirectory,
-                        item.ExcludedComponentPaths)
-                    ?? 0) == 0)
-            {
-                if (!deletePendingPackageSourceAfterInstall)
-                {
-                    itemStopwatch.Stop();
-                    continue;
-                }
-
-                plan.CleanupOnlyCandidates.Add(originalPackage);
-                FileDbMutationReceipt cleanupReceipt = cleanupPendingPackageSourceWithReceipt?.Invoke(originalPackage);
-                bool cleanupSucceeded;
-                CleanupSourceKind sourceKind;
-                if (cleanupReceipt != null)
-                {
-                    mutationReceipts.Add(cleanupReceipt);
-                    mutationReceiptObserver?.Invoke(cleanupReceipt);
-                    cleanupSucceeded = cleanupReceipt.DurableCommit
-                        && cleanupReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed;
-                    sourceKind = ClassifyCleanupSource(originalPackage);
-                }
-                else
-                {
-                    (cleanupSucceeded, sourceKind) = cleanupPendingPackageSource != null
-                        ? cleanupPendingPackageSource(originalPackage)
-                        : (false, CleanupSourceKind.MissingSource);
-                }
-                if (cleanupSucceeded)
-                {
-                    result.CleanupOnlySucceeded++;
-                    if (sourceKind == CleanupSourceKind.MissingSource)
-                    {
-                        result.CleanupOnlyMissingSource++;
-                    }
-                    if (!string.IsNullOrWhiteSpace(originalPackage.path))
-                    {
-                        result.InstallRowsToDelete.Add(originalPackage.path);
-                    }
-                    result.PendingPackagesToRemove.Add(originalPackage);
-                    ClearPackageInstallDestinations(originalPackage);
-                    logInfo?.Invoke("estimated_install_cleanup_only_success package=" + originalPackage.path + " kind=" + sourceKind.ToString().ToLowerInvariant());
-                }
-                else
-                {
-                    result.CleanupOnlyFailed++;
-                    logInfo?.Invoke("estimated_install_cleanup_only_failed package=" + originalPackage.path);
-                }
-                itemStopwatch.Stop();
-                if (cleanupReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                    || cleanupReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                {
-                    break;
-                }
-                continue;
-            }
-
-            PackageInstallExecutionResult installResult = installPackage?.Invoke(item);
-            batchFinalizationFailure ??= installResult?.MutationReceipt?.FinalizationFailure;
-            List<FileDbMutationReceipt> packageReceipts = [..
-                installResult?.MutationReceipt?.Receipts ?? []];
-            mutationReceipts.AddRange(packageReceipts);
-            FileDbMutationReceipt packageReceipt = packageReceipts.LastOrDefault();
-            bool packageRequiresTerminalStop = packageReceipts.Any(receipt =>
-                receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                || installResult?.HasDurableFinalizationFailure == true
-                || manualRecoveryObserved?.Invoke() == true;
-            bool packageSucceeded = installResult != null
-                && installResult.FailedPackages.Count == 0
-                && packageReceipt?.DurableCommit == true
-                && packageReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed
-                && !packageRequiresTerminalStop;
-            if (!packageSucceeded)
-            {
-                result.FailedPackages.Add(originalPackage);
-            }
-            else
-            {
-                if (!string.IsNullOrWhiteSpace(originalPackage.path))
-                {
-                    result.InstallRowsToDelete.Add(originalPackage.path);
-                }
-                if (item.IsResourceOnlyInstall)
-                {
-                    ChartPackage installedDisplayPackage = createInstalledDisplayPackage?.Invoke(
-                        originalPackage,
-                        item.DestinationDirectory);
-                    if (installedDisplayPackage != null
-                        && installedDisplayPackage.ChartEntries.Count > 0)
-                    {
-                        result.DeferredInstalledPackages.Add(installedDisplayPackage);
-                    }
-                }
-                ClearPackageInstallDestinations(originalPackage);
-                result.PendingPackagesToRemove.Add(originalPackage);
-            }
-            itemStopwatch.Stop();
-            logInfo?.Invoke(
-                "install_pending_packages_to_estimated_destinations item dst="
-                + item.DestinationDirectory
-                + " packages=1"
-                + " failedPackages="
-                + (packageSucceeded ? 0 : 1)
-                + " installMs="
-                + installResult?.MoveMs
-                + " totalItemMs="
-                + itemStopwatch.ElapsedMilliseconds);
-            if (packageRequiresTerminalStop)
-            {
-                break;
-            }
-        }
-        plan.CleanupOnlyCandidateCount = plan.CleanupOnlyCandidates.Count;
-        result.MutationReceipt = new FileDbMutationBatchReceipt(
-            mutationReceipts,
-            batchFinalizationFailure);
-        return result;
-    }
-
     private static PendingInstallBatchItem PrepareEstimatedInstallBatchItem(
         ChartPackage originalPackage,
         IPrimaryHashLookup installedHashes)
@@ -3456,251 +3124,6 @@ internal sealed class BmsLibraryPackageInstallService
             failure,
             unprocessedTargets);
         return receipt;
-    }
-
-    /// <summary>
-    /// package ごとに filesystem receipt を確定します。durable DB receipt が確定した場合、
-    /// または durable 前の失敗が補償済みとなった場合だけ、次の package へ進みます。
-    /// manual recovery または durable finalization failure では後続を停止します。
-    /// durable receipt 後の package-level finalizer failure も batch receipt に保持し、
-    /// 後続を開始しません。
-    /// </summary>
-    internal PackageInstallExecutionResult InstallPackagesWithFileMutationReceipts(
-        IEnumerable<ChartPackage> chartPackagesInstall,
-        string installationDirectory,
-        Func<ChartPackage, string, PackageSourceCleanupPolicy, IPrimaryHashLookup, IInstalledChartLookupIndex, ISet<string>, Func<PackageInstallExecutionResult, FileDbMutationCommitResult>, FileDbMutationReceipt> movePackageFiles,
-        Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
-        Action<PackageInstallExecutionResult> updateMaintenance,
-        Action<PackageInstallExecutionResult> applyScores,
-        Action<PackageInstallExecutionResult> applyState,
-        PackageSourceCleanupPolicy sourceCleanupPolicy,
-        Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
-        IPrimaryHashLookup existingHashes = null,
-        bool skipInstalledPackageWhenNoBms = false,
-        IInstalledChartLookupIndex independentOwnershipLookup = null)
-    {
-        var result = new PackageInstallExecutionResult();
-        List<ChartPackage> packages = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
-        List<FileDbMutationReceipt> mutationReceipts = [];
-        Exception batchFinalizationFailure = null;
-        SessionSuccessOwnershipOverlay successOwnershipOverlay =
-            independentOwnershipLookup as SessionSuccessOwnershipOverlay
-                ?? new SessionSuccessOwnershipOverlay(independentOwnershipLookup);
-        var totalStopwatch = Stopwatch.StartNew();
-        var moveStopwatch = Stopwatch.StartNew();
-        foreach (ChartPackage package in packages)
-        {
-            HashSet<string> excludedComponentPaths = null;
-            excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
-            PackageInstallExecutionResult committedPackageResult = null;
-            FileDbMutationReceipt mutationReceipt = movePackageFiles?.Invoke(
-                package,
-                installationDirectory,
-                sourceCleanupPolicy,
-                existingHashes,
-                successOwnershipOverlay,
-                excludedComponentPaths,
-                packageResult =>
-                {
-                    committedPackageResult = packageResult;
-                    return applyDurableStorageRows?.Invoke(packageResult)
-                        ?? FileDbMutationCommitResult.Durable();
-                });
-            if (mutationReceipt != null)
-            {
-                mutationReceipts.Add(mutationReceipt);
-                // Keep the receipt observable before package-level maintenance,
-                // score, and state callbacks can fail.
-                result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
-            }
-            if (mutationReceipt?.DurableCommit == true
-                && mutationReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed)
-            {
-                committedPackageResult ??= CreatePackageInstallExecutionResult(package);
-                successOwnershipOverlay.AddCommittedEntries(committedPackageResult.AddedEntries);
-                result.AddedEntries.AddRange(committedPackageResult.AddedEntries);
-                if (committedPackageResult.AddedCharts.Count > 0)
-                {
-                    result.AddedCharts.AddRange(committedPackageResult.AddedCharts);
-                }
-                else
-                {
-                    result.AddedCharts.AddRange(committedPackageResult.AddedEntries
-                        .Select(entry => entry?.Chart)
-                        .Where(chart => chart != null));
-                }
-                if (existingHashes is IMutablePrimaryHashLookup mutableExistingHashes)
-                {
-                    foreach (PackageChartEntry entry in committedPackageResult.AddedEntries)
-                    {
-                        string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
-                        if (!string.IsNullOrWhiteSpace(lookupKey))
-                        {
-                            mutableExistingHashes.AddPrimaryHash(lookupKey);
-                        }
-                    }
-                }
-                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms
-                    && committedPackageResult.AddedEntries.Count == 0;
-                if (!shouldSkipInstalledPackageRegistration)
-                {
-                    result.InstalledPackagesToRegister.Add(package);
-                }
-                try
-                {
-                    updateMaintenance?.Invoke(committedPackageResult);
-                    applyScores?.Invoke(committedPackageResult);
-                    applyState?.Invoke(committedPackageResult);
-                }
-                catch (Exception exception)
-                {
-                    batchFinalizationFailure = exception;
-                    result.MutationReceipt = result.MutationReceipt.WithFinalizationFailure(exception);
-                    result.InstalledPackagesToRegister.RemoveAll(item => ReferenceEquals(item, package));
-                    result.FailedPackages.Add(package);
-                    // The filesystem/DB receipt is durable, but the package
-                    // finalizer is no longer safe to continue after a required
-                    // projection callback fails.
-                    break;
-                }
-            }
-            if (mutationReceipt != null)
-            {
-                if (!mutationReceipt.DurableCommit
-                    || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                {
-                    result.FailedPackages.Add(package);
-                    if (mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                        || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                    {
-                        // A manual-recovery or durable-finalization stop leaves the
-                        // current receipt authoritative; continuing the batch would
-                        // create a second mutation owner while the first one still
-                        // requires terminal handling.
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                result.FailedPackages.Add(package);
-            }
-        }
-        moveStopwatch.Stop();
-        result.MoveMs = moveStopwatch.ElapsedMilliseconds;
-        foreach (PackageChartEntry addedEntry in result.AddedEntries.Where(entry => entry?.Chart != null))
-        {
-            // A receipt-aware move clears package-only warnings before the DB owner sees the rows.
-            addedEntry.ClearPostInstallState();
-        }
-        result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts, batchFinalizationFailure);
-        totalStopwatch.Stop();
-        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
-        return result;
-    }
-
-    public ForceInstallBatchResult ForceInstallPackages(
-        IEnumerable<ChartPackage> packages,
-        IEnumerable<ChartPackage> currentPendingPackages,
-        Func<ChartPackage, bool> confirmNormalInstallOverride,
-        Func<IEnumerable<ChartPackage>, List<ChartPackage>, List<ChartPackage>> installPackages,
-        Action<string> logInfo = null)
-    {
-        return ForceInstallPackagesCore(
-            packages,
-            currentPendingPackages,
-            confirmNormalInstallOverride,
-            (packagesToInstall, deferredInstalledPackages) => new ForceInstallPackageApplyResult(
-                installPackages?.Invoke(packagesToInstall, deferredInstalledPackages),
-                manualRecoveryRequired: false),
-            logInfo);
-    }
-
-    /// <summary>
-    /// Runs force-install packages while carrying each package's typed mutation
-    /// terminal state.  A manual-recovery result is terminal for the batch.
-    /// </summary>
-    internal ForceInstallBatchResult ForceInstallPackagesWithFileMutationReceipts(
-        IEnumerable<ChartPackage> packages,
-        IEnumerable<ChartPackage> currentPendingPackages,
-        Func<ChartPackage, bool> confirmNormalInstallOverride,
-        Func<IEnumerable<ChartPackage>, List<ChartPackage>, ForceInstallPackageApplyResult> installPackages,
-        Action<string> logInfo = null)
-    {
-        return ForceInstallPackagesCore(
-            packages,
-            currentPendingPackages,
-            confirmNormalInstallOverride,
-            installPackages,
-            logInfo);
-    }
-
-    private ForceInstallBatchResult ForceInstallPackagesCore(
-        IEnumerable<ChartPackage> packages,
-        IEnumerable<ChartPackage> currentPendingPackages,
-        Func<ChartPackage, bool> confirmNormalInstallOverride,
-        Func<IEnumerable<ChartPackage>, List<ChartPackage>, ForceInstallPackageApplyResult> installPackages,
-        Action<string> logInfo)
-    {
-        var result = new ForceInstallBatchResult();
-        List<FileDbMutationReceipt> mutationReceipts = [];
-        Exception batchFinalizationFailure = null;
-        List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
-        List<ChartPackage> pendingPackages = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
-        result.Requested = requestedPackages.Count;
-        foreach (ChartPackage requestedPackage in requestedPackages)
-        {
-            ChartPackage pendingPackage = pendingPackages.FirstOrDefault(pkg => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-            if (pendingPackage == null)
-            {
-                result.Skipped++;
-                logInfo?.Invoke("force_install_batch skip_not_pending path=" + (requestedPackage.path ?? "(null)"));
-                continue;
-            }
-            bool hasInstallDestination = pendingPackage.ChartEntries.Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination));
-            if (hasInstallDestination && confirmNormalInstallOverride != null && !confirmNormalInstallOverride(pendingPackage))
-            {
-                result.Skipped++;
-                logInfo?.Invoke("force_install_batch skipped_by_confirm path=" + (pendingPackage.path ?? "(null)"));
-                continue;
-            }
-            List<ChartPackage> deferredInstalledPackages = [];
-            ForceInstallPackageApplyResult applyResult = installPackages?.Invoke(
-                [pendingPackage],
-                deferredInstalledPackages)
-                ?? new ForceInstallPackageApplyResult([], manualRecoveryRequired: false);
-            IReadOnlyList<ChartPackage> failedPackages = applyResult.FailedPackages;
-            if (applyResult.MutationReceipt?.Receipts != null)
-            {
-                mutationReceipts.AddRange(applyResult.MutationReceipt.Receipts);
-            }
-            batchFinalizationFailure ??= applyResult.MutationReceipt?.FinalizationFailure;
-            result.Processed++;
-            if (failedPackages.Count == 0 && !applyResult.HasDurableFinalizationFailure)
-            {
-                result.PendingPackagesToRemove.Add(pendingPackage);
-                result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where(pkg => pkg != null));
-                result.Succeeded++;
-                ClearPackageInstallDestinations(pendingPackage);
-                logInfo?.Invoke("force_install_batch success path=" + (pendingPackage.path ?? "(null)"));
-            }
-            else
-            {
-                result.Failed++;
-                logInfo?.Invoke("force_install_batch failed path=" + (pendingPackage.path ?? "(null)"));
-            }
-            if (applyResult.ManualRecoveryRequired
-                || applyResult.HasDurableFinalizationFailure)
-            {
-                // Recovery paths from this package remain authoritative; no
-                // later package may start a second mutation owner.
-                break;
-            }
-        }
-        result.MutationReceipt = new FileDbMutationBatchReceipt(
-            mutationReceipts,
-            batchFinalizationFailure);
-        return result;
     }
 
     /// <summary>
@@ -4021,199 +3444,6 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         return result;
-    }
-
-    public PendingResourceOverwriteExecutionResult ExecuteInstalledOnlyResourceOverwrite(
-        IEnumerable<ChartPackage> packages,
-        IEnumerable<ChartPackage> currentPendingPackages,
-        bool deletePendingPackageSourceAfterInstall,
-        Func<ChartPackage, InstalledOnlyPackageResolutionResult> resolveDestination,
-        Func<InstalledOnlyPackageResolutionResult, ChartPackage, string> describeSkipDetail,
-        Func<ChartPackage, string, bool> hasResourceOverwriteTargets,
-        Func<ChartPackage, string, bool> installPackageToEstimatedDestination,
-        Func<ChartPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
-        Func<ChartPackage, bool> isPackageStillPending,
-        CancellationToken token = default,
-        Action onEachProcessed = null,
-        Action<string> logInfo = null,
-        Func<ChartPackage, string, PendingInstallBatchResult> installPackageToEstimatedDestinationWithReceipt = null,
-        Func<ChartPackage, FileDbMutationReceipt> cleanupPendingPackageSourceWithReceipt = null,
-        Action<FileDbMutationReceipt> mutationReceiptObserver = null,
-        Func<bool> manualRecoveryObserved = null)
-    {
-        var result = new PendingResourceOverwriteExecutionResult();
-        List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
-        List<ChartPackage> pendingPackages = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
-        result.Requested = requestedPackages.Count;
-        foreach (ChartPackage requestedPackage in requestedPackages)
-        {
-            if (token.IsCancellationRequested)
-            {
-                result.Canceled = true;
-                break;
-            }
-            ChartPackage pendingPackage = pendingPackages.FirstOrDefault(pkg => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-            if (pendingPackage == null)
-            {
-                result.SkippedNotPending++;
-                result.Processed++;
-                logInfo?.Invoke("advanced_pending_resource_overwrite skip_not_pending path=" + requestedPackage.path);
-                onEachProcessed?.Invoke();
-                continue;
-            }
-            InstalledOnlyPackageResolutionResult resolution = resolveDestination?.Invoke(pendingPackage) ?? new InstalledOnlyPackageResolutionResult();
-            if (!resolution.Success)
-            {
-                if (resolution.Reason == InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories || resolution.Reason == InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories)
-                {
-                    result.SkippedMultiDestination++;
-                }
-                else
-                {
-                    result.SkippedMissingInstlDst++;
-                }
-                logInfo?.Invoke(describeSkipDetail?.Invoke(resolution, pendingPackage));
-                result.Processed++;
-                onEachProcessed?.Invoke();
-                continue;
-            }
-            string destinationDir = resolution.DestinationDirectory;
-            logInfo?.Invoke("advanced_pending_resource_overwrite resolve_selected path=" + pendingPackage.path + " dst=" + destinationDir + " charts=" + pendingPackage.ChartEntries.Count);
-            if (!hasResourceOverwriteTargets(pendingPackage, destinationDir))
-            {
-                bool stopAfterCurrent = false;
-                if (deletePendingPackageSourceAfterInstall)
-                {
-                    CleanupSourceKind sourceKindBeforeCleanup = ClassifyCleanupSource(pendingPackage);
-                    FileDbMutationReceipt cleanupReceipt = cleanupPendingPackageSourceWithReceipt?.Invoke(pendingPackage);
-                    if (cleanupReceipt != null)
-                    {
-                        result.MutationReceipt = AppendMutationReceipt(
-                            result.MutationReceipt,
-                            cleanupReceipt);
-                        mutationReceiptObserver?.Invoke(cleanupReceipt);
-                    }
-                    (bool Success, CleanupSourceKind SourceKind) = cleanupReceipt != null
-                        ? (cleanupReceipt.DurableCommit
-                            && cleanupReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed, sourceKindBeforeCleanup)
-                        : cleanupPendingPackageSource != null
-                            ? cleanupPendingPackageSource(pendingPackage)
-                            : (false, CleanupSourceKind.MissingSource);
-                    if (Success)
-                    {
-                        result.SucceededCleanupOnly++;
-                        result.PendingPackagesToRemove.Add(pendingPackage);
-                        if (!string.IsNullOrWhiteSpace(pendingPackage.path))
-                        {
-                            result.InstallRowsToDelete.Add(pendingPackage.path);
-                        }
-                        logInfo?.Invoke("advanced_pending_resource_overwrite cleanup_only_success path=" + pendingPackage.path + " kind=" + SourceKind.ToString().ToLowerInvariant());
-                    }
-                    else
-                    {
-                        result.Failed++;
-                        logInfo?.Invoke("advanced_pending_resource_overwrite cleanup_only_failed path=" + pendingPackage.path);
-                    }
-                    stopAfterCurrent = cleanupReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                        || cleanupReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed
-                        || manualRecoveryObserved?.Invoke() == true;
-                }
-                else
-                {
-                    result.SkippedNoComponentTarget++;
-                    logInfo?.Invoke("advanced_pending_resource_overwrite skip_no_component_target path=" + pendingPackage.path);
-                }
-                result.Processed++;
-                onEachProcessed?.Invoke();
-                if (stopAfterCurrent)
-                {
-                    break;
-                }
-                continue;
-            }
-            List<PackageChartEntry> packageEntries = [.. pendingPackage.ChartEntries.Where(entry => entry != null)];
-            var installDestinations = packageEntries.ToDictionary(entry => entry, entry => entry.CaptureInstallDestinationState());
-            foreach (PackageChartEntry entry in packageEntries)
-            {
-                entry.SetInstallDestinationPathOnly(destinationDir);
-            }
-            bool installSucceeded = false;
-            PendingInstallBatchResult installBatchResult = null;
-            try
-            {
-                if (installPackageToEstimatedDestinationWithReceipt != null)
-                {
-                    installBatchResult = installPackageToEstimatedDestinationWithReceipt(pendingPackage, destinationDir);
-                    result.MutationReceipt = CombineMutationReceipts(
-                        result.MutationReceipt,
-                        installBatchResult?.MutationReceipt);
-                    foreach (FileDbMutationReceipt mutationReceipt in installBatchResult?.MutationReceipt?.Receipts ?? [])
-                    {
-                        mutationReceiptObserver?.Invoke(mutationReceipt);
-                    }
-                    installSucceeded = installBatchResult?.HasDurableCommit == true
-                        && !installBatchResult.HasDurableFinalizationFailure;
-                }
-                else
-                {
-                    installSucceeded = installPackageToEstimatedDestination != null
-                        && installPackageToEstimatedDestination(pendingPackage, destinationDir);
-                }
-            }
-            finally
-            {
-                if (isPackageStillPending != null && isPackageStillPending(pendingPackage))
-                {
-                    foreach (KeyValuePair<PackageChartEntry, PackageChartInstallDestinationState> item in installDestinations)
-                    {
-                        item.Key.RestoreInstallDestinationState(item.Value);
-                    }
-                }
-            }
-            if (!installSucceeded || (isPackageStillPending != null && isPackageStillPending(pendingPackage)))
-            {
-                result.Failed++;
-                logInfo?.Invoke("advanced_pending_resource_overwrite install_failed path=" + pendingPackage.path + " dst=" + destinationDir);
-            }
-            else
-            {
-                result.SucceededInstall++;
-                logInfo?.Invoke("advanced_pending_resource_overwrite install_success path=" + pendingPackage.path + " dst=" + destinationDir);
-            }
-            result.Processed++;
-            onEachProcessed?.Invoke();
-            if (installBatchResult?.ManualRecoveryRequired == true
-                || installBatchResult?.HasDurableFinalizationFailure == true
-                || manualRecoveryObserved?.Invoke() == true)
-            {
-                break;
-            }
-        }
-        return result;
-    }
-
-    private static FileDbMutationBatchReceipt AppendMutationReceipt(
-        FileDbMutationBatchReceipt existing,
-        FileDbMutationReceipt receipt)
-    {
-        return CombineMutationReceipts(existing, receipt == null ? null : new FileDbMutationBatchReceipt([receipt]));
-    }
-
-    private static FileDbMutationBatchReceipt CombineMutationReceipts(
-        FileDbMutationBatchReceipt first,
-        FileDbMutationBatchReceipt second)
-    {
-        if (first == null)
-        {
-            return second;
-        }
-        if (second == null)
-        {
-            return first;
-        }
-        return new FileDbMutationBatchReceipt(
-            first.Receipts.Concat(second.Receipts),
-            first.FinalizationFailure ?? second.FinalizationFailure);
     }
 
     internal PendingZeroNoteRenameResult RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
@@ -4698,20 +3928,6 @@ internal sealed class BmsLibraryPackageInstallService
         internal List<PackageChartEntry> InstallTargetEntries { get; } = [];
     }
 
-    private sealed class AutoInstallCandidateBatchClassification
-    {
-        internal List<ChartPackage> InstallCandidates { get; } = [];
-
-        internal List<AutoInstallDuplicateCandidate> DuplicateCandidates { get; } = [];
-    }
-
-    private sealed class AutoInstallDuplicateCandidate
-    {
-        internal ChartPackage Package { get; set; }
-
-        internal HashSet<string> DuplicatePrimaryHashes { get; } = new(StringComparer.OrdinalIgnoreCase);
-    }
-
     private static void ApplyAlreadyInstalledWarning(IEnumerable<PackageChartEntry> entries)
     {
         foreach (PackageChartEntry entry in entries ?? [])
@@ -4746,57 +3962,6 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             result.InstallTargetEntries.Add(entry);
-        }
-        return result;
-    }
-
-    private static AutoInstallCandidateBatchClassification ClassifyAutoInstallCandidateBatch(IEnumerable<ChartPackage> packages)
-    {
-        var result = new AutoInstallCandidateBatchClassification();
-        var reservedHashes = new PrimaryHashGuardLookup(EmptyPrimaryHashLookup.Instance);
-        foreach (ChartPackage package in (packages ?? []).Where(pkg => pkg != null))
-        {
-            var duplicateHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            List<string> packageHashes = [.. (package.ChartEntries ?? [])
-                .Select(entry => ChartLookupKey.GetPrimaryHash(entry?.Chart))
-                .Where(hash => !string.IsNullOrWhiteSpace(hash))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            foreach (string hash in packageHashes)
-            {
-                if (reservedHashes.ContainsPrimaryHash(hash))
-                {
-                    duplicateHashes.Add(hash);
-                }
-            }
-            if (duplicateHashes.Count > 0)
-            {
-                var duplicateCandidate = new AutoInstallDuplicateCandidate
-                {
-                    Package = package,
-                };
-                duplicateCandidate.DuplicatePrimaryHashes.UnionWith(duplicateHashes);
-                result.DuplicateCandidates.Add(duplicateCandidate);
-                continue;
-            }
-            result.InstallCandidates.Add(package);
-            foreach (string hash in packageHashes)
-            {
-                reservedHashes.AddPrimaryHash(hash);
-            }
-        }
-        return result;
-    }
-
-    private static IPrimaryHashLookup CreatePackagePrimaryHashLookup(IEnumerable<ChartPackage> packages)
-    {
-        var result = new PrimaryHashGuardLookup(EmptyPrimaryHashLookup.Instance);
-        foreach (PackageChartEntry entry in (packages ?? []).Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries))
-        {
-            string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
-            if (!string.IsNullOrWhiteSpace(lookupKey))
-            {
-                result.AddPrimaryHash(lookupKey);
-            }
         }
         return result;
     }

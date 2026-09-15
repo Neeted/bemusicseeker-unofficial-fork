@@ -21,25 +21,23 @@ internal sealed class ForceInstallBatchResult
     /// <summary>session required finalizer で install destination を一括 clear する package。</summary>
     internal List<ChartPackage> PackagesToClearInstallDestinations { get; } = [];
 
-    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
-
     /// <summary>operation-scoped install session の canonical terminal facts。</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; set; }
 
     /// <summary>強制導入前に見つかった immutable な宛先型衝突を取得します。</summary>
     public IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        SessionReceipt?.DestinationTypeConflicts ?? MutationReceipt?.DestinationTypeConflicts ?? [];
+        SessionReceipt?.DestinationTypeConflicts ?? [];
 
-    public bool HasDurableCommit => SessionReceipt?.DurableCommit ?? (MutationReceipt?.HasDurableCommit == true);
+    public bool HasDurableCommit => SessionReceipt?.DurableCommit == true;
 
-    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired ?? (MutationReceipt?.ManualRecoveryRequired == true);
+    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired == true;
 
     /// <summary>
     /// Gets whether a post-durable finalizer failed for any batch mutation.
     /// </summary>
-    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure ?? (MutationReceipt?.HasDurableFinalizationFailure == true);
+    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure == true;
 
-    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure ?? (MutationReceipt?.CompletedWithCleanupFailure == true);
+    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure == true;
 
-    public IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? MutationReceipt?.RecoveryPaths ?? [];
+    public IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? [];
 }

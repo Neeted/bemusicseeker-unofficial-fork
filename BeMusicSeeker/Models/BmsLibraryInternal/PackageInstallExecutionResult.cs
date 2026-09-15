@@ -172,21 +172,6 @@ internal sealed class PackageInstallExecutionResult
     internal FileDbMutationReceipt PhysicalFailureReceipt { get; set; }
 
     /// <summary>
-    /// Per-package filesystem/DB receipts.  This remains immutable after the
-    /// package loop completes so partial durable progress is observable.
-    /// </summary>
-    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
-
-    /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
-    public IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        MutationReceipt?.DestinationTypeConflicts ?? [];
-
-    /// <summary>
-    /// Gets whether a post-durable finalizer failed for this package batch.
-    /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
-
-    /// <summary>
     /// Pending install-row path consumed by this package, if one exists.
     /// </summary>
     public string InstallPathToDelete { get; internal set; }
@@ -222,7 +207,7 @@ internal sealed class PackageInstallCommandResult
 
     internal IReadOnlyList<ChartPackage> RegisteredPackages { get; }
 
-    /// <summary>S5 install command の canonical operation-scoped terminal facts。</summary>
+    /// <summary>導入操作の canonical session 終端 facts。</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; }
 
     /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>

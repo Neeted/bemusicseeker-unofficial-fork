@@ -52,64 +52,79 @@ public sealed class FileDbMutationReportTests
         }
     }
 
+    /// <summary>成功と no-op は、操作単位でも余分な terminal を表示しません。</summary>
     [TestMethod]
-    public async Task NormalReceiptsAreSilent()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task NormalSessionReceiptsAreSilent(bool durable)
     {
         var dialogs = new FileDbReportRecordingDialogs();
-        await FileDbMutationReport.ShowAsync(dialogs, "normal-operation",
-            new FileDbMutationBatchReceipt([Receipt(FileDbMutationTerminalState.Completed)]));
+        var session = new LibraryMutationSessionReceipt(durable ? [Target("confirmed")] : [], durable);
+        await FileDbMutationReport.ShowAsync(dialogs, "normal-operation", session);
         Assert.AreEqual(0, dialogs.Messages.Count);
     }
 
+    /// <summary>durable 成功と required/cleanup failure は独立して報告します。</summary>
     [TestMethod]
-    [DataRow((int)FileDbMutationTerminalState.CompletedWithCleanupFailure, MessageBoxImage.Warning)]
-    [DataRow((int)FileDbMutationTerminalState.Failed, MessageBoxImage.Error)]
-    [DataRow((int)FileDbMutationTerminalState.ManualRecoveryRequired, MessageBoxImage.Error)]
-    [DataRow((int)FileDbMutationTerminalState.DurableFinalizationFailed, MessageBoxImage.Error)]
-    public void AbnormalSeverityPreservesDurableAndIndependentFailureDimensions(
-        int terminalState, MessageBoxImage expectedIcon)
+    [DataRow(false, false, true, MessageBoxImage.Warning)]
+    [DataRow(true, false, false, MessageBoxImage.Error)]
+    [DataRow(false, true, true, MessageBoxImage.Error)]
+    [DataRow(true, true, true, MessageBoxImage.Error)]
+    public void AbnormalSeverityPreservesIndependentFailureDimensions(
+        bool applyFails, bool finalizationFails, bool cleanupFails, MessageBoxImage expectedIcon)
     {
-        var state = (FileDbMutationTerminalState)terminalState;
-        FileDbMutationReceipt receipt = Receipt(state);
-        var batch = new FileDbMutationBatchReceipt([Receipt(FileDbMutationTerminalState.Completed), receipt]);
-        UiMessageRequest report = FileDbMutationReport.Create("selected-operation", batch);
+        var apply = applyFails ? new IOException("apply-marker") : null;
+        var finalization = finalizationFails ? new IOException("finalization-marker") : null;
+        var cleanup = cleanupFails ? new IOException("cleanup-marker") : null;
+        var session = new LibraryMutationSessionReceipt([Target("confirmed")], durableCommit: true,
+            applyFailure: apply, finalizationFailure: finalization, cleanupFailure: cleanup);
+
+        UiMessageRequest report = FileDbMutationReport.Create("selected-operation", session);
+
         Assert.IsNotNull(report);
         Assert.AreEqual(expectedIcon, report.Icon);
         StringAssert.Contains(report.MessageBoxText, "selected-operation");
-        StringAssert.Contains(report.MessageBoxText, receipt.Failure!.Message);
-        if (state == FileDbMutationTerminalState.DurableFinalizationFailed)
-            StringAssert.Contains(report.MessageBoxText, receipt.CleanupFailure!.Message);
-        Assert.IsTrue(batch.HasDurableCommit);
-        Assert.AreSame(receipt, batch.Receipts[1]);
+        foreach (Exception failure in new[] { apply, finalization, cleanup }.OfType<Exception>())
+        {
+            StringAssert.Contains(report.MessageBoxText, failure.Message);
+        }
+        Assert.IsTrue(session.DurableCommit);
+        Assert.AreSame(apply, session.ApplyFailure);
+        Assert.AreSame(finalization, session.FinalizationFailure);
+        Assert.AreSame(cleanup, session.CleanupFailure);
     }
 
+    /// <summary>physical failure が同時に存在すれば、cleanup warning を Error に引き上げます。</summary>
     [TestMethod]
-    public void MixedReceiptSeverityUsesWorstOutcomeInEitherOrder()
+    public void PhysicalFailureAndCleanupRemainVisibleTogether()
     {
-        var cleanup = Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure);
-        var failure = Receipt(FileDbMutationTerminalState.ManualRecoveryRequired);
-        foreach (FileDbMutationReceipt[] receipts in new[] { new[] { cleanup, failure }, new[] { failure, cleanup } })
-        {
-            UiMessageRequest report = FileDbMutationReport.Create("mixed-operation", new FileDbMutationBatchReceipt(receipts));
-            Assert.AreEqual(MessageBoxImage.Error, report.Icon);
-            StringAssert.Contains(report.MessageBoxText, cleanup.CleanupFailure!.Message);
-            StringAssert.Contains(report.MessageBoxText, failure.Failure!.Message);
-        }
+        var session = new LibraryMutationSessionReceipt([Target("confirmed")], durableCommit: true,
+            physicalFailure: new IOException("physical-marker"), failedTarget: Target("failed"),
+            unprocessedTargets: [Target("suffix")], cleanupFailure: new IOException("cleanup-marker"),
+            recoveryCandidatePaths: [@"D:\Recovery\backup"], manualRecoveryRequired: true);
+
+        UiMessageRequest report = FileDbMutationReport.Create("mixed-operation", session);
+
+        Assert.AreEqual(MessageBoxImage.Error, report.Icon);
+        StringAssert.Contains(report.MessageBoxText, "physical-marker");
+        StringAssert.Contains(report.MessageBoxText, "cleanup-marker");
+        StringAssert.Contains(report.MessageBoxText, @"D:\Recovery\backup");
     }
 
     [TestMethod]
     public void RendererBoundsCandidatesErrorsAndWholeBodyAcrossLanguages()
     {
-        string[] candidates = Enumerable.Range(0, 7).Select(index => "candidate-" + index + "-" + new string((char)('a' + index), 600)).ToArray();
-        var receipt = new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.DurableFinalizationFailed,
-            true, 0, 1, [], [], [], [], candidates,
-            new IOException("primary-" + new string('x', 800)),
-            new IOException("finalizer-" + new string('y', 800)),
-            new IOException("cleanup-" + new string('z', 800)));
-        foreach (string language in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW" })
+        string[] candidates = Enumerable.Range(0, 7)
+            .Select(index => "candidate-" + index + "-" + new string((char)('a' + index), 600)).ToArray();
+        var session = new LibraryMutationSessionReceipt([Target("confirmed")], durableCommit: true,
+            physicalFailure: new IOException("primary-" + new string('x', 800)),
+            finalizationFailure: new IOException("finalizer-" + new string('y', 800)),
+            cleanupFailure: new IOException("cleanup-" + new string('z', 800)),
+            recoveryCandidatePaths: candidates);
+        foreach (string language in Languages)
         {
-            UiMessageRequest report = FileDbMutationReport.Create(new string('o', 5000),
-                new FileDbMutationBatchReceipt([receipt]), culture: CultureInfo.GetCultureInfo(language));
+            CultureInfo culture = CultureInfo.GetCultureInfo(language);
+            UiMessageRequest report = FileDbMutationReport.Create(new string('o', 5000), session, culture: culture);
             Assert.IsTrue(report.MessageBoxText.Length <= 4096, language);
             string[] shownPaths = report.MessageBoxText.Split(Environment.NewLine)
                 .Where(line => line.StartsWith("candidate-", StringComparison.Ordinal)).ToArray();
@@ -117,35 +132,39 @@ public sealed class FileDbMutationReportTests
             Assert.IsTrue(shownPaths.All(path => path.Length <= 240));
             foreach (string marker in new[] { "primary-", "finalizer-", "cleanup-" })
             {
-                string errorLine = report.MessageBoxText.Split(Environment.NewLine).Single(line => line.Contains(marker, StringComparison.Ordinal));
+                string errorLine = report.MessageBoxText.Split(Environment.NewLine)
+                    .Single(line => line.Contains(marker, StringComparison.Ordinal));
                 Assert.IsTrue(errorLine[errorLine.IndexOf(marker, StringComparison.Ordinal)..].Length <= 400);
             }
+            StringAssert.EndsWith(report.MessageBoxText,
+                Resources.ResourceManager.GetString(nameof(Resources.FileDbMutationReport_Guidance), culture));
         }
     }
 
+    /// <summary>件数は一操作の confirmed/failed/suffix を表し、per-item の durable receipt 数ではありません。</summary>
     [TestMethod]
-    public void CountsDescribeRecordedOperationsAndKeepOverlappingFailureDimensions()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CountsDescribeSessionChangesAndKeepOverlappingFailureDimensions(bool durable)
     {
-        // Placeholder indices are the formatter's schema, not localized copy.
-        // Decode those fields so translation order/punctuation can vary freely.
-        // The expected values come from the five operations in this scenario.
-        var batch = new FileDbMutationBatchReceipt([
-            new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Completed, true, 0, 0,
-                Enumerable.Range(0, 8).Select(index => @"C:\Source\" + index), [@"D:\Destination"], [], [], []),
-            Receipt(FileDbMutationTerminalState.Completed),
-            Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure),
-            Receipt(FileDbMutationTerminalState.DurableFinalizationFailed),
-            Receipt(FileDbMutationTerminalState.ManualRecoveryRequired)
-        ]);
-        foreach (string language in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW" })
+        var session = new LibraryMutationSessionReceipt(
+            [Target("first"), Target("second")], durable,
+            physicalFailure: new IOException("physical"), failedTarget: Target("failed"),
+            unprocessedTargets: [Target("suffix1"), Target("suffix2"), Target("suffix3")],
+            applyFailure: new IOException("apply"),
+            finalizationFailure: durable ? new IOException("finalization") : null,
+            cleanupFailure: durable ? new IOException("cleanup") : null,
+            itemFailures: [new LibraryMutationSessionItemFailure(Target("missing"), new FileNotFoundException("missing"))]);
+        // schema の placeholder 番号を使い、翻訳の語順や句読点には依存しません。
+        int[] expected = durable ? [2, 2, 2, 2, 1, 3] : [2, 0, 4, 1, 0, 3];
+        foreach (string language in Languages)
         {
             CultureInfo culture = CultureInfo.GetCultureInfo(language);
-            string pattern = Regex.Escape(Resources.ResourceManager.GetString(nameof(Resources.FileDbMutationReport_Counts), culture)!);
+            string pattern = Regex.Escape(Resources.ResourceManager.GetString(nameof(Resources.LibraryMutationSessionReport_Counts), culture)!);
             for (int index = 0; index < 6; index++)
                 pattern = pattern.Replace(Regex.Escape("{" + index + "}"), "(?<field" + index + @">\d+)", StringComparison.Ordinal);
-            Match fields = Regex.Match(FileDbMutationReport.Create("counted-operation", batch, culture: culture).MessageBoxText, pattern);
+            Match fields = Regex.Match(FileDbMutationReport.Create("counted-operation", session, culture: culture).MessageBoxText, pattern);
             Assert.IsTrue(fields.Success, language);
-            int[] expected = [5, 4, 1, 1, 2, 1];
             for (int index = 0; index < expected.Length; index++)
                 Assert.AreEqual(expected[index], int.Parse(fields.Groups["field" + index].Value, CultureInfo.InvariantCulture));
         }
@@ -156,319 +175,133 @@ public sealed class FileDbMutationReportTests
     {
         FileDbMutationDestinationTypeConflict[] conflicts = Enumerable.Range(0, 6)
             .Select(index => new FileDbMutationDestinationTypeConflict(
-                @"C:\Source\source" + index,
-                @"D:\Destination\destination" + index,
-                expectedIsDirectory: false,
-                existingIsDirectory: true))
-            .ToArray();
-        var receipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
-            durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\package"],
-            [@"D:\Destination\package"],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflicts[0]),
-            destinationTypeConflicts: conflicts);
+                @"C:\Source\source" + index, @"D:\Destination\destination" + index,
+                expectedIsDirectory: false, existingIsDirectory: true)).ToArray();
+        var session = ConflictSession(conflicts);
 
-        UiMessageRequest report = FileDbMutationReport.Create(
-            "install-operation",
-            new FileDbMutationBatchReceipt([receipt]));
+        UiMessageRequest report = FileDbMutationReport.Create("install-operation", session);
 
-        Assert.IsNotNull(report);
         Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
-        Assert.AreEqual(Resources.FileDbMutationReport_Title, report.Caption);
-        StringAssert.Contains(report.MessageBoxText, @"C:\Source\package");
-        StringAssert.Contains(report.MessageBoxText, @"D:\Destination\package");
         foreach (FileDbMutationDestinationTypeConflict conflict in conflicts.Take(5))
             StringAssert.Contains(report.MessageBoxText, conflict.DestinationPath);
         Assert.IsFalse(report.MessageBoxText.Contains(conflicts[5].DestinationPath, StringComparison.Ordinal));
-        string omittedText = string.Format(
-            CultureInfo.CurrentCulture,
-            Resources.FileDbMutationReport_DestinationTypeConflict_More,
-            1);
-        StringAssert.Contains(report.MessageBoxText, omittedText);
-        Assert.IsTrue(report.MessageBoxText.Length <= 4096);
+        StringAssert.Contains(report.MessageBoxText, string.Format(CultureInfo.CurrentCulture,
+            Resources.FileDbMutationReport_DestinationTypeConflict_More, 1));
     }
 
+    /// <summary>型衝突は事前拒否で、通常/merge の表示は成功が存在するときだけ成功件数を示します。</summary>
     [TestMethod]
-    public void DestinationTypeConflictReportRetainsCleanupFailureAsWarning()
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void DestinationTypeConflictsUseOperationWordingAndOnlyShowConfirmedDurableSuccess(bool merge, bool success)
     {
-        var conflict = new FileDbMutationDestinationTypeConflict(
-            @"C:\Source\BGA",
-            @"D:\Destination\BGA",
-            expectedIsDirectory: false,
-            existingIsDirectory: true);
-        var conflictReceipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
-            durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\package"],
-            [@"D:\Destination\package"],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflict),
-            destinationTypeConflicts: [conflict]);
-        FileDbMutationReceipt cleanupReceipt = Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure);
-
-        UiMessageRequest report = FileDbMutationReport.Create(
-            "mixed-cleanup-operation",
-            new FileDbMutationBatchReceipt([conflictReceipt, cleanupReceipt]));
+        var session = ConflictSession([Conflict()], confirmed: success ? [Target("confirmed")] : []);
+        UiMessageRequest report = FileDbMutationReport.Create("operation", session, mergeOperation: merge);
 
         Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
-        string cleanupText = string.Format(
-            CultureInfo.CurrentCulture,
-            Resources.FileDbMutationReport_DestinationTypeConflict_Cleanup,
-            1);
-        StringAssert.Contains(report.MessageBoxText, cleanupText);
-        StringAssert.Contains(report.MessageBoxText, cleanupReceipt.CleanupFailure!.Message);
-        foreach (string path in cleanupReceipt.RecoveryPaths)
-            StringAssert.Contains(report.MessageBoxText, path);
-    }
-
-    [TestMethod]
-    public void DestinationTypeConflictReportKeepsFiveDetailsAndRecoverySummaryWithinBudget()
-    {
-        FileDbMutationDestinationTypeConflict[] conflicts = Enumerable.Range(0, 6)
-            .Select(index => new FileDbMutationDestinationTypeConflict(
-                @"C:\Source\package-" + index + new string('s', 800),
-                @"D:\Destination\package-" + index + new string('d', 800),
-                expectedIsDirectory: false,
-                existingIsDirectory: true))
-            .ToArray();
-        var conflictReceipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
-            durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\package-root-" + new string('p', 800)],
-            [@"D:\Destination\package-root-" + new string('q', 800)],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflicts[0]),
-            destinationTypeConflicts: conflicts);
-        const string recoveryPath = @"D:\Recovery\manual-";
-        FileDbMutationReceipt recoveryReceipt = new(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.ManualRecoveryRequired,
-            durableCommit: false,
-            compensationAttemptCount: 1,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\manual"],
-            [@"D:\Destination\manual"],
-            [],
-            [],
-            [recoveryPath + new string('r', 800)],
-            new IOException("long-manual-recovery-marker"));
-
-        UiMessageRequest report = FileDbMutationReport.Create(
-            "long-mixed-operation",
-            new FileDbMutationBatchReceipt([conflictReceipt, recoveryReceipt]));
-
-        Assert.AreEqual(MessageBoxImage.Error, report.Icon);
-        Assert.IsTrue(report.MessageBoxText.Length <= 4096);
-        foreach (FileDbMutationDestinationTypeConflict conflict in conflicts.Take(5))
+        if (merge)
         {
-            string sourcePrefix = conflict.SourcePath[..Math.Min(conflict.SourcePath.Length, 60)];
-            StringAssert.Contains(report.MessageBoxText, sourcePrefix);
+            Assert.AreEqual(Resources.FileDbMutationReport_DestinationTypeConflict_MergeTitle, report.Caption);
+            StringAssert.Contains(report.MessageBoxText, Resources.FileDbMutationReport_DestinationTypeConflict_MergeReason);
         }
-        Assert.IsFalse(report.MessageBoxText.Contains(conflicts[5].SourcePath, StringComparison.Ordinal));
-        StringAssert.Contains(
-            report.MessageBoxText,
-            string.Format(
-                CultureInfo.CurrentCulture,
-                Resources.FileDbMutationReport_DestinationTypeConflict_More,
-                1));
-        StringAssert.Contains(report.MessageBoxText, recoveryPath);
-        StringAssert.Contains(report.MessageBoxText, "long-manual-recovery-marker");
-        StringAssert.Contains(
-            report.MessageBoxText,
-            Resources.FileDbMutationReport_DestinationTypeConflict_Guidance);
+        string successFormat = merge ? Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses
+            : Resources.FileDbMutationReport_DestinationTypeConflict_Successes;
+        if (success)
+            StringAssert.Contains(report.MessageBoxText, string.Format(CultureInfo.CurrentCulture, successFormat, 1));
+        else
+            Assert.IsFalse(report.MessageBoxText.Contains(string.Format(CultureInfo.CurrentCulture, successFormat, 0), StringComparison.Ordinal));
     }
 
-    /// <summary>merge session の型衝突は既存の専用表示を使い、成功0件を案内しません。</summary>
+    /// <summary>型衝突の専用表示でも、別の required failure や cleanup の確認候補を捨てません。</summary>
     [TestMethod]
-    public void DestinationTypeConflictsUseMergeTerminalWordingWhenRequested()
+    [DataRow(false, MessageBoxImage.Warning)]
+    [DataRow(true, MessageBoxImage.Error)]
+    public void DestinationTypeConflictReportRetainsRecoveryAndFailureDimensions(bool requiredFailure, MessageBoxImage expectedIcon)
     {
-        var conflict = new FileDbMutationDestinationTypeConflict(
-            @"C:\Source\source",
-            @"D:\Destination\destination",
-            expectedIsDirectory: false,
-            existingIsDirectory: true);
-        var receipt = new LibraryMutationSessionReceipt(
-            [],
-            durableCommit: false,
-            itemFailures:
-            [
-                new LibraryMutationSessionItemFailure(
-                    new LibraryMutationSessionTarget(@"C:\Source\package", @"D:\Destination\package"),
-                    new FileDbMutationDestinationTypeConflictException(conflict),
-                    [conflict])
-            ],
-            destinationTypeConflicts: [conflict]);
+        var session = ConflictSession([Conflict()], [Target("confirmed")],
+            physicalFailure: requiredFailure ? new IOException("physical-marker") : null,
+            cleanupFailure: new IOException("cleanup-marker"),
+            recoveryPaths: [@"D:\Recovery\backup"]);
 
-        UiMessageRequest report = FileDbMutationReport.Create(
-            Resources.FileDbMutationReport_Merge,
-            receipt,
-            mergeOperation: true);
+        UiMessageRequest report = FileDbMutationReport.Create("mixed-operation", session);
 
-        Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
-        Assert.AreEqual(Resources.FileDbMutationReport_DestinationTypeConflict_MergeTitle, report.Caption);
-        StringAssert.Contains(
-            report.MessageBoxText,
-            Resources.FileDbMutationReport_DestinationTypeConflict_MergeReason);
-        string zeroSuccessText = string.Format(
-            CultureInfo.CurrentCulture,
-            Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses,
-            0);
-        Assert.IsFalse(report.MessageBoxText.Contains(zeroSuccessText, StringComparison.Ordinal));
+        Assert.AreEqual(expectedIcon, report.Icon);
+        StringAssert.Contains(report.MessageBoxText, @"D:\Recovery\backup");
+        StringAssert.Contains(report.MessageBoxText, "cleanup-marker");
+        if (requiredFailure) StringAssert.Contains(report.MessageBoxText, "physical-marker");
+        StringAssert.EndsWith(report.MessageBoxText, Resources.FileDbMutationReport_DestinationTypeConflict_Guidance);
     }
 
     [TestMethod]
-    public void DestinationTypeConflictsShowSuccessfulCountOnlyWhenPresent()
+    public void ConflictReportBoundsWholeBodyAndRetainsGuidanceAcrossLanguages()
     {
-        var conflict = new FileDbMutationDestinationTypeConflict(
-            @"C:\Source\source",
-            @"D:\Destination\destination",
-            expectedIsDirectory: false,
-            existingIsDirectory: true);
-        var conflictReceipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
-            durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\package"],
-            [@"D:\Destination\package"],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflict),
-            destinationTypeConflicts: [conflict]);
-
-        UiMessageRequest report = FileDbMutationReport.Create(
-            "install-operation",
-            new FileDbMutationBatchReceipt([
-                conflictReceipt,
-                Receipt(FileDbMutationTerminalState.Completed)
-            ]));
-
-        string successText = string.Format(
-            CultureInfo.CurrentCulture,
-            Resources.FileDbMutationReport_DestinationTypeConflict_Successes,
-            1);
-        StringAssert.Contains(report.MessageBoxText, successText);
-    }
-
-    [TestMethod]
-    public void DestinationTypeConflictReportRetainsRecoveryPathsForMixedManualRecovery()
-    {
-        var conflict = new FileDbMutationDestinationTypeConflict(
-            @"C:\Source\source",
-            @"D:\Destination\destination",
-            expectedIsDirectory: false,
-            existingIsDirectory: true);
-        var conflictReceipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
-            durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\package"],
-            [@"D:\Destination\package"],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflict),
-            destinationTypeConflicts: [conflict]);
-        const string recoveryPath = @"D:\Recovery\first-backup";
-        FileDbMutationReceipt recoveryReceipt = new(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.ManualRecoveryRequired,
-            durableCommit: false,
-            compensationAttemptCount: 1,
-            cleanupAttemptCount: 0,
-            [@"C:\Source\other"],
-            [@"D:\Destination\other"],
-            [],
-            [],
-            [recoveryPath],
-            new IOException("manual-recovery-marker"));
-
-        UiMessageRequest report = FileDbMutationReport.Create(
-            "mixed-operation",
-            new FileDbMutationBatchReceipt([conflictReceipt, recoveryReceipt]));
-
-        Assert.AreEqual(MessageBoxImage.Error, report.Icon);
-        StringAssert.Contains(report.MessageBoxText, recoveryPath);
-        StringAssert.Contains(report.MessageBoxText, "manual-recovery-marker");
+        var conflicts = Enumerable.Range(0, 8).Select(index => new FileDbMutationDestinationTypeConflict(
+            @"C:\" + index + new string('s', 600), @"D:\" + index + new string('d', 600), false, true)).ToArray();
+        var session = ConflictSession(conflicts, [Target("confirmed")],
+            physicalFailure: new IOException("physical-" + new string('x', 800)),
+            cleanupFailure: new IOException("cleanup-" + new string('y', 800)),
+            recoveryPaths: Enumerable.Range(0, 8).Select(index => "recovery-" + index + new string('r', 600)));
+        foreach (string language in Languages)
+        {
+            CultureInfo culture = CultureInfo.GetCultureInfo(language);
+            UiMessageRequest report = FileDbMutationReport.Create(new string('o', 5000), session, culture: culture);
+            Assert.IsTrue(report.MessageBoxText.Length <= 4096, language);
+            StringAssert.EndsWith(report.MessageBoxText,
+                Resources.ResourceManager.GetString(nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Guidance), culture));
+        }
     }
 
     [TestMethod]
     public void ExecutorTypeConflictWithoutPreflightFactsRemainsError()
     {
-        var conflict = new FileDbMutationDestinationTypeConflict(
-            @"C:\source\BGA",
-            @"D:\destination\BGA",
-            expectedIsDirectory: false,
-            existingIsDirectory: true);
-        var receipt = new FileDbMutationReceipt(
-            Guid.NewGuid(),
-            FileDbMutationTerminalState.Failed,
-            durableCommit: false,
-            compensationAttemptCount: 0,
-            cleanupAttemptCount: 0,
-            [conflict.SourcePath],
-            [conflict.DestinationPath],
-            [],
-            [],
-            [],
-            new FileDbMutationDestinationTypeConflictException(conflict));
-
-        UiMessageRequest report = FileDbMutationReport.Create(
-            "executor-operation",
-            new FileDbMutationBatchReceipt([receipt]));
-
-        Assert.IsNotNull(report);
+        var failure = new FileDbMutationDestinationTypeConflictException(Conflict());
+        var session = new LibraryMutationSessionReceipt([], durableCommit: false,
+            physicalFailure: failure, failedTarget: Target("failed"));
+        UiMessageRequest report = FileDbMutationReport.Create("executor-operation", session);
         Assert.AreEqual(MessageBoxImage.Error, report.Icon);
-        StringAssert.Contains(report.MessageBoxText, receipt.Failure!.Message);
+        StringAssert.Contains(report.MessageBoxText, failure.Message);
     }
 
     [TestMethod]
     public async Task ReporterFailureDoesNotAlterFactsOrRetry()
     {
-        var receipt = Receipt(FileDbMutationTerminalState.DurableFinalizationFailed);
-        var batch = new FileDbMutationBatchReceipt([receipt]);
+        var finalization = new IOException("finalization-marker");
+        var cleanup = new IOException("cleanup-marker");
+        var session = new LibraryMutationSessionReceipt([Target("confirmed")], durableCommit: true,
+            finalizationFailure: finalization, cleanupFailure: cleanup);
         var dialogs = new FileDbReportRecordingDialogs { MessageFailure = new IOException("report failed") };
-        await FileDbMutationReport.ShowAsync(dialogs, "failing-report", batch);
+
+        await FileDbMutationReport.ShowAsync(dialogs, "failing-report", session);
+
         Assert.AreEqual(1, dialogs.Messages.Count);
-        Assert.AreSame(receipt, batch.Receipts[0]);
-        Assert.IsTrue(receipt.DurableCommit);
-        Assert.IsNotNull(receipt.FinalizationFailure);
-        Assert.IsNotNull(receipt.CleanupFailure);
+        Assert.IsTrue(session.DurableCommit);
+        Assert.AreSame(finalization, session.FinalizationFailure);
+        Assert.AreSame(cleanup, session.CleanupFailure);
     }
 
-    /// <summary>Builds the packet's reachable terminal facts for local owner/report adapters.</summary>
-    internal static FileDbMutationReceipt Receipt(FileDbMutationTerminalState state)
+    private static readonly string[] Languages = ["ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW"];
+
+    private static LibraryMutationSessionTarget Target(string name) => new(@"C:\Source\" + name, @"D:\Destination\" + name);
+
+    private static FileDbMutationDestinationTypeConflict Conflict() => new(
+        @"C:\Source\BGA", @"D:\Destination\BGA", expectedIsDirectory: false, existingIsDirectory: true);
+
+    private static LibraryMutationSessionReceipt ConflictSession(
+        IEnumerable<FileDbMutationDestinationTypeConflict> conflicts,
+        LibraryMutationSessionTarget[]? confirmed = null,
+        Exception? physicalFailure = null,
+        Exception? cleanupFailure = null,
+        IEnumerable<string>? recoveryPaths = null)
     {
-        bool durable = state is FileDbMutationTerminalState.Completed or FileDbMutationTerminalState.CompletedWithCleanupFailure
-            or FileDbMutationTerminalState.DurableFinalizationFailed;
-        Exception? cleanup = state is FileDbMutationTerminalState.CompletedWithCleanupFailure or FileDbMutationTerminalState.DurableFinalizationFailed
-            ? new IOException("cleanup-marker") : null;
-        Exception? finalization = state == FileDbMutationTerminalState.DurableFinalizationFailed ? new IOException("finalization-marker") : null;
-        return new FileDbMutationReceipt(Guid.NewGuid(), state, durable, 0, 1,
-            [@"C:\Source"], [@"D:\Destination"], [], [],
-            cleanup != null || state == FileDbMutationTerminalState.ManualRecoveryRequired ? [@"C:\Candidate"] : [],
-            finalization ?? cleanup ?? (durable ? null : new IOException("not-committed-marker")), finalization, cleanup);
+        FileDbMutationDestinationTypeConflict[] conflictArray = conflicts.ToArray();
+        return new LibraryMutationSessionReceipt(confirmed ?? [], durableCommit: confirmed?.Length > 0,
+            physicalFailure: physicalFailure, cleanupFailure: cleanupFailure,
+            recoveryCandidatePaths: recoveryPaths,
+            itemFailures: [new LibraryMutationSessionItemFailure(Target("refused"),
+                new FileDbMutationDestinationTypeConflictException(conflictArray[0]), conflictArray)],
+            destinationTypeConflicts: conflictArray);
     }
 }
 

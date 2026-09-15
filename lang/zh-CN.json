@@ -923,7 +923,6 @@
   , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}：{1}（{2}）", "PlaylistLampViewer_percentage_less_than_format": "小于{0}",
   "FileDbMutationReport_Title": "文件与数据库操作结果",
   "FileDbMutationReport_Operation": "操作：{0}",
-  "FileDbMutationReport_Counts": "已记录结果的操作：{0} 项\n文件和数据库更改已提交：{1} 项／未提交：{2} 项\n必要更新失败：{3} 项／清理失败：{4} 项／需手动检查：{5} 项",
   "LibraryMutationSessionReport_Counts": "已确认的物理更改：{0} 项\n曲库更改已提交：{1} 项／未提交：{2} 项\n必要更新失败：{3} 项／清理失败：{4} 项／未处理：{5} 项",
   "FileDbMutationReport_TerminalFailure": "操作结束时仍有部分处理未完成。",
   "FileDbMutationReport_CandidatePaths": "待检查的候选路径（存在性未经确认，最多 3 项）：",

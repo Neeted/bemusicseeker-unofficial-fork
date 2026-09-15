@@ -704,7 +704,9 @@ internal sealed class CatalogMutationOwner
                  [],
                  pathFacts,
                  removalRequest?.RemoveRequests,
-                 bmsonCanonicalOrderNormalized);
+                 bmsonCanonicalOrderNormalized,
+                 dbResult.FolderDbTargetRows,
+                 dbResult.FolderDbFullScanCount);
         }
     }
 

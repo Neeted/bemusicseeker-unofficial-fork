@@ -85,9 +85,7 @@ internal sealed partial class LibraryMutationOwner
                 LibraryMutationSession session = BeginLibraryMutationSession(
                     mutationCapability,
                     "duplicate_merge_catalog_transition op=" + operationId,
-                    postLeaseNotifications,
-                    suppressNormalRefreshNotification: false,
-                    suppressLr2NormalFolderSync: false);
+                    postLeaseNotifications);
                 LibraryCatalogMutationFacts catalogFacts = null;
                 PackageInstallSessionMoveResult physicalMove = packageInstallService.MovePackageFilesForInstallSession(
                     detachedPackage.Package,

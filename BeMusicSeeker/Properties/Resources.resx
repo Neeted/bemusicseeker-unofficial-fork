@@ -3281,9 +3281,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_historical_unavailable" xml:space="preserve"><value>履歴スコア利用不可</value></data>
   <data name="FileDbMutationReport_Title" xml:space="preserve"><value>ファイルとデータベースの操作結果</value></data>
   <data name="FileDbMutationReport_Operation" xml:space="preserve"><value>操作: {0}</value></data>
-  <data name="FileDbMutationReport_Counts" xml:space="preserve"><value>結果を確認した操作: {0} 件
-ファイル・DB の確定済み: {1} 件／未確定: {2} 件
-必須反映の失敗: {3} 件／後片付けの失敗: {4} 件／手動確認が必要: {5} 件</value></data>
   <data name="LibraryMutationSessionReport_Counts" xml:space="preserve"><value>確認済みの物理変更: {0} 件
 ライブラリ確定済み: {1} 件／未確定: {2} 件
 必須反映の失敗: {3} 件／後片付けの失敗: {4} 件／未処理: {5} 件</value></data>

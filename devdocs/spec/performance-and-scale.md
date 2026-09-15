@@ -148,6 +148,35 @@ DB ファイルの bytes、index の bytes、平均 row / string / blob 長、�
 - 局所操作で重い可能性のある箇所は、total / affected row・key・directory 数、全件走査 / root clone / rebuild の回数・対象件数・時間、DB query / materialized row 数、物理 I/O 件数・bytes を必要な範囲で集約する。
 - 診断を per-resource の同期ログや全 path の文字列化にしない。既存の bounded logging を使用し、失われた marker がある比較は欠測として扱う。
 
+### 4.3 Mutation session の集約診断
+
+`LibraryMutationSession.Commit` が receipt を返す時点の集約値を、lease 解放後に `library_mutation_session_apply_done` として一回記録する。集計は session 内の一時 state、返却値は immutable な `LibraryMutationSessionApplyCounts` とし、永続 state や item ごとの同期ログは増やさない。
+
+| field | 意味 |
+| --- | --- |
+| `reason` / `changeCount` | 診断用の操作名と、session が受理した confirmed change 数。reason は挙動の分岐条件に使わない。 |
+| `durableCommit` / `requiredFailure` | Commit の時点で観測した durable success と必須処理の失敗。完了済みの FS 変更を打ち消す値ではない。 |
+| `catalogApplyCount` | catalog relocation / removal owner の apply を試行した回数。 |
+| `installedTargetApplyCount` | installed target / install-row の canonical upsert を試行した回数。catalog apply とは別の family とする。 |
+| `packageReferenceApplyCount` | catalog mutation に伴う package reference facts の apply を試行した回数。install-row 書込みや package ごとの physical completion の数ではない。 |
+| `reverseLookupApplyCount` | moved / installed / merged / removed directory 集合を resource owner に渡した回数。SQL chunk 数や directory 件数ではない。 |
+| `lr2SyncCount` | LR2 同期 owner を呼び出した回数。LR2 mode 無効・BMS change なしによる owner 内の no-op でも、呼出しは一回と数える。 |
+| `requiredPublicationCount` | 共通 apply が準備した通常通知グループ数。公開リストへの引渡し後に必須 finalizer が失敗すると公開されない場合があり、subscriber の実行・成功回数ではない。失敗診断や性能ログは含めない。 |
+| `folderDbTargetRows` | catalog relocation の成功 receipt が返した、実際に移転した既存 folder 行数。要求 path 数ではなく、対象0は0、DB failure で成功 receipt がない場合も0とする。 |
+| `folderDbFullScanCount` | catalog relocation の folder 全件取得回数。現在は exact path の chunk query だけを使い、全件取得経路を持たないため0。別目的の LR2 full reconciliation はこの集計に含めない。 |
+
+owner 回数は呼出し直前に加算し、途中失敗でも到達した段階を残す。実際に呼ばれていない段階は0であり、失敗後に成功用の固定値へ置き換えない。変更なしの session は全0。通常の複数対象操作で同じ apply の回数を対象件数に比例させない。
+
+この marker は **session の apply 範囲** であり、操作全体の wall-clock 完了ではない。特に merge の lease 解放・再取得後の `PostCommitMaintenance` と terminal 表示は後続する。後続 failure は同じ session receipt の `WithFinalizationFailure` に保持し、ApplyCounts は変更しない。操作全体の性能比較では、4.1 の完了範囲と各 workflow の terminal を併用する。ログ欠落を成功や0件として補完しない。
+
+| 契約・入力 | 実装 | 永続結果と併せた検証 |
+| --- | --- | --- |
+| 複数 folder / extension family の一括反映、DB failure の試行回数 | `LibraryMutationSession` / `CommitCatalogSessionChanges` | `BmsLibraryFolderRenameRefreshTests` の `AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh`、`MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification`、`MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves`、`RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession`。FS・SQLite・公開回数・resource snapshot と対照する。 |
+| 複数 package の installed-target 一回反映と失敗時の未公開 | `CommitInstalledSessionChanges` / package service | `BmsLibraryPackageInstallServiceTests.PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot`（強制／推定先）、`InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication`。physical 中の旧 snapshot と成功後の対象集合も確認する。 |
+| 修正・削除・merge の同じ apply 境界 | `LibraryMutationOwner` / session / merge owner | `BmsLibraryFolderRenameRefreshTests.FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction` / `RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange`、`BmsLibraryDuplicateServiceTests.MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation`。merge maintenance の正常・DB failure・予約拒否でも既に試行した回数を保持する。 |
+| LR2 failure を成功へ変換せず、通常通知を抑止 | 共通 catalog apply / LR2 owner | `BmsLibraryFolderRenameRefreshTests.AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess`。確定した移動先 DB 行を保持し、LR2 呼出一回と未公開を区別する。 |
+| folder の対象行と exact query | `BmsLibraryDbGateway.ReplaceFolderRecords` / catalog receipt | `CatalogMutationOwnerTests.ApplyRelocation_CombinedBmsBmsonAndFolderEmitsDurableReceipt`。対象行数と移転後の行を確認し、既存の folder relocation tests と併用する。 |
+
 ## 5. 検証シナリオと既存 coverage
 
 ### 5.1 代表操作

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -63,20 +63,12 @@ public partial class BMSLibrary
                             chartFiles.Where(chart => chart != null),
                             getBMSDirectories(),
                             renameRootFolder));
-                    Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
-                        HasActionableAutoRenamePlan(plans)
-                            ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
-                            : null;
                     result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                         plans,
                         mutationCapability,
                         (total, processed, currentPath) => progressWriter.TryWrite(
                             new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                         postLeaseNotifications);
-                    SyncAutoRenameLr2NormalFoldersUnderExistingLease(
-                        result,
-                        currentBmsCapture,
-                        mutationCapability);
                 });
         }
         catch (Exception exception)
@@ -124,18 +116,12 @@ public partial class BMSLibrary
                         () => plans = libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
                     if (HasActionableAutoRenamePlan(plans))
                     {
-                        Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
-                            TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
                         result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                             plans,
                             mutationCapability,
                             (total, processed, currentPath) => progressWriter.TryWrite(
                                 new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                             postLeaseNotifications);
-                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(
-                            result,
-                            currentBmsCapture,
-                            mutationCapability);
                     }
                 });
         }
@@ -304,9 +290,7 @@ public partial class BMSLibrary
                     libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
                         "install_package",
-                        postLeaseEffects,
-                        suppressNormalRefreshNotification: false,
-                        suppressLr2NormalFolderSync: false);
+                        postLeaseEffects);
                 List<ChartFile> deferredMaintenanceCharts = [];
                 List<ChartPackage> deferredInstalledPackages = [];
                 IInstalledChartLookupIndex sessionSuccessLookup =
@@ -317,7 +301,7 @@ public partial class BMSLibrary
                     mutationSession,
                     deferredMaintenanceCharts,
                     postLeaseEffects);
-                AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflowWithFileMutationReceipts(
+                AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflowForMutationSession(
                     workflow,
                     options.KeepInstallablePackagesPending,
                     canAutoInstallToLibrary && catalogPathConverged,
@@ -339,7 +323,6 @@ public partial class BMSLibrary
                                 optionsSnapshot: options);
                         return new AutoInstallCandidateApplyResult(
                             installExecutionResult.FailedPackages,
-                            mutationReceipt: null,
                             installExecutionResult.StoppedByPhysicalFailure,
                             installExecutionResult.PhysicalFailureReceipt,
                             installExecutionResult.AddedCharts);
@@ -1541,9 +1524,7 @@ public partial class BMSLibrary
                     libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
                         "install_package",
-                        postLeaseEffects,
-                        suppressNormalRefreshNotification: false,
-                        suppressLr2NormalFolderSync: false);
+                        postLeaseEffects);
                 List<ChartFile> deferredMaintenanceCharts = [];
                 AppendStandardInstallSessionFinalizer(
                     mutationSession,
@@ -2326,9 +2307,7 @@ public partial class BMSLibrary
                 libraryMutationOwner.BeginLibraryMutationSession(
                     mutationCapability,
                     "install_package",
-                    postLeaseNotifications,
-                    suppressNormalRefreshNotification: false,
-                    suppressLr2NormalFolderSync: false);
+                    postLeaseNotifications);
             receipt = ExecutePendingEstimatedInstall(
                 requestedPackages,
                 executionContext,
@@ -2866,9 +2845,7 @@ public partial class BMSLibrary
                     libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
                         "install_package",
-                        terminalEffects,
-                        suppressNormalRefreshNotification: false,
-                        suppressLr2NormalFolderSync: false);
+                        terminalEffects);
                 IInstalledChartLookupIndex sessionSuccessLookup =
                     packageInstallService.CreateSessionSuccessOwnershipOverlay(
                         installedDirectoryIndexSnapshot,

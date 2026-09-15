@@ -28,7 +28,7 @@ internal sealed class AutoRenameBatchCoordinator
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     /// <param name="postLeaseNotifications">Publications released only after the outer lease exits.</param>
     /// <param name="progressReporter">Optional item-level progress reporter.</param>
-    /// <returns>Operation-scoped session facts plus diagnostics and LR2 finalization inputs.</returns>
+    /// <returns>LR2 同期を含む操作単位の session 結果と、解放後に公開する診断。</returns>
     internal AutoRenameBatchResult ApplyWithSessionReceipt(
         IEnumerable<FolderAutoRenamePlan> plans,
         LibraryFileMutationCapability mutationCapability,
@@ -41,7 +41,6 @@ internal sealed class AutoRenameBatchCoordinator
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
         int appliedPlanCount = 0;
-        List<Lr2NormalFolderPathChange> lr2NormalFolderPathChanges = [];
         List<AutoRenameBatchDiagnostic> diagnostics = [];
         var metrics = new AutoRenameBatchMetrics(operationId, planList.Count);
         HashSet<string> movedSourceDirectories = new(StringComparer.OrdinalIgnoreCase);
@@ -64,9 +63,7 @@ internal sealed class AutoRenameBatchCoordinator
         LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             mutationCapability,
             "auto_rename_folders",
-            postLeaseNotifications,
-            suppressNormalRefreshNotification: true,
-            suppressLr2NormalFolderSync: true);
+            postLeaseNotifications);
 
         if (planList.Any(IsDriveRootSourcePlan))
         {
@@ -156,11 +153,6 @@ internal sealed class AutoRenameBatchCoordinator
 
                 appliedPlanCount++;
                 movedSourceDirectories.Add(sourceDirectory);
-                lr2NormalFolderPathChanges.AddRange((mutationFacts?.CatalogFacts?.ChartPathChanges ?? [])
-                    .Where(change => change?.Chart?.GetBmsStorageOwner() != null
-                        && !string.IsNullOrWhiteSpace(change.OldPath)
-                        && !string.IsNullOrWhiteSpace(change.NewPath))
-                    .Select(change => new Lr2NormalFolderPathChange(change.OldPath, change.NewPath)));
 
                 if (moveStopwatch.ElapsedMilliseconds >= AutoRenameBatchMetrics.SlowMoveLogThresholdMs)
                 {
@@ -246,7 +238,6 @@ internal sealed class AutoRenameBatchCoordinator
             appliedPlanCount > 0,
             appliedPlanCount,
             sessionReceipt,
-            lr2NormalFolderPathChanges,
             diagnostics,
             primaryFailure);
     }

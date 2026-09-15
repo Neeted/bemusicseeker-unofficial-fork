@@ -20,29 +20,20 @@ internal sealed class AutoInstallApplyResult
 
     public List<string> InstallRowsToDelete { get; } = [];
 
-    /// <summary>
-    /// Filesystem/DB terminal facts for the auto-install candidate batch.
-    /// </summary>
-    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
-
     /// <summary>operation-scoped install session の canonical terminal facts。</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; set; }
 
-    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired
-        ?? (MutationReceipt?.ManualRecoveryRequired == true);
+    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired == true;
 
     /// <summary>
     /// Gets whether a post-durable finalizer failed for the candidate batch.
     /// </summary>
-    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure
-        ?? (MutationReceipt?.HasDurableFinalizationFailure == true);
+    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure == true;
 
-    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure
-        ?? (MutationReceipt?.CompletedWithCleanupFailure == true);
+    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure == true;
 
-    /// <summary>Gets session recovery candidates, falling back to legacy batch facts for legacy callers.</summary>
+    /// <summary>操作の session が保持する復旧候補を取得します。</summary>
     public IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths
-        ?? MutationReceipt?.RecoveryPaths
         ?? [];
 
     public long InstallMs { get; set; }
@@ -57,15 +48,18 @@ internal sealed class AutoInstallApplyResult
 /// </summary>
 internal sealed class AutoInstallCandidateApplyResult
 {
+    /// <summary>候補の physical prepare 結果を、操作内の成功依存の判定へ渡します。</summary>
+    /// <param name="failedPackages">physical prepare が成立しなかった package。</param>
+    /// <param name="stoppedByPhysicalFailure">予期しない失敗により後続候補を停止するかどうか。</param>
+    /// <param name="physicalFailureReceipt">後続停止の原因と保全対象を示す局所結果。</param>
+    /// <param name="successfulCharts">所有判定へ追加してよい、physical success が確定した譜面。</param>
     internal AutoInstallCandidateApplyResult(
         IEnumerable<ChartPackage> failedPackages,
-        FileDbMutationBatchReceipt mutationReceipt,
         bool stoppedByPhysicalFailure = false,
         FileDbMutationReceipt physicalFailureReceipt = null,
         IEnumerable<ChartFile> successfulCharts = null)
     {
         FailedPackages = [.. (failedPackages ?? []).Where(package => package != null)];
-        MutationReceipt = mutationReceipt;
         StoppedByPhysicalFailure = stoppedByPhysicalFailure;
         PhysicalFailureReceipt = physicalFailureReceipt;
         SuccessfulPrimaryHashes = Array.AsReadOnly([.. (successfulCharts ?? [])
@@ -76,8 +70,6 @@ internal sealed class AutoInstallCandidateApplyResult
 
     internal IReadOnlyList<ChartPackage> FailedPackages { get; }
 
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
-
     /// <summary>候補の physical prepare failure により同じ operation の後続処理を停止したかどうか。</summary>
     internal bool StoppedByPhysicalFailure { get; }
 
@@ -86,11 +78,4 @@ internal sealed class AutoInstallCandidateApplyResult
 
     /// <summary>後続候補の duplicate 判定へ重ねる、実際に physical success した primary hash。</summary>
     internal IReadOnlyList<string> SuccessfulPrimaryHashes { get; }
-
-    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
-
-    /// <summary>
-    /// Gets whether a post-durable finalizer failed for the candidate batch.
-    /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
 }

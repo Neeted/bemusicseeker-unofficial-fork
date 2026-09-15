@@ -10604,19 +10604,11 @@ public partial class BMSLibrary : ObservableObject
                                 chartFiles.Where(chart => chart != null),
                                 getBMSDirectories(),
                                 renameRootFolder));
-                        Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
-                            HasActionableAutoRenamePlan(plans)
-                                ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
-                                : null;
                         result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                             plans,
                             mutationCapability,
                             deferredProgressReporter,
                             postLeaseNotifications);
-                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(
-                            result,
-                            currentBmsCapture,
-                            mutationCapability);
                     });
             }
             catch (Exception exception)
@@ -10678,17 +10670,11 @@ public partial class BMSLibrary : ObservableObject
                         () => plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir));
                     if (HasActionableAutoRenamePlan(plans))
                     {
-                        Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
-                            TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
                         result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                             plans,
                             mutationCapability,
                             deferredProgressReporter,
                             postLeaseNotifications);
-                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(
-                            result,
-                            currentBmsCapture,
-                            mutationCapability);
                     }
                 });
             }
@@ -10738,49 +10724,10 @@ public partial class BMSLibrary : ObservableObject
         bool reportAtTerminal = false)
     {
         ExceptionDispatchInfo firstFailure = primaryFailure ?? result?.PrimaryFailure;
-        if (result?.HasDurableFinalizationFailure == true
-            && result?.Lr2NormalFolderPathChanges?.Count > 0
-            && CurrentOptionsSnapshot?.OperationModeLR2DB == true)
-        {
-            try
-            {
-                Exception incompleteFailure = result.SessionReceipt.FinalizationFailure
-                    ?? result.SessionReceipt.ApplyFailure
-                    ?? firstFailure?.SourceException;
-                if (incompleteFailure != null)
-                {
-                    string failureDetail = GetDisplayedExceptionMessage(incompleteFailure)
-                        .Replace(Environment.NewLine, " | ");
-                    lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
-                        CurrentOptionsSnapshot,
-                        stage: "lr2_auto_rename_catalog_sync_incomplete",
-                        detail: "lr2_auto_rename_catalog_sync_incomplete: " + failureDetail,
-                        logReason: "auto_rename_folders");
-                }
-            }
-            catch (Exception exception)
-            {
-                LogAutoRenameDiagnosticFailure(
-                    exception,
-                    "auto_rename_lr2_incomplete_publish_failed_after_primary_failure");
-            }
-        }
-        // Session-owned success publications are released only after every
-        // required internal apply/finalizer succeeds.  A partial physical
-        // failure may still publish the confirmed durable prefix once.
-        if (result?.HasDurableFinalizationFailure != true)
-        {
-            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
-        }
+        // required apply の失敗時は session が通常通知を公開リストへ入れません。
+        // ここでは成否を再判定せず、失敗診断・集約 marker も含めて解放後に処理します。
+        InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         FlushAutoRenameDiagnostics(result, reportAtTerminal);
-        if (result?.HasDurableCommit == true
-            && result.HasDurableFinalizationFailure != true
-            && result.AppliedPlanCount > 0)
-        {
-            TryInvokePostLeaseNotification(
-                PublishAutoRenameBatchRefreshNotification,
-                "auto_rename_batch_refresh_notification_failed");
-        }
         if (firstFailure != null && result == null)
         {
             firstFailure.Throw();
@@ -10877,87 +10824,6 @@ public partial class BMSLibrary : ObservableObject
                     + " total=" + diagnostic.Total);
                 break;
         }
-    }
-
-    private void SyncAutoRenameLr2NormalFoldersUnderExistingLease(
-        AutoRenameBatchResult result,
-        Lr2NormalFolderCurrentBmsCapture currentBmsCapture,
-        LibraryFileMutationCapability mutationCapability)
-    {
-        if (result?.HasDurableCommit != true
-            || result?.HasDurableFinalizationFailure == true
-            || result?.Lr2NormalFolderPathChanges?.Count <= 0
-            || CurrentOptionsSnapshot?.OperationModeLR2DB != true)
-        {
-            return;
-        }
-
-        ArgumentNullException.ThrowIfNull(mutationCapability);
-        // catalog apply は batch 内で先に完了しているため、deferred apply
-        // 前に捕捉した局所 facts を確定 old/new path へ投影して渡します。
-        if (currentBmsCapture?.CurrentBmsFacts == null)
-        {
-            throw new InvalidOperationException("LR2 normal-folder catalog facts are unavailable.");
-        }
-        Lr2NormalFolderCurrentBmsLookup currentBmsFacts =
-            currentBmsCapture.CurrentBmsFacts.ProjectPathChanges(result.Lr2NormalFolderPathChanges);
-        lr2SynchronizationOwner.SyncLr2NormalFoldersForCatalogMutation(
-            new Lr2NormalFolderCatalogMutationReceipt(
-                OwnedChartCollectionVersion,
-                [],
-                [],
-                result.Lr2NormalFolderPathChanges,
-                currentBmsFacts),
-            "auto_rename_folders",
-            mutationCapability);
-    }
-
-    private Lr2NormalFolderCurrentBmsCapture TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(
-        IEnumerable<FolderAutoRenamePlan> plans)
-    {
-        if (CurrentOptionsSnapshot?.OperationModeLR2DB != true)
-        {
-            return null;
-        }
-
-        try
-        {
-            return CaptureAutoRenameLr2NormalFolderCurrentBmsFactsUnsafe(
-                getBMSDirectories(),
-                plans);
-        }
-        catch (Exception ex)
-        {
-            LogInstallPerformanceWarn("lr2_normal_folder_auto_rename_facts failed"
-                + " exception=" + ex.GetType().Name
-                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
-            return null;
-        }
-    }
-
-    private Lr2NormalFolderCurrentBmsCapture CaptureAutoRenameLr2NormalFolderCurrentBmsFactsUnsafe(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<FolderAutoRenamePlan> plans)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        Lr2NormalFolderBmsQueryScope queryScope =
-            Lr2NormalFolderSyncScopeBuilder.CreateAutoRenameBmsQueryScope(rootDirectories, plans);
-        return CaptureLr2NormalFolderCurrentBmsFactsUnsafe(queryScope);
-    }
-
-    private void PublishAutoRenameBatchRefreshNotification()
-    {
-        normalLibraryRefreshPublisher.Publish(new NormalLibraryRefreshPublishRequest
-        {
-            OwnedCollectionVersion = OwnedChartCollectionVersion,
-            Effects = LibraryChartRefreshEffects.SourceChanged,
-            InstallDestinationChangedCharts = [],
-            NotifiesStorageRows = false,
-            ResetsPriorNotifications = false,
-            NotifiesBmsFiles = false,
-            NotifiesBmsonSongs = false
-        });
-        RaisePropertyChanged(() => NormalLibraryRefreshNotificationVersion);
     }
 
     private static void ReportAutoRenameProgress(Action<int, int, string> progressReporter, int total, int processed, string currentPath)

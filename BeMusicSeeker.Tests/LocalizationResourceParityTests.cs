@@ -27,7 +27,7 @@ public sealed class LocalizationResourceParityTests
             AssertLocalizedFormat(Path.GetFileName(path), key, ReadLanguageJsonObject(path)[key]?.Value<string>()!, 2);
     }
 
-    /// <summary>S5-INSTALL-BUSY-TEXT: 受付拒否の通知が全言語で利用でき、書式引数を要求しないことを確認します。</summary>
+    /// <summary>受付拒否の通知が全言語で利用でき、書式引数を要求しないことを確認します。</summary>
     [TestMethod]
     public void InstallAdmissionMessages_AreAvailableWithoutFormatArgumentsInAllLanguages()
     {
@@ -189,7 +189,6 @@ public sealed class LocalizationResourceParityTests
             [nameof(Resources.LibraryChartRemovalReport_Guidance)] = 0,
             [nameof(Resources.FileDbMutationReport_Title)] = 0,
             [nameof(Resources.FileDbMutationReport_Operation)] = 1,
-            [nameof(Resources.FileDbMutationReport_Counts)] = 6,
             [nameof(Resources.FileDbMutationReport_TerminalFailure)] = 0,
             [nameof(Resources.FileDbMutationReport_CandidatePaths)] = 0,
             [nameof(Resources.FileDbMutationReport_Error)] = 1,

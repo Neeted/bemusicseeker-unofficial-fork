@@ -449,41 +449,6 @@ internal sealed partial class LibraryMutationOwner
             destinationDirectory);
     }
 
-    internal DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderAndUpdateReferences(
-        string sourceDirectory,
-        string destinationDirectory)
-    {
-        libraryFileOperationsService.MoveFolder(
-            sourceDirectory,
-            destinationDirectory,
-            fileMutationService,
-            recursiveDirectoryTreeFileMutationOptions);
-        return resourceIndexOwner.MoveFolderReferences(sourceDirectory, destinationDirectory).MutationResult;
-    }
-
-    internal FileDbMutationCommitResult ApplyLibraryMutationFactsForFileMutation(
-        LibraryCatalogMutationFacts catalogFacts,
-        LibraryPackageReferenceFacts packageReferenceFacts,
-        string reason,
-        LibraryFileMutationCapability capability,
-        Action<Action> postLeaseNotificationObserver,
-        bool suppressNormalRefreshNotification = false,
-        bool suppressLr2NormalFolderSync = false,
-        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify)
-    {
-        ArgumentNullException.ThrowIfNull(capability);
-        ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
-        return ApplyLibraryMutationFactsForFileMutationUnderExistingLease(
-            catalogFacts,
-            packageReferenceFacts,
-            reason,
-            suppressNormalRefreshNotification,
-            suppressLr2NormalFolderSync,
-            capability,
-            postLeaseNotificationObserver,
-            storageRowPathNotificationPolicy);
-    }
-
     /// <summary>現在のownerとpackage参照からfolder移動factsを捕捉します。</summary>
     /// <param name="sourceDirectory">移動元folder。</param>
     /// <param name="destinationDirectory">移動先folder。</param>
@@ -751,9 +716,7 @@ internal sealed partial class LibraryMutationOwner
         LibraryMutationSession session = BeginLibraryMutationSession(
             mutationCapability,
             "delete_library",
-            postLeaseNotifications,
-            suppressNormalRefreshNotification: false,
-            suppressLr2NormalFolderSync: false);
+            postLeaseNotifications);
         session.AppendCatalogChange(
             catalogFacts,
             packageReferenceFacts,
@@ -780,41 +743,6 @@ internal sealed partial class LibraryMutationOwner
         {
             ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
         }
-    }
-
-    /// <summary>
-    /// 呼出元が取得済みのfile mutation lease内でcatalog/package factsを適用します。
-    /// canonical stateを解放前に完了し、公開通知だけをcommand ownerへ返します。
-    /// </summary>
-    internal void ApplyLibraryMutationFactsUnderExistingReservation(
-        LibraryCatalogMutationFacts catalogFacts,
-        LibraryPackageReferenceFacts packageReferenceFacts,
-        string reason,
-        LibraryFileMutationCapability mutationCapability,
-        ICollection<Action> postLeaseNotifications,
-        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify)
-    {
-        ArgumentNullException.ThrowIfNull(mutationCapability);
-        ArgumentNullException.ThrowIfNull(postLeaseNotifications);
-        FileDbMutationCommitResult result = ApplyLibraryMutationFactsForFileMutation(
-            catalogFacts,
-            packageReferenceFacts,
-            reason,
-            suppressNormalRefreshNotification: false,
-            capability: mutationCapability,
-            postLeaseNotificationObserver: action => postLeaseNotifications.Add(action),
-            storageRowPathNotificationPolicy: storageRowPathNotificationPolicy);
-        if (result.Failure != null)
-        {
-            ExceptionDispatchInfo.Capture(result.Failure).Throw();
-        }
-        if (!result.DurableCommit)
-        {
-            throw result.Failure
-                ?? new InvalidOperationException("Catalog mutation did not produce a durable receipt.");
-        }
-        // カタログ所有者は同じlease内でcanonical状態を確定した後に、
-        // 不変の通知処理を供給します。receiptには通知処理を保存しません。
     }
 
     internal void LogReverseLookupMutationAndQueueWarmupIfNeeded(
@@ -1222,9 +1150,7 @@ internal sealed partial class LibraryMutationOwner
         LibraryMutationSession session = BeginLibraryMutationSession(
             mutationCapability,
             "fix_installation_directory",
-            postLeaseNotifications,
-            suppressNormalRefreshNotification: false,
-            suppressLr2NormalFolderSync: false);
+            postLeaseNotifications);
         session.AppendItemFailures(result.Failures
             .Where(failure => failure?.Exception != null)
             .Select(failure => new LibraryMutationSessionItemFailure(

@@ -9,22 +9,18 @@ namespace BeMusicSeeker.Models;
 internal sealed partial class LibraryMutationOwner
 {
     /// <summary>
-    /// Starts an operation-scoped mutation session under an already-owned file mutation capability.
-    /// Appending facts has no canonical side effects; <see cref="LibraryMutationSession.Commit"/>
-    /// performs the shared catalog/state/index apply once for the operation.
+    /// 取得済みの file mutation capability の下で操作単位の session を開始します。
+    /// append は canonical state を変更せず、<see cref="LibraryMutationSession.Commit"/> が
+    /// catalog/state/index、LR2 同期、通常通知の準備を操作単位で一度だけ行います。
     /// </summary>
     /// <param name="mutationCapability">The live capability issued by the owning outer mutation lease.</param>
     /// <param name="reason">Stable diagnostic reason for the operation-scoped apply.</param>
     /// <param name="postLeaseNotifications">Command-owned publication list released after the lease.</param>
-    /// <param name="suppressNormalRefreshNotification">Whether the shared apply should omit its normal refresh publication.</param>
-    /// <param name="suppressLr2NormalFolderSync">Whether LR2 folder synchronization is finalized by the caller instead.</param>
     /// <returns>An open session that accepts only confirmed mutation facts.</returns>
     internal LibraryMutationSession BeginLibraryMutationSession(
         LibraryFileMutationCapability mutationCapability,
         string reason,
-        ICollection<Action> postLeaseNotifications,
-        bool suppressNormalRefreshNotification,
-        bool suppressLr2NormalFolderSync)
+        ICollection<Action> postLeaseNotifications)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
@@ -32,9 +28,7 @@ internal sealed partial class LibraryMutationOwner
             this,
             mutationCapability,
             reason,
-            postLeaseNotifications,
-            suppressNormalRefreshNotification,
-            suppressLr2NormalFolderSync);
+            postLeaseNotifications);
     }
 
     /// <summary>
@@ -61,8 +55,6 @@ internal sealed partial class LibraryMutationOwner
         private readonly LibraryFileMutationCapability mutationCapability;
         private readonly string reason;
         private readonly ICollection<Action> postLeaseNotifications;
-        private readonly bool suppressNormalRefreshNotification;
-        private readonly bool suppressLr2NormalFolderSync;
         private readonly List<LibraryCatalogMutationFacts> catalogFacts = [];
         private readonly List<LibraryPackageReferenceFacts> packageReferenceFacts = [];
         private readonly List<LibraryMutationSessionTarget> confirmedTargets = [];
@@ -88,28 +80,23 @@ internal sealed partial class LibraryMutationOwner
         private LibraryMutationSessionTarget failedTarget;
         private IReadOnlyList<LibraryMutationSessionTarget> unprocessedTargets = [];
         private bool committed;
+        private LibraryMutationSessionApplyCounts applyCounts;
 
         /// <summary>Creates an open operation-scoped mutation session owned by one outer lease.</summary>
         /// <param name="owner">Library mutation owner that performs the canonical apply.</param>
         /// <param name="mutationCapability">Live capability from the owning outer lease.</param>
         /// <param name="reason">Stable operation diagnostic reason.</param>
         /// <param name="postLeaseNotifications">Command-owned publication collection.</param>
-        /// <param name="suppressNormalRefreshNotification">Whether normal refresh is published by a higher operation boundary.</param>
-        /// <param name="suppressLr2NormalFolderSync">Whether LR2 normal-folder synchronization is finalized by the caller.</param>
         internal LibraryMutationSession(
             LibraryMutationOwner owner,
             LibraryFileMutationCapability mutationCapability,
             string reason,
-            ICollection<Action> postLeaseNotifications,
-            bool suppressNormalRefreshNotification,
-            bool suppressLr2NormalFolderSync)
+            ICollection<Action> postLeaseNotifications)
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.mutationCapability = mutationCapability ?? throw new ArgumentNullException(nameof(mutationCapability));
             this.reason = reason ?? string.Empty;
             this.postLeaseNotifications = postLeaseNotifications ?? throw new ArgumentNullException(nameof(postLeaseNotifications));
-            this.suppressNormalRefreshNotification = suppressNormalRefreshNotification;
-            this.suppressLr2NormalFolderSync = suppressLr2NormalFolderSync;
         }
 
         /// <summary>
@@ -394,26 +381,26 @@ internal sealed partial class LibraryMutationOwner
             if (hasInstallChanges)
             {
                 ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(installedPackageCharts);
-                applyResult = owner.ApplyInstalledChartStorageTargetsForFileMutation(
+                applyResult = owner.CommitInstalledSessionChanges(
                     installedTargets,
                     installPathsToDelete,
                     installRowsToUpsert,
                     reason,
                     mutationCapability,
-                    sessionNotifications.Add);
+                    sessionNotifications.Add,
+                    ref applyCounts);
             }
             else
             {
                 LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
                 LibraryPackageReferenceFacts combinedPackageFacts = CombinePackageReferenceFacts(packageReferenceFacts);
-                applyResult = owner.ApplyLibraryMutationFactsForFileMutation(
+                applyResult = owner.CommitCatalogSessionChanges(
                     combinedCatalogFacts,
                     combinedPackageFacts,
                     reason,
                     mutationCapability,
                     sessionNotifications.Add,
-                    suppressNormalRefreshNotification,
-                    suppressLr2NormalFolderSync,
+                    ref applyCounts,
                     storageRowPathNotificationPolicy);
             }
 
@@ -482,6 +469,7 @@ internal sealed partial class LibraryMutationOwner
                         out ChartScanResult scan,
                         out string scanFailureReason))
                     {
+                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
                         reverseLookupMutation = owner.AddReverseLookupDirectories(scan);
                     }
                     else
@@ -499,6 +487,7 @@ internal sealed partial class LibraryMutationOwner
                 {
                     if (movedFolders.Count > 0)
                     {
+                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
                         reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
                     }
                     foreach (LibraryFolderPathChange mergedFolder in mergedFolders)
@@ -508,6 +497,7 @@ internal sealed partial class LibraryMutationOwner
                             out ChartScanResult scan,
                             out string scanFailureReason))
                         {
+                            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
                             reverseLookupMutation = reverseLookupMutation.Combine(
                                 owner.resourceIndexOwner.ReplaceSourceDirectoryWithScan(
                                     mergedFolder.OldFolderPath, scan).MutationResult);
@@ -521,6 +511,7 @@ internal sealed partial class LibraryMutationOwner
                     }
                     if (resourceDirectoryRemovals.Count > 0)
                     {
+                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
                         reverseLookupMutation = reverseLookupMutation.Combine(
                             owner.resourceIndexOwner
                                 .RemoveUnderSourceDirectories(resourceDirectoryRemovals)
@@ -631,7 +622,7 @@ internal sealed partial class LibraryMutationOwner
             Exception applyFailure = null,
             Exception finalizationFailure = null)
         {
-            return new LibraryMutationSessionReceipt(
+            var receipt = new LibraryMutationSessionReceipt(
                 confirmedTargets,
                 durableCommit,
                 catalogChartRemovalCount: catalogFacts.Sum(item => item?.ChartRemoveRequests?.Count ?? 0),
@@ -652,7 +643,24 @@ internal sealed partial class LibraryMutationOwner
                 recoveryCandidatePaths: recoveryCandidatePaths,
                 itemFailures: itemFailures,
                 manualRecoveryRequired: manualRecoveryRequired,
-                destinationTypeConflicts: destinationTypeConflicts);
+                destinationTypeConflicts: destinationTypeConflicts,
+                applyCounts: applyCounts);
+            // Commit の反映範囲を一度だけ診断します。merge 等の lease 解放後 maintenance や
+            // subscriber の完了時間とは別で、診断自体は既存の lease 解放後通知へ渡します。
+            postLeaseNotifications.Add(() => owner.LogInstallPerformance(
+                "library_mutation_session_apply_done reason=" + reason
+                + " changeCount=" + receipt.ConfirmedChangeCount
+                + " durableCommit=" + receipt.DurableCommit.ToString().ToLowerInvariant()
+                + " requiredFailure=" + receipt.HasRequiredFailure.ToString().ToLowerInvariant()
+                + " catalogApplyCount=" + receipt.ApplyCounts.CatalogApplyCount
+                + " installedTargetApplyCount=" + receipt.ApplyCounts.InstalledTargetApplyCount
+                + " packageReferenceApplyCount=" + receipt.ApplyCounts.PackageReferenceApplyCount
+                + " reverseLookupApplyCount=" + receipt.ApplyCounts.ReverseLookupApplyCount
+                + " lr2SyncCount=" + receipt.ApplyCounts.Lr2SyncCount
+                + " requiredPublicationCount=" + receipt.ApplyCounts.RequiredPublicationCount
+                + " folderDbTargetRows=" + receipt.ApplyCounts.FolderDbTargetRows
+                + " folderDbFullScanCount=" + receipt.ApplyCounts.FolderDbFullScanCount));
+            return receipt;
         }
 
         private void EnsureOpen()

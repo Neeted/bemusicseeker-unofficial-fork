@@ -513,6 +513,14 @@ public sealed class BmsLibraryDuplicateServiceTests
 
             Assert.IsTrue(receipt.MergeApplied);
             Assert.IsTrue(receipt.SessionReceipt.DurableCommit);
+            Assert.AreEqual(new LibraryMutationSessionApplyCounts
+            {
+                CatalogApplyCount = 1,
+                PackageReferenceApplyCount = 1,
+                ReverseLookupApplyCount = 1,
+                Lr2SyncCount = 1,
+                RequiredPublicationCount = 1
+            }, receipt.SessionReceipt.ApplyCounts);
             Assert.AreEqual(1, receipt.SessionReceipt.ConfirmedChangeCount);
             Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartPathChangeCount);
             Assert.AreEqual(sourceDirectory, receipt.SessionReceipt.ConfirmedTargets.Single().SourcePath);

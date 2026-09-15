@@ -1482,7 +1482,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>
-    /// S5-FAILURE-TERMINAL: resource overwrite の異常終端を通常集計で隠さず、
+    /// resource overwrite の異常終端を通常集計で隠さず、
     /// operation gate と activity の解放後に session report を一度だけ表示します。
     /// </summary>
     [DataTestMethod]
@@ -1805,7 +1805,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>
-    /// S5-INSTALL-ADMISSION: 実 library の保留受付が準備済みでも、確認待ちから drop を拒否します。
+    /// 実 library の保留受付が準備済みでも、確認待ちから drop を拒否します。
     /// 拒否した drop を後で自動実行せず、手動操作の成功・失敗・確認取消後には新しい要求を受け付けます。
     /// </summary>
     [DataTestMethod]
@@ -1892,7 +1892,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>
-    /// S5-INSTALL-ADMISSION / S5-INSTALL-QUEUE: worker 開始前と各 batch の実行中は保留導入を拒否し、
+    /// worker 開始前と各 batch の実行中は保留導入を拒否し、
     /// 追加 drop は FIFO で処理します。完了通知では全 batch の処理済みと受付解放を確認します。
     /// 行選択 request と package 行からの手動・強制導入をそれぞれ通します。
     /// </summary>

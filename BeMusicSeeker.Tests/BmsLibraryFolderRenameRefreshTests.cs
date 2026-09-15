@@ -167,6 +167,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 Assert.IsTrue(receipt.DurableCommit);
                 Assert.AreEqual(2, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(new LibraryMutationSessionApplyCounts
+                {
+                    CatalogApplyCount = 1,
+                    PackageReferenceApplyCount = 1,
+                    Lr2SyncCount = 1,
+                    RequiredPublicationCount = 1
+                }, receipt.ApplyCounts);
                 Assert.AreEqual(2, receipt.CatalogChartPathChangeCount);
                 Assert.IsNull(receipt.ApplyFailure);
                 Assert.IsNull(receipt.FinalizationFailure);
@@ -862,13 +869,21 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                library.AutoRenameChartFolders([
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile)
                 ], progressReporter: (total, processed, path) => progress.Add((total, processed, path)));
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));
+                Assert.AreEqual(new LibraryMutationSessionApplyCounts
+                {
+                    CatalogApplyCount = 1,
+                    PackageReferenceApplyCount = 1,
+                    ReverseLookupApplyCount = 1,
+                    Lr2SyncCount = 1,
+                    RequiredPublicationCount = 1
+                }, result.SessionReceipt.ApplyCounts);
                 Assert.IsFalse(batch.NotifiesStorageRows);
                 CollectionAssert.AreEqual(new[] { 2 }, progress.Select(item => item.Processed).ToArray());
                 Assert.IsTrue(progress.All(item => item.Total == 2));
@@ -1114,12 +1129,18 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 Assert.IsNotNull(result);
                 Assert.IsTrue(result.HasDurableCommit);
+                Assert.AreEqual(new LibraryMutationSessionApplyCounts
+                {
+                    CatalogApplyCount = 1,
+                    PackageReferenceApplyCount = 1,
+                    Lr2SyncCount = 1
+                }, result.SessionReceipt.ApplyCounts);
                 Assert.IsTrue(result.HasDurableFinalizationFailure);
                 Assert.IsNotNull(result.PrimaryFailure);
                 Assert.AreEqual(1, result.AppliedPlanCount);
                 Assert.AreEqual(1, result.SessionReceipt.ConfirmedChangeCount);
                 Assert.AreEqual(1, result.SessionReceipt.CatalogFolderPathChangeCount);
-                Assert.AreSame(result.SessionReceipt.FinalizationFailure, result.PrimaryFailure.SourceException);
+                Assert.AreSame(result.SessionReceipt.ApplyFailure, result.PrimaryFailure.SourceException);
                 Assert.IsTrue(result.SessionReceipt.HasDurableFinalizationFailure);
                 Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
                 Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
@@ -1577,6 +1598,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 Assert.AreEqual(2, receipt.ConfirmedChangeCount);
                 Assert.IsFalse(receipt.DurableCommit);
+                Assert.AreEqual(new LibraryMutationSessionApplyCounts
+                {
+                    CatalogApplyCount = 1
+                }, receipt.ApplyCounts);
                 Assert.IsNull(receipt.PhysicalFailure);
                 Assert.IsNotNull(receipt.ApplyFailure);
                 Assert.AreEqual(0, receipt.UnprocessedTargets.Count);
@@ -1850,6 +1875,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(2, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(new LibraryMutationSessionApplyCounts
+                {
+                    CatalogApplyCount = 1,
+                    PackageReferenceApplyCount = 1,
+                    ReverseLookupApplyCount = 1,
+                    Lr2SyncCount = 1,
+                    RequiredPublicationCount = 1
+                }, receipt.ApplyCounts);
                 Assert.AreEqual(2, receipt.CatalogChartPathChangeCount);
                 Assert.AreEqual(2, receipt.FolderReferenceMoveCount);
                 Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
@@ -2104,6 +2137,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsNotNull(result.SessionReceipt);
                 Assert.IsNotNull(result.Failure);
                 Assert.IsFalse(result.SessionReceipt.DurableCommit);
+                Assert.AreEqual(new LibraryMutationSessionApplyCounts
+                {
+                    CatalogApplyCount = 1
+                }, result.SessionReceipt.ApplyCounts);
                 Assert.AreEqual(2, result.MovedCount);
                 Assert.AreEqual(2, result.SessionReceipt.ConfirmedChangeCount);
                 Assert.AreEqual(2, result.SessionReceipt.CatalogChartPathChangeCount);
@@ -2518,6 +2555,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 approvedWholeFolderDeletePaths: [chartDirectory]);
 
             Assert.IsFalse(outcome.HasError);
+            Assert.AreEqual(new LibraryMutationSessionApplyCounts
+            {
+                CatalogApplyCount = 1,
+                PackageReferenceApplyCount = 1,
+                ReverseLookupApplyCount = 1,
+                Lr2SyncCount = 1,
+                RequiredPublicationCount = 1
+            }, outcome.SessionReceipt.ApplyCounts);
             Assert.AreEqual(0, library.BMSFiles.Count);
             NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(notificationBatch.NotifiesStorageRows);

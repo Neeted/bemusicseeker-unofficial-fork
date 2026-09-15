@@ -88,6 +88,7 @@ internal sealed class LibraryMutationSessionReceipt
     /// <param name="recoveryCandidatePaths">Executor-local paths retained for manual confirmation or recovery.</param>
     /// <param name="manualRecoveryRequired">Whether any physical mutation requires manual recovery.</param>
     /// <param name="destinationTypeConflicts">Read-only destination type conflicts observed while preparing items.</param>
+    /// <param name="applyCounts">操作内で実際に試行した反映回数と、確定した folder DB 対象行数。</param>
     internal LibraryMutationSessionReceipt(
         IEnumerable<LibraryMutationSessionTarget> confirmedTargets,
         bool durableCommit,
@@ -107,8 +108,10 @@ internal sealed class LibraryMutationSessionReceipt
         IEnumerable<LibraryMutationSessionItemFailure> itemFailures = null,
         IEnumerable<string> recoveryCandidatePaths = null,
         bool manualRecoveryRequired = false,
-        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null)
+        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null,
+        LibraryMutationSessionApplyCounts applyCounts = default)
     {
+        ApplyCounts = applyCounts;
         ConfirmedTargets = FreezeTargets(confirmedTargets);
         DurableCommit = durableCommit;
         CatalogChartRemovalCount = Math.Max(catalogChartRemovalCount, 0);
@@ -129,6 +132,9 @@ internal sealed class LibraryMutationSessionReceipt
         ManualRecoveryRequired = manualRecoveryRequired;
         DestinationTypeConflicts = FreezeDestinationTypeConflicts(destinationTypeConflicts);
     }
+
+    /// <summary>操作内の反映回数。失敗した試行も含み、未到達の段階は 0 のままです。</summary>
+    internal LibraryMutationSessionApplyCounts ApplyCounts { get; }
 
     /// <summary>Gets filesystem changes whose success was confirmed and appended to the session.</summary>
     internal IReadOnlyList<LibraryMutationSessionTarget> ConfirmedTargets { get; }
@@ -259,7 +265,8 @@ internal sealed class LibraryMutationSessionReceipt
             ItemFailures,
             RecoveryCandidatePaths,
             ManualRecoveryRequired,
-            DestinationTypeConflicts);
+            DestinationTypeConflicts,
+            ApplyCounts);
     }
 
     /// <summary>Gets an immutable empty session receipt.</summary>

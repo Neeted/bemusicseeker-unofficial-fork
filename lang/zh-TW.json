@@ -923,7 +923,6 @@
   , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}：{1}（{2}）", "PlaylistLampViewer_percentage_less_than_format": "小於{0}",
   "FileDbMutationReport_Title": "檔案與資料庫操作結果",
   "FileDbMutationReport_Operation": "操作：{0}",
-  "FileDbMutationReport_Counts": "已記錄結果的操作：{0} 項\n檔案和資料庫變更已提交：{1} 項／未提交：{2} 項\n必要更新失敗：{3} 項／清理失敗：{4} 項／需手動檢查：{5} 項",
   "LibraryMutationSessionReport_Counts": "已確認的實體變更：{0} 項\n曲庫變更已提交：{1} 項／未提交：{2} 項\n必要更新失敗：{3} 項／清理失敗：{4} 項／未處理：{5} 項",
   "FileDbMutationReport_TerminalFailure": "操作結束時仍有部分處理未完成。",
   "FileDbMutationReport_CandidatePaths": "待檢查的候選路徑（是否存在尚未確認，最多 3 項）：",

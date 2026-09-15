@@ -923,7 +923,6 @@
   , "PlaylistLampViewer_segment_detail_adaptive_format": "{0} : {1} ({2})", "PlaylistLampViewer_percentage_less_than_format": "inférieur à {0}",
   "FileDbMutationReport_Title": "Résultat de l’opération sur les fichiers et la base",
   "FileDbMutationReport_Operation": "Opération : {0}",
-  "FileDbMutationReport_Counts": "Opérations avec un résultat enregistré : {0}\nModifications fichiers et base validées : {1} / Non validées : {2}\nÉchecs de finalisation requise : {3} / Échecs de nettoyage : {4} / Vérifications manuelles requises : {5}",
   "LibraryMutationSessionReport_Counts": "Modifications physiques confirmées : {0}\nModifications de la bibliothèque validées : {1} / Non validées : {2}\nÉchecs de finalisation requise : {3} / Échecs de nettoyage : {4} / Non traitées : {5}",
   "FileDbMutationReport_TerminalFailure": "Certaines étapes de clôture de l’opération n’ont pas abouti.",
   "FileDbMutationReport_CandidatePaths": "Chemins à vérifier (existence non vérifiée, 3 au maximum) :",

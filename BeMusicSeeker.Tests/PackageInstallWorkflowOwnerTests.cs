@@ -1064,7 +1064,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>
-    /// S5-INSTALL-QUEUE: 先行 batch の失敗も後続の完了も、queue 全体の受付解放後に一度だけ通知します。
+    /// 先行 batch の失敗も後続の完了も、queue 全体の受付解放後に一度だけ通知します。
     /// </summary>
     [TestMethod]
     public async Task Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
@@ -1739,7 +1739,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>
-    /// S5-INSTALL-NOTIFICATION: 型付き session の異常結果と終了処理の例外も、受付解放後に通知します。
+    /// 型付き session の異常結果と終了処理の例外も、受付解放後に通知します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -2259,7 +2259,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>
-    /// S5-INSTALL-NOTIFICATION: model の OK 通知を UI に渡し、表示待ち・表示失敗で queue の終端を止めません。
+    /// model の OK 通知を UI に渡し、表示待ち・表示失敗で queue の終端を止めません。
     /// </summary>
     [TestMethod]
     public async Task OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult()

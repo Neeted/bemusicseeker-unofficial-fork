@@ -1,12 +1,12 @@
 # ファイル操作と DB 操作の整合性・補償契約
 
-最終更新: 2026-09-15
+最終更新: 2026-09-16
 
 ## 1. 目的と適用範囲
 
 本資料は、アプリ内で filesystem（FS）と DB を変更する操作について、不整合を減らす設計、補償の範囲、利用者へ伝える結果、受け入れる制限の正本とする。ライブラリ削除だけでなく、導入、移動、rename、merge、生成ファイルと関連 DB の更新にも適用する。`FileDbMutationBoundary.cs` を使うこと自体を全操作の要件にはしない。
 
-これは共通の設計・レビュー契約であり、全既存経路が対応済みであるという宣言ではない。現行の限定的な補償契約は section 4、operation-scoped batching への移行は [mutation session 実装計画](../plan/library-mutation-session-batching-plan.md)、その他の整合性未達は [整合性契約の適用計画](../plan/file-db-consistency-follow-up.md) に分ける。`FSDB-SESSION` は採用済みの正常系設計契約であり、移行単位ごとに production behavior とテストを更新する。
+これは共通の設計・レビュー契約であり、アプリ全体のすべての経路に原子性や同一の補償を要求するものではない。現行の限定補償は section 4、操作単位の確定と実装・テスト対応は [mutation session 契約](library-mutation-boundary.md#mutation-session-契約)、採用理由は [設計判断](../decisions/library-mutation-session.md)、その他の整合性課題は [整合性契約の適用計画](../plan/file-db-consistency-follow-up.md) を参照する。
 
 並行性と ownership は [workflow-concurrency-and-complexity.md](workflow-concurrency-and-complexity.md)、ライブラリ操作の lease、finalization、notification の詳細は [library-mutation-boundary.md](library-mutation-boundary.md) に従う。DB 内だけの transaction、updater の backup／journal／rollback、取り込み前の一時ファイルの cleanup は、それぞれの既存契約を維持する。本資料を、それらの保証を取り除く根拠にはしない。
 
@@ -17,7 +17,7 @@
 | `FSDB-ORDER` | 確認済みの対象と計画を一つの command owner が扱い、既存の競合操作の排他境界内で FS、DB、canonical state、通知の順序を明示する。事前に判定できる不正入力や未承認の対象は、破壊的な I/O より前に拒否する。 |
 | `FSDB-SESSION` | 複数対象を含む一回の利用者ライブラリ変更は、一つの logical mutation session に複数 change を蓄積する。item ごとの FS I/O や後続判断が逐次でも、例外・補償の存在だけを理由に canonical DB apply、index/cache反映、required publication を item ごとに完結しない。複数 durable surface は別 transaction のままでよい。 |
 | `FSDB-FACTS` | 成功、失敗、部分完了の判断を、対象操作で確認できた FS の結果、DB commit、必要な内部反映の事実に基づける。未確認の結果を成功または変更なしと推測しない。 |
-| `FSDB-FORWARD` | 既に確認できた FS 操作や session 内の成功 change を、操作全体を原子的に見せる目的で一律に巻き戻す必要はない。保持されたデータと現在の状態から安全に整合を取り直すことを既定とする。移行中の限定補償は section 4 に従う。 |
+| `FSDB-FORWARD` | 既に確認できた FS 操作や session 内の成功 change を、操作全体を原子的に見せる目的で一律に巻き戻す必要はない。保持されたデータと現在の状態から安全に整合を取り直すことを既定とする。局所的な限定補償は section 4 に従う。 |
 | `FSDB-REPORT` | 捕捉した不整合・部分失敗を通常の完了として黙って扱わない。対象、完了が確認できた段階、未完了または未確認の範囲、次に取れる対応を、利用可能な terminal result／UI と診断へ伝える。 |
 | `FSDB-LIMITS` | FS と DB を跨ぐ原子性、全失敗地点からの自動復旧、復旧完了までの時間、再起動を跨ぐ自動収束は保証しない。走査結果が 0 件の場合の保護により DB が収束しないことも許容する。 |
 
@@ -58,7 +58,9 @@ DML の既存限定 retry、SQLite の `BusyTimeout`、DB schema、process lock�
 
 | 範囲 | 現行契約と共通方針との関係 |
 | --- | --- |
-| `FileDbMutationExecutor` の局所 physical mutation と、session移行済みのauto rename / manual・multi-folder move / library chart delete / normal invalid-extension rename / installation-directory repair / 全package install ingress / duplicate folder merge | executor routeでは source を item の DB durable receipt まで保持し、一回限りの best-effort 補償を行う。この per-item receipt は移行中の既存挙動であり、multi-change 操作の恒久要件ではない。session移行済みrouteはphysical success factsを収集し、operation-scoped canonical applyを一回だけ行う。installはauto / estimated / force / manual shared core / resource-only / cleanup-onlyで同じsessionを使い、先行physical successだけをoverlayへ追加し、storageとinstall-row delete/upsertを一つのtransactionへ集約する。session canonical apply failureではprepared filesystemをrollback/replayせずrecovery factsとして保持し、source cleanupはdurable point後だけに行う。mergeはsource/destination一組をN=1 sessionとしてcatalog/package/reverse lookupを集約し、予約解放・再取得後のmaintenanceも同じterminalへ残す。maintenance例外・予約拒否はmerge durable successを取り消さずrequired finalization failureとして伝える。deleteのresource reverse lookup除去はcatalog/required apply成功後のderived-state phaseに置き、通常invalid-extension renameはextension familyを跨いでも一つのsession receiptを使う。installation-directory repairは一回のbaselineと先行physical successのoperation-local overlayで後続duplicateを判定し、承認済みduplicate removalも同じsessionへ集約する。pending-only renameはowned catalog sessionへ混在させない。[mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) の S7 で旧apply APIとper-item terminal前提を整理する。 |
+| 局所 physical executor | `FileDbMutationReceipt` は package helper の staging / backup / source 保全と局所失敗・cleanup の結果であり、操作全体の durable state を表さない。physical prepare の失敗には既存の一回限りの best-effort 補償を行う。prepare 成功後は session が canonical apply を所有し、DB failure を executor の補償へ戻さない。source cleanup は session durable point 後だけに行う。 |
+| 導入・移動・rename・削除・導入先修正・フォルダ統合 | confirmed physical facts を一つの session へ集約し、各 canonical surface に一回適用する。install の storage と install-row delete/upsert は一つの transaction を使い、先行 physical success だけを後続判定用 overlay へ加える。repair の承認済み duplicate removal も同じ session に入れる。delete の reverse lookup 除去は catalog / required apply 成功後、通常拡張子 rename は extension family を跨いで一つの session とする。pending-only rename は owned catalog を変更しないため package lifecycle に留める。共通 apply は session private primitive、操作終端は `LibraryMutationSessionReceipt` に限定し、局所 receipt の集合を別の確定境界にしない。 |
+| フォルダ統合後の maintenance | source / destination 一組を `N=1` の session とし、catalog / package / reverse lookup を集約する。対象を canonical owner の移転後・source cleanup 前に固定し、既存の予約解放・再取得後に maintenance を行う。例外・予約拒否は同じ session terminal の required finalization failure として返し、merge durable success を取り消さない。 |
 | session-routed multi-change 操作 | deterministicな拒否・skipはchangeに含めず通常結果へ集約する。予期しないFS failureは不確定なitem以降のunsafeな処理を止め、確認済み成功changeを保持する。DB / required internal apply failureでは成功と推測せず、full filesystem rollbackを新設せずに対象・段階・確認済み変更をterminalへ返す。 |
 | 残存する executor の補償失敗 | primary failure と補償 failure、復旧に必要な path を残して手動対応へ移す。補償の補償、再帰的 rollback、無条件 cleanup は行わない。 |
 | session canonical apply 後、または既に確定した別操作 | rollback／compensation に戻らない。内部反映失敗と cleanup 失敗を区別して現在状態を保持する。残存物の cleanup に失敗しても、元の導入を fresh install としてやり直さない。 |
@@ -151,4 +153,4 @@ BMS ルートはディレクトリ属性と直下列挙の開始を確認し、�
 
 実装を変更する unit の受入条件では、到達する phase boundary を選び、FS failure／partial change、DB commit failure、commit 後の必須反映 failure、cleanup failure のうち該当する結果と caller／UI への伝達を検証する。既存の補償を触る場合だけ、その所有者、一回限りの試行、補償 failure も対象とする。全 API の全組合せ、無条件収束、保護された 0 件からの削除を要求しない。
 
-テスト追加・期待値変更には [test-authoring-contract.md](test-authoring-contract.md) と承認済み Test Contract Packet を用いる。今回の仕様整理には runtime test の追加・変更を含めない。
+テスト追加・期待値変更には [test-authoring-contract.md](test-authoring-contract.md) と承認済み Test Contract Packet を用いる。操作単位の適用回数と永続結果の対応は [性能仕様の検証表](performance-and-scale.md#43-mutation-session-の集約診断) に従う。

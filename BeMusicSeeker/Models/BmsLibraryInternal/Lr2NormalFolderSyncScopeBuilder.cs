@@ -160,51 +160,6 @@ internal sealed class Lr2NormalFolderCurrentBmsLookup
             []);
     }
 
-    /// <summary>
-    /// 自動 rename の deferred catalog apply に合わせて、捕捉済み facts を old/new path へ投影します。
-    /// old exact path が捕捉範囲に存在しない変更は追加せず、欠落を空集合へ変換しません。
-    /// </summary>
-    internal Lr2NormalFolderCurrentBmsLookup ProjectPathChanges(
-        IEnumerable<Lr2NormalFolderPathChange> pathChanges)
-    {
-        var counts = new Dictionary<string, int>(bmsCountsByDirectory, StringComparer.OrdinalIgnoreCase);
-        var paths = bmsPathsByDirectory.ToDictionary(
-            entry => entry.Key,
-            entry => new List<string>(entry.Value ?? []),
-            StringComparer.OrdinalIgnoreCase);
-        HashSet<string> initiallyKnownPaths = new(
-            paths.Values.SelectMany(value => value ?? []),
-            StringComparer.Ordinal);
-        var appliedOldPaths = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (Lr2NormalFolderPathChange pathChange in pathChanges ?? [])
-        {
-            if (pathChange == null
-                || string.IsNullOrWhiteSpace(pathChange.OldPath)
-                || string.IsNullOrWhiteSpace(pathChange.NewPath)
-                || !initiallyKnownPaths.Contains(pathChange.OldPath)
-                || !appliedOldPaths.Add(pathChange.OldPath))
-            {
-                continue;
-            }
-
-            EnsurePathFactDirectories(paths, counts, pathChange.OldPath);
-            EnsurePathFactDirectories(paths, counts, pathChange.NewPath);
-            AdjustAncestorCounts(counts, pathChange.OldPath, -1);
-            AdjustAncestorCounts(counts, pathChange.NewPath, 1);
-            RemoveExactPath(paths, pathChange.OldPath);
-            AddExactPath(paths, pathChange.NewPath);
-        }
-
-        return CreateFromFacts(
-            counts,
-            paths.ToDictionary(
-                entry => entry.Key,
-                entry => (IReadOnlyList<string>)entry.Value,
-                StringComparer.OrdinalIgnoreCase),
-            QueryDiagnostics);
-    }
-
     /// <summary>指定 directory に現在 BMS が存在するかを、捕捉済み件数で判定します。</summary>
     internal bool HasBmsChartUnderDirectory(string directoryPath)
     {
@@ -324,96 +279,6 @@ internal sealed class Lr2NormalFolderCurrentBmsLookup
         return Array.AsReadOnly(result.ToArray());
     }
 
-    private static void RemoveExactPath(
-        IDictionary<string, List<string>> paths,
-        string path)
-    {
-        foreach (List<string> indexedPaths in paths.Values)
-        {
-            indexedPaths.RemoveAll(candidate => string.Equals(candidate, path, StringComparison.Ordinal));
-        }
-    }
-
-    private static void AddExactPath(
-        IDictionary<string, List<string>> paths,
-        string path)
-    {
-        string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(path));
-        if (string.IsNullOrWhiteSpace(chartDirectory))
-        {
-            return;
-        }
-
-        foreach (KeyValuePair<string, List<string>> entry in paths)
-        {
-            if (Lr2FolderPath.IsSameOrDescendant(chartDirectory, entry.Key)
-                && !entry.Value.Contains(path, StringComparer.Ordinal))
-            {
-                entry.Value.Add(path);
-            }
-        }
-    }
-
-    private static void EnsurePathFactDirectories(
-        IDictionary<string, List<string>> paths,
-        IDictionary<string, int> counts,
-        string chartPath)
-    {
-        string directory = Lr2FolderPath.NormalizeDirectoryPath(
-            Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        bool first = true;
-        while (!string.IsNullOrWhiteSpace(directory))
-        {
-            bool hadFacts = paths.ContainsKey(directory) || counts.ContainsKey(directory);
-            if (!paths.ContainsKey(directory))
-            {
-                paths[directory] = [];
-            }
-            if (!counts.ContainsKey(directory))
-            {
-                counts[directory] = 0;
-            }
-
-            if (!first && hadFacts)
-            {
-                break;
-            }
-
-            string parentDirectory = Lr2FolderPath.SafeGetParentNormalizedDirectory(directory);
-            if (string.IsNullOrWhiteSpace(parentDirectory)
-                || string.Equals(parentDirectory, directory, StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-            directory = parentDirectory;
-            first = false;
-        }
-    }
-
-    private static void AdjustAncestorCounts(
-        IDictionary<string, int> counts,
-        string chartPath,
-        int delta)
-    {
-        string currentDirectory = Lr2FolderPath.NormalizeDirectoryPath(
-            Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        while (!string.IsNullOrWhiteSpace(currentDirectory))
-        {
-            if (counts.TryGetValue(currentDirectory, out int count))
-            {
-                int adjusted = Math.Max(0, count + delta);
-                counts[currentDirectory] = adjusted;
-            }
-
-            string parentDirectory = Lr2FolderPath.SafeGetParentNormalizedDirectory(currentDirectory);
-            if (string.IsNullOrWhiteSpace(parentDirectory)
-                || string.Equals(parentDirectory, currentDirectory, StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-            currentDirectory = parentDirectory;
-        }
-    }
 }
 
 /// <summary>
@@ -557,40 +422,6 @@ internal static class Lr2NormalFolderSyncScopeBuilder
                 countQueryDirectories,
                 removedChartPath,
                 roots);
-        }
-
-        return CreateBmsQueryScope(pathQueryDirectories, countQueryDirectories);
-    }
-
-    /// <summary>
-    /// 自動 rename の deferred apply 前に必要な source/destination query 範囲を作成します。
-    /// </summary>
-    internal static Lr2NormalFolderBmsQueryScope CreateAutoRenameBmsQueryScope(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<FolderAutoRenamePlan> plans)
-    {
-        List<string> roots = NormalizeRoots(rootDirectories);
-        if (roots.Count == 0)
-        {
-            return Lr2NormalFolderBmsQueryScope.Empty;
-        }
-
-        var pathQueryDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var countQueryDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (FolderAutoRenamePlan plan in plans ?? [])
-        {
-            AddBmsQueryDirectory(
-                pathQueryDirectories,
-                countQueryDirectories,
-                plan?.SourceDirectory,
-                roots,
-                inputIsDirectory: true);
-            AddBmsQueryDirectory(
-                pathQueryDirectories,
-                countQueryDirectories,
-                plan?.DestinationDirectory,
-                roots,
-                inputIsDirectory: true);
         }
 
         return CreateBmsQueryScope(pathQueryDirectories, countQueryDirectories);

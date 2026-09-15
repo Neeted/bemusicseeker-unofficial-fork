@@ -923,7 +923,6 @@
   , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}: {1} ({2})", "PlaylistLampViewer_percentage_less_than_format": "{0} 미만",
   "FileDbMutationReport_Title": "파일 및 데이터베이스 작업 결과",
   "FileDbMutationReport_Operation": "작업: {0}",
-  "FileDbMutationReport_Counts": "결과가 기록된 작업: {0}개\n파일·DB 변경 확정: {1}개 / 미확정: {2}개\n필수 반영 실패: {3}개 / 정리 실패: {4}개 / 수동 확인 필요: {5}개",
   "LibraryMutationSessionReport_Counts": "확인된 물리 변경: {0}개\n라이브러리 변경 확정: {1}개 / 미확정: {2}개\n필수 반영 실패: {3}개 / 정리 실패: {4}개 / 미처리: {5}개",
   "FileDbMutationReport_TerminalFailure": "작업 전체의 마무리 처리 중 완료되지 않은 항목이 있습니다.",
   "FileDbMutationReport_CandidatePaths": "확인할 경로 후보(존재 여부 미확인, 최대 3개):",

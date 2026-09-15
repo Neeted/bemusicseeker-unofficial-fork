@@ -125,6 +125,8 @@ public sealed class CatalogMutationOwnerTests
                 new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges));
 
             Assert.IsTrue(receipt.Applied);
+            Assert.AreEqual(1, receipt.FolderDbTargetRows);
+            Assert.AreEqual(0, receipt.FolderDbFullScanCount);
             Assert.AreEqual(2, receipt.PathFacts.Count);
             Assert.AreEqual(1, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
             Assert.AreEqual(2, receipt.StorageRowsVersion.BmsRowsVersion);

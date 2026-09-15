@@ -4,7 +4,6 @@
 
 ## 進行中・着手待ちの関連計画
 
-- [Operation-scoped Library Mutation Session 実装計画](library-mutation-session-batching-plan.md): `1 user operation = 1 mutation session / N changes` を中心契約とし、auto rename、複数folder move、導入先修正、全package install入口、delete、extension rename、mergeを具体的な実装単位でoperation-level applyへ統合する。
 - [ライブラリ変更要求の統合と操作全体の性能改善計画](library-mutation-unification-plan.md): 操作入口から受付・FS/DB・確定事実・索引反映までの現状と再編案。旧APIの退役、連続操作の受入、R5bで残った実mergeの再構築を扱う。
 - [ライブラリ変更操作の性能課題と実装計画](BeMusicSeeker-library-mutation-performance.md): R3～R6の実装記録とR5bの再評価、exact path整合、RELINK-1、未着手R7。変更契約の整理は上記の統合計画へ引き継ぐ。
 - [v3 安全性改善計画](v3-safety-improvements-plan.md): 30件の修正・確認・説明改善。受付方針の適用範囲と未実施の検証を含む。

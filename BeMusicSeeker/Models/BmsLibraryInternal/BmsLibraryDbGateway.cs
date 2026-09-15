@@ -621,7 +621,7 @@ internal sealed class BmsLibraryDbGateway(
             }
 
             Stopwatch stopwatch = Stopwatch.StartNew();
-            ReplaceFolderRecords(songDb, folderRows);
+            result.FolderDbTargetRows = ReplaceFolderRecords(songDb, folderRows);
             stopwatch.Stop();
             result.FolderDbMs = stopwatch.ElapsedMilliseconds;
 

@@ -36,12 +36,6 @@ internal sealed class PendingResourceOverwriteExecutionResult
 
     public List<string> InstallRowsToDelete { get; } = [];
 
-    /// <summary>
-    /// Per-package filesystem/DB terminal facts.  A cleanup failure or
-    /// manual-recovery stop must remain observable to the command owner.
-    /// </summary>
-    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
-
     /// <summary>operation-scoped install session の canonical terminal facts。</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; set; }
 
@@ -51,18 +45,18 @@ internal sealed class PendingResourceOverwriteExecutionResult
     /// </summary>
     public List<Action> PostLeaseEffects { get; } = [];
 
-    public bool HasDurableCommit => SessionReceipt?.DurableCommit ?? (MutationReceipt?.HasDurableCommit == true);
+    public bool HasDurableCommit => SessionReceipt?.DurableCommit == true;
 
-    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired ?? (MutationReceipt?.ManualRecoveryRequired == true);
+    public bool ManualRecoveryRequired => SessionReceipt?.ManualRecoveryRequired == true;
 
     /// <summary>
     /// Gets whether a post-durable finalizer failed for this overwrite batch.
     /// </summary>
-    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure ?? (MutationReceipt?.HasDurableFinalizationFailure == true);
+    public bool HasDurableFinalizationFailure => SessionReceipt?.HasDurableFinalizationFailure == true;
 
-    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure ?? (MutationReceipt?.CompletedWithCleanupFailure == true);
+    public bool CompletedWithCleanupFailure => SessionReceipt?.CompletedWithCleanupFailure == true;
 
-    public IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? MutationReceipt?.RecoveryPaths ?? [];
+    public IReadOnlyList<string> RecoveryPaths => SessionReceipt?.CandidatePaths ?? [];
 
     public PendingInstalledOnlyResourceOverwriteResult ToPublicResult()
     {
