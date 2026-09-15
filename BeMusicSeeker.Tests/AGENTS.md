@@ -15,7 +15,8 @@
 
 ## 編集前の確認
 
-- 恒久テストの追加・判定内容の意味変更・置換を必要と判断した場合は、[テスト作成契約 section 2・3](../devdocs/spec/test-authoring-contract.md#2-仕様の根拠とテスト設計書) の設計書と配置表を使う。作業番号の意味と有効範囲も同契約に従う。
+- 恒久テストの追加・判定内容の意味変更・置換を必要と判断した場合は、[テスト作成契約 section 2・3](../devdocs/spec/test-authoring-contract.md#2-仕様の根拠とテスト設計書) の設計書と配置表を使う。一時的な参照名の有効範囲も同契約に従う。
+- 計画の段階番号・作業番号・Packet ID / Contract ID を、テストのクラス名・メソッド名・属性・ケース ID・表示名・コメントへ持ち込まない。機能・条件・期待結果で命名し、根拠は現行仕様を参照する。計画とテストメソッドの対応は作業中の設計書・引継ぎに留め、完了時は契約を仕様へ移して作業専用資料を削除する。
 - feature spec、production symbol の test 参照、feature 用語、failure 文言の順で候補を絞り、canonical fixture と共通 helper を先に確認する。既存 test は coverage placement の evidence であり、packet の oracle を上書きする authority ではない。
 - テストを追加・意味変更・置換する作業の入力に、必要な承認済み設計書・対象項目・配置表・共有資源・完了の待ち方が不足する場合は、編集前に `NEEDS_ROOT_INPUT` を返す。テスト不要または削除のみの場合は必要性の判断に従う。リポジトリで確認できる既存テストや補助処理の候補は自分で調べる。
 - 仕様と実装・テストの対応が変わる場合は、[仕様書の書式](../devdocs/spec/README.md#仕様書の書式) に従って対象項目の対応表を同じ変更で更新する。
@@ -40,6 +41,7 @@
 ### Test authority and independence
 
 - 必要性判断で test semantics を変更した diff に承認済み `Test Contract Packet` / Contract ID がない、または test が packet の authority・allowed variation と一致しない場合は指摘する。
+- 計画固有の一時名がテストや恒久仕様へ追加・温存されていないかを対象変更内で確認する。承認内容の確認は引継ぎまたは指定された版を使い、完了した計画・設計書を現行ツリーに残すことを要求しない。
 - expected value が production implementation、current output、既存 expected、翻訳文言、snapshot、repository prose から写経され、独立 authority がない場合は指摘する。
 - exact string / snapshot / source / reflection / characterization の例外に authority、owner、退役条件がない場合は指摘する。
 - 適用された packet が列挙した plausible wrong implementation を通してしまう assertion を指摘する。red / negative-control は、変更分類と必要性判断で実施が必要とされた場合だけ evidence の欠落を指摘し、未実施だけを理由に finding にしない。

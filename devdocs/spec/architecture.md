@@ -87,4 +87,4 @@ WindowsDesktop runtime packが `System.Resources.Extensions` と `System.Configu
 
 ## Documentation priority
 
-`spec/`配下を現行仕様の正本とする。計画・履歴は`../plan/`、受入れevidenceは`../acceptance/`を参照する。
+現行仕様は `spec/`、未完了の作業計画は `plan/` を参照する。完了計画は退役し、開発の経緯は Git 履歴で確認する。現在も適用する設計判断・測定根拠の扱いと配置は [開発資料の案内](../README.md#現行情報の維持) に従う。
