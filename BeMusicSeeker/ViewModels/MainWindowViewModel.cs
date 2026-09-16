@@ -320,7 +320,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private static LibraryDirectoryPreflightRequest CreateStartupDirectoryPreflightRequest(
         StartupSettingsSnapshot startupSettings,
-        CustomFolderOutputSettingsSnapshot customFolderSettings)
+        CustomFolderOutputSettingsSnapshot customFolderSettings,
+        LR2Config startupLr2Config)
     {
         if (startupSettings == null)
         {
@@ -331,7 +332,7 @@ public partial class MainWindowViewModel : ViewModel,
             startupSettings,
             customFolderSettings);
         IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
-            ? new LR2Config(startupSettings.LR2ConfigXmlPath)
+            ? (startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config)))
                 .GetBMSSearchDirectoriesForChangeTracking()
             : startupSettings.StandaloneBmsRootPaths;
         return new LibraryDirectoryPreflightService().CreateRequest(
@@ -340,16 +341,26 @@ public partial class MainWindowViewModel : ViewModel,
             options);
     }
 
-    private static Task EnsureStartupDirectoriesAvailableAsync(
+    private static Task<(bool ConfigValid, LR2Config Config)> PrepareStartupDirectoriesAsync(
         StartupSettingsSnapshot startupSettings,
         CustomFolderOutputSettingsSnapshot customFolderSettings)
     {
         return Task.Run(() =>
         {
+            LR2Config config = null;
+            if (startupSettings.OperationModeLR2DB
+                && !LR2Config.TryLoad(startupSettings.LR2ConfigXmlPath, out config))
+            {
+                // 検査入力を構成できない場合は設定不備へ戻し、空ルートでの検査成功にしません。
+                return (ConfigValid: false, Config: (LR2Config)null);
+            }
+
             LibraryDirectoryPreflightRequest request = CreateStartupDirectoryPreflightRequest(
                 startupSettings,
-                customFolderSettings);
+                customFolderSettings,
+                config);
             new LibraryDirectoryPreflightService().EnsureAvailable(request, probeOutputBases: true);
+            return (ConfigValid: true, Config: config);
         }).LoggingAndPropagate("StartupDirectoryPreflight");
     }
 
@@ -4053,15 +4064,16 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// アプリケーション初期起動時に実行される、メイン初期化ルーチンです。非同期で呼び出されます。<br/>
-    /// 設定の妥当性チェック、BMSデータベース (LR2SongDB形式など) との接続、BMSプレイヤーインスタンスの生成、
-    /// およびコレクション更新をフックする各種イベントリスナーの登録を順次行います。
+    /// 検証済みの起動設定から、ライブラリが利用するモード別のプロファイルを構成します。
+    /// LR2設定はディレクトリ検査で読み込んだ同じインスタンスを使用します。
     /// </summary>
-    private LibraryProfile CreateLibraryProfileForStartup(StartupSettingsSnapshot startupSettings)
+    private LibraryProfile CreateLibraryProfileForStartup(
+        StartupSettingsSnapshot startupSettings,
+        LR2Config startupLr2Config)
     {
         if (startupSettings.OperationModeLR2DB)
         {
-            lr2config = new LR2Config(startupSettings.LR2ConfigXmlPath);
+            lr2config = startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config));
             EnsureLR2DatabaseAutoReloadManualOnlyForStartup(startupSettings);
             string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId);
             return new LibraryProfile(
@@ -4092,27 +4104,26 @@ public partial class MainWindowViewModel : ViewModel,
             startupRequiredFileScanReason: standaloneSongDb.RequiresInitialLibraryBuild ? standaloneSongDb.InitialLibraryBuildReason : null);
     }
 
-    private void RepairCustomFolderOutputSearchRootsBeforeStartupValidation(StartupSettingsSnapshot startupSettings)
+    private void RepairCustomFolderOutputSearchRootsAfterStartupValidation(
+        StartupSettingsSnapshot startupSettings,
+        LR2Config startupLr2Config)
     {
-        if (!startupSettings.OperationModeLR2DB
-            || string.IsNullOrWhiteSpace(startupSettings.LR2ConfigXmlPath)
-            || !File.Exists(startupSettings.LR2ConfigXmlPath))
+        if (!startupSettings.OperationModeLR2DB)
         {
             return;
         }
 
-        lr2config = new LR2Config(startupSettings.LR2ConfigXmlPath);
+        ArgumentNullException.ThrowIfNull(startupLr2Config);
         CustomFolderOutputBaseSearchRootSyncResult result =
             CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
-                lr2config,
+                startupLr2Config,
                 startupSettings.LR2CustomFolderOutputBaseDir,
                 startupSettings.LR2CustomFolderAdditionalOutputBaseDirs);
         if (result.Changed)
         {
-            lr2config.Save();
+            startupLr2Config.Save();
             LogInitStage("custom_folder_output_search_root_repair added=" + result.AddedCount, "Initialize");
         }
-
     }
 
     private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(
@@ -4195,18 +4206,22 @@ public partial class MainWindowViewModel : ViewModel,
             applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
     }
 
-    /// <summary>起動処理を直列化し、ディレクトリ検査の失敗は gate 解放後に通知します。</summary>
+    /// <summary>
+    /// 起動処理を直列化し、設定不備とディレクトリ検査の失敗は排他とUI抑止の解放後に案内します。
+    /// </summary>
     internal async Task<bool> InitializeAsync()
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
         LibraryDirectoryPreflightException directoryFailure = null;
+        string settingsValidationFailure = null;
         LibraryDirectoryWarningPhase directoryWarningPhase =
             LibraryDirectoryWarningPhase.Early;
         try
         {
             return await InitializeCoreAsync(
-                phase => directoryWarningPhase = phase);
+                phase => directoryWarningPhase = phase,
+                message => settingsValidationFailure = message);
         }
         catch (LibraryDirectoryPreflightException exception)
         {
@@ -4224,11 +4239,31 @@ public partial class MainWindowViewModel : ViewModel,
                     "Startup directory preflight warning");
                 SettingDialog?.RequestOpen();
             }
+            else if (settingsValidationFailure != null)
+            {
+                NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + settingsValidationFailure.Replace(Environment.NewLine, " | "));
+                if (applicationLifetime.IsFirstStartup)
+                {
+                    SettingDialog?.RequestInitialSetupLanguageDialog();
+                }
+                else
+                {
+                    UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                        BeMusicSeeker.Properties.Resources.Msg_init_settings_check,
+                        BeMusicSeeker.Properties.Resources.Warning,
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Exclamation,
+                        MessageBoxResult.OK));
+                    UiDialogRoute.ThrowIfNotShown(result, "Startup settings validation notification");
+                    SettingDialog?.RequestOpen();
+                }
+            }
         }
     }
 
     private async Task<bool> InitializeCoreAsync(
-        Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase)
+        Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
+        Action<string> recordSettingsValidationFailure)
     {
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
@@ -4244,6 +4279,7 @@ public partial class MainWindowViewModel : ViewModel,
         string text = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
         StartupSettingsSnapshot startupSettings;
+        LR2Config startupLr2Config;
         CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;
         long operationToken = 0L;
         try
@@ -4254,19 +4290,18 @@ public partial class MainWindowViewModel : ViewModel,
                 startupCustomFolderSettings = customFolderOutputSettingsProvider()
                     ?? throw new InvalidOperationException("Custom-folder output settings provider returned null during startup.");
             }
-            bool initialSettingsUnset = applicationLifetime.IsFirstStartup
-                && (startupSettings.OperationModeLR2DB
-                    ? string.IsNullOrWhiteSpace(startupSettings.LR2RootPath)
-                        && string.IsNullOrWhiteSpace(startupSettings.LR2ConfigXmlPath)
-                        && string.IsNullOrWhiteSpace(startupSettings.LR2SongDBPath)
-                    : startupSettings.StandaloneBmsRootPaths.Count == 0);
-            if (!initialSettingsUnset)
+            (bool configValid, LR2Config config) = await PrepareStartupDirectoriesAsync(
+                startupSettings,
+                startupCustomFolderSettings);
+            startupLr2Config = config;
+            string startupValidationErrorMessage = BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath;
+            if (!configValid || !SettingDialog.CheckValidation(out startupValidationErrorMessage))
             {
-                await EnsureStartupDirectoriesAvailableAsync(
-                    startupSettings,
-                    startupCustomFolderSettings);
+                recordSettingsValidationFailure(startupValidationErrorMessage ?? string.Empty);
+                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+                return false;
             }
-            RepairCustomFolderOutputSearchRootsBeforeStartupValidation(startupSettings);
+            RepairCustomFolderOutputSearchRootsAfterStartupValidation(startupSettings, startupLr2Config);
         }
         catch (LibraryDirectoryPreflightException)
         {
@@ -4281,7 +4316,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         catch (Exception ex)
         {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup custom folder repair failure notification");
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup settings preparation failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
@@ -4289,23 +4324,6 @@ public partial class MainWindowViewModel : ViewModel,
             return false;
         }
         recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Late);
-        if (!SettingDialog.CheckValidation(out string startupValidationErrorMessage))
-        {
-            NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
-            if (applicationLifetime.IsFirstStartup)
-            {
-                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-                SettingDialog?.RequestInitialSetupLanguageDialog();
-                return false;
-            }
-            else
-            {
-                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Startup settings validation notification");
-            }
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            SettingDialog?.RequestOpen();
-            return false;
-        }
         try
         {
             if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))
@@ -4327,7 +4345,7 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("initialize");
-            LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
+            LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings, startupLr2Config);
             StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
                 libraryProfile,
                 this);

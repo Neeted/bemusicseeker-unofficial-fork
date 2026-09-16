@@ -856,6 +856,7 @@
   "Error_CannotRemoveRootCustomFolderOutputDir": "無法從註冊目錄中移除自訂資料夾(ROOT)輸出目錄。",
   "Msg_LR2ConfigBackupEnabledNextStartup": "LR2 設定檔備份功能將從\n下次啟動時啟用",
   "Error_InvalidLR2SongDbOrConfigPath": "LR2 的 song.db 或 config.xml 路徑不正確",
+  "Error_InvalidLR2ConfigStructure": "LR2 設定 XML 中缺少 config/jukebox 元素。",
   "Error_InvalidStagefilePath": "舞台檔案路徑不正確",
   "Error_InvalidUBMPlayExecutablePath": "uBMplay 執行檔路徑不正確",
   "Error_InvalidLR2RootPath": "LR2 目錄路徑不正確",

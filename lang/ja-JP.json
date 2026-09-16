@@ -856,6 +856,7 @@
   "Error_CannotRemoveRootCustomFolderOutputDir": "カスタムフォルダ(ルート)出力ディレクトリの登録解除は出来ません",
   "Msg_LR2ConfigBackupEnabledNextStartup": "LR2設定ファイルバックアップ機能は\n次回起動時から有効になります",
   "Error_InvalidLR2SongDbOrConfigPath": "LR2のsong.dbまたはconfig.xmlのパスが正しくありません",
+  "Error_InvalidLR2ConfigStructure": "LR2設定XMLに config/jukebox 要素がありません。",
   "Error_InvalidStagefilePath": "ステージファイルのパスが正しくありません",
   "Error_InvalidUBMPlayExecutablePath": "uBMplay実行ファイルのパスが正しくありません",
   "Error_InvalidLR2RootPath": "LR2ディレクトリのパスが正しくありません",

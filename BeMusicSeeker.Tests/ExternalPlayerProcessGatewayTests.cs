@@ -117,7 +117,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             string configPath = Path.Combine(configDirectory, "config.xml");
             File.WriteAllText(
                 configPath,
-                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound></config>");
+                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound><jukebox /></config>");
             var gateway = new RecordingExternalPlayerProcessGateway();
             var player = new LR2body(
                 executablePath,
@@ -281,7 +281,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             string configPath = Path.Combine(configDirectory, "config.xml");
             File.WriteAllText(
                 configPath,
-                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound></config>");
+                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound><jukebox /></config>");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -322,7 +322,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             string configPath = Path.Combine(configDirectory, "config.xml");
             File.WriteAllText(
                 configPath,
-                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound></config>");
+                "<config><system><windowsize_x>800</windowsize_x><windowsize_y>600</windowsize_y><screenmode>1</screenmode></system><sound><volumemaster>100</volumemaster></sound><jukebox /></config>");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -469,7 +469,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         {
             string configPath = CreateLr2Config(
                 root,
-                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound></config>");
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
             LR2Config playerConfig = new(configPath);
             var startFailure = new InvalidOperationException("start rejected");
             var gateway = new RecordingExternalPlayerProcessGateway();
@@ -511,7 +511,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         {
             string configPath = CreateLr2Config(
                 root,
-                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound></config>");
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -556,7 +556,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         {
             string configPath = CreateLr2Config(
                 root,
-                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound></config>");
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));

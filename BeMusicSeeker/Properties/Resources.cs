@@ -1912,6 +1912,8 @@ public class Resources
 
     public static string Error_InvalidLR2SongDbOrConfigPath => ResourceManager.GetString("Error_InvalidLR2SongDbOrConfigPath", resourceCulture);
 
+    public static string Error_InvalidLR2ConfigStructure => ResourceManager.GetString("Error_InvalidLR2ConfigStructure", resourceCulture);
+
     public static string Error_InvalidStagefilePath => ResourceManager.GetString("Error_InvalidStagefilePath", resourceCulture);
 
     public static string Error_InvalidUBMPlayExecutablePath => ResourceManager.GetString("Error_InvalidUBMPlayExecutablePath", resourceCulture);

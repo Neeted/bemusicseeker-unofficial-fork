@@ -326,7 +326,7 @@ public sealed class ApplicationCompositionTests
         string configPath = Path.Combine(configDirectory, "config.xml");
         Directory.CreateDirectory(configDirectory);
         File.WriteAllBytes(executablePath, []);
-        File.WriteAllText(configPath, "<config />");
+        File.WriteAllText(configPath, "<config><jukebox /></config>");
         try
         {
             var composition = new ApplicationComposition(

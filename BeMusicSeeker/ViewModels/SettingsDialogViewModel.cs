@@ -1634,6 +1634,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 保存されたLR2設定XMLのパスです。選択候補は読込みと必要構造を検証し、
+    /// 無効な候補では元のパスと解析結果を保持したまま入力エラーを通知します。
+    /// </summary>
     public string LR2ConfigXmlPath
     {
         get
@@ -1646,7 +1650,7 @@ public partial class SettingsDialogViewModel : ViewModel
             bool previousParsed = isLr2ConfigPathParsed;
             bool previousParsedObjectAvailable = lr2config != null;
             string previousError = Lr2PathSelectionError;
-            if (TryLoadLr2Config(value, out LR2Config parsedConfig))
+            if (LR2Config.TryLoad(value, out LR2Config parsedConfig))
             {
                 if (!string.Equals(previousPath, value, StringComparison.Ordinal))
                 {
@@ -1755,16 +1759,16 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>Validates an LR2 song database picker candidate without mutating the settings draft.</summary>
     internal bool IsLr2SongDbPathCandidateValid(string path) => IsLR2SongDBPathValid(path);
 
-    /// <summary>Validates an LR2 configuration picker candidate without mutating the settings draft.</summary>
-    internal bool IsLr2ConfigPathCandidateValid(string path) => TryLoadLr2Config(path, out _);
+    /// <summary>編集値を変更せず、LR2設定の選択候補を読込みと必要構造の両面から検証します。</summary>
+    internal bool IsLr2ConfigPathCandidateValid(string path) => LR2Config.TryLoad(path, out _);
 
     /// <summary>
-    /// Validates and applies both LR2 advanced child paths as one draft tuple.
+    /// 詳細指定の楽曲DBと設定XMLを検証し、XMLの必要構造も確認してから両パスを一括反映します。
     /// </summary>
-    /// <param name="songDbPath">The song database path currently shown by the advanced editor.</param>
-    /// <param name="configPath">The configuration path currently shown by the advanced editor.</param>
-    /// <param name="rejectedPathPropertyName">The editor property that must receive focus when validation fails.</param>
-    /// <returns><see langword="true"/> only when both candidates were accepted without partial mutation.</returns>
+    /// <param name="songDbPath">詳細指定に入力された楽曲DBのパスです。</param>
+    /// <param name="configPath">詳細指定に入力された設定XMLのパスです。</param>
+    /// <param name="rejectedPathPropertyName">無効な場合にフォーカスを戻す入力欄のプロパティ名です。</param>
+    /// <returns>両方の候補を受理した場合だけ true です。失敗時は一部だけを反映しません。</returns>
     internal bool TryApplyLr2AdvancedPathDraft(
         string songDbPath,
         string configPath,
@@ -1777,7 +1781,7 @@ public partial class SettingsDialogViewModel : ViewModel
             RaiseValidationStateChanged();
             return false;
         }
-        if (!TryLoadLr2Config(configPath, out LR2Config parsedConfig))
+        if (!LR2Config.TryLoad(configPath, out LR2Config parsedConfig))
         {
             rejectedPathPropertyName = nameof(LR2ConfigXmlPath);
             SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
@@ -1820,7 +1824,7 @@ public partial class SettingsDialogViewModel : ViewModel
         configPath = File.Exists(configXmlPath) && File.Exists(configXmhPath)
             ? File.GetLastWriteTime(configXmhPath) >= File.GetLastWriteTime(configXmlPath) ? configXmhPath : configXmlPath
             : File.Exists(configXmlPath) ? configXmlPath : configXmhPath;
-        return TryLoadLr2Config(configPath, out parsedConfig);
+        return LR2Config.TryLoad(configPath, out parsedConfig);
     }
 
     public bool UseBeatorajaScoreDb
@@ -2010,27 +2014,9 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private static bool TryLoadLr2Config(string path, out LR2Config parsedConfig)
-    {
-        parsedConfig = null;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-        try
-        {
-            parsedConfig = new LR2Config(path);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private void RefreshParsedLr2ConfigState(bool showSelectionError, bool? useLr2Mode = null)
     {
-        isLr2ConfigPathParsed = TryLoadLr2Config(ApplicationSettings.LR2ConfigXmlPath, out LR2Config parsedConfig);
+        isLr2ConfigPathParsed = LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config parsedConfig);
         lr2config = isLr2ConfigPathParsed && (useLr2Mode ?? OperationModeLR2DB) ? parsedConfig : null;
         SetLr2PathSelectionError(showSelectionError && !string.IsNullOrWhiteSpace(ApplicationSettings.LR2ConfigXmlPath) && !isLr2ConfigPathParsed
             ? BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath
@@ -4948,7 +4934,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsLR2ConfigXmlPathValid(string value)
     {
-        return TryLoadLr2Config(value, out _);
+        return LR2Config.TryLoad(value, out _);
     }
 
     private bool IsBeatorajaScoreDbPathValid()

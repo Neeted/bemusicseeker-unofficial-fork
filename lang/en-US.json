@@ -856,6 +856,7 @@
   "Error_CannotRemoveRootCustomFolderOutputDir": "The custom folder root output directory cannot be removed from the registered directories.",
   "Msg_LR2ConfigBackupEnabledNextStartup": "LR2 config file backup will be enabled from the next startup.",
   "Error_InvalidLR2SongDbOrConfigPath": "The LR2 song.db or config.xml path is invalid",
+  "Error_InvalidLR2ConfigStructure": "The LR2 configuration XML is missing the config/jukebox element.",
   "Error_InvalidStagefilePath": "The stage file path is invalid",
   "Error_InvalidUBMPlayExecutablePath": "The uBMplay executable path is invalid",
   "Error_InvalidLR2RootPath": "The LR2 directory path is invalid",

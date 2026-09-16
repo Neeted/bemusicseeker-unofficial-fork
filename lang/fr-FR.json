@@ -856,6 +856,7 @@
   "Error_CannotRemoveRootCustomFolderOutputDir": "Le répertoire de sortie des dossiers personnalisés (racine) ne peut pas être retiré des répertoires enregistrés.",
   "Msg_LR2ConfigBackupEnabledNextStartup": "La sauvegarde du fichier de configuration LR2 sera activée au prochain démarrage.",
   "Error_InvalidLR2SongDbOrConfigPath": "Le chemin de song.db ou config.xml de LR2 est invalide",
+  "Error_InvalidLR2ConfigStructure": "L'élément config/jukebox est absent du XML de configuration de LR2.",
   "Error_InvalidStagefilePath": "Le chemin du fichier de scène est invalide",
   "Error_InvalidUBMPlayExecutablePath": "Le chemin de l’exécutable uBMplay est invalide",
   "Error_InvalidLR2RootPath": "Le chemin du répertoire LR2 est invalide",

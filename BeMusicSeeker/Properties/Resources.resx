@@ -2974,6 +2974,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Error_InvalidLR2SongDbOrConfigPath" xml:space="preserve">
     <value>LR2のsong.dbまたはconfig.xmlのパスが正しくありません</value>
   </data>
+  <data name="Error_InvalidLR2ConfigStructure" xml:space="preserve">
+    <value>LR2設定XMLに config/jukebox 要素がありません。</value>
+  </data>
   <data name="Error_InvalidStagefilePath" xml:space="preserve">
     <value>ステージファイルのパスが正しくありません</value>
   </data>

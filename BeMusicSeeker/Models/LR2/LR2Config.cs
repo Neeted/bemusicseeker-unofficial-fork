@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Threading;
+using System.Xml;
 using System.Xml.Linq;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Threading;
@@ -60,10 +62,46 @@ public class LR2Config : XDocument
     /// </summary>
     internal string ConfigFilePath => LongPathFileSystem.NormalizePathForStorage(ConfigPath);
 
+    /// <summary>
+    /// 指定された設定XMLを読み込み、検索ルートを取得できる構造を確認します。
+    /// </summary>
+    /// <param name="configPath">config.xml または config.xmh のパスです。</param>
+    /// <exception cref="XmlException">XMLが不正、または config/jukebox 要素がありません。</exception>
     public LR2Config(string configPath)
         : base(LoadConfigDocument(configPath))
     {
         ConfigPath = configPath;
+    }
+
+    /// <summary>
+    /// 設定の入力境界でLR2設定を読み込みます。未設定、不正なパス、読取不能、
+    /// XML不正、必要構造の欠落は無効として返し、それ以外の例外は伝播します。
+    /// </summary>
+    /// <param name="configPath">検証する設定XMLのパスです。</param>
+    /// <param name="config">成功時の設定です。失敗時は null で、空の設定には置き換えません。</param>
+    /// <returns>設定を読み込めた場合だけ true です。登録ルートの存在確認や保存は行いません。</returns>
+    internal static bool TryLoad(string configPath, out LR2Config config)
+    {
+        config = null;
+        if (string.IsNullOrWhiteSpace(configPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            config = new LR2Config(configPath);
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or IOException
+            or UnauthorizedAccessException
+            or SecurityException
+            or NotSupportedException
+            or XmlException)
+        {
+            return false;
+        }
     }
 
     private static XDocument LoadConfigDocument(string configPath)
@@ -72,6 +110,12 @@ public class LR2Config : XDocument
         lock (saveLock)
         {
             XDocument document = LoadConfigDocumentWithoutPreviewScope(normalizedConfigPath);
+            // 検索先を読めないXMLを「登録なし」と解釈して後段の削除判断へ渡さないため、
+            // 空の jukebox は許容しつつ、必須要素の欠落は読み込み時点で拒否します。
+            if (document.Element("config")?.Element("jukebox") == null)
+            {
+                throw new XmlException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ConfigStructure);
+            }
             if (activePreviewScopes.TryGetValue(normalizedConfigPath, out PreviewScope scope))
             {
                 RestorePreviewFields(document, scope);

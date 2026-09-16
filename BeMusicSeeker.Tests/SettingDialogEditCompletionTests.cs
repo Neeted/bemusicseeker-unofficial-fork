@@ -2113,6 +2113,156 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [DataTestMethod]
+    [DataRow("null-path", false)]
+    [DataRow("null-path", true)]
+    [DataRow("empty-path", false)]
+    [DataRow("empty-path", true)]
+    [DataRow("whitespace-path", false)]
+    [DataRow("whitespace-path", true)]
+    [DataRow("missing-file", false)]
+    [DataRow("missing-file", true)]
+    [DataRow("invalid-path", false)]
+    [DataRow("invalid-path", true)]
+    [DataRow("malformed-xml", false)]
+    [DataRow("malformed-xml", true)]
+    [DataRow("missing-jukebox", false)]
+    [DataRow("missing-jukebox", true)]
+    [DataRow("wrong-root", false)]
+    [DataRow("wrong-root", true)]
+    [DataRow("locked-file", false)]
+    [DataRow("locked-file", true)]
+    [DataRow("missing-song-db", false)]
+    [DataRow("missing-song-db", true)]
+    public void InitializeAsync_InvalidLr2SettingsUseSettingsGuidanceAndPreserveFiles(
+        string invalidSetting,
+        bool firstStartup)
+    {
+        string root = CreateTemporaryRoot();
+        string lr2Root = Path.Combine(root, "lr2");
+        string outputBase = Path.Combine(root, "output-base");
+        string rootOutputBase = Path.Combine(root, "root-output-base");
+        ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            Path.Combine(root, "application", "BeMusicSeeker.exe"));
+        try
+        {
+            (string songDb, string configPath) = CreateValidLr2Layout(lr2Root);
+            switch (invalidSetting)
+            {
+                case "malformed-xml":
+                    File.WriteAllText(configPath, "<config>");
+                    break;
+                case "missing-jukebox":
+                    File.WriteAllText(configPath, "<config><system /></config>");
+                    break;
+                case "wrong-root":
+                    File.WriteAllText(configPath, "<other><jukebox /></other>");
+                    break;
+            }
+            byte[] configBefore = File.ReadAllBytes(configPath);
+            byte[] songDbBefore = File.ReadAllBytes(songDb);
+            string? rawConfigPath = invalidSetting switch
+            {
+                "null-path" => null,
+                "empty-path" => string.Empty,
+                "whitespace-path" => "   ",
+                "missing-file" => Path.Combine(root, "missing", "config.xml"),
+                "invalid-path" => "invalid\0path",
+                _ => configPath
+            };
+            Settings settings = CreateValidStandaloneSettings(lr2Root);
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = lr2Root;
+            settings.LR2ConfigXmlPath = rawConfigPath!;
+            settings.LR2SongDBPath = invalidSetting == "missing-song-db"
+                ? Path.Combine(root, "missing", "song.db")
+                : songDb;
+            settings.LR2CustomFolderOutputBaseDir = outputBase;
+            settings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = string.Empty;
+            if (invalidSetting == "missing-song-db")
+            {
+                // ディレクトリ検査には通るが設定全体は無効な状態で、XML修復を開始しないことを確認します。
+                Directory.CreateDirectory(outputBase);
+                Directory.CreateDirectory(rootOutputBase);
+            }
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            using (FileStream? lockedConfig = invalidSetting == "locked-file"
+                ? new FileStream(configPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
+                : null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    MainWindowViewModel viewModel = new ApplicationComposition(
+                        settingsEditSession: settingsSession,
+                        uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
+                        cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                        applicationPathSnapshot: applicationPath,
+                        fileDbMutationDialogService: dialogs)
+                        .CreateMainWindowViewModel();
+                    void ObserveGuidance(string request)
+                    {
+                        Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                        Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                        sequence.Add(request);
+                    }
+                    dialogs.MessageObserved = () => ObserveGuidance("warning");
+                    var presentation = new RecordingSettingsDialogPresentationPort(ObserveGuidance);
+                    viewModel.SettingDialog.AttachPresentationPort(presentation);
+                    try
+                    {
+                        Assert.IsFalse(viewModel.SettingDialog.CheckValidation(out string validationError));
+                        StringAssert.Contains(validationError, Resources.Error_InvalidLR2SongDbOrConfigPath);
+
+                        Task<bool> initialization = viewModel.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "invalid-lr2-settings-startup");
+
+                        Assert.IsFalse(initialization.GetAwaiter().GetResult());
+                        Assert.IsFalse(viewModel.IsInitializationCompleted);
+                        Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+                        Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                        Assert.AreEqual(firstStartup ? 0 : 1, dialogs.MessageCount);
+                        Assert.AreEqual(0, dialogs.ConfirmationCount);
+                        CollectionAssert.AreEqual(
+                            firstStartup ? new[] { "initial-setup" } : new[] { "warning", "open" },
+                            sequence);
+                        if (!firstStartup)
+                        {
+                            StringAssert.Contains(dialogs.LastMessageText, Resources.Msg_init_settings_check);
+                        }
+                        Assert.AreEqual(rawConfigPath, viewModel.SettingDialog.LR2ConfigXmlPath);
+                        Assert.AreEqual(lr2Root, viewModel.SettingDialog.LR2RootPath);
+                        Assert.AreEqual(settings.LR2SongDBPath, viewModel.SettingDialog.LR2SongDBPath);
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                    }
+                    finally
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                            "invalid-lr2-settings-shutdown");
+                        viewModel.SettingDialog.Dispose();
+                    }
+                });
+            }
+            CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(songDbBefore, File.ReadAllBytes(songDb));
+            Assert.IsFalse(File.Exists(applicationPath.StandaloneSongDbPath));
+            Assert.IsFalse(Directory.Exists(Path.Combine(root, "missing")));
+            if (invalidSetting != "missing-song-db")
+            {
+                Assert.IsFalse(Directory.Exists(outputBase));
+                Assert.IsFalse(Directory.Exists(rootOutputBase));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -2938,9 +3088,11 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple(bool createMalformedFile)
+    [DataRow(null)]
+    [DataRow("<config>")]
+    [DataRow("<config />")]
+    [DataRow("<other><jukebox /></other>")]
+    public async Task Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple(string? invalidXml)
     {
         string scope = CreateTemporaryRoot();
         try
@@ -2948,10 +3100,10 @@ public sealed class SettingDialogEditCompletionTests
             string originalRoot = Path.Combine(scope, "original");
             (string originalSong, _) = CreateValidLr2Layout(originalRoot);
             string rawConfig = Path.Combine(scope, "custom", "Config", "config.xml");
-            if (createMalformedFile)
+            if (invalidXml != null)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(rawConfig)!);
-                File.WriteAllText(rawConfig, "<config>");
+                File.WriteAllText(rawConfig, invalidXml);
             }
             string nextRoot = Path.Combine(scope, "next");
             CreateValidLr2Layout(nextRoot);
@@ -2964,7 +3116,7 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             Assert.AreEqual(rawConfig, opened.LR2ConfigXmlPath);
-            Assert.AreEqual(createMalformedFile ? "Error" : "Warning", opened.Lr2ConfigPathStatusKind);
+            Assert.AreEqual(invalidXml != null ? "Error" : "Warning", opened.Lr2ConfigPathStatusKind);
             await opened.SaveSettings();
 
             SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;

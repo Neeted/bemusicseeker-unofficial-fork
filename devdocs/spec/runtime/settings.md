@@ -30,6 +30,10 @@
 
 `LR2RootPath`、`LR2SongDBPath`、`LR2ConfigXmlPath` は独立した保存値です。通常の起動で子パスをルートから再生成しません。保存された設定XMLのパスが欠落・読取不能・不正な場合も、別設定の保存や画面の再表示を理由に生のパスを消しません。パス文字列、解析済み設定、表示用の状態を分けます。
 
+設定XMLの読込み判定は `LR2Config.TryLoad` を共通の入口とします。`LR2Config` の構築には `config/jukebox` 要素が必要で、XMLとして正常でもこの構造がないファイルは無効です。登録が0件の空の `jukebox` は許容し、`system` 等の任意要素を読込み時に追加しません。登録ルートが現在存在するかどうかは別の検査で判断します。無効な入力では解析結果を公開せず、生の保存パスやファイルは変更しません。起動時の案内と処理順は[起動仕様](startup.md#登録ディレクトリの検査)に従います。
+
+`LR2Config` の直接読込みで生じる構造エラーの詳細は、画面へ表示される場合もあるため `Error_InvalidLR2ConfigStructure` を使い、表示言語に従います。通常の設定検証では既存の設定不備の案内を維持します。
+
 標準配置はルート配下の `LR2files/Database/song.db` と `LR2files/Config/config.xml` または `config.xmh` です。ルート選択は候補と設定XMLを検証し、3パスと解析結果をまとめて変更します。同じルートを選び直した場合も現在のXMLを読みます。`song.db` がまだなくても標準パスを設定できますが、保存時の必要条件は別途満たす必要があります。無効なルートや設定XMLでは、元の3パスと解析結果を保持します。依存する表示を更新する前に3パスを揃えます。
 
 詳細指定では親画面の値のコピーを編集します。ファイル選択は現在の入力を初期位置として使い、バインディングを維持したまま入力欄を更新します。完了時には両方の入力欄の最新文字列を検証し、成功時だけ親へ一括反映します。取消・Esc・閉じる操作ではコピーを破棄し、設定ファイルは保存しません。標準配置と一致しないかどうかはパスから求め、別の「カスタム」状態を保存しません。
@@ -89,6 +93,9 @@
 | 表示・閉じる・分類・入力保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs) |
 | フォーカスと実際の利用者操作 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingsForegroundInteractionTests`](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs) |
 | 変更範囲と検索ルートの比較 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`StartupSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/StartupSettingsSnapshotTests.cs)、[`CustomFolderOutputSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/CustomFolderOutputSettingsSnapshotTests.cs) |
+| LR2設定XMLの構造と読込み結果 | [`LR2Config`](../../../BeMusicSeeker/Models/LR2/LR2Config.cs) の `TryLoad` とコンストラクター | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/LR2ConfigTests.cs) の `TryLoad_UnsetOrInvalidPathReturnsNoConfig`、`TryLoad_InvalidDocumentRejectsWithoutChangingFile`、`TryLoad_ValidConfigPreservesUnavailableRegisteredRoots`、`TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections`: 不正入力の拒否、空登録と `.xml` / `.xmh` の許容、欠落ルートとファイルの保持。 |
+| LR2設定XMLの構造エラーの多言語文言 | [`LR2Config`](../../../BeMusicSeeker/Models/LR2/LR2Config.cs)、[表示リソース](../../../BeMusicSeeker/Properties/Resources.resx) の `Error_InvalidLR2ConfigStructure` と[全言語](../../../lang) | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/LocalizationResourceParityTests.cs) の `Lr2ConfigStructureError_IsAvailableWithoutFormatArgumentsInAllLanguages`: 非空かつ引数不要であること。全キーの対応は同テスト群の共通検証を使う。 |
+| 無効なLR2設定パスの保存・再表示・取消 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple`: ファイル欠落、XML不正、必要構造不足でも独立した3パスを保持する。 |
 | LR2の保存先とプレイヤー設定 | [`SettingsPlayerSettingsGateway`](../../../BeMusicSeeker/Models/PlayerSettingsGateway.cs) | [`PlayerSettingsGatewayTests`](../../../BeMusicSeeker.Tests/PlayerSettingsGatewayTests.cs) |
 | 履歴DBの状態と明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`](../../../BeMusicSeeker.Tests/Lr2PlayHistorySchemaUiTests.cs) |
 | 設定値の捕捉と追加パスの分離 | [`BMSLibrary`](../../../BeMusicSeeker/Models/BMSLibrary.cs) | [`BmsLibraryOptionsSnapshotTests`](../../../BeMusicSeeker.Tests/BmsLibraryOptionsSnapshotTests.cs) |

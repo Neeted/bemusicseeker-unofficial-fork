@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -12,6 +13,72 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LR2ConfigTests
 {
+    [DataTestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    [DataRow("invalid\0path")]
+    public void TryLoad_UnsetOrInvalidPathReturnsNoConfig(string? path)
+    {
+        Assert.IsFalse(LR2Config.TryLoad(path!, out LR2Config config));
+        Assert.IsNull(config);
+    }
+
+    [DataTestMethod]
+    [DataRow("<config>")]
+    [DataRow("<config />")]
+    [DataRow("<config><system /></config>")]
+    [DataRow("<other><jukebox /></other>")]
+    public void TryLoad_InvalidDocumentRejectsWithoutChangingFile(string xml)
+    {
+        WithConfigFile(xml, configPath =>
+        {
+            byte[] before = File.ReadAllBytes(configPath);
+
+            Assert.IsFalse(LR2Config.TryLoad(configPath, out LR2Config config));
+            Assert.IsNull(config);
+            Assert.ThrowsException<XmlException>(() => new LR2Config(configPath));
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(configPath));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("config.xml")]
+    [DataRow("config.xmh")]
+    public void TryLoad_ValidConfigPreservesUnavailableRegisteredRoots(string fileName)
+    {
+        WithConfigFile("<config><jukebox><path>missing-bms</path></jukebox></config>", configPath =>
+        {
+            string candidatePath = Path.Combine(Path.GetDirectoryName(configPath)!, fileName);
+            if (!string.Equals(configPath, candidatePath, StringComparison.Ordinal))
+            {
+                File.Move(configPath, candidatePath);
+            }
+            byte[] before = File.ReadAllBytes(candidatePath);
+            string lr2Root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(candidatePath)))!;
+            string missingRoot = Path.Combine(lr2Root, "missing-bms");
+
+            Assert.IsFalse(Directory.Exists(missingRoot));
+            Assert.IsTrue(LR2Config.TryLoad(candidatePath, out LR2Config config));
+            CollectionAssert.AreEqual(new[] { missingRoot }, config.GetBMSSearchDirectoriesForChangeTracking());
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(candidatePath));
+        });
+    }
+
+    [TestMethod]
+    public void TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections()
+    {
+        WithConfigFile("<config><jukebox /></config>", configPath =>
+        {
+            byte[] before = File.ReadAllBytes(configPath);
+
+            Assert.IsTrue(LR2Config.TryLoad(configPath, out LR2Config config));
+            Assert.AreEqual(0, config.GetBMSSearchDirectoriesForChangeTracking().Count);
+            Assert.IsNull(config.Element("config")!.Element("system"));
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(configPath));
+        });
+    }
+
     [TestMethod]
     public void EnsureDatabaseAutoReloadManualOnly_ChangesExistingAutoReloadMode()
     {
@@ -529,6 +596,11 @@ public sealed class LR2ConfigTests
 
     private static void WithConfig(string xml, Action<string, LR2Config> action)
     {
+        WithConfigFile(xml, configPath => action(configPath, new LR2Config(configPath)));
+    }
+
+    private static void WithConfigFile(string xml, Action<string> action)
+    {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LR2Config_" + Guid.NewGuid().ToString("N"));
         string configDirectoryPath = Path.Combine(tempRootPath, "LR2files", "Config");
         Directory.CreateDirectory(configDirectoryPath);
@@ -537,7 +609,7 @@ public sealed class LR2ConfigTests
         Exception? primaryFailure = null;
         try
         {
-            action(configPath, new LR2Config(configPath));
+            action(configPath);
         }
         catch (Exception exception)
         {

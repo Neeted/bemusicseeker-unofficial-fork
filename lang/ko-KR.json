@@ -856,6 +856,7 @@
   "Error_CannotRemoveRootCustomFolderOutputDir": "사용자 지정 폴더(ROOT) 출력 디렉터리는 등록 디렉터리에서 제거할 수 없습니다.",
   "Msg_LR2ConfigBackupEnabledNextStartup": "LR2 설정 파일 백업 기능은\n다음 시작 시부터 활성화됩니다",
   "Error_InvalidLR2SongDbOrConfigPath": "LR2의 song.db 또는 config.xml 경로가 올바르지 않습니다",
+  "Error_InvalidLR2ConfigStructure": "LR2 설정 XML에 config/jukebox 요소가 없습니다.",
   "Error_InvalidStagefilePath": "스테이지 파일 경로가 올바르지 않습니다",
   "Error_InvalidUBMPlayExecutablePath": "uBMplay 실행 파일 경로가 올바르지 않습니다",
   "Error_InvalidLR2RootPath": "LR2 디렉터리 경로가 올바르지 않습니다",

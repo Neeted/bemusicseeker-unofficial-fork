@@ -109,6 +109,21 @@ public sealed class LocalizationResourceParityTests
         }
     }
 
+    /// <summary>LR2設定XMLの構造エラーが全言語で利用でき、書式引数を要求しないことを確認します。</summary>
+    [TestMethod]
+    public void Lr2ConfigStructureError_IsAvailableWithoutFormatArgumentsInAllLanguages()
+    {
+        string root = FindRepositoryRoot();
+        string key = nameof(Resources.Error_InvalidLR2ConfigStructure);
+        var resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        AssertLocalizedFormat("Resources.resx", key, resx.GetValueOrDefault(key)!, 0);
+        foreach (string languagePath in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            JObject language = ReadLanguageJsonObject(languagePath);
+            AssertLocalizedFormat(Path.GetFileName(languagePath), key, language[key]?.Value<string>()!, 0);
+        }
+    }
+
     [TestMethod]
     public void PlaylistLampViewerAdaptiveFormats_ArePresentAndValidAcrossLanguages()
     {
