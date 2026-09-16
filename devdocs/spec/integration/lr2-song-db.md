@@ -70,6 +70,10 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 直前のファイル差分処理が全体として確定したBMSパスは、一度だけ使えるメモリー上の結果として全体同期へ渡せます。`BmsRowsVersion` の一致を必要とし、`OwnedChartCollectionVersion` には依存しません。対象パスの譜面読込みとDB現行性照会を省けますが、消費・失敗・再試行・手動実行・設定起因実行・終了・破棄を越えて再利用や永続化はしません。
 
+確定パスも現行の譜面処理対象数・進捗の分母に含め、読取り・解析を省いた結果として1,000件単位（末尾は残件数）で回収します。全件が確定パスでも専用の一括スキップ経路は設けません。
+
+複数の読み手は、順序回収までの先行数を制限する枠を取得してから対象を採番します。採番済みで未回収の項目は必ず枠を確保済みとし、先頭の不足番号が後続結果で埋まった枠を待つ循環を防ぎます。受渡し前の末尾到達・終了取消・中断では読み手が取得済みの枠だけを返し、受渡し後は書き手が番号順に回収した時点で返します。枠は一度だけ返し、過剰返却の例外を無視しません。
+
 走査結果の有効性は `ScanSurfaceGeneration`、BMS/BMSONの保存行の版、BMS検索ルート、LR2フォルダ探索ルートで確認します。操作全体の入力現行性の確認では所持譜面集合の版も使い、別用途の版を同一視しません。
 
 ### 局所変更と性能
@@ -88,6 +92,8 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 | 完全なフォルダ集合・衝突・一括確定 | [`Lr2FolderTableReconciliationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2FolderTableReconciliationService.cs) | [`Lr2FolderTableReconciliationServiceTests`](../../../BeMusicSeeker.Tests/Lr2FolderTableReconciliationServiceTests.cs)、[`Lr2FolderRowGeneratorTests`](../../../BeMusicSeeker.Tests/Lr2FolderRowGeneratorTests.cs) |
 | 同期状態と生成列の永続化 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbSyncService.cs)、[`Lr2SongDbWriter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbWriter.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/BmsLibraryLr2SongDbSyncTests.cs)、[`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2SongDbSyncServiceTests.cs)、[`Lr2SongDbWriterTests`](../../../BeMusicSeeker.Tests/Lr2SongDbWriterTests.cs) |
 | 確定パスの一回限りの利用 | [`Lr2SongDbSyncCommittedPathReceipt`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbSyncCommittedPathReceipt.cs) | [`Lr2SongDbSyncCommittedPathReceiptTests`](../../../BeMusicSeeker.Tests/Lr2SongDbSyncCommittedPathReceiptTests.cs) |
+| 確定パスのチャンク処理・分母・保存結果の維持 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbSyncService.cs) の `UpsertSongRows` | [`Lr2SongDbSyncCommittedPathReceiptTests`](../../../BeMusicSeeker.Tests/Lr2SongDbSyncCommittedPathReceiptTests.cs) の `ReceiptEligibleSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries`: 全件が証票対象の0・1・1,000・1,001・10,001件で、読取りなしの完了、確定処理位置、保存行と利用者列の保持を確認する。混在入力は既存の `ReceiptEligibleSongRowsSkipReaderAndCurrentnessRead`。 |
+| 採番と順序枠の所有権 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbSyncService.cs) の `UpsertSongRows` | 採番より前の枠取得、全退出経路の返却条件、番号順回収時の返却を静的に確認する。境界件数のテストでは本番のCPU別並列度を使い、特定のスレッド切替順を強制しない。 |
 | 局所BMS範囲・祖先・完全一致キー | [`Lr2NormalFolderSyncScopeBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderSyncScopeBuilder.cs)、[`Lr2NormalFolderDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderDbSyncService.cs) | [`Lr2NormalFolderSyncScopeBuilderTests`](../../../BeMusicSeeker.Tests/Lr2NormalFolderSyncScopeBuilderTests.cs)、[`Lr2NormalFolderDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2NormalFolderDbSyncServiceTests.cs)、[`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs) |
 
 ## 関連資料

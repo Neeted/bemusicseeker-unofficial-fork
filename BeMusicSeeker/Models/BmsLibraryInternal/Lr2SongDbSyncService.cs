@@ -1450,16 +1450,12 @@ internal static class Lr2SongDbSyncService
                         break;
                     }
 
-                    int index = Interlocked.Increment(ref nextReadIndex);
-                    if (index >= targetRows.Count)
-                    {
-                        break;
-                    }
-
                     bool windowSlotAcquired = false;
                     bool windowSlotTransferred = false;
                     try
                     {
+                        // 採番を先に行うと、後続の結果だけで枠が埋まり、先頭の読み手と
+                        // 順序回収を待つ書き手が循環待ちになる。採番済みの項目には必ず枠を持たせる。
                         orderingWindow.Wait(pipelineToken);
                         windowSlotAcquired = true;
                         if (Volatile.Read(ref writerFailed) != 0)
@@ -1468,6 +1464,13 @@ internal static class Lr2SongDbSyncService
                         }
 
                         cancellationToken.ThrowIfCancellationRequested();
+                        int index = Interlocked.Increment(ref nextReadIndex);
+                        if (index >= targetRows.Count)
+                        {
+                            // 末尾の確認用に取得した枠も finally で返す。
+                            break;
+                        }
+
                         SongRowSyncReadCandidate candidate = ShouldSkipCommittedReceiptPath(targetRows[index], committedReceiptPaths)
                             ? SongRowSyncReadCandidate.CreateReceiptSkipped(index, targetRows[index])
                             : ReadSyncSongRowCandidate(
@@ -1486,13 +1489,7 @@ internal static class Lr2SongDbSyncService
                     {
                         if (windowSlotAcquired && !windowSlotTransferred)
                         {
-                            try
-                            {
-                                orderingWindow.Release();
-                            }
-                            catch (SemaphoreFullException)
-                            {
-                            }
+                            orderingWindow.Release();
                         }
                     }
                 }

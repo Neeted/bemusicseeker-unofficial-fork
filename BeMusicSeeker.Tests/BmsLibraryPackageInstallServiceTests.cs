@@ -3284,7 +3284,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target })
             {
-                BMSFiles = [], BmsonSongs = [],
+                BMSFiles = [],
+                BmsonSongs = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -3333,11 +3334,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
-                    OperationModeLR2DB = false, BMSInstallDir = installed,
-                    FolderNameFormat = "%TITLE%", KeepInstallablePackagesPending = false
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installed,
+                    FolderNameFormat = "%TITLE%",
+                    KeepInstallablePackagesPending = false
                 })
             {
-                BMSFiles = [], BmsonSongs = [], SearchTargets = [installed],
+                BMSFiles = [],
+                BmsonSongs = [],
+                SearchTargets = [installed],
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -3382,7 +3387,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target })
             {
-                BMSFiles = [], BmsonSongs = [],
+                BMSFiles = [],
+                BmsonSongs = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
