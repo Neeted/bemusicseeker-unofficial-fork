@@ -1,34 +1,21 @@
-# scripts Codex instructions
+# スクリプト作業の指針
 
-この directory 以下の build、verification、publish、update script を変更するときは、root `AGENTS.md` に加えて `../devdocs/spec/testing-strategy.md` と、テストを伴う場合は `../devdocs/spec/test-authoring-contract.md` を読む。
+[ルートの指針](../AGENTS.md)と[検証仕様](../devdocs/spec/development/testing.md)を読みます。テストを変更する場合は[テスト作成](../devdocs/spec/development/test-authoring.md)、配布を変える場合は[更新仕様](../devdocs/spec/integration/portable-update.md)も確認します。
 
-## Executable contract first
+## 実行する契約を正本にする
 
-- 恒久テストを必要と判断した場合は、script の自己申告 metadata だけをテストせず、実際に実行側が消費する plan、helper、manifest、process lifecycle seam を検証する。
-- contract metadata を残す場合、実行側が同じ object を正本として消費するか、actual execution から生成する。metadata と metadata test だけを同時に更新して green にできる構造を作らない。
-- Full / Functional の phase 順、budget、artifact identity、failure precedence を変える場合は、plan へ observable execution delta を示す。
+実行順、対象、制限時間、生成物の識別、失敗の優先順位は、実際の実行側が使う計画・補助処理・マニフェストで確認します。自己申告のメタデータと、それだけを読むテストを同時に変えて成功できる構造にはしません。実行条件を変える場合は、観測できる挙動の差を計画で示します。
 
-## Process lifecycle
+## プロセスの所有
 
-redirected process は次を一つの bounded lifecycle として扱う。
+開始、終了待機、標準出力・標準エラーの読取り、時間超過時の停止、診断保存、残留確認までを、一つの管理主体が制限時間付きで扱います。未完了の読取りTaskを `.Result` などで無期限に待ちません。起動したPID・生成時刻・子孫関係を追跡し、名前だけで無関係なプロセスを停止しません。
 
-1. process start / exit wait
-2. process timeout 時の runner-owned tree 停止
-3. stdout / stderr の bounded drain
-4. completed output と cleanup diagnostic の保存
-5. runner-owned PID lineage の残留確認
-6. primary failure、cleanup failure、diagnostic write failure の優先順位
+実行時の失敗を後片付け・診断保存の失敗で上書きせず、成功したプロセスの後片付け失敗も成功扱いにしません。検証は実行側と同じ処理境界または明示的な実行プローブを使います。
 
-- incomplete な stream task へ無期限の `.Result` / `GetAwaiter().GetResult()` を行わない。
-- Functional の execution deadline（既定・上限 300 秒）は、runsettings 等の準備後、portable `dotnet test` の起動直前に一度だけ作り、portable とその成功後に fanout する全 Functional testhost の実際の終了時刻を判定する。host や phase ごとに deadline をリセットしない。script startup、restore、build、preflight、output / artifact 回収、環境復元、whitespace 確認はこの test execution budget に含めない。短い値は timeout seam として許可するが、caller が 300 秒を超える値を指定することは許可しない。
-- Functional が execution deadline を超えた場合は、runner-owned process cleanup と stream drain だけが、execution deadline + 10 秒の一つの failure-cleanup cutoff まで継続できる。この追加 window は失敗 invocation の cleanup 専用で、deadline 後に終了した testhost を成功へ救済しない。runner の poll 時刻ではなく retained process handle の終了時刻で deadline 内完了を判定する。
-- retained `ExitTime` から求めた elapsed が 180 秒以下なら通常成功として扱う。180 秒を超えても 300 秒以下なら成功を維持し、通常の elapsed 出力に加えて 180 秒 target 超過、actual retained-`ExitTime` elapsed、およびその実時間を user-facing report に必ず含める指示を warning / diagnostic へ出力する。180 秒ちょうどにはこの特別な warning を出さず、retry は真の 300 秒 timeout に限る。
-- timeout / nonzero exit / orchestration failure を stream cleanup failure で上書きしない。成功 process の cleanup failure は成功扱いにしない。
-- process 名だけで無関係な `dotnet` / `testhost` / `vstest` を kill しない。起動した root PID と追跡した descendant だけを対象にする。
-- production lifecycle の検証は shared helper または guarded execution probe を通し、実行側と同じ lifecycle owner を使う。
+## 時間と結果の扱い
 
-## Verification
+`Functional` は、ポータブル設定用の `dotnet test` 開始直前から全テストプロセスの実際の `ExitTime` まで、一つの実行期限を共有します。既定・上限は300秒です。準備・ビルド・結果回収・環境復元は別の時間であり、ホストごとの期限更新はしません。
 
-- runner、lane、parallelization、fixture placement、shared infrastructure を変え、恒久テストを追加・更新・置換すると判断した場合は、必要なテストの品質条件として実行側と同じ seam を確認する。focused contract は既存の関連 test を実行するか、適切な実行確認を選び、最終 acceptance lane は `testing-strategy.md` に従って統合 owner が実行する。
-- 各 run で portable testhost 開始直前から全 Functional testhost の実際の process `ExitTime` までの test-execution elapsed、diagnostics root、runner-owned residual process を記録する。restore、build、preflight、postflight、artifact 回収、環境復元、whitespace確認等の時間は test-execution elapsed と混同しない。180 秒 target を超えた成功 run は、出力された actual elapsed を user-facing report へ転記する。
-- timeout / failure の分類と retry は `testing-strategy.md` を正本とし、runner は判断に必要な process / artifact evidence を保持する。timeout 延長、worker 低下、unbounded retry で flake を隠さない。
+期限後の追加10秒は、失敗した実行の所有プロセス停止と出力読取りだけに使います。遅れて終了したテストを成功へ変更しません。180秒を超え300秒以内の成功は成功のまま、実測時間と目標超過を報告します。180秒ちょうどは警告対象ではありません。真の時間超過の再実行は[検証仕様](../devdocs/spec/development/testing.md#実行期限と失敗分類)に従います。
+
+ホスト構成、並列度、文字コード、各検証段階の予算、診断保存先、再試行の条件を、症状の回避だけを目的に変更しません。変更後は実際の実行時間、診断先、所有プロセスの残留を確認し、統合担当へ引き継ぎます。

@@ -501,7 +501,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             repositoryRoot,
             "devdocs",
             "spec",
-            "bass-runtime-dependency-set.md")));
+            "runtime",
+            "audio-dependencies.md")));
         var expected = new[]
         {
             new { Name = "bass.dll", Version = "2.4.18.3", Api = "0x02041203", Hash = "FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4", FileVersionPrefix = "2.4.18" },

@@ -1,47 +1,30 @@
-# .NET 10 Distribution Performance Decision
+# .NET 10配布形式の起動比較
 
-[current evidence](./net10-performance-engineering.md) / [起動仕様](../spec/startup-initialization-flow.md)
+## 現在の用途
 
-## Final decision
+通常のアプリ配布に `bundle-r2r` を選ぶ比較根拠です。配布設定は[構成仕様](../spec/core/architecture.md)、現在の起動条件は[起動仕様](../spec/runtime/startup.md)を正本とします。別の版の性能や、全操作の退行許容値を示すものではありません。
 
-main appの選択profileを`bundle-r2r`で確定する。
+## 条件と結果
 
-| Property | Value |
-| --- | --- |
-| RuntimeIdentifier | `win-x64` |
-| SelfContained | `true` |
-| PublishSingleFile | `true` |
-| IncludeNativeLibrariesForSelfExtract | `false` |
-| IncludeAllContentForSelfExtract | `false` |
-| EnableCompressionInSingleFile | `false` |
-| PublishReadyToRun | `true` |
-| PublishTrimmed | `false` |
+対象は `c9fcb9a4f6a523688c977264a6a78cf85be07665`、測定日は2026-08-01です。`folder-r2r` と `bundle-r2r` のそれぞれで、PC起動後の初回と同じPCセッションの二回目を測りました。元のログ識別は `.tmp/20260801_folder-r2r_log` と `.tmp/20260801_bundle-r2r_log` です。
 
-managed assembliesはbundleするが、native self-extract、all-content extraction、compressed bundle decompressionは使わない。
+| 配布形式 | 起動 | 導入推定の準備 | 操作可能 | 必須初期化完了 | 後処理完了 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| folder-r2r | PC起動後初回 | 22,348 ms | 22,398 ms | 32,156 ms | 約63.6秒 |
+| folder-r2r | 二回目 | 21,770 ms | 21,815 ms | 31,406 ms | 終了操作の時点で継続中 |
+| bundle-r2r | PC起動後初回 | 22,306 ms | 22,362 ms | 33,043 ms | 約64.0秒 |
+| bundle-r2r | 二回目 | 21,882 ms | 21,956 ms | 32,504 ms | 約62.8秒 |
 
-## PC reboot comparison — 2026-08-01
+必須初期化の差は887 msと1,098 ms、約2.7～3.4%です。配布形式を変更する基準「5秒以上かつ15%以上」を満たさず、ファイル数と更新対象が簡潔な `bundle-r2r` を維持する判断を支えます。この基準を通常操作の許容退行率に流用しません。
 
-| Layout | Run | Ready operable | Required initialization complete |
-| --- | --- | ---: | ---: |
-| folder-r2r | PC起動後初回 | 22,398 ms | 32,156 ms |
-| bundle-r2r | PC起動後初回 | 22,362 ms | 33,043 ms |
-| folder-r2r | 2回目 | 21,815 ms | 31,406 ms |
-| bundle-r2r | 2回目 | 21,956 ms | 32,504 ms |
+## 完了範囲の解釈
 
-folder-r2rの短縮は初回887 ms、2回目1,098 msで、割合は約2.7～3.4%である。事前selection ruleの「5秒以上かつ15%以上」を満たさない。機能上の大差も観測されなかったため、ファイル数が少なくupdate payload contractも単純なbundle-r2rを維持する。
+この測定で必須初期化に含む主な処理は、プレイリストエントリ補完約6.7～7.1秒、譜面情報補完約1.4～1.6秒、スコア補完約1.1～1.2秒、LR2必須処理の登録10 ms以下でした。
 
-## Interpretation
+後処理は操作可能になった後から必須処理と並行して開始し、その内部の並列度は1です。仮想順序の事前計算約20～21秒、カスタムフォルダの物理検査・修復約3.9～5.7秒、保守情報補完約5.1～5.4秒、外部カタログ約2.3～3.3秒、起動後GC約1.2秒を含みます。初回表示だけの短縮ではなく、全後処理までの範囲も分けて比較します。
 
-以前の約65秒cold gapは両distributionに共通するmanaged readiness dependencyであり、optional library-folder refreshをoperabilityから分離したことで解消した。配布形式をfolderへ戻す必要はない。
+folder-r2rの二回目は外部カタログ取得中に利用者が終了し、通信取消と待機中BMT要求一件の破棄を経て、終了待機約104 msでした。これは必須初期化の失敗やデータ破損を示す結果ではありません。
 
-folder-r2rはfallback artifactとして再生成可能な状態を維持してよいが、通常publish、layout validator、update manifestの正本はbundle-r2rとする。managed DLLを独自`libs`へ移すcustom loader / probing / deps rewriteは導入しない。
+## 比較上の制限
 
-## Application-owned directories
-
-```text
-libs/x64/  BASS / 7z native family
-native/    Everything bridge / SDK runtime
-lang/      language catalog
-```
-
-updaterはSelf-contained single-fileを維持する。
+.NET Framework版と.NET 10版は、同じログ名でも計測範囲が異なる場合があります。旧版の体感や単発時刻を厳密な比較値にせず、現行版内の同条件比較と、既に成立した表示・保存契約を守ります。通常の実行・配布の合格記録はGit履歴で確認し、この文書へ追記しません。

@@ -1,93 +1,31 @@
-# LR2 song.db one-shot reconciliation
+# LR2楽曲DBを完全な入力から一括再生成する理由
 
-Status: Accepted
-Date: 2026-09-04
+## 適用する判断
 
-## Context
+LR2 `song.db` の全体同期は、取得した完全な入力から生成します。失敗・未完了・強制実行の次回は先頭からやり直し、保存された処理位置から再開しません。現行の挙動は[LR2楽曲DB仕様](../spec/integration/lr2-song-db.md)を正本とします。
 
-LR2 `song.db` synchronization previously mixed durable positional resume, file-diff skip
-verification, split folder mutations, startup diagnostics/repair, and full-sync song
-membership pruning. Those routes made a completed status depend on incomplete or
-heuristic observations and allowed a later run to apply a cursor or stale folder
-assumption to different input.
+## 背景と選択理由
 
-The supported ingress is the startup/reload workflow, status retry, settings/manual
-force, file-diff completion, and coordinated application shutdown. The resulting
-database rows and durable status are user-visible and must converge without hiding
-incomplete discovery or parse failures.
+前回の処理位置は、次回のファイル集合やフォルダの状態と対応する保証がありません。途中位置の保存、欠落ルートの推測、日付を使った完了判定を組み合わせると、不完全な入力で古い行を削除したり、必要な生成を省いたりします。
 
-## Decision
+全フォルダの投影を先に作り、入力・メタデータ・解析・事前検査が揃ってから、一つのトランザクションで反映します。情報源の優先順は組込み、`.lr2folder`、`folderinfo.txt`、通常ディレクトリです。同じ優先度で異なる投影が衝突すれば失敗とします。全体同期では更新時刻が同じ `.lr2folder` も解析し、0・負数のUnix時刻も通常の値として扱います。
 
-Full LR2 reconciliation is one fresh, uninterrupted projection of the current input.
-Every non-`Completed` run and every forced run starts at item zero; the persisted
-`processed_cursor` remains a compatibility/progress field and is never a resume
-instruction. Progress is published only after the corresponding durable commit.
+楽曲の所属の追加・削除はファイル差分処理の責務です。全体同期は生成列を更新し、`favorite`、`adddate`、`tag` など利用者の値を保ちます。所属の削除や保守データの整理を重複して担当しません。
 
-The file-diff pipeline may publish an in-memory committed-path receipt guarded by
-`BmsRowsVersion` as a transitional narrow check. `OwnedChartCollectionVersion` is not a
-receipt-validity dependency. A receipt contains only paths for which the
-full-sync-equivalent work, inline maintenance, matching LR2 row write, and SQLite commit
-succeeded. The immediate startup/reload follow-up may take a matching receipt exactly
-once. Eligible paths skip the BMS reader and database currentness verification. The
-receipt is not persisted, reused, reverified, or restored after failure, retry,
-manual/settings execution, shutdown, disposal, or a BMS-row version mismatch.
+## 許可する省略とその限界
 
-The captured scan surface is guarded by its positive generation, BMS/BMSON storage-row
-versions, BMS roots, and LR2 folder discovery roots. It deliberately does not use
-`OwnedChartCollectionVersion` for selection or current-surface validation. The
-runtime-wide input-currentness query still uses `OwnedChartCollectionVersion`, so an
-input captured before an owned-collection mutation remains stale/non-successful even
-when the narrow scan surface remains reusable.
+直前の起動・再読込みで同等の解析・保守・LR2行保存・DB確定を終えたパスだけは、メモリ上の確定結果を一回引き渡して再読込みを省けます。`BmsRowsVersion` の一致を確認し、失敗、再実行、手動・設定操作、終了、破棄、版の不一致では使いません。保存・復元・再検証による延命は行いません。
 
-Full folder preparation builds the complete normal-directory, `folderinfo.txt`,
-discovered/application-managed `.lr2folder`, built-in custom-folder, and required
-parent/root projection before database mutation. Source priority is built-in custom
-folder > `.lr2folder` > `folderinfo.txt` > normal directory. Equal projections
-deduplicate; unequal same-tier projections fail deterministically. A complete
-projection is applied by one whole-table transaction. Incomplete discovery, metadata,
-parse, or preflight failure performs zero folder mutation.
+取得済み走査結果は、その世代、BMS/BMSON行の版、検索ルートで照合します。所持コレクション全体の版をこの局所的な再利用条件へ混ぜません。一方、実行時入力全体の鮮度確認には所持コレクションの版が必要です。この二つは用途を分けます。
 
-Full mode reparses `.lr2folder` content even when mtime matches and treats zero and
-negative Unix-second dates as ordinary generated values. Full preparation for playlist
-and built-in surfaces performs physical materialization/verification only. Existing
-playlist/settings/catalog scoped incremental folder DB synchronization remains the
-owner of those incremental mutations.
+将来、順序を直接待って結果を渡す構成へ統合する作業は[起動処理の計画](../plan/lr2-startup-procedural-orchestration-plan.md)で扱います。その計画を現行の実装保証とはしません。
 
-Full reconciliation updates generated song columns from the current projection while
-preserving LR2 user columns such as `favorite`, `adddate`, and `tag`. It does not add,
-delete, or stale-prune `song` membership; file-diff continues to own membership and
-its app-managed maintenance/chart-digest cleanup.
+## 失敗と互換性
 
-Startup blocker diagnostics, missing/unknown-root inference, date-sentinel checks,
-repair, cleanup/retry UI, durable resume/verifier routes, and the LR2 user cancel
-route are retired. `Running`, `Failed`, `Incomplete`, and legacy `Cancelled` values
-remain retryable from zero; legacy `Cancelled` remains parseable/displayable. New
-production runs do not write `Cancelled`. Shutdown cancellation rolls back the active
-transaction and records `Incomplete` with `shutdown_interrupted` when status
-persistence is safely available; unexpected non-shutdown cancellation is a failure.
+進捗は対応するDB確定後に公開します。`processed_cursor` は互換・進捗用に残しますが、再開指示ではありません。終了取消では実行中のトランザクションを戻し、安全に保存できる場合に `Incomplete` と `shutdown_interrupted` を記録します。それ以外の予期しない取消は失敗です。
 
-The `lr2_song_db_sync_status` schema, `name=default` row, status signature and
-generator/app-schema declarations remain unchanged for compatibility.
+既存の `Cancelled` は読取り・表示・再実行の互換性のため扱いますが、新しい実行では書きません。`lr2_song_db_sync_status` のスキーマ、`name=default`、生成器とアプリスキーマの署名は維持します。不完全な実行を診断用の推測で成功に変えず、既存の状態表示と明示再実行へ返します。
 
-## Consequences
+## 関連資料
 
-- A complete folder table is deterministic and atomic, and incomplete input cannot
-  silently prune rows.
-- The only cross-run optimization is the immediate, one-shot in-memory receipt with its
-  transitional BMS-row guard; the captured surface additionally keeps generation, row,
-  and root guards. There is no replay, recovery cursor, manifest, or database
-  revalidation machinery.
-- File-diff remains the single owner of song membership and scoped incremental folder
-  synchronization, reducing overlap between startup and user actions.
-- A failed or incomplete run is visible through existing status/retry behavior and
-  must be rerun from zero.
-- Existing user-owned song values and persisted status/schema compatibility are
-  preserved.
-
-## Verification
-
-The implementation is covered by the approved packet
-`B-6-D-16-LR2-ONE-SHOT-RECONCILIATION-20260904`, including `RCP-01..04`,
-`FDR-01..05`, `SON-01..03`, `RTR-01`, `UI-01`, `SHD-01`, and `SCH-01`.
-Focused Quick results and the integrated verification ledger are recorded in the
-temporary execution plan.
+[起動](../spec/runtime/startup.md)、[終了](../spec/runtime/shutdown.md)、[データと索引](../spec/core/data-and-indexes.md)。

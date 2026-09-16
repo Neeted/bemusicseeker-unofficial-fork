@@ -1,15 +1,25 @@
-# Updater の配布サイズ
+# 更新プログラムにNative AOTを使う理由
 
-`BeMusicSeeker.Updater` は `net10.0-windows` / `win-x64` / self-contained の Native AOT を採用する。
+## 適用する判断
 
-同一 source snapshot (`8942938a`) から一度ずつ publish した Raw EXE は次のとおりだった。
+`BeMusicSeeker.Updater` は `net10.0-windows` / `win-x64` の自己完結型Native AOTとし、`OptimizationPreference=Size` を使います。配布先の.NET実行基盤に依存せず、更新プログラム自体のサイズを抑えるためです。
 
-| 設定 | Bytes | Updater publish warning |
+## 比較の根拠
+
+同じソース `8942938a` から各構成を一回ずつ作成した実行ファイルの比較です。現在の配布サイズや処理時間を保証する値ではありません。
+
+| 構成 | バイト数 | 配布ビルドの警告数 |
 | --- | ---: | ---: |
-| 従来の CoreCLR single-file | 73,590,553 | 0 |
-| full trim + compressed CoreCLR single-file | 11,488,963 | 0 |
-| Native AOT (`OptimizationPreference=Size`) | 3,111,424 | 0 |
+| CoreCLR単一ファイル | 73,590,553 | 0 |
+| 全体トリミング・圧縮付きCoreCLR単一ファイル | 11,488,963 | 0 |
+| Native AOT | 3,111,424 | 0 |
 
-機能削減用の globalization、stack trace、resource key 設定や warning suppression は加えていない。journal v1 は source-generated `System.Text.Json` metadataを使用し、既存の更新、rollback、recovery testをpublished Native AOT executableで確認する。
+サイズだけのために国際化、スタックトレース、リソースキーの機能を減らしたり、警告を抑制したりしません。更新記録のJSONにはソース生成された `System.Text.Json` メタデータを使います。
 
-Native AOTはそれ自体が単一native executableを生成するため、CoreCLR bundlerの`PublishSingleFile`、compression、native self-extract設定は使用しない。配布packageは従来どおりrootへ`BeMusicSeeker.Updater.exe`一つだけを配置する。
+## 構成上の帰結
+
+Native AOTが一つのネイティブ実行ファイルを生成するため、CoreCLR用の `PublishSingleFile`、圧縮、ネイティブDLLの自己展開設定は使いません。パッケージのルートには `BeMusicSeeker.Updater.exe` 一つを配置します。更新・復元・再開の契約は[ポータブル更新仕様](../spec/integration/portable-update.md)で定めます。
+
+## 関連資料
+
+[リリース](../spec/development/release.md)、[配布の受入](../acceptance/net10-distribution-performance.md)、[検証](../spec/development/testing.md)。

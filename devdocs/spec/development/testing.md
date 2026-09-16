@@ -1,0 +1,198 @@
+# テストの実行と受入検証
+
+## 目的と適用範囲
+
+通常の機能検証、性能測定、大容量データ、外部プロセス、配布・更新の受入検証を分け、実行条件と結果の判定を定めます。テストを作る判断はテスト設計仕様に従います。
+
+## 用語
+
+[共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
+
+**テストプロセス**は実際の `dotnet test` と、そのテストホストを指します。**完全修飾名（FQN）**は名前空間・クラス・メソッドまでを含むテスト識別子です。**判定記録**は実行結果を機械的に確認するTRXやJSONです。
+
+## 仕様
+
+### 標準入口
+
+PowerShell 7から、リポジトリのルートで実行します。
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~対象のテスト名'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
+```
+
+| 区分 | 用途と処理 |
+| --- | --- |
+| フィルター付き `Quick` | 反復中の対象確認。指定対象だけの専用経路を使用する。 |
+| フィルターなし `Quick` | 通常の機能テストの共通実行処理を一回使う。 |
+| `Functional` | 通常の最終統合。同じ最終版に対して一回を原則とする。 |
+| `Full` | 配布・更新・リリースに関わる検証。共通の `Functional` の後に配布物の受入を行う。 |
+
+`Quick` はフィルターの有無によらず事前の整形・解析検査を省きます。`Functional` / `Full` はロックファイルに従う復元の後、ツール復元、空白整形の検査、Roslynator解析、ビルド、出力検査、実テストの順に進みます。自動修正はしません。
+
+整形検査はプロジェクトを評価せず、ルートを `dotnet format whitespace --folder` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。
+
+### 実行期限と失敗分類
+
+通常の機能テストは、ポータブル設定用の `dotnet test` 開始直前から、全テストプロセスの実際の `ExitTime` までを一つの実行範囲とします。準備・復元・ビルド・出力確認・結果回収・環境復元・差分確認は、この時間に含めません。
+
+`FunctionalTimeoutSeconds` による既定・上限は300秒です。一つの期限をポータブル設定、残りの起動、全プロセスの終了まで共有し、プロセスや段階ごとに作り直しません。失敗後の停止と出力読取りには、この期限から追加10秒までの共通期限を使います。
+
+| 実際の終了までの時間・結果 | 判定 |
+| --- | --- |
+| 成功かつ180秒以下 | 通常成功。 |
+| 成功かつ180秒超、300秒以下 | 成功のまま、運用目標の超過と実測時間を警告し、利用者への報告にも含める。 |
+| 300秒超 | 時間超過。後片付け中の遅い終了を成功へ戻さない。 |
+| 時間内の決定的な失敗 | 初回から原因を調べる。成功するまでの再実行はしない。 |
+
+真の時間超過だけは、所有するプロセスツリーの停止・残留確認と診断保存の後、同じコマンド、フィルター、時間予算、版、条件で一回だけ再実行できます。予算内で成功し、症状の再発や決定的な診断がなければ一過性の負荷として両結果を報告します。それ以外は原因を調べます。局所的な失敗検出タイマーは、この再実行規則の代わりではありません。
+
+### 通常テストの分割と並列実行
+
+論理的なテスト集合を一回検出し、実際の実行に使う6プロセス分の計画を検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。
+
+| プロセス | 並列数・範囲 | 担当 |
+| --- | --- | --- |
+| `portable-settings` | 1、`ClassLevel` | `PlayerPanelStateSettingsCompatibilityTests` |
+| `bass-collectible` | 1、`ClassLevel` | `BassCollectibleLoadContextTests` |
+| `serial-state-a` | 1、`ClassLevel` | 設定、前面操作、プレイリスト設定、ネイティブログなどの共有状態。 |
+| `serial-state-b` | 1、`ClassLevel` | LR2、コンパイル済みWPF、クラス全体を直列にする必要がある共有状態。 |
+| `remaining-bms-library` | `ProcessorCount`、`ClassLevel` | 専用対象を除く `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary`。 |
+| `remaining` | `ProcessorCount`、`ClassLevel` | 専用対象と前記接頭辞を除く残り。 |
+
+クラスの厳密な所属は `verify-refactor.ps1` の実行計画を正本とします。論理集合を重複・漏れなく一回ずつ実行し、メタデータだけの別一覧や代替経路は持ちません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
+
+`BassCollectibleLoadContextTests` はWPFのホスト・リソースを解決しない専用プロセスで、回収可能なロードコンテキストと、BASSの静的初期化がネイティブDLLをロードしない条件を確認します。譜面情報の保存・解析・補完を扱う5テスト群は専用の選択規則を作らず、残りのクラス単位実行を使用します。
+
+### テスト区分
+
+| `TestCategory` | Functional | Full | 用途 |
+| --- | --- | --- | --- |
+| 省略・機能名、`Compatibility` | 対象 | 対象 | 小さい合成入力・少数の固定入力による機能と軽量互換性。 |
+| `ProcessIntegration` | 除外 | 対象 | 別プロセスや更新プログラムとの統合。 |
+| `ReleaseAcceptance` | 除外 | 対象 | 配布物、更新パッケージ、実アプリの受入。 |
+| `Performance` / `Net10Performance` | 除外 | 除外 | 変更前後の処理時間・仕事量の比較。 |
+| `LargeFixture` | 除外 | 除外 | 巨大DB、大量の実データ。 |
+| `ParserCompatibilityFull` | 除外 | 除外 | 全実譜面と参照実装との互換性。 |
+| `ProductionDiffFull` | 除外 | 除外 | 実データとの差分。 |
+| `ParserCompatibilitySlow` | 除外 | 除外 | 巨大・低速の解析入力。 |
+
+カテゴリは保証内容ではなく実行特性です。小さい互換性テストは通常検証に含めます。通常テストでは固有の一時資源と決定的な代替入力を使い、外部Everything索引への即時反映や固定の待ち時間に依存しません。
+
+### プロセスの待機と失敗
+
+開始、完了待機、標準出力・標準エラーの読取り、停止、診断保存、残留確認を一つの管理主体が行います。起動したPID、生成時刻、子孫関係を追跡し、名前だけで無関係なプロセスを停止しません。待機と出力読取りは残りの期限内に収めます。
+
+既知のUTF-8出力元である `dotnet` / `pwsh` は、起動前に `StandardOutputEncoding` と `StandardErrorEncoding` の両方へUTF-8のデコーダーを設定します。通常のコマンドと分割テストの起動は、共通の `Set-VerificationRedirectedProcessEncoding` を使います。保存時にUTF-8へ変換するだけでは、読取り時の誤変換を直せません。`dotnet` の `DOTNET_CLI_FORCE_UTF8_ENCODING=1` は子プロセスの環境だけへ設定し、親のコンソール・出力文字コード・カルチャ・環境変数、および他のネイティブコマンドの既定の文字コードを変更しません。
+
+失敗時は、実行中または最後に確認したテスト、経過時間、出力、進捗・TRX・停止診断の場所を残します。元の失敗を後片付けの失敗で置換せず、二次的な診断に保持します。元の失敗がなくても後片付けが失敗したら失敗です。開始前の環境変数と作業ディレクトリも復元します。追跡対象ファイルの指紋による外部変更監視は行いません。
+
+### 画面テストの分離
+
+WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcherを共有します。最初の `Dispatcher` / `Invoke` / `Drain` / `RunWindowTest` 利用時に遅延起動し、テストごとに作りません。ウィンドウなしの操作は `Invoke`、実ウィンドウ・Popupは `RunWindowTest` と `TestWindowPresentationScope` を使います。
+
+`ShowAndWaitForContentRendered` は表示前に通知を購読し、期限付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
+
+既定は `NonActivating` です。表示直前に手動配置、タスクバー非表示、非アクティブ表示を適用し、全モニターの外へ置きます。HWND生成時には既存の拡張スタイルを保って `WS_EX_NOACTIVATE` を設定・再読取りします。前面でないことと矩形も確認し、Popupにも開く境界で同じ規則を適用します。ネイティブAPIの失敗や表示観測の失敗は、テスト本体とは独立して保持します。
+
+前面での入力・フォーカス・ヒット判定・モーダル起動を確認する例外は、`SettingsForegroundInteractionTests` の次の7メソッドだけです。`serial-state-a` が所有し、`ForegroundInteraction` を明示します。
+
+```text
+SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll
+SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes
+SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes
+SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow
+Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting
+Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected
+Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor
+```
+
+例外の追加前には、`Full` の画面受入に分けられるか検討します。実OSカーソルの取得・移動や `Mouse.GetPosition` による物理位置の判定は使わず、明示的なイベント・操作入力で確認します。
+
+開始時の共有スレッドのウィンドウ・HWNDを基準に、追跡したPopup、深い所有関係から順にウィンドウ、購読、Dispatcherの残処理、残留HWNDを片付けます。設定画面には `CloseForOwnerShutdown` を使います。失敗の優先順位はテスト本体、表示観測、後片付けです。
+
+共有ホストは現在の `AppearanceTheme` を退避し、準備完了前に保存せずLightへ設定します。終了時は同じDispatcherで復元して `Application` とDispatcherを停止し、通知とスレッド結合で待ちます。未起動なら何もしません。既存Applicationとの競合、起動失敗、呼出し・終了失敗は表面化させ、`Application.ResourceAssembly` は変更しません。
+
+### Fullの処理順と期限
+
+共通の通常検証を一回完了した後、ツールの基本確認、公開旧版のキャッシュ準備、現在版の配布物作成、既存データ起動、現行更新の基本確認、`ProcessIntegration`、`ReleaseAcceptance` の順に進みます。重い配布処理を通常テストの300秒に混ぜません。
+
+| 段階 | 制限時間 |
+| --- | ---: |
+| ツール復元、整形検査 | 各120秒 |
+| 解析 | 180秒 |
+| ツールの基本確認 | 60秒 |
+| 公開旧版のキャッシュ準備 | 180秒 |
+| 現在版の配布物作成 | 180秒 |
+| 既存データ起動 | 180秒 |
+| 現行更新の受入 | 240秒 |
+| `ProcessIntegration`、`ReleaseAcceptance` | 各180秒 |
+
+値と診断先は `verification-runner-contract.ps1` の記述を正本とします。各段階で一度作る実行期限と、その10秒後の後片付け期限を内部の全コマンドへ渡します。小区間で期限を作り直さず、後片付け時間に完了した処理を成功へ戻しません。
+
+現在版のアプリ・更新プログラム・正確な版の `SkipDocHtml` パッケージは、一回だけ作成して共有します。`distribution-manifest.json` がパス、版、コミット、実行・生成物ID、診断用SHA-256を伝えます。利用側は存在・配置を確認して隔離コピーを操作し、追加の封印や前後の全ツリー再照合はしません。隔離作業先はリポジトリ外です。
+
+`accept-net10-update.ps1` はこのマニフェストを必須とし、現在版へ同じ現在版を適用して、受付、管理対象の更新・削除、本物のアプリの再起動、起動完了、終了、データ保持を確認します。単独実行でも作成済みの配布物を使います。
+
+再起動失敗時の復元テストは、本番の準備・適用処理と呼出し単位のプロセス開始代替処理を使い、配布実行ファイルを破壊しません。非公開の処理入口を呼ぶ例外はこの境界だけとし、確認対象は元の例外、到達した起動、メタデータ・ファイル・利用者データの復元です。非公開名そのものを契約にしません。画面を確認しない更新プロセスは `CreateNoWindow=true` を使用します。
+
+### 公開旧版からの移行とリリース判定
+
+[固定配布物の指定](../../acceptance/v216-first-hop/artifact.json)が示す公開v2.1.6.0 ZIPだけを使用します。サイズは11,260,709バイト、SHA-256は次の値です。
+
+```text
+C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
+```
+
+指定のHTTPSリリースURL、メタデータ、サイズ、ハッシュの不一致は失敗です。キャッシュがない場合だけ同じディレクトリの一時ファイルへ期限付きで取得し、検証後に原子的に公開します。既存の不正キャッシュの自動修復、再取得による隠蔽、別版やソースからの代替ビルドはしません。
+
+`accept-v216-first-hop.ps1` は旧版の実際のprotocol-1更新プログラムを使います。期限内の終了、出力の全読取り、旧アプリの終了、新版の `startup_ready_operable` を確認し、現行のready/decision通信は旧版に要求しません。適用直後は `data/`・`config/` のバイト一致、初回起動後は設定とDBの意味上の保持を確認します。管理ファイルをロックする確認では、非ゼロ終了、非空の標準エラー、データ保持を要求し、旧管理ツリーの自動復元は要求しません。
+
+画面起動の受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。これは成功に特定のダイアログを要求する規則ではありません。
+
+`Assert-VerificationTestOutcomes` は通常テスト全プロセスと後続受入のTRXまたは厳密な完全修飾名付きJSONを合成し、`release-outcomes.json` を生成します。必須項目は正確に一件の `Passed` を要求します。欠落、重複、その他の状態は失敗です。任意項目の `Skipped` / `Inconclusive` / `NotExecuted` は完全修飾名の明示一覧と空でない理由がある場合だけ許可します。カテゴリ全体や未知の項目を一括で除外しません。
+
+### 解析・大規模データ・外部エンコーダー
+
+通常の解析確認は小さい合成譜面を使います。解析器・復号・譜面情報の保存形式を変える場合は、対象に合う追加検証を明示します。
+
+```powershell
+$env:BMS_TEST_CHART_INFO_FULL = '1'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilityFull'
+$env:BMS_TEST_PRODUCTION_DIFF_FULL = '1'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ProductionDiffFull'
+$env:BMS_TEST_CHART_INFO_SLOW = '1'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilitySlow'
+```
+
+実譜面・境界例のコピーにはビルド前の `BMS_TEST_CHART_INFO_FULL=1` が必要です。対応フラグがなければ `Inconclusive`、有効なのに入力がなければ失敗とします。約20 MiBを解析する実データ差分も、通常検証へ混ぜません。
+
+性能測定の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。1,000 / 25,000 / 200,000行の合成入力を、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
+
+外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。通常は `Inconclusive`、`BMS_TEST_AUDIO_ENCODERS=1` で有効です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
+
+生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。
+
+### 画面確認
+
+実アプリを確認するときは、作成したリポジトリ内の `BeMusicSeeker.exe` の正確なパスを指定します。作業ディレクトリと利用データも確認し、インストール版を名前検索で起動しません。起動したPIDと生成時刻を控え、確認後は通常終了を要求して終了を待ち、操作セッションも終了します。無関係な同名プロセスを停止しません。
+
+利用者の操作で画面操作が一時中断された場合は、現在の画面と対象プロセスを確認し、最後の安全な地点から操作を再取得して再開します。一度の中断だけで作業全体を終了しません。利用者が要件を変更した場合は新しい指示を優先します。中止指示や作業の異常終了で確認を終える場合は、一時的な操作権の喪失とは区別し、所有するプロセスと操作セッションを終了します。
+
+画面の表示、入力、完了状態は区別して確認します。単にウィンドウが現れたことやログが静かになったことを、対象操作の成功条件にしません。
+
+## 実装とテストの対応
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | 実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
+| 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
+| UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |
+| 画面の準備、表示、破棄 | [`TestUiDispatcherHost`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs)、[`TestWindowPresentationScope`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs) | [`SettingsForegroundInteractionTests`](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs) |
+| 公開旧版と現在版の更新 | [旧版からの受入](../../../scripts/accept-v216-first-hop.ps1)、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/UpdaterPackageSyncTests.cs) |
+| 外部エンコーダー | [`BassAudioWriter`](../../../Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/ExternalAudioEncoderSmokeTests.cs) |
+
+## 関連資料
+
+[テスト設計](test-authoring.md)、[エージェント運用](agent-workflow.md)、[リリース](release.md)、[テスト入力の案内](../../../BeMusicSeeker.Tests/TestData/README.md)。

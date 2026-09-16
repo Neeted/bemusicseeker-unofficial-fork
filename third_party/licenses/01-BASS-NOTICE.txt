@@ -31,5 +31,5 @@ Authoritative sources:
 - https://www.un4seen.com/basswasapi.html
 
 The retained DLL versions and SHA-256 values are recorded in
-devdocs/spec/bass-runtime-dependency-set.md. Keep this summary with every
+devdocs/spec/runtime/audio-dependencies.md. Keep this summary with every
 distributed package and use the authoritative upstream pages for the terms.

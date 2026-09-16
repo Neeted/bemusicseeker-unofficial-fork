@@ -38,18 +38,18 @@ public sealed class DialogRouteConsolidationTests
     ];
 
     [TestMethod]
-    public void LegacyDialogRouteFiles_AreDocumentedInInventory()
+    public void DirectDialogRouteFiles_MatchDocumentedBoundaries()
     {
         string root = FindRepositoryRoot();
-        string inventoryPath = Path.Combine(root, "devdocs", "spec", "dialog-route-inventory.md");
+        string inventoryPath = Path.Combine(root, "devdocs", "spec", "ui", "dialogs.md");
         string inventory = File.ReadAllText(inventoryPath);
-        IReadOnlyList<string> documentedFiles = ReadDocumentedLegacySourceFiles(inventory);
+        IReadOnlyList<string> documentedFiles = ReadDocumentedDirectSourceFiles(inventory);
         IReadOnlyList<string> actualFiles = FindLegacyDialogRouteFiles(root);
 
         CollectionAssert.AreEquivalent(
             documentedFiles.ToList(),
             actualFiles.ToList(),
-            "Legacy dialog routes must be tracked in devdocs/spec/dialog-route-inventory.md before they are migrated.");
+            "直接表示を行う実装は devdocs/spec/ui/dialogs.md の許可範囲と一致する必要があります。");
     }
 
     [TestMethod]
@@ -246,9 +246,9 @@ public sealed class DialogRouteConsolidationTests
     private static string DescribeMethod(MethodBase method)
         => $"{method.DeclaringType?.FullName ?? "<global>"}.{method.Name}";
 
-    private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
+    private static IReadOnlyList<string> ReadDocumentedDirectSourceFiles(string inventory)
     {
-        string section = ExtractBetween(inventory, "## Legacy Source Files", "## Route Classification Axes");
+        string section = ExtractBetween(inventory, "### 直接表示を許可する実装", "### 要求と失敗の扱い");
         MatchCollection matches = Regex.Matches(section, @"\| `([^`]+)` \|");
         return matches
             .Cast<Match>()

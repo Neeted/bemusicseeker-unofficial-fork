@@ -1,49 +1,26 @@
-# BeMusicSeeker.Tests Codex instructions
+# テスト作業の指針
 
-この directory 以下でテストを追加、変更、削除する場合、root `AGENTS.md` に加えて `../devdocs/spec/test-authoring-contract.md` と `../devdocs/spec/testing-strategy.md` を先に読む。ここにはテスト作業で毎回必要な差分だけを置く。
+[ルートの指針](../AGENTS.md)に加え、[テスト作成](../devdocs/spec/development/test-authoring.md)と[検証](../devdocs/spec/development/testing.md)を読みます。非同期処理や世代番号を扱う場合は、[ワークフローと並行性](../devdocs/spec/core/workflow-concurrency.md)も確認します。
 
-非同期 workflow、version token、mutation lane の test では、`../devdocs/spec/workflow-concurrency-and-complexity.md` を共通設計制約として参照する。個別 behavior、production timeline、completion invariant の authority は、承認済み Test Contract Packet と対象 feature spec に置く。
+## 編集前
 
-## Test Contract Packet gate
+変更の目的から、恒久テストを「変更なし」「既存更新」「追加」「削除」のどれで扱うか判断します。追加・判定内容の意味変更・置換には、ルートが承認した独立のテスト設計書を使います。意味を変えない移動・改名・整形と、理由を確認した削除のみの変更には設計書を要求しません。
 
-- 変更を目的と影響で分類し、恒久テストの必要性を先に判断する。テストの追加・assertion semantics の変更・置換が必要な部分だけ、編集前にルートが承認した `Test Contract Packet` と対象 Contract ID を受け取る。削除のみで代替不要と判断済みの場合は理由付きで packet 不要とする。名前変更、移動、format、生成物更新などの mechanical change で assertion semantics が変わらない場合も packet 不要である。
-- packet は user requirement、approved issue、feature spec、public API / protocol / schema、明示的な characterization decision など、実装から独立した authority を示す。current implementation、current runtime output、既存 test の expected value、翻訳ファイルの現在値、repository prose は単独では authority にしない。
-- runtime Contract ID の packet は `production ingress -> target state -> observable impact` と入口 assumption を示す。public / private callability、reflection、fake、code 上の representability だけでは不足とし、欠ける場合は test や production seam を追加せず `NEEDS_ROOT_INPUT` を返す。
-- worker は packet の expected outcome、allowed variation、wrong implementation を変更しない。fixture、helper、data setup、assertion API などの mechanics は適合させてよい。技術的な seam / ownership 不足は workflow の resolver trigger に従い、authority や expected semantics の変更が必要な場合は、green にするため assertion を弱めず `NEEDS_ROOT_INPUT` を返す。
-- exact localized copy、docs prose、source text、private symbol、method body、broad snapshot を固定する test は、detail 自体が contract である理由、owner、退役条件が packet に明示されている場合だけ追加する。通常は key parity、placeholder / plural / fallback、schema、public behavior、generated artifact consistency を検証する。
-- characterization test は正しさの証明と混ぜず、packet で凍結対象、current behavior を authority にする root decision、退役条件を明記する。
+必要な根拠・期待結果・到達経路・配置・共有資源・完了の待ち方が不足する場合は、編集前に `NEEDS_ROOT_INPUT` を返します。現在の実装、出力、既存期待値、翻訳文言だけから正解を作らず、本番の入口で成立しない任意状態のために新しい復旧処理を要求しません。
 
-## 編集前の確認
+## 編集時
 
-- 恒久テストの追加・判定内容の意味変更・置換を必要と判断した場合は、[テスト作成契約 section 2・3](../devdocs/spec/test-authoring-contract.md#2-仕様の根拠とテスト設計書) の設計書と配置表を使う。一時的な参照名の有効範囲も同契約に従う。
-- 計画の段階番号・作業番号・Packet ID / Contract ID を、テストのクラス名・メソッド名・属性・ケース ID・表示名・コメントへ持ち込まない。機能・条件・期待結果で命名し、根拠は現行仕様を参照する。計画とテストメソッドの対応は作業中の設計書・引継ぎに留め、完了時は契約を仕様へ移して作業専用資料を削除する。
-- feature spec、production symbol の test 参照、feature 用語、failure 文言の順で候補を絞り、canonical fixture と共通 helper を先に確認する。既存 test は coverage placement の evidence であり、packet の oracle を上書きする authority ではない。
-- テストを追加・意味変更・置換する作業の入力に、必要な承認済み設計書・対象項目・配置表・共有資源・完了の待ち方が不足する場合は、編集前に `NEEDS_ROOT_INPUT` を返す。テスト不要または削除のみの場合は必要性の判断に従う。リポジトリで確認できる既存テストや補助処理の候補は自分で調べる。
-- 仕様と実装・テストの対応が変わる場合は、[仕様書の書式](../devdocs/spec/README.md#仕様書の書式) に従って対象項目の対応表を同じ変更で更新する。
-- 必要性判断で回帰テストを追加・更新するとした bugfix が承認済み production ingress から再現できる場合、red は原則有用である。base 実行が構造上不可能なことだけでは targeted mutant / negative control を要求しない。bugfix の red の代替、またはテストの識別力に具体的なリスクがあり計画で必要と判断した場合だけ、packet の targeted mutant / negative control を使う。通常の不正入力・failure test と、テストの識別力を確かめる mutant 実行を混同しない。
+- 既存の機能別テスト群と共通補助処理を先に調べ、重複する新設を避けます。期待結果を維持したまま準備・表明方法を適合させ、成功させるために判定を弱めません。
+- テスト名は機能・入力条件・期待結果で表します。計画の段階番号や作業専用IDを、クラス名、メソッド名、属性、ケースID、コメントへ転記しません。仕様と実装・テストの対応表も同時に更新します。
+- 挙動、永続結果、失敗、取消、スレッド制約、終了、後片付けを優先します。文字列の完全一致、ソース、非公開構造、広範なスナップショットの固定には、その詳細自体が契約である根拠と退役条件が必要です。
+- WPFは `TestUiDispatcherHost` と `TestWindowPresentationScope`、Dispatcher上のTask待機は `AwaitTaskOnDispatcher` を使います。直接のDispatcher待機ループやHWND所有は、共通基盤と規定の例外以外に増やしません。
+- 実OSカーソルを操作・観測しません。通常完了は実際のTask・イベント・状態遷移で待ち、固定時間の経過から成功を推測しません。
+- プロセスの待機・出力読取り・停止・診断・残留確認は、一つの管理主体にまとめます。プロセス名だけの一括停止は禁止します。元の失敗を後片付けの失敗で上書きしません。
 
-## Local safety boundaries
+## 検証とレビュー
 
-- observable behavior、persisted state、failure、cancel、threading、shutdown、cleanup を優先し、置換した旧 test / helper / route は同じ unit で退役させる。例外的な source artifact、reflection、test-only seam は `test-authoring-contract.md` の理由・退役条件を記録する。
-- production logic、期待値の導出、runner orchestration を test 側へコピーしない。private call order、current output、translation copy、source placement に合わせて green になる assertion を作らない。
-- WPF application / dispatcher / presentation は `TestUiDispatcherHost` と `TestWindowPresentationScope`、dispatcher 上の task 待ちは `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使う。直接 `Dispatcher.PushFrame` / `HwndSource` を所有するのは、同契約に定めた共通 infrastructure または明示的な例外だけとする。
-- test / fixture から physical OS cursor を操作・観測しない（`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を含む）。key / routed event、explicit hit、deterministic fake / typed action seam を使う。
-- 正常完了は対象の `Task`、event、state transition に結び付く signal で待ち、local timeout は failure watchdog として使う。`DoNotParallelize` は分離不能な shared resource、owner、復元処理を説明できる場合だけ使う。
-- process test は bounded wait / stream drain、owned PID lineage cleanup、diagnostics、primary failure precedence を一つの lifecycle owner へ閉じる。process 名だけの global kill は禁止する。
+反復中は関連する条件に絞った `Quick` を使い、統合の `Functional`・`Full` はルートへ引き継ぎます。時間超過、画面の前面操作、共有資源の直列化は[検証仕様](../devdocs/spec/development/testing.md)の条件を守ります。
 
-## 検証と引継ぎ
+レビューでは、期待値の独立性、本番からの到達、誤実装との区別、無害な変更で壊れないこと、置換した旧テストの削除を確認します。失敗再現や一時的な誤実装の実行は、必要と判断した場合だけ要求します。完了した計画・設計書の保存は求めず、承認内容は引継ぎまたは指定された Git 上の版で確認します。
 
-- 反復中は変更 behavior に対応する filtered `Quick` を使う。Functional / Full と timeout 時の扱いは `testing-strategy.md` に従い、統合 owner へ引き渡す。
-- 完了時は [運用契約の完了報告](../devdocs/spec/codex-agent-workflow.md#実装担当の完了報告) に従い、実施内容、該当するテスト設計・配置、検証結果、残課題を要約する。
-
-## Code Review Rules
-
-### Test authority and independence
-
-- 必要性判断で test semantics を変更した diff に承認済み `Test Contract Packet` / Contract ID がない、または test が packet の authority・allowed variation と一致しない場合は指摘する。
-- 計画固有の一時名がテストや恒久仕様へ追加・温存されていないかを対象変更内で確認する。承認内容の確認は引継ぎまたは指定された版を使い、完了した計画・設計書を現行ツリーに残すことを要求しない。
-- expected value が production implementation、current output、既存 expected、翻訳文言、snapshot、repository prose から写経され、独立 authority がない場合は指摘する。
-- exact string / snapshot / source / reflection / characterization の例外に authority、owner、退役条件がない場合は指摘する。
-- 適用された packet が列挙した plausible wrong implementation を通してしまう assertion を指摘する。red / negative-control は、変更分類と必要性判断で実施が必要とされた場合だけ evidence の欠落を指摘し、未実施だけを理由に finding にしない。
-- harmless refactor、翻訳改善、文言変更、内部配置変更で壊れる一方、observable contract を追加で守らない test を指摘する。
-- private direct call / reflection / fake-only route が entrance invariant を迂回している、または production reachability / observable impact が示されない test は、root workflow の evidence / scope 分類に従って指摘する。到達不能な状態のために現在の unit へ recovery behavior や test seam を追加させない。
+完了報告は[エージェント運用](../devdocs/spec/development/agent-workflow.md#実装担当の完了報告)に従います。

@@ -1,106 +1,25 @@
-# ManagedBass adoption
+# ManagedBassを採用する理由と配布上の前提
 
-Status: Accepted
-Date: 2026-08-09
+## 適用する判断
 
-## Context
+BASSのマネージドラッパーにはManagedBassを使い、エンコーダーのコマンド、メタデータ、セッション、描画、後片付けはプロジェクト側が所有します。正確な依存版とネイティブDLLのハッシュは[音声依存関係](../spec/runtime/audio-dependencies.md)、動作は[音声仕様](../spec/runtime/audio.md)を正本とします。
 
-The application used a proprietary managed BASS wrapper for playback and encoder helpers. The wrapper required registration material and supplied high-level encoder types that were not part of the open-source migration target. The native BASS six-DLL set remains an independent runtime and redistribution contract.
+## 選択理由
 
-## Decision
+マネージドラッパーと、独立した配布条件を持つBASSのネイティブ実行基盤を分けます。ラッパーへの登録処理や高水準の専用エンコーダー型を必要とせず、既存の設定・採番・資源の所有を保てます。
 
-Use the exact `4.0.2` versions of `ManagedBass`, `ManagedBass.Mix`, `ManagedBass.Fx`, `ManagedBass.Enc`, `ManagedBass.Asio`, and `ManagedBass.Wasapi`. Keep the six native BASS DLLs, their current hashes, resolver ownership, and `libs/x64` output boundary unchanged. Reconstruct encoder command, metadata, session, rendering, and cleanup behavior in project-owned code.
+`ManagedBass`、`Mix`、`Fx`、`Enc`、`Asio`、`Wasapi` の6パッケージを使用します。タグ情報はプロジェクトの `AudioTagInfo` で表せるため、`ManagedBass.Tags` は追加しません。ネイティブ6 DLLの解決主体と `libs/x64` の配置は維持します。旧ラッパーのファイル名が更新時の削除対象に含まれても、現在の依存物や配布物とは扱いません。
 
-`ManagedBass.Tags` is not included because the former tag DTO is already represented by the project-owned `AudioTagInfo` model. The updater may continue to remove the obsolete `libs/Bass.Net.dll` from an older installation, but that path is not a current dependency or package payload.
+## 配布の前提
 
-## Consequences
+現行の採用判断は、非商用・非収益のエンドユーザー向け配布を前提とします。ManagedBassのMIT条件と、BASS本体・公式追加DLL、BASSASIO、第三者製BASS_FXの条件を区別し、[ライセンス資料](../../third_party/licenses)と日英の配布通知を揃えます。通知は原条件を置き換えるものではありません。
 
-- Current source, tests, package graphs, build output, and publish artifacts contain no proprietary managed wrapper or registration stage.
-- ManagedBass MIT terms are recorded in `third_party/licenses/02-ManagedBass-MIT.txt` and kept separate from the proprietary native BASS notice.
-- Existing persisted audio settings, native component versions, file naming, and runtime ownership contracts remain unchanged.
-- Git history is not rewritten. Any historical registration material requires separate vendor-side revocation/rotation and release-security handling.
+商用化・収益化へ変更する場合は、配布前にネイティブ各製品の適用条件を改めて確認します。現行の判断を将来の許諾とは扱いません。
 
-## Current native distribution decision
+過去の登録情報に関する提供元での失効・更新と公開時の安全確認は、依存実装とは別の外部確認事項です。値を復号・再構成・表示せず、Git履歴を書き換えません。
 
-The current release is a non-commercial, non-revenue end-user software
-release. On that accepted basis, the following components are GREEN:
+## 検証の境界
 
-- BASS core and official add-ons: `bass.dll`, `bassmix.dll`, `bassenc.dll`, and
-  `basswasapi.dll`, under the upstream Un4seen terms.
-- BASSASIO: `bassasio.dll`, under its separate upstream terms.
-- BASS_FX: `bass_fx.dll`, as a third-party add-on attributed to
-  `(: JOBnik! :) [Arthur Aminov, ISRAEL]`.
-- ManagedBass and its five companion packages, exact `4.0.2`, under MIT.
+通常テストは外部エンコーダーを要求しません。利用者が用意した実行ファイルを使う確認は `ExternalAudioEncoderSmokeTests` の明示実行に分けます。形式・停止・後片付けは本番の処理を通し、実行ファイルや音声素材を配布物へ追加しません。
 
-The corresponding English and Japanese distribution notices have separate
-entries for the three native classifications. The BASS_FX package archive,
-readme, and retained x64 member hashes are recorded in
-`third_party/licenses/01b-BASS_FX-NOTICE.txt`. These notices are summaries and
-do not replace authoritative upstream terms.
-
-## Future commercial policy trigger
-
-The current GREEN classification does not authorize a future commercial or
-monetized release. A policy change to monetization requires a fresh review of
-the applicable BASS, BASSASIO, and BASS_FX terms before distribution. This
-future review trigger is not a current YELLOW condition.
-
-## External release prerequisites and security gate
-
-The current non-commercial distribution-rights check is complete for the
-accepted release facts above. Before any future commercial distribution,
-reconfirm the applicable native terms. Separately, historical registration
-material from the retired managed wrapper remains an external security gate
-for vendor-side revocation/rotation and release-security handling. Values are
-not decrypted, reconstructed, or displayed, and Git history is not rewritten.
-
-The non-blocking runtime-free-machine check remains tracked in the post-
-migration manual acceptance document.
-
-## Migration completion evidence
-
-The implementation migration is complete. The accepted dependency contract is
-the exact six-package `ManagedBass` set at `4.0.2` plus the unchanged native
-six-DLL x64 set listed in `devdocs/spec/bass-runtime-dependency-set.md`; the
-closeout changed neither package versions nor native binaries and hashes.
-Playback, backend negotiation, session ownership, effects, encoder command and
-metadata handling, pull rendering, and cleanup now use the project-owned
-ManagedBass boundaries described in `devdocs/spec/audio-runtime-phase1.md`.
-
-The former real-encoder gap is closed by the opt-in
-`ExternalAudioEncoderSmokeTests` contract. It exercises available user-provided
-encoder executables through `BassAudioWriter` and records a deterministic
-no-tool failure when none are present; it never bundles encoder binaries or
-media fixtures. The normal lane remains tool-independent because the test is
-`ProcessIntegration` and is inconclusive without explicit opt-in.
-
-Closeout verification consists of the related encoder Quick lane, the standard
-Functional lane, and the Full lane:
-
-```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
-```
-
-The recorded results are:
-
-- compliance Quick: 6 passed;
-- encoder-related Quick: 24 passed and the disabled opt-in test was
-  inconclusive;
-- final Functional: 3,758 total, 3,748 executed, 0 failed, 165.8 seconds;
-- final Full: Functional 3,748 executed / 0 failed, ProcessIntegration 35
-  passed / 2 skipped, ReleaseAcceptance 2 passed, self-contained publish,
-  existing-data acceptance, update acceptance, whitespace verification, and
-  Roslynator 0 diagnostics.
-
-No supported external encoder executable was available in the closeout
-environment. The explicit opt-in command therefore produced the required
-deterministic no-tool failure and recorded the production search order; a real
-encoder pass remains an external/manual item.
-
-The historical migration-plan row that temporarily classified native BASS
-redistribution as a commercial-entitlement `YELLOW` case is retained in Git
-history. It was superseded by the accepted current non-commercial `GREEN`
-decision in the closeout notices; this does not rewrite the historical record.
-The external security gate for historical registration material remains
-separate: values are not decrypted, reconstructed, or displayed.
+実機での配布確認は[配布と音声の実機受入](../plan/distribution-manual-acceptance-plan.md)、実行条件は[テスト検証](../spec/development/testing.md)を参照します。

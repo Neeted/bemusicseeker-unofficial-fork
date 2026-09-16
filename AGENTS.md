@@ -1,127 +1,48 @@
-# BeMusicSeeker Unofficial Fork
+# BeMusicSeeker の開発指針
 
-## 基本方針
+.NET 10 / C# 14 を使う Windows 向け WPF アプリケーションです。作業開始時に `git status --short` と、変更先に適用される `AGENTS.md` を確認してください。
 
-- このリポジトリは .NET 10 / C# 14 の WPF アプリケーション。依頼された挙動を守りつつ、変更した範囲では命名、責務、コメント、テスト可能性を改善する。
-- 作業開始時に `git status --short` と適用範囲内の `AGENTS.md` を確認し、既存の未コミット差分や無関係なファイルを変更、破棄、整形しない。
-- 差分の小ささ自体を目的にしない一方、承認済みで実際に到達可能な observable behavior に不要な persistent state、retry / replay / rollback、compatibility route、抽象化や、依頼と無関係な全面整理は追加しない。
-- コミット、push、tag、署名、公開、version 更新は、ユーザーの明示指示または合意済みの作業手順がある場合だけ行う。
+## 変更の原則
 
-## 性能とデータ規模
+- 依頼された挙動と既存データの互換性を守り、設計全体を簡潔にします。差分の小ささだけを優先せず、不要になった処理・状態・互換経路は置換先へ統合して削除します。
+- 本番の入口から到達できる状態と利用者への影響を確認します。仮説だけを理由に、永続状態、再試行、再実行、巻き戻し、抽象化を追加しません。失敗を隠すために意味の異なる結果へ置き換えません。
+- 無関係な未コミット差分を変更・破棄・整形しません。コミット、送信、タグ、署名、公開、バージョン更新は、明示指示または合意済みの手順がある場合だけ行います。
+- 変更する公開・保護・内部 API の契約と存在理由は、日本語の XML ドキュメントに反映します。コメントは、コードだけでは分からない採用理由・互換条件・性能上の制約を説明します。
 
-- 性能上の最優先は、同じ仕事を正しく完了するまでの処理速度（wall-clock time / throughput）とする。省メモリ性や、UI 応答のための CPU 使用量抑制を優先しない。速度向上に有効な cache 保持・一括処理・操作内の独立計算の並列化を許容するが、データ整合性、ownership、取消、shutdown、WPF thread affinity は維持する。
-- 通常の設計前提は約21万譜面、約3万譜面フォルダ、800万規模の resource reverse lookup key、複数譜面・数百 resource を含み得る package とする。これは入力上限ではない。実ファイル数、directory 別 resource entry、reverse key、DB row を同じ件数として扱わない。
-- DB query、cache / snapshot / receipt、index、package loop、publication、scheduler / 並列度を変更する場合は、[データ規模と性能要件](devdocs/spec/performance-and-scale.md) を先に読み、全体件数と操作差分、全件処理の呼出回数、再利用・失効範囲、必要な逐次境界を計画とレビューに含める。exact 規模と参照記録は同 spec を正本にする。
-- 利用者が一回のライブラリ変更操作で複数の譜面・フォルダ・パッケージを変更する場合は、原則 `1 user operation = 1 mutation session / N changes` とする。対象ごとの判定や filesystem I/O が逐次でも、canonical DB apply、索引・cache反映、required publication を item ごとに完結させない。後続対象の判断が先行成功に依存する場合は operation-local な成功 facts / overlay で依存を満たし、例外が定義されていることだけを理由に per-item durable commit、rollback、全件再構築を正常系の既定にしない。詳細は [ライブラリ変更境界](devdocs/spec/library-mutation-boundary.md#mutation-session-契約) と [FS/DB整合](devdocs/spec/file-db-consistency.md) を正本にする。
-- 少数 install / delete の内側で全 catalog / 巨大 dictionary を反復走査・コピー・sort する設計や、no-op 判定前の全 root コピーを既定にしない。immutable な契約は全件複製を要求しない。全件処理が必要な例外は理由と実測を示す。
-- 性能は同条件・同じ完了範囲で操作別に比較する。別操作の短縮、低メモリ、低 CPU、first-visible だけの短縮で処理完了の退行を相殺しない。Functional 成功や小規模 corpus だけで大規模性能を検証済みとしない。未測定は明示する。
+## 先に読む資料
 
-## 作業の進め方とサブエージェント
+[開発資料の案内](devdocs/README.md)から各領域へ進みます。仕様内の共通用語は[用語集](devdocs/spec/glossary.md)で定義します。
 
-複数段階の変更、実装の委譲、並列 worker、static review を伴う作業では、`devdocs\spec\codex-agent-workflow.md` を運用の正本として先に確認する。単純な質問や軽微な文書修正まで機械的にサブエージェントへ渡さない。
+| 変更対象 | 正本 |
+| --- | --- |
+| 構成・責務の分担 | [アーキテクチャ](devdocs/spec/core/architecture.md) |
+| DB、索引、キャッシュ、パッケージ処理、並列度 | [性能とデータ規模](devdocs/spec/core/performance-and-scale.md) |
+| 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md) |
+| 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
+| 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
+| テストの追加・変更・削除 | [テスト作成](devdocs/spec/development/test-authoring.md)、[テスト検証](devdocs/spec/development/testing.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
+| ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
-### 責務と判断
+## 実装で守る境界
 
-- ルートは目的、制約、完了条件、決定事項、作業単位ごとの担当範囲と検証方法を整理し、設計・最終計画・統合に責任を持つ。委譲前に、実装担当が推測せず着手できる状態まで判断を閉じる。
-- 実行時の状態や失敗を扱う場合は、運用契約 section 1 の到達可能性と影響の確認に従い、本番の入口から管理主体までの経路、入口の前提、利用者・永続データ・外部データへの影響を示す。
-- 恒久テストの必要性は `devdocs/spec/test-authoring-contract.md` に従って先に判断する。計画点検、必要な独立テスト設計、実装担当への割当、障害解決、統合検証、凍結した変更への静的レビューは運用契約の順序と役割分担に従う。
-- 担当範囲、並列度、入力不足、完了時の引継ぎ、再計画、エージェントを利用できない場合の代替も運用契約を正本とする。統合時には担当の重複、承認済みのテスト設計との一致、旧処理の退役を確認する。
-- 各役割のモデルと推論強度は `.codex/agents/*.toml` の設定値、`/review` のモデルは `.codex/config.toml` を正本とする。
+`MainWindow` とルートの ViewModel は、画面の枠組みと構成要素の接続を担当します。機能の状態・判断・永続化・処理順は、既存の機能別 ViewModel、管理主体、サービス、DB窓口へ置きます。フォーカス、選択、スクロール、ドラッグなど画面固有の処理は、画面側に置いて構いません。単なる転送クラスや、他者の可変状態・ロックを集める巨大な窓口は作りません。
 
-## ドキュメント配置
+管理主体間は明示的な依存と変更不能な要求・結果で接続します。モデルのロック、DBトランザクション、操作の排他権を保持したまま、画面・通知先・別の管理主体の完了を同期的に待ちません。UIスレッドで非同期処理を同期的に待たず、イベントハンドラー以外の `async void` は追加しません。
 
-- `docs/` は利用者向け資料、`devdocs/` は開発者・保守者向け資料の正本とする。配置と日本語・用語の書き方は [開発資料の案内](devdocs/README.md) に従う。
-- リポジトリの現行ツリーには現行の仕様・運用・設計判断と、未完了の作業に必要な情報だけを置く。開発の履歴は Git 履歴で参照し、完了記録や旧版の保管場所をツリー内に作らない。現在も適用する判断・測定根拠の扱いは [現行情報の維持](devdocs/README.md#現行情報の維持) に従う。
-- 現行仕様は [仕様書の書式](devdocs/spec/README.md#仕様書の書式) に従い、仕様項目ごとに実装とテストの対応を示す。仕様、対応するコード、テストの変更に合わせて更新する。
-- 計画は [計画の運用](devdocs/plan/README.md#運用) に従い、現在の進捗と再開に必要な判断を示す。完了時は恒久契約・採用理由・必要な残課題を正本へ引き継ぎ、計画と作業専用の付随資料を削除し、参照元も同じ変更で更新する。短い完了記録も残さない。
-- 計画固有の段階番号、作業番号、Packet ID / Contract ID を恒久仕様・コード・テストの名前、ID、コメントへ持ち込まない。恒久的な対応は機能・契約・入力条件・期待結果で示し、一時的な対応は計画と引継ぎの内側に留める。詳細は [テスト設計書の参照名](devdocs/spec/test-authoring-contract.md#2-仕様の根拠とテスト設計書) に従う。
+処理速度を最優先とし、通常の設計では約21万譜面・約3万譜面フォルダ・800万規模のリソース逆引きキーを想定します。これは入力上限ではありません。少数の変更のために全件走査・複製を繰り返さず、処理完了までの時間を同じ条件で比較します。低メモリ・低CPU使用率や最初の表示の早さだけで、完了時間の退行を正当化しません。
 
-## アーキテクチャ上の注意
+一回のライブラリ変更は、一つの変更セッションに成功した対象を集めて反映します。対象ごとの物理処理が逐次でも、DB・索引・通知を対象ごとに完結させません。競合する未受理要求は原則として待たずに拒否しますが、受理済みの導入予約、自動推定、設定利用などの既存の許可条件は維持します。
 
-- `MainWindow` / root ViewModel は shell と composition を担当する。feature state、domain decision、永続化、複数 service の順序制御は、既存の feature ViewModel、owner、service、gateway に置く。
-- code-behind には focus、selection、scroll、hit-test、drag、WPF routed event など View 固有の terminal behavior を置いてよい。View 固有処理を隠すだけの forwarding class は作らない。
-- owner 間は明示的な依存と immutable request / result / event で接続する。mutable collection、lock、private state を列挙する broad host、service locator、巨大 callback interface を追加しない。
-- model lock、DB transaction、operation gate を保持したまま UI、dialog、event subscriber、別 owner の完了を同期的に待たない。UI スレッドで sync-over-async を行わず、非 event handler の `async void` を追加しない。
-- 既存の owner / gateway / scheduler 境界を迂回して global state や platform API へ直接依存しない。境界を変える場合は、必要な既存テストの更新・追加または適切な実行確認で挙動、失敗、shutdown、thread affinity を確認する。
+## ログと表示文言
 
-### 非同期ワークフローと並行性
+ログは `Ribbit/Logging/NLogWrapper.cs` を経由します。通常は `NLogWrapper.FileLogger`、名前付き出力は `GetLogger(name)` を使い、NLogの構成・取得を各機能で行いません。高頻度処理の同期ログや不要な個人情報は追加しません。詳細は[ログ仕様](devdocs/spec/core/logging.md)を参照します。
 
-- scheduler、background task、owner間callback、snapshot、version / generation token、mutation laneを変更する場合は、`devdocs\spec\workflow-concurrency-and-complexity.md`を先に確認する。
-- UI responsiveness だけから mutation concurrency や後続 queue を推測しない。未承認の競合する新規変更要求は、実行 owner の入口で非待機の Busy 拒否を既定とする。受理済み処理と未受理要求を区別し、必要な終端まで論理的な操作 ownership を保持する。
-- 受付の例外と維持すべき機能は上記共通 spec の section 6 に従う。追加 ZIP の導入予約、保留への追加に伴う自動推定、設定画面の利用、通信待ち中に現在許可されるライブラリ操作を、一律の global Busy 化で失わせない。確定済み表示の閲覧を維持し、その表示から変更へ進むときは受付後に現在の対象へ解決する。
+利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残さず、`LocalizationResourceParityTests` で対応を確認します。開発診断・性能記録・内部識別子は対象外です。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
 
-## ログ
+## 文書と検証
 
-- production code から NLog を直接構成・取得・呼び出さない。logger の取得と出力は `Ribbit\Logging\NLogWrapper.cs` を経由する。
-- 通常ログは `NLogWrapper.FileLogger` 等を使い、名前付き channel は `NLogWrapper.GetLogger(name)` を使う。`LogManager`、target、rule の直接操作は `NLogWrapper` 実装内に限定する。
-- ログには原因調査に必要な文脈を含めるが、UI thread の hot path や per-item loop に無制限の文字列生成・同期 I/O を追加しない。機密情報や不要な個人データを出力しない。
+仕様は[共通書式](devdocs/spec/README.md#仕様書の書式)で日本語に統一し、機能・条件・期待結果から実装とテストへ辿れるようにします。現行ツリーには現行情報と未完了作業だけを残します。完了計画は必要な契約・設計判断・残課題を引き継いで削除し、完了記録や一時的な作業番号は残しません。詳細は[文書運用](devdocs/README.md#現行情報の維持)を参照します。
 
-## 多言語リソース
+検証の標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行回数、時間制限、失敗時の扱いは[テスト検証](devdocs/spec/development/testing.md)を正本とします。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
-- ダイアログ、メニュー、ボタン、設定、エラー、通常ステータスなど、ユーザーが目にする新しい文字列は必ず多言語リソース化する。`.cs` / `.xaml` へ新規の固定文言を直接追加しない。
-- resource key を追加・削除する場合は、次を同じ変更で揃える。
-  - `BeMusicSeeker\Properties\Resources.resx`
-  - `BeMusicSeeker\Properties\Resources.cs`
-  - `lang\en-US.json`, `fr-FR.json`, `ja-JP.json`, `ko-KR.json`, `zh-CN.json`, `zh-TW.json`
-- 全言語へ意味のある値を追加し、空文字や一時的な placeholder を残さない。`LocalizationResourceParityTests` を更新・実行する。
-- ログ、開発者向け診断、性能 marker、テスト専用文字列、内部 protocol 名は UI リソース化の対象外としてよい。
-
-## 変更時の保守性
-
-- 新規または変更する public / protected / internal API には、契約と存在理由が分かる XML documentation を追加・更新する。
-- 触れた範囲のデコンパイル由来名は、挙動を変えずに domain 用語へ改善する。ただし命名だけの広範な差分を混ぜない。
-- 互換性維持、性能最適化、外部仕様、回避策など、コードだけでは理由が分からない箇所には「何をしているか」ではなく「なぜ必要か」をコメントする。
-- test を追加・変更・削除するときは、目的と影響から恒久テストの必要性を先に判断し、必要な assertion semantics の追加・変更・置換だけを `BeMusicSeeker.Tests\AGENTS.md` と `devdocs\spec\test-authoring-contract.md` に従って行う。必要と判断した場合は承認済み `Test Contract Packet`、近傍の既存 coverage、共通 infrastructure を確認する。expected value を current implementation、current output、翻訳文言、既存 snapshot、repository prose からコピーしない。source / exact copy 自体が明示された contract でない限り、observable behavior、永続データ、threading、failure contract、placeholder / schema parity を検証する。テスト不要の判断は検証不要を意味しない。
-
-## 標準検証
-
-テスト lane、時間予算、並列化、固定待ち、opt-in fixture の正本は `devdocs\spec\testing-strategy.md` とする。PowerShell 7 から `scripts\verify-refactor.ps1` を標準入口として使う。
-
-```powershell
-# 反復中の関連テスト
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<MSTest filter>'
-
-# 通常の全体確認
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
-
-# restore、tool、analyzer、publish / update acceptance を含む高リスク確認
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
-```
-
-- 実装中は関連 test filter の `Quick` を優先し、小さな修正ごとに full suite を繰り返さない。
-- 最終 acceptance の lane、Functional の実行回数、300秒 hard budget、180秒 reporting target、timeout retry、failure classification は `devdocs\spec\testing-strategy.md` に従う。通常のコード変更では、最終 snapshot の `Functional` を原則一回実行し、180秒を超えて成功した場合は actual elapsed をユーザーへの報告に含める。
-- `Full` は publish / updater / distribution、release 手順、Full runner の変更、release 前の受入に使う。その他の変更は filtered `Quick`、`Functional`、必要な opt-in lane を組み合わせる。
-- review 修正後は影響範囲の filtered `Quick` を先に行い、通常機能検証または release lane の前提が変わった場合だけ該当する統合 lane を再実行する。
-- deterministic failure や再発する flaky / 長時間化は、共有 state、fixture ownership、待機、競合、I/O、input 量、timeout 根拠を調査する。timeout 延長や worker / shard 低下だけで症状を隠さない。
-- test-only の修正で閉じる場合は、現在の unit と同じ invariant を検証するものなら同じ commit、横断的または既存の test infrastructure 問題なら独立 commit とする。修正と該当 test の検証後、本筋へ戻る。
-- script が環境上利用できない場合だけ個別 command へ分解し、未実施項目と理由を明示する。標準入口を黙って省略しない。
-- prose / Markdown / TOML だけの変更では、構文、参照、UTF-8 / LF、whitespace、`git diff --check` を確認する。build 手順や agent behavior を変える設定変更は、必要な追加検証も行う。
-
-## UI確認と computer use
-
-- UI 確認では、computer use のアプリ検索や起動操作を使わない。同名のインストール版が優先されるため、先に PowerShell 等で repository 内の正確な executable path を指定して起動する。
-
-```powershell
-$exe = (Resolve-Path .\bin\x64\Release\net10.0-windows\BeMusicSeeker.exe).Path
-Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)
-```
-
-- publish artifact を確認する場合は、その artifact の絶対 path を同じ方法で起動する。computer use は起動済みの対象 process / window の操作だけに使い、可能なら process path が期待値と一致することを確認する。
-- ユーザー操作によって computer use が中断された場合は、最後の安全な地点から操作を再取得してリトライする。一度の中断を理由に作業全体を終了しない。ただし、ユーザーが要件を変更した場合は新しい指示を優先する。
-- UI確認後は対象アプリを閉じ、computer use の session も終了する。残留 process を放置しない。
-
-## バージョン更新とリリース
-
-バージョン更新の依頼を受けた場合は、次を同じ変更で揃える。
-
-1. `Properties\AssemblyInfo.cs`
-   - `AssemblyInformationalVersion` を更新する。package 名、tag、`update.json`、公開用 `version.txt` の正本である。
-   - `AssemblyVersion` は互換性上の理由または明示指示がない限り変更しない。
-2. `BeMusicSeeker\Views\ReleaseNotesWindow.xaml`
-   - `Update_history` に対象 version の履歴を追加する。
-   - 新しい説明文は多言語リソースを追加せず日本語ベタ書きで良い。
-3. `release notes\vX.X.X.X リリースノート.md`
-   - 対象 version の release notes を作成・更新し、GitHub Release 本文として使える状態にする。
-4. `ReleaseScriptVersionSourceTests` と `LocalizationResourceParityTests` を含む関連検証を行い、release 前に `verify-refactor.ps1 -Mode Full` を通す。
-
-`version.txt` と `update.json` は手動編集しない。`scripts\publish.ps1` / `scripts\release.ps1` が `AssemblyInformationalVersion` から生成する。package 作成、draft、tag、push、公開は、ユーザーがその release 操作を明示した場合だけ実行する。
+画面確認では、リポジトリ内の正確な実行ファイルを指定し、インストール版を誤って起動しません。確認後は対象プロセスと操作セッションを終了します。起動方法と中断時の扱いは[画面確認](devdocs/spec/development/testing.md#画面確認)を参照します。

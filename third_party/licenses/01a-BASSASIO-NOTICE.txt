@@ -21,5 +21,5 @@ Authoritative sources:
 - https://www.un4seen.com/doc/bassasio/bassasio.html
 
 The retained DLL version and SHA-256 value are recorded in
-devdocs/spec/bass-runtime-dependency-set.md. This notice is intentionally
+devdocs/spec/runtime/audio-dependencies.md. This notice is intentionally
 separate from the BASS core/official add-ons notice.
