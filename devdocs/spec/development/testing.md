@@ -96,16 +96,13 @@ WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcher
 
 既定は `NonActivating` です。表示直前に手動配置、タスクバー非表示、非アクティブ表示を適用し、全モニターの外へ置きます。HWND生成時には既存の拡張スタイルを保って `WS_EX_NOACTIVATE` を設定・再読取りします。前面でないことと矩形も確認し、Popupにも開く境界で同じ規則を適用します。ネイティブAPIの失敗や表示観測の失敗は、テスト本体とは独立して保持します。
 
-前面での入力・フォーカス・ヒット判定・モーダル起動を確認する例外は、`SettingsForegroundInteractionTests` の次の7メソッドだけです。`serial-state-a` が所有し、`ForegroundInteraction` を明示します。
+前面での入力・フォーカス・ヒット判定・モーダル起動を確認する例外は、`SettingsForegroundInteractionTests` の次の4メソッドだけです。`serial-state-a` が所有し、`ForegroundInteraction` を明示します。
 
 ```text
 SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll
 SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes
 SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes
 SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow
-Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting
-Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected
-Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor
 ```
 
 例外の追加前には、`Full` の画面受入に分けられるか検討します。実OSカーソルの取得・移動や `Mouse.GetPosition` による物理位置の判定は使わず、明示的なイベント・操作入力で確認します。

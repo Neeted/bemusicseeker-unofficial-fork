@@ -126,10 +126,7 @@ $functionalSettingsForegroundInteractionMethods = @(
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow')
 $functionalBmsLibrarySelector =
     'FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary'
 $functionalRemainingShardWorkers = [Math]::Max(
@@ -388,9 +385,9 @@ function Assert-FunctionalShardConfiguration {
     }
 
     $foregroundMethods = [string[]]@($Plan.ForegroundInteractionMethods)
-    if ($foregroundMethods.Count -ne 7 -or
+    if ($foregroundMethods.Count -ne 4 -or
         @(Compare-Object -ReferenceObject $functionalSettingsForegroundInteractionMethods -DifferenceObject $foregroundMethods -CaseSensitive).Count -ne 0) {
-        throw 'Functional foreground interaction allowlist must contain the exact seven current SettingsForegroundInteractionTests methods.'
+        throw 'Functional foreground interaction allowlist must contain the exact four current SettingsForegroundInteractionTests methods.'
     }
     foreach ($method in $foregroundMethods) {
         if (-not $method.StartsWith(

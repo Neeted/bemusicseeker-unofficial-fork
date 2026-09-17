@@ -30,7 +30,6 @@ public sealed class DialogPresentationTests
     [DataTestMethod]
     [DataRow("SettingsWindow")]
     [DataRow("ReleaseNotesWindow")]
-    [DataRow("Lr2AdvancedPathsDialog")]
     [DataRow("UpdateAvailableDialog")]
     [DataRow("PendingDeleteConfirmDialog")]
     [DataRow("PlayHistoryFolderDisplayPresetEditDialog")]
@@ -107,7 +106,6 @@ public sealed class DialogPresentationTests
     [DataTestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
-    [DataRow("Lr2AdvancedPathsDialog")]
     public void OrdinaryNativeWindows_UseNativeContentAsSingleOuterSpacingOwner(string dialogName)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -434,7 +432,6 @@ public sealed class DialogPresentationTests
         {
             "SettingsWindow" => CreateSettingsWindowFixture(),
             "ReleaseNotesWindow" => CreateNativeFixture(new ReleaseNotesWindow(), []),
-            "Lr2AdvancedPathsDialog" => CreateLr2AdvancedPathsFixture(),
             "UpdateAvailableDialog" => CreateUpdateAvailableFixture(),
             "PendingDeleteConfirmDialog" => CreateNativeFixture(new PendingDeleteConfirmDialog(),
                 [
@@ -542,20 +539,6 @@ public sealed class DialogPresentationTests
             cleanup: () => { });
     }
 
-    private static PresentationFixture CreateLr2AdvancedPathsFixture()
-    {
-        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-        var dialog = new Lr2AdvancedPathsDialog(owner.SettingDialog);
-        return CreateNativeFixture(
-            dialog,
-            [
-                ButtonWithAutomationId("Lr2AdvancedPathsCancel", DialogButtonRole.Quiet, "LR2 paths cancel"),
-                ButtonWithAutomationId("Lr2AdvancedPathsDone", DialogButtonRole.Primary, "LR2 paths affirmative"),
-            ],
-            allowsSettingsControlAliases: true,
-            cleanup: owner.SettingDialog.Dispose);
-    }
-
     private static PresentationFixture CreateSettingsWindowFixture()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
@@ -567,7 +550,6 @@ public sealed class DialogPresentationTests
                 ButtonWithAutomationId("SettingsCancel", DialogButtonRole.Quiet, "settings cancel"),
                 ButtonWithAutomationId("SettingsAddBmsSearchRoot", DialogButtonRole.Neutral, "settings add BMS root"),
                 ButtonWithAutomationId("SettingsRemoveBmsSearchRoot", DialogButtonRole.Quiet, "settings remove BMS root"),
-                ButtonWithAutomationId("SettingsEditCustomLr2Paths", DialogButtonRole.Quiet, "settings edit LR2 paths"),
                 ButtonWithAutomationId("SettingsResyncLr2SongDb", DialogButtonRole.Neutral, "settings resync song database"),
                 ButtonWithAutomationId("SettingsInstallOrRepairLr2PlayHistorySchema", DialogButtonRole.Neutral, "settings install or repair schema"),
                 ButtonWithAutomationId("SettingsImportBeatorajaTableUrls", DialogButtonRole.Quiet, "settings import table URLs"),

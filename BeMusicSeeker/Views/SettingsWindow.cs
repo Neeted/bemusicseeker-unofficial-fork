@@ -631,53 +631,56 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         PickRootFolderForSetting(nameof(settingDialogViewModel.LR2RootPath), settingDialogViewModel.LR2RootPath);
     }
 
-    /// <summary>Owns the LR2 song database picker route for category pages.</summary>
-    internal void HandleBrowseLr2SongDbPath()
+    /// <summary>LR2 の song.db を個別指定する前に注意を確認し、受理された場合だけファイル選択を開きます。</summary>
+    internal Task HandleBrowseLr2SongDbPathAsync()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickFileForSetting(
+        return HandleBrowseLr2IndividualFilePathAsync(
+            settingDialogViewModel,
             nameof(settingDialogViewModel.LR2SongDBPath),
             string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "song.db"),
             "song.db",
             "song.db (*.db)|*.db|" + BeMusicSeeker.Properties.Resources.All_file_exts,
-            PathToDirectoryOrSelf(settingDialogViewModel.LR2SongDBPath));
+            settingDialogViewModel.LR2SongDBPath,
+            "LR2 song database picker");
     }
 
-    /// <summary>Picks a song database path for the LR2 advanced dialog without mutating the parent settings draft.</summary>
-    internal Task<string> PickLr2AdvancedSongDbPathAsync(string currentPath) => PickLr2AdvancedFilePathAsync(
-        string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "song.db"),
-        "song.db",
-        "song.db (*.db)|*.db|" + BeMusicSeeker.Properties.Resources.All_file_exts,
-        currentPath,
-        "LR2 advanced song database picker");
-
-    /// <summary>Owns the LR2 configuration picker route for category pages.</summary>
-    internal void HandleBrowseLr2ConfigPath()
+    /// <summary>LR2 の config.xml / config.xmh を個別指定する前に注意を確認し、受理された場合だけファイル選択を開きます。</summary>
+    internal Task HandleBrowseLr2ConfigPathAsync()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickFileForSetting(
+        return HandleBrowseLr2IndividualFilePathAsync(
+            settingDialogViewModel,
             nameof(settingDialogViewModel.LR2ConfigXmlPath),
             string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "config.xml"),
             "config.xml",
             "|config.xm?|" + BeMusicSeeker.Properties.Resources.All_file_exts,
-            PathToDirectoryOrSelf(settingDialogViewModel.LR2ConfigXmlPath));
+            settingDialogViewModel.LR2ConfigXmlPath,
+            "LR2 configuration picker");
     }
 
-    /// <summary>Picks a configuration path for the LR2 advanced dialog without mutating the parent settings draft.</summary>
-    internal Task<string> PickLr2AdvancedConfigPathAsync(string currentPath) => PickLr2AdvancedFilePathAsync(
-        string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "config.xml"),
-        "config.xml",
-        "|config.xm?|" + BeMusicSeeker.Properties.Resources.All_file_exts,
-        currentPath,
-        "LR2 advanced configuration picker");
-
-    private async Task<string> PickLr2AdvancedFilePathAsync(
+    private async Task HandleBrowseLr2IndividualFilePathAsync(
+        SettingsDialogViewModel settingDialogViewModel,
+        string propertyName,
         string title,
         string fileName,
         string filter,
         string currentPath,
         string routeName)
     {
+        UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+            BeMusicSeeker.Properties.Resources.Settings_lr2_individual_path_warning,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning,
+            MessageBoxResult.Cancel,
+            owner: this));
+        ThrowIfDialogFailed(confirmation, routeName + " confirmation");
+        if (!confirmation.IsAccepted)
+        {
+            return;
+        }
+
         UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
             title,
             fileName,
@@ -689,20 +692,10 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             ensurePathExists: true,
             owner: this));
         ThrowIfPickerFailed(result.Status, result.Error, routeName);
-        return result.Status == UiDialogStatus.Accepted ? result.FileName : null;
-    }
-
-    /// <summary>Shows the owned advanced LR2 path editor over the current settings draft.</summary>
-    /// <returns>A task that completes when the owned LR2 path editor closes.</returns>
-    internal async Task HandleEditCustomLr2PathsAsync()
-    {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiWindowDialogResult<object> result = await dialogService.ShowWindowAsync(
-            new UiWindowDialogRequest<Lr2AdvancedPathsDialog, object>(
-                () => new Lr2AdvancedPathsDialog(settingDialogViewModel),
-                _ => null,
-                Window.GetWindow(this)));
-        ThrowIfWindowDialogFailed(result.Status, result.Error, "LR2 advanced paths dialog");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            settingDialogViewModel.SetFilePathFromPicker(propertyName, result.FileName);
+        }
     }
 
     /// <summary>Logs a settings presentation route failure and attempts one owner-bound localized notification.</summary>

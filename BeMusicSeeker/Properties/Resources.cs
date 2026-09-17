@@ -2018,13 +2018,10 @@ public class Resources
     public static string Settings_bms_directories_description => ResourceManager.GetString("Settings_bms_directories_description", resourceCulture);
     public static string Settings_list_drag_drop_hint => ResourceManager.GetString("Settings_list_drag_drop_hint", resourceCulture);
     public static string Settings_lr2_paths_description => ResourceManager.GetString("Settings_lr2_paths_description", resourceCulture);
-    public static string Settings_path_detected => ResourceManager.GetString("Settings_path_detected", resourceCulture);
+    public static string Settings_path_detected_from_lr2_root => ResourceManager.GetString("Settings_path_detected_from_lr2_root", resourceCulture);
+    public static string Settings_path_detected_from_individual_setting => ResourceManager.GetString("Settings_path_detected_from_individual_setting", resourceCulture);
     public static string Settings_path_missing => ResourceManager.GetString("Settings_path_missing", resourceCulture);
-    public static string Settings_edit_custom_lr2_paths => ResourceManager.GetString("Settings_edit_custom_lr2_paths", resourceCulture);
-    public static string Settings_lr2_advanced_title => ResourceManager.GetString("Settings_lr2_advanced_title", resourceCulture);
-    public static string Settings_lr2_advanced_description => ResourceManager.GetString("Settings_lr2_advanced_description", resourceCulture);
-    public static string Settings_lr2_advanced_persistence_note => ResourceManager.GetString("Settings_lr2_advanced_persistence_note", resourceCulture);
-    public static string Settings_done => ResourceManager.GetString("Settings_done", resourceCulture);
+    public static string Settings_lr2_individual_path_warning => ResourceManager.GetString("Settings_lr2_individual_path_warning", resourceCulture);
     public static string Enable => ResourceManager.GetString("Enable", resourceCulture);
     public static string Install_shift_jis_description => ResourceManager.GetString("Install_shift_jis_description", resourceCulture);
     public static string Settings_danger_zone => ResourceManager.GetString("Settings_danger_zone", resourceCulture);

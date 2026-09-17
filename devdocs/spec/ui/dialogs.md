@@ -42,9 +42,9 @@
 
 初回設定の保存完了通知は、設定内の通知ではなく設定画面終了後の案内です。設定画面とそのモーダル表示の後片付けを終えてから `MainWindow` を親として表示します。通知終了までは初期化を開始しません。初期化などの失敗で設定を再表示する場合は、保存中状態を解除した呼出元からUIキューへ要求し、前の処理が新しい画面の終了を待たないようにします。
 
-LR2詳細パス編集は、子画面内の一時編集値を持ちます。選択はその値だけを変え、「完了」で検証済みの組を `SettingsDialogViewModel` へ一括反映します。取消とウィンドウの閉じる操作は親の編集値を変えません。一般ページのクリック処理は非同期待機し、イベントハンドラー以外へ `async void` を広げません。
+LR2の `song.db` と設定XMLの個別参照は一般ページで行います。各参照は、標準配置を使うよう促す確認を同じ注入済みサービスから表示し、同意された場合だけファイル選択を開きます。確認の取消・閉じる操作ではファイル選択へ進まず、編集値を変えません。一般ページのクリック処理は非同期待機し、イベントハンドラー以外へ `async void` を広げません。
 
-子画面の表示失敗は、元の例外と内部の経路・状態をログへ残したうえで、同じ注入済みサービスと親ウィンドウから一般向けの翻訳済み通知を一度行います。内部診断文字列を利用者向け文言へ付加しません。通知も失敗した場合はログだけに留め、再帰通知や代替経路を使いません。
+LR2個別参照の確認・選択で表示失敗が起きた場合は、元の例外と内部の経路・状態をログへ残したうえで、同じ注入済みサービスと設定ウィンドウから一般向けの翻訳済み通知を一度行います。内部診断文字列を利用者向け文言へ付加しません。通知も失敗した場合はログだけに留め、再帰通知や代替経路を使いません。
 
 バージョン情報からの `ReleaseNotesWindow` も、注入された `IUiDialogService.ShowWindowAsync` だけで開きます。親は `SettingsWindow` で、親なし・非モーダルの代替はありません。更新履歴を閉じても、設定の編集値を適用・初期化したり設定画面を閉じたりしません。
 
@@ -54,7 +54,7 @@ LR2詳細パス編集は、子画面内の一時編集値を持ちます。選�
 | --- | --- | --- |
 | 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../BeMusicSeeker.Tests/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 検出対象のファイル集合と表が一致すること。正規表現・比較対象は実装側を参照する。 |
 | 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同テスト群: コンパイル後の呼出し関係から、緊急表示を使う境界を確認する。 |
-| 設定・子画面の編集と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs)、[SettingsForegroundInteractionTests](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs): 取消、確定、フォーカス、子画面の完了を確認する。 |
+| 設定内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs)、[SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[SettingsForegroundInteractionTests](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs): 取消、確認、親ウィンドウ、フォーカスを確認する。 |
 | 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
 | 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
 

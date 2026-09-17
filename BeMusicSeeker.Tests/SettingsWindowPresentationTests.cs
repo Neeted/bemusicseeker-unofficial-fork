@@ -639,46 +639,6 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void SettingsWindow_Lr2AdvancedRouteAwaitsPendingDialogWithoutBlockingDispatcher()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsDialogViewModel settings = owner.SettingDialog;
-            var dialogs = new PendingLr2AdvancedPathsDialogService();
-            var window = new SettingsWindow(dialogs) { DataContext = settings };
-            dialogs.ExpectedOwner = window;
-            SynchronizationContext? previousContext = SynchronizationContext.Current;
-            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
-            try
-            {
-                Task route = window.HandleEditCustomLr2PathsAsync();
-
-                Assert.IsFalse(route.IsCompleted);
-                Assert.AreEqual(1, dialogs.WindowCount);
-                Assert.AreSame(window, dialogs.LastOwner);
-                Assert.AreSame(settings, dialogs.CreatedWindow!.DataContext);
-
-                bool dispatcherWorkCompleted = false;
-                window.Dispatcher.BeginInvoke(
-                    DispatcherPriority.Background,
-                    new Action(() => dispatcherWorkCompleted = true));
-                PumpUntil(window, () => dispatcherWorkCompleted, "The settings dispatcher stopped while the LR2 path dialog route was pending.");
-                Assert.IsFalse(route.IsCompleted);
-
-                dialogs.Complete(UiDialogStatus.ClosedByUser);
-                PumpUntil(window, () => route.IsCompleted, "The LR2 path dialog route did not complete after its dialog task completed.");
-                route.GetAwaiter().GetResult();
-                Assert.IsTrue(route.IsCompletedSuccessfully);
-            }
-            finally
-            {
-                SynchronizationContext.SetSynchronizationContext(previousContext);
-            }
-        });
-    }
-
-    [TestMethod]
     public void SettingsWindow_AboutIdentityPresentationUpdatesVersionAndBuildWithoutRedundantStatus()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -1660,7 +1620,6 @@ public sealed class SettingsWindowPresentationTests
             string previousTheme = Settings.Default.AppearanceTheme;
             ReleaseNotesWindow? releaseNotes = null;
             ReleaseNotesWindow? darkReleaseNotes = null;
-            Lr2AdvancedPathsDialog? advancedPaths = null;
             try
             {
                 Settings.Default.AppearanceTheme = AppThemeService.Light;
@@ -1698,26 +1657,11 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(2, gateway.ApplyCount, "A closed themed window must detach its native theme subscription.");
                 Assert.AreEqual(1, darkGateway.ApplyCount, "Every closed themed window must detach exactly once.");
 
-                SettingsDialogViewModel settings = MainWindowViewModelTestFactory.Create().SettingDialog;
-                advancedPaths = new Lr2AdvancedPathsDialog(settings);
-                windowTest.ShowAndWaitForContentRendered(advancedPaths);
-                TextBox pathTextBox = FindDescendants<TextBox>(advancedPaths).First();
-
-                Assert.AreEqual(GetApplicationBrushColor("App.DialogBackgroundBrush"), ((SolidColorBrush)advancedPaths.Background).Color);
-                Assert.AreEqual(GetApplicationBrushColor("App.ControlBackgroundBrush"), ((SolidColorBrush)pathTextBox.Background).Color);
-
-                Settings.Default.AppearanceTheme = AppThemeService.Dark;
-                AppThemeService.ApplyTheme(AppThemeService.Dark);
-                PumpDispatcher(advancedPaths.Dispatcher);
-
-                Assert.AreEqual(GetApplicationBrushColor("App.DialogBackgroundBrush"), ((SolidColorBrush)advancedPaths.Background).Color);
-                Assert.AreEqual(GetApplicationBrushColor("App.ControlBackgroundBrush"), ((SolidColorBrush)pathTextBox.Background).Color);
             }
             finally
             {
                 releaseNotes?.Close();
                 darkReleaseNotes?.Close();
-                advancedPaths?.Close();
                 Settings.Default.AppearanceTheme = previousTheme;
                 AppThemeService.ApplyTheme(previousTheme);
             }
@@ -2044,8 +1988,9 @@ public sealed class SettingsWindowPresentationTests
                 };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                TextBox configPathTextBox = FindDescendants<TextBox>(page).Single(textBox =>
-                    textBox.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path?.Path == nameof(settings.LR2ConfigXmlPath));
+                SettingsPathPicker configPathPicker = FindDescendants<SettingsPathPicker>(page).Single(picker =>
+                    picker.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(settings.LR2ConfigXmlPath));
+                TextBox configPathTextBox = FindDescendants<TextBox>(configPathPicker).Single();
                 Assert.AreEqual(customConfig, configPathTextBox.Text);
                 bool configPathNotified = false;
                 settings.PropertyChanged += (_, args) => configPathNotified |= args.PropertyName == nameof(settings.LR2ConfigXmlPath);
@@ -2261,57 +2206,62 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [DataTestMethod]
-    [DataRow("Done")]
-    [DataRow("Cancel")]
-    [DataRow("NativeClose")]
-    public void SettingsWindow_Lr2AdvancedRouteUsesOwnedModalRealBrowseAndTerminalButtons(string closeMode)
+    [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), false, false)]
+    [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), true, false)]
+    [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), true, true)]
+    [DataRow(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), false, false)]
+    [DataRow(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), true, false)]
+    [DataRow(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), true, true)]
+    public void SettingsWindow_GeneralLr2IndividualPathPickersRequireConfirmationBeforeFileSelection(
+        string propertyName,
+        bool acceptConfirmation,
+        bool acceptFileSelection)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsAdvancedRoute_" + Guid.NewGuid().ToString("N"));
+            string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsLr2IndividualRoute_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
             SettingsWindow? window = null;
             SettingsDialogViewModel? settings = null;
             try
             {
                 string root = Path.Combine(scope, "root");
-                string originalSong = Path.Combine(root, "LR2files", "Database", "song.db");
-                string originalConfig = Path.Combine(root, "LR2files", "Config", "config.xml");
-                string initialCustomSong = Path.Combine(scope, "initial", "songs.db");
-                string typedSong = Path.Combine(scope, "typed", "songs.db");
-                string typedConfig = Path.Combine(scope, "typed", "config.xml");
-                string pickedSong = Path.Combine(scope, "picked", "songs.db");
-                string pickedConfig = Path.Combine(scope, "picked", "config.xml");
-                foreach (string directory in new[] { Path.GetDirectoryName(originalSong)!, Path.GetDirectoryName(originalConfig)!, Path.GetDirectoryName(initialCustomSong)!, Path.GetDirectoryName(typedSong)!, Path.GetDirectoryName(pickedSong)! })
-                {
-                    Directory.CreateDirectory(directory);
-                }
-                File.WriteAllBytes(originalSong, []);
-                File.WriteAllText(originalConfig, "<config><system /><jukebox /></config>");
+                string standardSong = Path.Combine(root, "LR2files", "Database", "song.db");
+                string standardConfig = Path.Combine(root, "LR2files", "Config", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(standardSong)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(standardConfig)!);
+                File.WriteAllBytes(standardSong, []);
+                File.WriteAllText(standardConfig, "<config><system /><jukebox /></config>");
                 File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
-                File.WriteAllBytes(initialCustomSong, []);
-                File.WriteAllBytes(typedSong, []);
-                File.WriteAllText(typedConfig, "<config><system /><jukebox /></config>");
-                File.WriteAllBytes(pickedSong, []);
-                File.WriteAllText(pickedConfig, "<config><system /><jukebox /></config>");
+
+                string individualPath = propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                    ? Path.Combine(scope, "individual", "songs.db")
+                    : Path.Combine(scope, "individual", "config.xmh");
+                Directory.CreateDirectory(Path.GetDirectoryName(individualPath)!);
+                if (propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath))
+                {
+                    File.WriteAllBytes(individualPath, []);
+                }
+                else
+                {
+                    File.WriteAllText(individualPath, "<config><system /><jukebox /></config>");
+                }
 
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
                 settings = mainViewModel.SettingDialog;
                 settings.LR2RootPath = root;
-                settings.LR2SongDBPath = initialCustomSong;
-                settings.LR2ConfigXmlPath = originalConfig;
-                string draftSongBeforeDialog = settings.LR2SongDBPath;
-                string draftConfigBeforeDialog = settings.LR2ConfigXmlPath;
-                var dialogs = new RecordingSettingsWindowDialogService(
-                    windowTest,
-                    settings,
-                    draftSongBeforeDialog,
-                    draftConfigBeforeDialog,
-                    typedSong,
-                    typedConfig,
-                    pickedSong,
-                    pickedConfig,
-                    closeMode);
+                settings.OperationModeLR2DB = true;
+                Assert.AreEqual(standardSong, settings.LR2SongDBPath);
+                Assert.AreEqual(standardConfig, settings.LR2ConfigXmlPath);
+
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(
+                        acceptConfirmation ? MessageBoxResult.OK : MessageBoxResult.Cancel),
+                    FileResult = acceptFileSelection
+                        ? new UiFilePickerResult(UiDialogStatus.Accepted, [individualPath])
+                        : new UiFilePickerResult(UiDialogStatus.CancelledByUser)
+                };
                 window = new SettingsWindow(dialogs)
                 {
                     DataContext = settings,
@@ -2320,27 +2270,76 @@ public sealed class SettingsWindowPresentationTests
                 };
                 dialogs.ExpectedOwner = window;
                 windowTest.ShowAndWaitForContentRendered(window);
+
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                SettingsPathPicker[] lr2PathPickers = FindDescendants<SettingsPathPicker>(page)
+                    .Where(picker => picker.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
+                        is nameof(SettingsDialogViewModel.LR2RootPath)
+                            or nameof(SettingsDialogViewModel.LR2SongDBPath)
+                            or nameof(SettingsDialogViewModel.LR2ConfigXmlPath))
+                    .ToArray();
+                Assert.AreEqual(3, lr2PathPickers.Length);
+
+                SettingsPathPicker picker = lr2PathPickers.Single(candidate =>
+                    candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == propertyName);
+                Assert.IsTrue(picker.IsPathReadOnly);
+                Assert.IsTrue(FindDescendants<TextBox>(picker).Single().IsReadOnly);
+                Button browseButton = FindDescendants<Button>(picker)
+                    .Single(button => Equals(button.Content, picker.BrowseText));
+                Assert.IsTrue(browseButton.IsEnabled);
+
+                browseButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpDispatcher(window.Dispatcher);
 
-                Assert.AreSame(window, dialogs.LastModalOwner);
-                Assert.IsFalse(dialogs.LastModalShowInTaskbar);
-                Assert.AreEqual(2, dialogs.FileRequests.Count);
-                Assert.IsTrue(dialogs.FileRequests.All(request => ReferenceEquals(window, request.Owner)));
-                Assert.AreEqual(Path.GetDirectoryName(typedSong), dialogs.FileRequests[0].InitialDirectory);
-                Assert.AreEqual(Path.GetDirectoryName(typedConfig), dialogs.FileRequests[1].InitialDirectory);
-                StringAssert.Contains(dialogs.FileRequests[0].Filter, "*.db");
-                StringAssert.Contains(dialogs.FileRequests[1].Filter, "config.xm?");
-                if (closeMode == "Done")
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                UiConfirmationRequest confirmation = dialogs.ConfirmationRequests.Single();
+                Assert.AreSame(window, confirmation.Owner);
+                Assert.AreEqual(Resources.Settings_lr2_individual_path_warning, confirmation.MessageBoxText);
+                Assert.AreEqual(Resources.Warning, confirmation.Caption);
+                Assert.AreEqual(MessageBoxButton.OKCancel, confirmation.Button);
+                Assert.AreEqual(MessageBoxImage.Warning, confirmation.Icon);
+                Assert.AreEqual(MessageBoxResult.Cancel, confirmation.DefaultResult);
+
+                if (!acceptConfirmation)
                 {
-                    Assert.AreEqual(pickedSong, settings.LR2SongDBPath);
-                    Assert.AreEqual(pickedConfig, settings.LR2ConfigXmlPath);
+                    Assert.AreEqual(0, dialogs.FileRequests.Count);
+                    Assert.AreEqual(standardSong, settings.LR2SongDBPath);
+                    Assert.AreEqual(standardConfig, settings.LR2ConfigXmlPath);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, settings.Lr2SongDbPathStatusText);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, settings.Lr2ConfigPathStatusText);
+                    return;
+                }
+
+                Assert.AreEqual(1, dialogs.FileRequests.Count);
+                UiFilePickerRequest fileRequest = dialogs.FileRequests.Single();
+                Assert.AreSame(window, fileRequest.Owner);
+                Assert.AreEqual(
+                    Path.GetDirectoryName(propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath) ? standardSong : standardConfig),
+                    fileRequest.InitialDirectory);
+                if (!acceptFileSelection)
+                {
+                    Assert.AreEqual(standardSong, settings.LR2SongDBPath);
+                    Assert.AreEqual(standardConfig, settings.LR2ConfigXmlPath);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, settings.Lr2SongDbPathStatusText);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, settings.Lr2ConfigPathStatusText);
+                    return;
+                }
+
+                if (propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath))
+                {
+                    StringAssert.Contains(fileRequest.Filter, "*.db");
+                    Assert.AreEqual(individualPath, settings.LR2SongDBPath);
+                    Assert.AreEqual(standardConfig, settings.LR2ConfigXmlPath);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, settings.Lr2SongDbPathStatusText);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, settings.Lr2ConfigPathStatusText);
                 }
                 else
                 {
-                    Assert.AreEqual(draftSongBeforeDialog, settings.LR2SongDBPath);
-                    Assert.AreEqual(draftConfigBeforeDialog, settings.LR2ConfigXmlPath);
+                    StringAssert.Contains(fileRequest.Filter, "config.xm?");
+                    Assert.AreEqual(standardSong, settings.LR2SongDBPath);
+                    Assert.AreEqual(individualPath, settings.LR2ConfigXmlPath);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, settings.Lr2SongDbPathStatusText);
+                    Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, settings.Lr2ConfigPathStatusText);
                 }
             }
             finally
@@ -2356,17 +2355,159 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [DataTestMethod]
-    [DataRow("Failed", "Accepted", 1)]
-    [DataRow("OwnerUnavailable", "Failed", 2)]
-    public void SettingsWindow_Lr2AdvancedClickReportsRouteFailureOnceWithoutUnhandledException(
-        string windowStatusName,
-        string notificationStatusName,
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SettingsWindow_Lr2PathSourceStatusUpdatesWhenLanguageChanges(bool useIndividualPaths)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsLr2StatusCulture_" + Guid.NewGuid().ToString("N"));
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            SettingsWindow? window = null;
+            SettingsDialogViewModel? settings = null;
+            try
+            {
+                string root = Path.Combine(scope, "root");
+                string standardSong = Path.Combine(root, "LR2files", "Database", "song.db");
+                string standardConfig = Path.Combine(root, "LR2files", "Config", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(standardSong)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(standardConfig)!);
+                File.WriteAllBytes(standardSong, []);
+                File.WriteAllText(standardConfig, "<config><system /><jukebox /></config>");
+                File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                settings = owner.SettingDialog;
+                settings.LR2RootPath = root;
+                settings.OperationModeLR2DB = true;
+                if (useIndividualPaths)
+                {
+                    string individualSong = Path.Combine(scope, "songs.db");
+                    string individualConfig = Path.Combine(scope, "config.xmh");
+                    File.Copy(standardSong, individualSong);
+                    File.Copy(standardConfig, individualConfig);
+                    settings.SetFilePathFromPicker(nameof(settings.LR2SongDBPath), individualSong);
+                    settings.SetFilePathFromPicker(nameof(settings.LR2ConfigXmlPath), individualConfig);
+                }
+                string songPath = settings.LR2SongDBPath;
+                string configPath = settings.LR2ConfigXmlPath;
+                ResourceService.Current.ChangeCulture("en-US");
+                window = new SettingsWindow
+                {
+                    DataContext = settings,
+                    Width = 820,
+                    Height = 600
+                };
+                windowTest.ShowAndWaitForContentRendered(window);
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                SettingsStatusBanner songStatus = FindDescendants<SettingsStatusBanner>(page).Single(banner =>
+                    banner.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.Lr2SongDbPathStatusText));
+                SettingsStatusBanner configStatus = FindDescendants<SettingsStatusBanner>(page).Single(banner =>
+                    banner.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.Lr2ConfigPathStatusText));
+                string englishStatus = useIndividualPaths
+                    ? Resources.Settings_path_detected_from_individual_setting
+                    : Resources.Settings_path_detected_from_lr2_root;
+                Assert.AreEqual(englishStatus, songStatus.Content);
+                Assert.AreEqual(englishStatus, configStatus.Content);
+
+                ResourceService.Current.ChangeCulture("ja-JP");
+                PumpDispatcher(window.Dispatcher);
+
+                string japaneseStatus = useIndividualPaths
+                    ? Resources.Settings_path_detected_from_individual_setting
+                    : Resources.Settings_path_detected_from_lr2_root;
+                Assert.AreNotEqual(englishStatus, japaneseStatus);
+                Assert.AreEqual(japaneseStatus, songStatus.Content);
+                Assert.AreEqual(japaneseStatus, configStatus.Content);
+                Assert.AreEqual(root, settings.LR2RootPath);
+                Assert.AreEqual(songPath, settings.LR2SongDBPath);
+                Assert.AreEqual(configPath, settings.LR2ConfigXmlPath);
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                settings?.ResetSettings();
+                settings?.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+                if (Directory.Exists(scope))
+                {
+                    Directory.Delete(scope, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_Lr2IndividualPathRouteAwaitsConfirmationWithoutBlockingDispatcher()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+            SettingsDialogViewModel settings = mainViewModel.SettingDialog;
+            settings.OperationModeLR2DB = true;
+            var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dialogs = new RecordingSettingsRouteDialogService();
+            dialogs.ConfirmationTasks.Enqueue(confirmation.Task);
+            var window = new SettingsWindow(dialogs)
+            {
+                DataContext = settings,
+                Width = 820,
+                Height = 600
+            };
+            dialogs.ExpectedOwner = window;
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+
+                Task route = window.HandleBrowseLr2SongDbPathAsync();
+
+                Assert.IsFalse(route.IsCompleted);
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(0, dialogs.FileRequests.Count);
+
+                bool dispatcherWorkCompleted = false;
+                window.Dispatcher.BeginInvoke(
+                    DispatcherPriority.Background,
+                    new Action(() => dispatcherWorkCompleted = true));
+                PumpUntil(window, () => dispatcherWorkCompleted, "The settings dispatcher stopped while the LR2 individual-path confirmation was pending.");
+                Assert.IsFalse(route.IsCompleted);
+
+                confirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+                PumpUntil(window, () => route.IsCompleted, "The LR2 individual-path route did not complete after its confirmation completed.");
+                route.GetAwaiter().GetResult();
+                Assert.IsTrue(route.IsCompletedSuccessfully);
+                Assert.AreEqual(0, dialogs.FileRequests.Count);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false, false, 1)]
+    [DataRow(false, true, 2)]
+    [DataRow(true, false, 1)]
+    [DataRow(true, true, 2)]
+    public void SettingsWindow_Lr2IndividualPathDialogFailureIsReportedOnceWithoutUnhandledException(
+        bool failFilePicker,
+        bool notificationFails,
         int expectedLogCount)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            UiDialogStatus windowStatus = Enum.Parse<UiDialogStatus>(windowStatusName);
-            UiDialogStatus notificationStatus = Enum.Parse<UiDialogStatus>(notificationStatusName);
             LoggingConfiguration? originalConfiguration = LogManager.Configuration;
             var logTarget = new MemoryTarget { Layout = "${message}|${exception:format=message}" };
             var configuration = new LoggingConfiguration();
@@ -2376,10 +2517,23 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
-                var dialogs = new FailingLr2AdvancedPathsDialogService(windowStatus, notificationStatus);
+                SettingsDialogViewModel settings = mainViewModel.SettingDialog;
+                settings.OperationModeLR2DB = true;
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    ConfirmationResult = failFilePicker
+                        ? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                        : UiDialogResult.Failed(new InvalidOperationException("confirmation failed")),
+                    FileResult = new UiFilePickerResult(
+                        UiDialogStatus.Failed,
+                        error: new InvalidOperationException("file picker failed")),
+                    MessageResult = notificationFails
+                        ? UiDialogResult.Failed(new InvalidOperationException("notification failed"))
+                        : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                };
                 window = new SettingsWindow(dialogs)
                 {
-                    DataContext = mainViewModel.SettingDialog,
+                    DataContext = settings,
                     Width = 820,
                     Height = 600
                 };
@@ -2395,7 +2549,12 @@ public sealed class SettingsWindowPresentationTests
                 {
                     windowTest.ShowAndWaitForContentRendered(window);
                     var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                    ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
+                        candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
+                            == nameof(SettingsDialogViewModel.LR2SongDBPath));
+                    FindDescendants<Button>(picker)
+                        .Single(button => Equals(button.Content, picker.BrowseText))
+                        .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     PumpDispatcher(window.Dispatcher);
                 }
                 finally
@@ -2404,20 +2563,19 @@ public sealed class SettingsWindowPresentationTests
                 }
 
                 LogManager.Flush();
-                Assert.AreEqual(1, dialogs.WindowRequestCount);
-                Assert.AreEqual(1, dialogs.MessageRequestCount, "Failure notification must not recurse.");
-                Assert.AreSame(window, dialogs.LastMessageRequest.Owner);
-                Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.LastMessageRequest.MessageBoxText);
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(failFilePicker ? 1 : 0, dialogs.FileRequests.Count);
+                Assert.AreEqual(1, dialogs.MessageRequests.Count, "Failure notification must not recurse.");
+                UiMessageRequest notification = dialogs.MessageRequests.Single();
+                Assert.AreSame(window, notification.Owner);
+                Assert.AreEqual(Resources.Msg_error_unexpected, notification.MessageBoxText);
                 Assert.IsFalse(
-                    dialogs.LastMessageRequest.MessageBoxText.Contains("LR2 advanced paths dialog", StringComparison.Ordinal),
+                    notification.MessageBoxText.Contains("LR2 song database picker", StringComparison.Ordinal),
                     "Internal route names must remain in diagnostics instead of leaking into localized UI text.");
-                Assert.IsFalse(
-                    dialogs.LastMessageRequest.MessageBoxText.Contains(notificationStatus.ToString(), StringComparison.Ordinal),
-                    "Internal dialog status values must remain in diagnostics instead of leaking into localized UI text.");
                 Assert.AreEqual(0, unhandled.Count);
                 Assert.AreEqual(expectedLogCount, logTarget.Logs.Count);
-                StringAssert.Contains(logTarget.Logs[0], "LR2 advanced paths dialog failed");
-                if (notificationStatus == UiDialogStatus.Failed)
+                StringAssert.Contains(logTarget.Logs[0], "LR2 song database picker failed");
+                if (notificationFails)
                 {
                     StringAssert.Contains(logTarget.Logs[1], "failure notification was not shown");
                 }
@@ -2430,84 +2588,6 @@ public sealed class SettingsWindowPresentationTests
                 }
                 LogManager.Flush();
                 LogManager.Configuration = originalConfiguration;
-            }
-        });
-    }
-
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void SettingsWindow_Lr2AdvancedRejectedOrCancelledBrowseKeepsTypedLocalDraftAndParentTuple(bool cancelPicker)
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsAdvancedMalformed_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(scope);
-            SettingsWindow? window = null;
-            SettingsDialogViewModel? settings = null;
-            try
-            {
-                string root = Path.Combine(scope, "root");
-                string originalSong = Path.Combine(root, "LR2files", "Database", "song.db");
-                string originalConfig = Path.Combine(root, "LR2files", "Config", "config.xml");
-                string typedSong = Path.Combine(scope, "typed", "song.db");
-                string typedConfig = Path.Combine(scope, "typed", "config.xml");
-                string pickedSong = Path.Combine(scope, "picked", "song.db");
-                string malformedConfig = Path.Combine(scope, "picked", "config.xml");
-                foreach (string directory in new[] { Path.GetDirectoryName(originalSong)!, Path.GetDirectoryName(originalConfig)!, Path.GetDirectoryName(typedSong)!, Path.GetDirectoryName(pickedSong)! })
-                {
-                    Directory.CreateDirectory(directory);
-                }
-                File.WriteAllBytes(originalSong, []);
-                File.WriteAllBytes(typedSong, []);
-                File.WriteAllBytes(pickedSong, []);
-                File.WriteAllText(originalConfig, "<config><system /><jukebox /></config>");
-                File.WriteAllText(typedConfig, "<config><system /><jukebox /></config>");
-                File.WriteAllText(malformedConfig, "<config>");
-
-                settings = MainWindowViewModelTestFactory.Create().SettingDialog;
-                settings.LR2RootPath = root;
-                settings.LR2SongDBPath = originalSong;
-                settings.LR2ConfigXmlPath = originalConfig;
-                var dialogs = new RecordingSettingsWindowDialogService(
-                    windowTest,
-                    settings,
-                    originalSong,
-                    originalConfig,
-                    typedSong,
-                    typedConfig,
-                    pickedSong,
-                    malformedConfig,
-                    "Cancel",
-                    expectConfigAccepted: false,
-                    configPickerStatus: cancelPicker ? UiDialogStatus.CancelledByUser : UiDialogStatus.Accepted);
-                window = new SettingsWindow(dialogs)
-                {
-                    DataContext = settings,
-                    Width = 820,
-                    Height = 600
-                };
-                dialogs.ExpectedOwner = window;
-                windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                PumpDispatcher(window.Dispatcher);
-
-                Assert.AreEqual(originalSong, settings.LR2SongDBPath);
-                Assert.AreEqual(originalConfig, settings.LR2ConfigXmlPath);
-                Assert.AreEqual(
-                    cancelPicker ? string.Empty : Resources.Error_InvalidLR2SongDbOrConfigPath,
-                    dialogs.ValidationErrorAfterConfigBrowse);
-                Assert.AreEqual(typedConfig, dialogs.ConfigPathAfterBrowse);
-            }
-            finally
-            {
-                if (window?.IsVisible == true)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                settings?.ResetSettings();
-                Directory.Delete(scope, recursive: true);
             }
         });
     }
@@ -4596,178 +4676,6 @@ public sealed class SettingsWindowPresentationTests
         NativeClose
     }
 
-    private sealed class RecordingSettingsWindowDialogService : IUiDialogService
-    {
-        private readonly TestWindowPresentationScope windowTest;
-        private readonly SettingsDialogViewModel settings;
-        private readonly string originalSong;
-        private readonly string originalConfig;
-        private readonly string typedSong;
-        private readonly string typedConfig;
-        private readonly string pickedSong;
-        private readonly string pickedConfig;
-        private readonly string closeMode;
-        private readonly bool expectConfigAccepted;
-        private readonly UiDialogStatus configPickerStatus;
-        private int filePickIndex;
-
-        internal RecordingSettingsWindowDialogService(
-            TestWindowPresentationScope windowTest,
-            SettingsDialogViewModel settings,
-            string originalSong,
-            string originalConfig,
-            string typedSong,
-            string typedConfig,
-            string pickedSong,
-            string pickedConfig,
-            string closeMode,
-            bool expectConfigAccepted = true,
-            UiDialogStatus configPickerStatus = UiDialogStatus.Accepted)
-        {
-            this.windowTest = windowTest;
-            this.settings = settings;
-            this.originalSong = originalSong;
-            this.originalConfig = originalConfig;
-            this.typedSong = typedSong;
-            this.typedConfig = typedConfig;
-            this.pickedSong = pickedSong;
-            this.pickedConfig = pickedConfig;
-            this.closeMode = closeMode;
-            this.expectConfigAccepted = expectConfigAccepted;
-            this.configPickerStatus = configPickerStatus;
-        }
-
-        internal Window ExpectedOwner { get; set; } = null!;
-        internal Window LastModalOwner { get; private set; } = null!;
-        internal bool LastModalShowInTaskbar { get; private set; }
-        internal List<UiFilePickerRequest> FileRequests { get; } = [];
-        internal string ConfigPathAfterBrowse { get; private set; } = null!;
-        internal string ValidationErrorAfterConfigBrowse { get; private set; } = null!;
-
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
-            UiWindowDialogRequest<TWindow, TResult> request,
-            CancellationToken cancellationToken = default)
-            where TWindow : Window
-        {
-            Assert.AreSame(ExpectedOwner, request.Owner);
-            TWindow window = request.CreateWindow();
-            window.Owner = request.Owner;
-            LastModalOwner = window.Owner;
-            LastModalShowInTaskbar = window.ShowInTaskbar;
-            Assert.IsInstanceOfType<Lr2AdvancedPathsDialog>(window);
-            var advancedDialog = (Lr2AdvancedPathsDialog)(Window)window;
-            advancedDialog.ContentRendered += (_, _) =>
-            {
-                SettingsPathPicker songPicker = FindDescendants<SettingsPathPicker>(advancedDialog).Single(picker => picker.Label == Resources.FilePath_songDB);
-                SettingsPathPicker configPicker = FindDescendants<SettingsPathPicker>(advancedDialog).Single(picker => picker.Label == Resources.FilePath_configXml);
-                TextBox songEditor = FindDescendants<TextBox>(songPicker).Single();
-                TextBox configEditor = FindDescendants<TextBox>(configPicker).Single();
-                songEditor.Text = typedSong;
-                songEditor.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
-                configEditor.Text = typedConfig;
-                configEditor.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
-                Assert.AreEqual(typedSong, advancedDialog.SongDbPath);
-                Assert.AreEqual(typedConfig, advancedDialog.ConfigPath);
-                Assert.AreEqual(originalSong, settings.LR2SongDBPath);
-                Assert.AreEqual(originalConfig, settings.LR2ConfigXmlPath);
-                FindDescendants<Button>(songPicker).Single(button => Equals(button.Content, Resources.Browse)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Assert.AreEqual(pickedSong, advancedDialog.SongDbPath);
-                Assert.AreEqual(originalSong, settings.LR2SongDBPath);
-                FindDescendants<Button>(configPicker).Single(button => Equals(button.Content, Resources.Browse)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                ConfigPathAfterBrowse = advancedDialog.ConfigPath;
-                ValidationErrorAfterConfigBrowse = advancedDialog.ValidationError;
-                Assert.AreEqual(
-                    configPickerStatus == UiDialogStatus.Accepted && expectConfigAccepted ? pickedConfig : typedConfig,
-                    advancedDialog.ConfigPath);
-                Assert.AreEqual(originalConfig, settings.LR2ConfigXmlPath);
-                if (closeMode == "Done")
-                {
-                    FindDescendants<Button>(advancedDialog).Single(button => button.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                }
-                else if (closeMode == "Cancel")
-                {
-                    FindDescendants<Button>(advancedDialog).Single(button => button.IsCancel).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                }
-                else
-                {
-                    advancedDialog.Close();
-                }
-            };
-            windowTest.PrepareForOwnedPresentation(window);
-            bool? dialogResult = window.ShowDialog();
-            UiDialogStatus status = dialogResult == true
-                ? UiDialogStatus.Accepted
-                : dialogResult == false ? UiDialogStatus.CancelledByUser : UiDialogStatus.ClosedByUser;
-            return Task.FromResult(new UiWindowDialogResult<TResult>(status, request.CreateResult(window), dialogResult));
-        }
-
-        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
-        {
-            FileRequests.Add(request);
-            if (filePickIndex++ == 0)
-            {
-                return Task.FromResult(new UiFilePickerResult(UiDialogStatus.Accepted, [pickedSong]));
-            }
-            if (configPickerStatus != UiDialogStatus.Accepted)
-            {
-                return Task.FromResult(new UiFilePickerResult(configPickerStatus));
-            }
-            string path = pickedConfig;
-            return Task.FromResult(new UiFilePickerResult(UiDialogStatus.Accepted, [path]));
-        }
-
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => Task.FromResult(new UiFolderPickerResult(UiDialogStatus.CancelledByUser));
-        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
-
-    private sealed class FailingLr2AdvancedPathsDialogService : IUiDialogService
-    {
-        private readonly UiDialogStatus windowStatus;
-        private readonly UiDialogStatus notificationStatus;
-
-        internal FailingLr2AdvancedPathsDialogService(UiDialogStatus windowStatus, UiDialogStatus notificationStatus)
-        {
-            this.windowStatus = windowStatus;
-            this.notificationStatus = notificationStatus;
-        }
-
-        internal Window ExpectedOwner { get; set; } = null!;
-        internal int WindowRequestCount { get; private set; }
-        internal int MessageRequestCount { get; private set; }
-        internal UiMessageRequest LastMessageRequest { get; private set; } = null!;
-
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
-            UiWindowDialogRequest<TWindow, TResult> request,
-            CancellationToken cancellationToken = default)
-            where TWindow : Window
-        {
-            Assert.AreSame(ExpectedOwner, request.Owner);
-            WindowRequestCount++;
-            Exception? error = windowStatus == UiDialogStatus.Failed
-                ? new InvalidOperationException("advanced modal failed")
-                : null;
-            return Task.FromResult(new UiWindowDialogResult<TResult>(windowStatus, error: error));
-        }
-
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
-        {
-            MessageRequestCount++;
-            LastMessageRequest = request;
-            return Task.FromResult(notificationStatus == UiDialogStatus.Failed
-                ? UiDialogResult.Failed(new InvalidOperationException("notification failed"))
-                : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-        }
-
-        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
-
     private sealed class RecordingSettingsRouteDialogService : IUiDialogService
     {
         private readonly Queue<string> folderPaths;
@@ -4791,7 +4699,13 @@ public sealed class SettingsWindowPresentationTests
 
         internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
 
+        internal Queue<Task<UiDialogResult>> ConfirmationTasks { get; } = [];
+
+        internal List<UiMessageRequest> MessageRequests { get; } = [];
+
         internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
+
+        internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
 
         internal UiSaveFilePickerResult SaveFileResult { get; set; } = new(UiDialogStatus.CancelledByUser);
 
@@ -4806,13 +4720,20 @@ public sealed class SettingsWindowPresentationTests
         public Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        {
+            MessageRequests.Add(request);
+            return Task.FromResult(MessageResult);
+        }
 
         public Task<UiDialogResult> ConfirmAsync(
             UiConfirmationRequest request,
             CancellationToken cancellationToken = default)
         {
             ConfirmationRequests.Add(request);
+            if (ConfirmationTasks.Count > 0)
+            {
+                return ConfirmationTasks.Dequeue();
+            }
             return Task.FromResult(ConfirmationResult);
         }
 
@@ -4870,50 +4791,6 @@ public sealed class SettingsWindowPresentationTests
             Func<UiProgressContext, Task> operation,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
-    }
-
-    private sealed class PendingLr2AdvancedPathsDialogService : IUiDialogService
-    {
-        private readonly TaskCompletionSource<UiDialogStatus> completion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal Window ExpectedOwner { get; set; } = null!;
-        internal Window LastOwner { get; private set; } = null!;
-        internal Lr2AdvancedPathsDialog? CreatedWindow { get; private set; }
-        internal int WindowCount { get; private set; }
-
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
-            UiWindowDialogRequest<TWindow, TResult> request,
-            CancellationToken cancellationToken = default)
-            where TWindow : Window
-        {
-            Assert.AreSame(ExpectedOwner, request.Owner);
-            TWindow created = request.CreateWindow();
-            LastOwner = request.Owner;
-            CreatedWindow = created as Lr2AdvancedPathsDialog;
-            Assert.IsNotNull(CreatedWindow);
-            WindowCount++;
-            return AwaitCompletionAsync(completion.Task, request, created);
-        }
-
-        internal void Complete(UiDialogStatus status) => completion.TrySetResult(status);
-
-        private static async Task<UiWindowDialogResult<TResult>> AwaitCompletionAsync<TWindow, TResult>(
-            Task<UiDialogStatus> completion,
-            UiWindowDialogRequest<TWindow, TResult> request,
-            TWindow window)
-            where TWindow : Window
-        {
-            UiDialogStatus status = await completion.ConfigureAwait(false);
-            return new UiWindowDialogResult<TResult>(status, request.CreateResult(window));
-        }
-
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class RecordingNativeWindowTitleBarGateway : INativeWindowTitleBarGateway

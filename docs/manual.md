@@ -161,6 +161,8 @@ This is the integration mode that has existed since the traditional BeMusicSeeke
 
 In LR2 linked mode, BeMusicSeeker generates and differentially updates the `song` / `folder` information required in LR2 `song.db`. It is recommended to add and remove BMS directories from BeMusicSeeker's `General` tab and not from the `JUKEBOX` tab in LR2 SETUP.
 
+Normally, specify only the `LR2 directory`. The standard `song.db` and `config.xml` / `config.xmh` paths are configured from it automatically. Use the individual `Browse` actions only when the standard layout cannot be used; a confirmation appears before the file picker opens. The status text distinguishes a current standard path derived from the LR2 directory from an individually configured path.
+
 When the initial settings are saved and when starting in LR2 linked mode, BeMusicSeeker sets `<autoreload>` in LR2 `config.xml` to `0`, changing LR2 SETUP's "database auto update" to "manual only". This assumes that BeMusicSeeker manages `song.db`, and avoids extra scans caused by LR2's own automatic update and avoids adding corrupted DB rows for paths that cannot be represented in Shift_JIS.
 
 However, even charts that cause errors during LR2 scanning or playback are still saved in the `song` table so they can be managed by this application. Please understand that even if such charts appear on the song selection screen, problems may occur when playback starts. Some known LR2 compatibility risks can be checked in the `LR2 Compatibility Warnings` screen.

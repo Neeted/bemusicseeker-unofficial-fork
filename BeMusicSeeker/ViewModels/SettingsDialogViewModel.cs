@@ -1618,6 +1618,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// LR2 楽曲DBの編集パスです。無効な候補では現在のパスを保持し、
+    /// 同じパスの再選択でもファイルの検出状態を通知します。
+    /// </summary>
     public string LR2SongDBPath
     {
         get
@@ -1627,7 +1631,6 @@ public partial class SettingsDialogViewModel : ViewModel
         set
         {
             string previousPath = ApplicationSettings.LR2SongDBPath;
-            string previousError = Lr2PathSelectionError;
             if (IsLR2SongDBPathValid(value))
             {
                 if (!string.Equals(previousPath, value, StringComparison.Ordinal))
@@ -1640,11 +1643,6 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
             }
-            if (string.Equals(previousPath, ApplicationSettings.LR2SongDBPath, StringComparison.Ordinal)
-                && string.Equals(previousError, Lr2PathSelectionError, StringComparison.Ordinal))
-            {
-                return;
-            }
             RaisePropertyChanged("LR2SongDBPath");
             RaiseLr2PathPresentationChanged();
             RaiseValidationStateChanged();
@@ -1654,6 +1652,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>
     /// 保存されたLR2設定XMLのパスです。選択候補は読込みと必要構造を検証し、
     /// 無効な候補では元のパスと解析結果を保持したまま入力エラーを通知します。
+    /// 同じパスの選び直しでもXMLを再読込みし、解析結果の変更を履歴DBの対象と表示へ反映します。
     /// </summary>
     public string LR2ConfigXmlPath
     {
@@ -1665,7 +1664,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             string previousPath = ApplicationSettings.LR2ConfigXmlPath;
             bool previousParsed = isLr2ConfigPathParsed;
-            bool previousParsedObjectAvailable = lr2config != null;
+            LR2Config previousConfig = lr2config;
             string previousError = Lr2PathSelectionError;
             if (LR2Config.TryLoad(value, out LR2Config parsedConfig))
             {
@@ -1685,7 +1684,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             if (string.Equals(previousPath, ApplicationSettings.LR2ConfigXmlPath, StringComparison.Ordinal)
                 && previousParsed == isLr2ConfigPathParsed
-                && previousParsedObjectAvailable == (lr2config != null)
+                && ReferenceEquals(previousConfig, lr2config)
                 && string.Equals(previousError, Lr2PathSelectionError, StringComparison.Ordinal))
             {
                 return;
@@ -1701,30 +1700,13 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>Gets whether either configured LR2 detail path is outside the selected root's standard layout.</summary>
-    public bool HasCustomLr2Paths
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(LR2RootPath))
-            {
-                return !string.IsNullOrWhiteSpace(LR2SongDBPath) || !string.IsNullOrWhiteSpace(LR2ConfigXmlPath);
-            }
-            string standardSongDb = Path.Combine(LR2RootPath, "LR2files", "Database", "song.db");
-            string standardConfigXml = Path.Combine(LR2RootPath, "LR2files", "Config", "config.xml");
-            string standardConfigXmh = Path.Combine(LR2RootPath, "LR2files", "Config", "config.xmh");
-            return !PathsEqual(LR2SongDBPath, standardSongDb)
-                || (!PathsEqual(LR2ConfigXmlPath, standardConfigXml) && !PathsEqual(LR2ConfigXmlPath, standardConfigXmh));
-        }
-    }
-
     /// <summary>Gets the icon paired with the LR2 song database status.</summary>
     public string Lr2SongDbPathStatusIcon => File.Exists(LR2SongDBPath) ? "✓" : "!";
     /// <summary>Gets the semantic LR2 song database status category.</summary>
     public string Lr2SongDbPathStatusKind => File.Exists(LR2SongDBPath) ? "Success" : "Warning";
     /// <summary>Gets localized LR2 song database status text.</summary>
     public string Lr2SongDbPathStatusText => File.Exists(LR2SongDBPath)
-        ? BeMusicSeeker.Properties.Resources.Settings_path_detected
+        ? GetLr2DetectedPathStatusText(IsStandardLr2SongDbPath())
         : BeMusicSeeker.Properties.Resources.Settings_path_missing;
     /// <summary>Gets the icon paired with the LR2 configuration status.</summary>
     public string Lr2ConfigPathStatusIcon => isLr2ConfigPathParsed ? "✓" : "!";
@@ -1732,10 +1714,32 @@ public partial class SettingsDialogViewModel : ViewModel
     public string Lr2ConfigPathStatusKind => isLr2ConfigPathParsed ? "Success" : File.Exists(LR2ConfigXmlPath) ? "Error" : "Warning";
     /// <summary>Gets localized LR2 configuration status text.</summary>
     public string Lr2ConfigPathStatusText => isLr2ConfigPathParsed
-        ? BeMusicSeeker.Properties.Resources.Settings_path_detected
+        ? GetLr2DetectedPathStatusText(IsStandardLr2ConfigPath())
         : File.Exists(LR2ConfigXmlPath)
             ? BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath
             : BeMusicSeeker.Properties.Resources.Settings_path_missing;
+
+    private string GetLr2DetectedPathStatusText(bool isStandardPath) => isStandardPath
+        ? BeMusicSeeker.Properties.Resources.Settings_path_detected_from_lr2_root
+        : BeMusicSeeker.Properties.Resources.Settings_path_detected_from_individual_setting;
+
+    private bool IsStandardLr2SongDbPath()
+    {
+        return !string.IsNullOrWhiteSpace(LR2RootPath)
+            && PathsEqual(LR2SongDBPath, Path.Combine(LR2RootPath, "LR2files", "Database", "song.db"));
+    }
+
+    private bool IsStandardLr2ConfigPath()
+    {
+        if (string.IsNullOrWhiteSpace(LR2RootPath))
+        {
+            return false;
+        }
+
+        string standardConfigDirectory = Path.Combine(LR2RootPath, "LR2files", "Config");
+        return PathsEqual(LR2ConfigXmlPath, Path.Combine(standardConfigDirectory, "config.xml"))
+            || PathsEqual(LR2ConfigXmlPath, Path.Combine(standardConfigDirectory, "config.xmh"));
+    }
 
     /// <summary>Gets an explicit failure raised by the most recent rejected LR2 path selection.</summary>
     public string Lr2PathSelectionError => lr2PathSelectionError;
@@ -1761,7 +1765,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void RaiseLr2PathPresentationChanged()
     {
-        RaisePropertyChanged(nameof(HasCustomLr2Paths));
         RaisePropertyChanged(nameof(Lr2SongDbPathStatusIcon));
         RaisePropertyChanged(nameof(Lr2SongDbPathStatusKind));
         RaisePropertyChanged(nameof(Lr2SongDbPathStatusText));
@@ -1770,57 +1773,6 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(Lr2ConfigPathStatusText));
         RaisePropertyChanged(nameof(Lr2PathSelectionError));
         RaisePropertyChanged(nameof(HasLr2PathSelectionError));
-    }
-
-    /// <summary>Validates an LR2 song database picker candidate without mutating the settings draft.</summary>
-    internal bool IsLr2SongDbPathCandidateValid(string path) => IsLR2SongDBPathValid(path);
-
-    /// <summary>編集値を変更せず、LR2設定の選択候補を読込みと必要構造の両面から検証します。</summary>
-    internal bool IsLr2ConfigPathCandidateValid(string path) => LR2Config.TryLoad(path, out _);
-
-    /// <summary>
-    /// 詳細指定の楽曲DBと設定XMLを検証し、XMLの必要構造も確認してから両パスを一括反映します。
-    /// </summary>
-    /// <param name="songDbPath">詳細指定に入力された楽曲DBのパスです。</param>
-    /// <param name="configPath">詳細指定に入力された設定XMLのパスです。</param>
-    /// <param name="rejectedPathPropertyName">無効な場合にフォーカスを戻す入力欄のプロパティ名です。</param>
-    /// <returns>両方の候補を受理した場合だけ true です。失敗時は一部だけを反映しません。</returns>
-    internal bool TryApplyLr2AdvancedPathDraft(
-        string songDbPath,
-        string configPath,
-        out string rejectedPathPropertyName)
-    {
-        if (!IsLR2SongDBPathValid(songDbPath))
-        {
-            rejectedPathPropertyName = nameof(LR2SongDBPath);
-            SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
-            RaiseValidationStateChanged();
-            return false;
-        }
-        if (!LR2Config.TryLoad(configPath, out LR2Config parsedConfig))
-        {
-            rejectedPathPropertyName = nameof(LR2ConfigXmlPath);
-            SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
-            RaiseValidationStateChanged();
-            return false;
-        }
-
-        rejectedPathPropertyName = string.Empty;
-        ApplicationSettings.LR2SongDBPath = songDbPath;
-        ApplicationSettings.LR2ConfigXmlPath = configPath;
-        isLr2ConfigPathParsed = true;
-        lr2config = OperationModeLR2DB ? parsedConfig : null;
-        SetLr2PathSelectionErrorWithoutNotification(string.Empty);
-        RaisePropertyChanged(nameof(LR2SongDBPath));
-        RaisePropertyChanged(nameof(LR2ConfigXmlPath));
-        RaisePropertyChanged(nameof(LR2bodyPath));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
-        RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-        RaisePropertyChanged(nameof(BMSInstallDir));
-        RaiseLr2PathPresentationChanged();
-        RaiseValidationStateChanged();
-        ResetLr2PlayHistorySchemaStatus();
-        return true;
     }
 
     private bool TryBuildStandardLr2PathTuple(string rootPath, out string songDbPath, out string configPath, out LR2Config parsedConfig)
@@ -4252,6 +4204,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
+            settingDialogViewModel.RaiseLr2PathPresentationChanged();
             settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate

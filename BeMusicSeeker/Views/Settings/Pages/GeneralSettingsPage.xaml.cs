@@ -69,16 +69,29 @@ public partial class GeneralSettingsPage : UserControl
         GetSettingsWindow().HandleBrowseLr2RootPath();
     }
 
-    private async void editCustomLr2PathsButtonClick(object sender, RoutedEventArgs e)
+    private async void browseLr2SongDbPathButtonClick(object sender, RoutedEventArgs e)
     {
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            await settingsWindow.HandleEditCustomLr2PathsAsync();
+            await settingsWindow.HandleBrowseLr2SongDbPathAsync();
         }
         catch (Exception ex)
         {
-            await settingsWindow.HandleSettingsRouteFailureAsync(ex, "LR2 advanced paths dialog");
+            await settingsWindow.HandleSettingsRouteFailureAsync(ex, "LR2 song database picker");
+        }
+    }
+
+    private async void browseLr2ConfigPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleBrowseLr2ConfigPathAsync();
+        }
+        catch (Exception ex)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(ex, "LR2 configuration picker");
         }
     }
 

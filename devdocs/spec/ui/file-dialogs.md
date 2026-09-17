@@ -42,7 +42,7 @@
 
 `config.xm?` はXMLとXMHの両方を許す意図的な指定です。DBは表示上の代表名だけに限定せず、バックアップなど別名の `.db` を選択できます。
 
-LR2ルートの選択は、現在と同じルートでも標準の子パスと読める設定XMLを先に検証します。無効なら三つの編集値を全て保持し、有効なら一括変更します。詳細画面は親に直結しない編集値を持ち、決定時に両ファイルを再検証してから親へ反映します。取消・Esc・通常の閉じる操作では破棄します。詳細は設定仕様に集約します。
+LR2ルートの選択は、現在と同じルートでも標準の子パスと読める設定XMLを先に検証します。無効なら三つの編集値を全て保持し、有効なら一括変更します。`song.db` と設定XMLは一般ページから個別に選択できますが、ファイル選択を開く前に標準配置の利用を促す確認を行い、同意時だけ選択へ進みます。個別選択は対象パスだけへ反映し、取消では編集値を変えません。詳細は設定仕様に集約します。
 
 右クリック操作の実行ファイル選択は、存在する一ファイルを要求し、所有ウィンドウは設定画面です。取消で編集値を変えず、選択結果を `RightClickActionsJson` へ直接保存しません。
 
@@ -60,7 +60,7 @@ LR2ルートの選択は、現在と同じルートでも標準の子パスと�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 形式、拡張子、初期パスの共通変換 | [`UiFilePickerUtilities`](../../../BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs)、[`UiDialogCoordinator`](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [`WpfPickerBoundaryTests`](../../../BeMusicSeeker.Tests/WpfPickerBoundaryTests.cs) |
-| LR2のルートと詳細パス、取消時の保持 | [`SettingsWindow`](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs) |
+| LR2のルートと個別パス、確認・取消時の保持 | [`SettingsWindow`](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs) |
 | 右クリック操作の編集用選択 | [`RightClickActionSettingsEditor`](../../../BeMusicSeeker/ViewModels/RightClickActionSettingsEditor.cs) | [`RightClickActionSettingsEditorTests`](../../../BeMusicSeeker.Tests/RightClickActionSettingsEditorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs) |
 
 ## 関連資料
