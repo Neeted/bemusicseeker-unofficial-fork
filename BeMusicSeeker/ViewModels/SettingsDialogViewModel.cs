@@ -1695,7 +1695,6 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(LR2bodyPath));
             RaisePropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-            RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
             RaisePropertyChanged(nameof(BMSInstallDir));
             RaiseValidationStateChanged();
             ResetLr2PlayHistorySchemaStatus();
@@ -1817,7 +1816,6 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(LR2bodyPath));
         RaisePropertyChanged(nameof(AvailableBMSDirectories));
         RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
-        RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
         RaisePropertyChanged(nameof(BMSInstallDir));
         RaiseLr2PathPresentationChanged();
         RaiseValidationStateChanged();
@@ -2024,6 +2022,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
                 RaisePropertyChanged(nameof(AvailableBMSDirectories));
                 RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
+                RaisePropertyChanged(nameof(IsBmsSearchRootEditorEnabled));
                 RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
                 RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
                 RaisePropertyChanged(nameof(BMSInstallDir));
