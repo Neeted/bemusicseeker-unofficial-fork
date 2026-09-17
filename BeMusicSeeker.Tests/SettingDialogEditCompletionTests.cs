@@ -2889,6 +2889,92 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [DataTestMethod]
+    [DataRow("Accepted")]
+    [DataRow("Failed")]
+    [DataRow("OwnerUnavailable")]
+    public void CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue(string statusName)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            string musicRoot = Path.Combine(root, "Music");
+            string normalOutput = Path.Combine(root, "NormalOutput");
+            string rootOutput = Path.Combine(root, "RootOutput");
+            foreach (string path in new[] { musicRoot, normalOutput, rootOutput })
+            {
+                Directory.CreateDirectory(path);
+            }
+            (string songDb, string configPath) = CreateValidLr2Layout(root);
+            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            config.AddBMSSearchDirectories([musicRoot]);
+            config.Save();
+            Settings values = CreateValidStandaloneSettings(musicRoot);
+            values.OperationModeLR2DB = true;
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = songDb;
+            values.LR2ConfigXmlPath = configPath;
+            values.LR2CustomFolderOutputBaseDir = normalOutput;
+            values.LR2CustomFolderOutputBaseDirRootType = rootOutput;
+            values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            var session = new CountingSettingsEditSession(values);
+            var displayFailure = new IOException("設定検証ダイアログの表示失敗");
+            var dialogs = new RecordingRootDialogService
+            {
+                MessageResult = statusName switch
+                {
+                    "Accepted" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    "Failed" => UiDialogResult.Failed(displayFailure),
+                    "OwnerUnavailable" => UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable),
+                    _ => throw new ArgumentOutOfRangeException(nameof(statusName))
+                }
+            };
+            dialog = CreateViewModel(session, firstStartup: false, dialogs: dialogs).SettingDialog;
+            byte[] savedXml = File.ReadAllBytes(configPath);
+
+            Exception? notificationFailure = null;
+            try
+            {
+                dialog.LR2CustomFolderOutputDir = rootOutput;
+            }
+            catch (InvalidOperationException exception)
+            {
+                notificationFailure = exception;
+            }
+
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            StringAssert.Contains(dialogs.LastMessageText, Resources.Label_NormalOutputBase);
+            StringAssert.Contains(dialogs.LastMessageText, Resources.Label_RootOutputBase);
+            Assert.AreEqual(normalOutput, dialog.LR2CustomFolderOutputDir);
+            Assert.AreEqual(rootOutput, dialog.LR2CustomFolderAsRootOutputDir);
+            Assert.AreEqual(0, session.SaveCount);
+            CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(configPath));
+            if (statusName == "Accepted")
+            {
+                Assert.IsNull(notificationFailure);
+            }
+            else
+            {
+                Assert.IsNotNull(notificationFailure);
+                if (statusName == "Failed")
+                {
+                    Assert.AreSame(displayFailure, notificationFailure!.InnerException);
+                }
+                else
+                {
+                    StringAssert.Contains(notificationFailure!.Message, statusName);
+                }
+            }
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
     [DataRow("Failed")]
     [DataRow("OwnerUnavailable")]
     public async Task ApplySettingsAsync_InitialSettingsDialogFailureIsReported(string statusName)
@@ -3956,6 +4042,291 @@ public sealed class SettingDialogEditCompletionTests
     private static void InvokeEnterAccessKey()
     {
         AccessKeyManager.ProcessKey(null, "\r", false);
+    }
+
+    [DataTestMethod]
+    [DataRow("normal", false)]
+    [DataRow("normal", true)]
+    [DataRow("additional", false)]
+    [DataRow("additional", true)]
+    [DataRow("root", false)]
+    [DataRow("root", true)]
+    public async Task ApplySettingsAsync_RestoresRegisteredOutputWithCancellableConfirmation(string role, bool removeRegistrationFirst)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            string restoredOutput = Path.Combine(root, "RestoredOutput");
+            string registeredRoot = role == "root" ? Path.Combine(restoredOutput, "OldPlaylist") : restoredOutput;
+            Settings values = CreateValidCustomFolderSettings(root, [registeredRoot]);
+            if (role == "normal")
+            {
+                values.LR2CustomFolderOutputBaseDir = string.Empty;
+            }
+            else if (role == "root")
+            {
+                values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+            }
+            var session = new CountingSettingsEditSession(values);
+            var dialogs = new RecordingRootDialogService();
+            var failures = new List<Exception>();
+            int initializationCount = 0;
+            MainWindowViewModel owner = CreateViewModel(session, firstStartup: false,
+                initializeOwner: _ =>
+                {
+                    initializationCount++;
+                    return Task.FromResult(true);
+                },
+                reportSettingsApplyFailure: failures.Add,
+                dialogs: dialogs);
+            dialog = owner.SettingDialog;
+            byte[] savedXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+
+            if (removeRegistrationFirst)
+            {
+                // 一般ページで登録を削除してから出力先に指定しても、保存時の採用確認は必要です。
+                CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories, registeredRoot);
+                ((ICommand)dialog.RemoveDirCommand).Execute(registeredRoot);
+                CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, registeredRoot);
+                CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+            }
+            SetCustomFolderOutput(dialog, role, restoredOutput);
+
+            Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            Assert.IsTrue(dialog.CheckValidationBeforeSave(out string validationError), validationError);
+            CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, registeredRoot);
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            string confirmation = dialogs.ConfirmationRequests.Single().MessageBoxText;
+            StringAssert.Contains(confirmation, restoredOutput);
+            StringAssert.Contains(confirmation, registeredRoot);
+            string searchRemovalNotice = string.Format(Resources.Confirm_CustomFolderOutputSearchRootsRemovedFormat, registeredRoot);
+            Assert.AreEqual(role != "normal", confirmation.Contains(searchRemovalNotice, StringComparison.Ordinal));
+            Assert.AreEqual(0, session.SaveCount);
+            Assert.AreEqual(0, initializationCount);
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+
+            dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(2, dialogs.ConfirmationCount);
+            Assert.AreEqual(1, session.SaveCount);
+            Assert.AreEqual(1, initializationCount);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+
+            // 保存済みの役割を継続する限り、他の設定を保存しても採用確認を繰り返しません。
+            values.ShowDuplicateFileCheckConfirmMsg = !values.ShowDuplicateFileCheckConfirmMsg;
+            await dialog.ApplySettingsAsync();
+            Assert.AreEqual(2, dialogs.ConfirmationCount);
+            Assert.AreEqual(2, session.SaveCount);
+            Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplySettingsAsync_NormalOutputChangeWarnsOnlyForSavedSearchRoot(bool keepAsAdditional)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            string previousOutput = Path.Combine(root, "NormalOutput");
+            string intermediateOutput = Path.Combine(root, "Intermediate");
+            string currentOutput = Path.Combine(root, "Current");
+            Directory.CreateDirectory(intermediateOutput);
+            Directory.CreateDirectory(currentOutput);
+            Settings values = CreateValidCustomFolderSettings(root, [previousOutput]);
+            var session = new CountingSettingsEditSession(values);
+            var dialogs = new RecordingRootDialogService();
+            MainWindowViewModel owner = CreateViewModel(session, firstStartup: false,
+                initializeOwner: _ => Task.FromResult(true), dialogs: dialogs);
+            dialog = owner.SettingDialog;
+            byte[] savedXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+
+            dialog.LR2CustomFolderOutputDir = intermediateOutput;
+            dialog.LR2CustomFolderOutputDir = currentOutput;
+            if (keepAsAdditional)
+            {
+                dialog.AddCustomFolderAdditionalOutputBaseDir(previousOutput);
+            }
+            Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            Assert.AreEqual(currentOutput, dialog.LR2CustomFolderOutputDir);
+            Assert.IsTrue(dialog.CheckValidationBeforeSave(out string validationError), validationError);
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            string confirmation = dialogs.ConfirmationRequests.Single().MessageBoxText;
+            StringAssert.Contains(confirmation,
+                string.Format(Resources.Confirm_CustomFolderOutputSearchRootsRemovedFormat, previousOutput));
+            Assert.IsFalse(confirmation.Contains(intermediateOutput, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(0, session.SaveCount);
+            CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("normal", false)]
+    [DataRow("normal", true)]
+    [DataRow("additional", false)]
+    [DataRow("additional", true)]
+    [DataRow("root", false)]
+    public void CustomFolderOutput_RejectsForbiddenBmsNestingAtSelectionAndSave(string role, bool outputIsParent)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            string parent = Path.Combine(root, "BMS");
+            string registeredRoot = Path.Combine(parent, "Registered");
+            string candidate = outputIsParent ? parent : Path.Combine(registeredRoot, "Custom");
+            Settings values = CreateValidCustomFolderSettings(root, [registeredRoot]);
+            Directory.CreateDirectory(candidate);
+            var session = new CountingSettingsEditSession(values);
+            var dialogs = new RecordingRootDialogService();
+            MainWindowViewModel owner = CreateViewModel(session, firstStartup: false, dialogs: dialogs);
+            dialog = owner.SettingDialog;
+            string previousNormal = dialog.LR2CustomFolderOutputDir;
+            string previousRoot = dialog.LR2CustomFolderAsRootOutputDir;
+            byte[] savedXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
+
+            SetCustomFolderOutput(dialog, role, candidate);
+
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            StringAssert.Contains(dialogs.LastMessageText, registeredRoot);
+            Assert.AreEqual(previousNormal, dialog.LR2CustomFolderOutputDir);
+            Assert.AreEqual(previousRoot, dialog.LR2CustomFolderAsRootOutputDir);
+            Assert.AreEqual(0, dialog.CustomFolderAdditionalOutputBaseDirList.Count);
+
+            // XML選択前の入力や既存設定も、保存時には同じ条件で拒否します。
+            switch (role)
+            {
+                case "normal": values.LR2CustomFolderOutputBaseDir = candidate; break;
+                case "root": values.LR2CustomFolderOutputBaseDirRootType = candidate; break;
+                case "additional": dialog.CustomFolderAdditionalOutputBaseDirList.Add(candidate); break;
+                default: throw new ArgumentOutOfRangeException(nameof(role));
+            }
+            Assert.IsFalse(dialog.CheckValidationBeforeSave(out string saveError));
+            StringAssert.Contains(saveError, registeredRoot);
+            Assert.IsFalse(dialog.CheckValidation(out string initialError));
+            StringAssert.Contains(initialError, registeredRoot);
+            Assert.AreEqual(0, session.SaveCount);
+            CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("normal", "additional")]
+    [DataRow("additional", "normal")]
+    [DataRow("normal", "root")]
+    [DataRow("root", "normal")]
+    [DataRow("additional", "root")]
+    [DataRow("root", "additional")]
+    [DataRow("additional", "additional")]
+    public void CustomFolderOutputChoices_RejectOverlappingBasesInEitherEntryOrder(string firstRole, string secondRole)
+    {
+        foreach (string relation in new[] { "same", "parent", "child" })
+        {
+            string root = CreateTemporaryRoot();
+            SettingsDialogViewModel? dialog = null;
+            try
+            {
+                string firstOutput = Path.Combine(root, "Separate", "Output");
+                string secondOutput = relation switch
+                {
+                    "same" => firstOutput,
+                    "parent" => Path.GetDirectoryName(firstOutput)!,
+                    _ => Path.Combine(firstOutput, "Child")
+                };
+                Directory.CreateDirectory(firstOutput);
+                Directory.CreateDirectory(secondOutput);
+                Settings values = CreateValidCustomFolderSettings(root, []);
+                var session = new CountingSettingsEditSession(values);
+                var dialogs = new RecordingRootDialogService();
+                MainWindowViewModel owner = CreateViewModel(session, firstStartup: false, dialogs: dialogs);
+                dialog = owner.SettingDialog;
+                SetCustomFolderOutput(dialog, firstRole, firstOutput);
+                Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+                string normalBefore = dialog.LR2CustomFolderOutputDir;
+                string rootBefore = dialog.LR2CustomFolderAsRootOutputDir;
+                string[] additionalBefore = dialog.CustomFolderAdditionalOutputBaseDirList.ToArray();
+
+                SetCustomFolderOutput(dialog, secondRole, secondOutput);
+
+                Assert.AreEqual(1, dialogs.MessageCount, relation);
+                Assert.AreEqual(0, dialogs.ConfirmationCount);
+                Assert.AreEqual(normalBefore, dialog.LR2CustomFolderOutputDir);
+                Assert.AreEqual(rootBefore, dialog.LR2CustomFolderAsRootOutputDir);
+                CollectionAssert.AreEqual(additionalBefore, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+            }
+            finally
+            {
+                dialog?.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static Settings CreateValidCustomFolderSettings(string root, IEnumerable<string> registeredRoots)
+    {
+        string songs = Path.Combine(root, "Songs");
+        Directory.CreateDirectory(songs);
+        (string songDb, string configPath) = CreateValidLr2Layout(root);
+        Settings values = CreateValidStandaloneSettings(songs);
+        values.OperationModeLR2DB = true;
+        values.LR2RootPath = root;
+        values.LR2SongDBPath = songDb;
+        values.LR2ConfigXmlPath = configPath;
+        values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "NormalOutput");
+        values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "RootOutput");
+        values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+        Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+        Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+        string[] roots = new[] { songs }.Concat(registeredRoots).ToArray();
+        foreach (string path in roots)
+        {
+            Directory.CreateDirectory(path);
+        }
+        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+        config.AddBMSSearchDirectories(roots);
+        config.Save();
+        return values;
+    }
+
+    private static void SetCustomFolderOutput(SettingsDialogViewModel dialog, string role, string path)
+    {
+        switch (role)
+        {
+            case "normal": dialog.LR2CustomFolderOutputDir = path; break;
+            case "additional": dialog.AddCustomFolderAdditionalOutputBaseDir(path); break;
+            case "root": dialog.LR2CustomFolderAsRootOutputDir = path; break;
+            default: throw new ArgumentOutOfRangeException(nameof(role));
+        }
     }
 
     private static (string SongDb, string Config) CreateValidLr2Layout(string root)

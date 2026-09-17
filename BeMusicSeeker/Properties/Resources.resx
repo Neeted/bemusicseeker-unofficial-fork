@@ -2843,9 +2843,6 @@ cleanup-only成功: {3}
   <data name="Validation_OutputBaseNameDuplicateFormat" xml:space="preserve">
     <value>通常出力先または追加出力先に同じフォルダ名があります: {0}</value>
   </data>
-  <data name="Validation_AdditionalOutputBasesNested" xml:space="preserve">
-    <value>追加出力先同士を親子関係にすることはできません</value>
-  </data>
   <data name="Label_NormalOutputBaseFolder" xml:space="preserve">
     <value>通常出力先フォルダ</value>
   </data>
@@ -2862,9 +2859,6 @@ cleanup-only成功: {3}
   <data name="Validation_NormalOutputBaseNameEmpty" xml:space="preserve">
     <value>通常出力先のフォルダ名が空です</value>
   </data>
-  <data name="Validation_NormalAndAdditionalOutputBasesNested" xml:space="preserve">
-    <value>通常出力先と追加通常出力先を同じ場所または親子関係にすることはできません</value>
-  </data>
   <data name="Label_NormalOutputBase" xml:space="preserve">
     <value>通常出力先</value>
   </data>
@@ -2874,23 +2868,11 @@ cleanup-only成功: {3}
   <data name="Label_PreviousAdditionalOutputBase" xml:space="preserve">
     <value>変更前の追加通常出力先</value>
   </data>
-  <data name="Validation_NormalAndRootOutputBasesNested" xml:space="preserve">
-    <value>通常出力先とルートフォルダ出力先を同じ場所または親子関係にすることはできません</value>
-  </data>
-  <data name="Validation_PreviousManagedRootNestedFormat" xml:space="preserve">
-    <value>{0}と{1}を親子関係にすることはできません</value>
-  </data>
   <data name="Label_RootOutputBaseFolder" xml:space="preserve">
     <value>ルートフォルダ出力先フォルダ</value>
   </data>
   <data name="Validation_RootOutputBaseNameEmpty" xml:space="preserve">
     <value>ルートフォルダ出力先のフォルダ名が空です</value>
-  </data>
-  <data name="Validation_RootAndNormalOutputBasesNested" xml:space="preserve">
-    <value>ルートフォルダ出力先と通常出力先を同じ場所または親子関係にすることはできません</value>
-  </data>
-  <data name="Validation_RootAndAdditionalOutputBasesNested" xml:space="preserve">
-    <value>ルートフォルダ出力先と追加通常出力先を同じ場所または親子関係にすることはできません</value>
   </data>
   <data name="Label_RootOutputBase" xml:space="preserve">
     <value>ルートフォルダ出力先</value>
@@ -2898,11 +2880,10 @@ cleanup-only成功: {3}
   <data name="Label_PreviousRootOutputBase" xml:space="preserve">
     <value>変更前のルートフォルダ出力先</value>
   </data>
-  <data name="Validation_OutputBaseSameAsBmsRootFormat" xml:space="preserve">
-    <value>{0}は登録済みBMSディレクトリと同じ場所にはできません</value>
-  </data>
   <data name="Validation_OutputBaseNestedWithBmsRootFormat" xml:space="preserve">
-    <value>{0}は登録済みBMSディレクトリの親または子にはできません</value>
+    <value>{0}には、登録済みBMSディレクトリの親・子フォルダを指定できません。
+出力先: {1}
+登録済み: {2}</value>
   </data>
   <data name="Validation_NestedBmsSearchRootPathsFormat" xml:space="preserve">
     <value>LR2 の &lt;jukebox&gt; に登録されている BMS ディレクトリ同士が親子関係になっています。
@@ -2915,14 +2896,12 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   子: {1}</value>
   </data>
   <data name="Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat" xml:space="preserve">
-    <value>次のカスタムフォルダ出力先は、LR2 の &lt;jukebox&gt; に登録済みのフォルダと同じ場所、または親子関係にあります。
+    <value>次の場所を、カスタムフォルダ出力先として使用します。
 
 {0}
 
-本アプリに登録すると、その場所は BeMusicSeeker のカスタムフォルダ出力管理下に置かれます。通常楽曲の検出対象ではなく、カスタムフォルダ置き場専用のフォルダとして扱われます。
-出力更新やクリーンアップで既存ファイルやフォルダが削除される場合があります。大切なデータは置かないでください。
-
-続行しますか？</value>
+出力先は本アプリの管理領域です。プレイリストの出力フォルダ内のファイルやフォルダは、出力更新・設定変更・プレイリスト削除に伴い削除される場合があります。
+楽曲などの大切なデータは置かないでください。</value>
   </data>
   <data name="Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat" xml:space="preserve">
     <value>- {0}: {1}
@@ -2930,27 +2909,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   </data>
   <data name="Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat" xml:space="preserve">
     <value>... 他 {0} 件</value>
-  </data>
-  <data name="Msg_CustomFolderNormalOutputBaseChangedSearchRootRemovedFormat" xml:space="preserve">
-    <value>通常出力先を変更しました。
-
-設定を保存すると、変更前の通常出力先そのものは LR2 の &lt;jukebox&gt; から外れ、通常出力先として自動追加される探索ルートではなくなります。
-変更前の通常出力先に楽曲を置いていた場合は、親子関係にならない通常の BMS ディレクトリとして登録し直してください。
-
-変更前の通常出力先:
-{0}</value>
-  </data>
-  <data name="Error_AdditionalOutputBaseNestedWithPreviousAdditional" xml:space="preserve">
-    <value>追加出力先は変更前の追加出力先の親または子にはできません。</value>
-  </data>
-  <data name="Error_AdditionalOutputBaseSameAsBmsRoot" xml:space="preserve">
-    <value>追加出力先は登録済みBMSディレクトリと同じ場所にはできません。</value>
-  </data>
-  <data name="Error_AdditionalOutputBaseNestedWithBmsRoot" xml:space="preserve">
-    <value>追加出力先は登録済みBMSディレクトリの親または子にはできません。</value>
-  </data>
-  <data name="Error_AdditionalOutputBaseNestedWithOutputBaseFormat" xml:space="preserve">
-    <value>追加出力先は{0}の親または子にはできません。</value>
   </data>
   <data name="Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot" xml:space="preserve">
     <value>BeMusicSeeker管理のカスタムフォルダ出力先はBMSディレクトリとして追加できません</value>
@@ -3547,5 +3505,26 @@ uBMplayが正常に動作するか確認してください。</value>
   </data>
   <data name="Insane_estimation_table_fc" xml:space="preserve">
     <value>発狂BMS難度推定表 FC</value>
+  </data>
+  <data name="Label_CustomFolderOutputBase" xml:space="preserve">
+    <value>カスタムフォルダ出力先</value>
+  </data>
+  <data name="Validation_OutputBasesOverlapFormat" xml:space="preserve">
+    <value>{0}と{1}には、同じフォルダや親子関係のフォルダを指定できません。</value>
+  </data>
+  <data name="Validation_OutputBaseInsideBmsRootFormat" xml:space="preserve">
+    <value>{0}には、登録済みBMSディレクトリの子フォルダを指定できません。
+出力先: {1}
+登録済み: {2}</value>
+  </data>
+  <data name="Confirm_CustomFolderOutputSearchRootsRemovedFormat" xml:space="preserve">
+    <value>次の場所は、本アプリの楽曲検索対象から外れます。
+
+{0}</value>
+  </data>
+  <data name="Confirm_CustomFolderOutputChangesFormat" xml:space="preserve">
+    <value>{0}
+
+続行しますか？</value>
   </data>
 </root>

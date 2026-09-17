@@ -226,6 +226,48 @@ public sealed class LR2ConfigTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow("same", false, true)]
+    [DataRow("same", true, true)]
+    [DataRow("normalized-same", false, true)]
+    [DataRow("child", false, false)]
+    [DataRow("child", true, false)]
+    [DataRow("parent", false, false)]
+    [DataRow("parent", true, true)]
+    [DataRow("sibling", false, true)]
+    [DataRow("prefix", false, true)]
+    [DataRow("volume-parent", false, false)]
+    [DataRow("volume-parent", true, true)]
+    public void OutputBaseSearchRootValidation_OnlyRootOutputCanContainRegisteredDirectories(
+        string relation, bool rootOutput, bool allowed)
+    {
+        string registered = Path.Combine(Path.GetTempPath(), "BMS", "Songs");
+        string output = relation switch
+        {
+            "same" => registered,
+            "normalized-same" => Path.Combine(registered, ".").ToUpperInvariant() + Path.DirectorySeparatorChar,
+            "child" => Path.Combine(registered, "Custom"),
+            "parent" => Path.GetDirectoryName(registered)!,
+            "sibling" => Path.Combine(Path.GetDirectoryName(registered)!, "Custom"),
+            "prefix" => registered + "Extra",
+            "volume-parent" => Path.GetPathRoot(registered)!,
+            _ => throw new ArgumentOutOfRangeException(nameof(relation))
+        };
+        void Validate() => CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
+            output, [registered], "出力先", allowRegisteredChildren: rootOutput);
+
+        if (allowed)
+        {
+            Validate();
+        }
+        else
+        {
+            ArgumentException error = Assert.ThrowsException<ArgumentException>(Validate);
+            StringAssert.Contains(error.Message, output);
+            StringAssert.Contains(error.Message, registered);
+        }
+    }
+
     [TestMethod]
     public void RepairNormalOutputBaseRoots_AddsConfiguredDefaultAndAdditionalRoots()
     {
@@ -283,25 +325,25 @@ public sealed class LR2ConfigTests
         });
     }
 
-    [TestMethod]
-    public void RepairNormalOutputBaseRoots_DoesNotAdoptChildOfRegisteredBmsRootForDefaultOutput()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RepairNormalOutputBaseRoots_RejectsParentOrChildOfRegisteredRoot(bool outputIsParent)
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
             string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
-            string bmsRoot = Path.Combine(tempRoot, "BMS");
-            string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
-            Directory.CreateDirectory(defaultOutputBase);
+            string parent = Path.Combine(tempRoot, "Output");
+            string child = Path.Combine(parent, "Songs");
+            string bmsRoot = outputIsParent ? child : parent;
+            string outputBase = outputIsParent ? parent : child;
+            Directory.CreateDirectory(bmsRoot);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            CustomFolderOutputBaseSearchRootSyncResult result =
-                CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(config, defaultOutputBase, "[]");
+            Assert.ThrowsException<ArgumentException>(() =>
+                CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(config, outputBase, "[]"));
 
-            Assert.IsFalse(result.Changed);
-            Assert.AreEqual(0, result.AddedCount);
-            Assert.AreEqual(0, result.RemovedCount);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), bmsRoot);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), defaultOutputBase);
+            CollectionAssert.AreEqual(new[] { bmsRoot }, config.GetBMSSearchDirectoriesForChangeTracking());
         });
     }
 
@@ -352,66 +394,25 @@ public sealed class LR2ConfigTests
     }
 
     [TestMethod]
-    public void RepairNormalOutputBaseRoots_DoesNotAdoptParentRootCoveringDefaultOutputForAdditionalSibling()
+    public void RepairNormalOutputBaseRoots_RejectsInvalidAdditionalBeforeAddingDefault()
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
             string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
-            string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
-            string additionalOutputBase = Path.Combine(bmsRoot, "AdditionalOutput");
-            Directory.CreateDirectory(defaultOutputBase);
-            Directory.CreateDirectory(additionalOutputBase);
+            string defaultOutput = Path.Combine(tempRoot, "NewDefault");
+            string additionalOutput = Path.Combine(bmsRoot, "NewAdditional");
+            Directory.CreateDirectory(bmsRoot);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            CustomFolderOutputBaseSearchRootSyncResult result =
+            Assert.ThrowsException<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
-                    config,
-                    defaultOutputBase,
-                    CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]));
+                    config, defaultOutput,
+                    CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutput])));
 
-            Assert.IsFalse(result.Changed);
-            Assert.AreEqual(0, result.AddedCount);
-            Assert.AreEqual(0, result.RemovedCount);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), bmsRoot);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), defaultOutputBase);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), additionalOutputBase);
-        });
-    }
-
-    [TestMethod]
-    public void RepairNormalOutputBaseRoots_DoesNotAddProtectedAdditionalSiblingWhenAnotherAdditionalAdoptsRoot()
-    {
-        WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
-        {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
-            string bmsRoot = Path.Combine(tempRoot, "BMS");
-            string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
-            string protectedAdditionalOutputBase = Path.Combine(bmsRoot, "AdditionalOutput");
-            string otherRoot = Path.Combine(tempRoot, "OtherRoot");
-            string adoptingAdditionalOutputBase = Path.Combine(otherRoot, "AdditionalOutput");
-            Directory.CreateDirectory(defaultOutputBase);
-            Directory.CreateDirectory(protectedAdditionalOutputBase);
-            Directory.CreateDirectory(adoptingAdditionalOutputBase);
-            config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
-
-            CustomFolderOutputBaseSearchRootSyncResult result =
-                CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
-                    config,
-                    defaultOutputBase,
-                    CustomFolderOutputBaseRegistry.SerializeBaseDirectories([
-                        protectedAdditionalOutputBase,
-                        adoptingAdditionalOutputBase
-                    ]));
-
-            Assert.IsTrue(result.Changed);
-            Assert.AreEqual(1, result.AddedCount);
-            Assert.AreEqual(1, result.RemovedCount);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), bmsRoot);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), defaultOutputBase);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), protectedAdditionalOutputBase);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), otherRoot);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), adoptingAdditionalOutputBase);
+            CollectionAssert.AreEqual(new[] { bmsRoot }, config.GetBMSSearchDirectoriesForChangeTracking());
+            Assert.IsFalse(Directory.Exists(defaultOutput));
+            Assert.IsFalse(Directory.Exists(additionalOutput));
         });
     }
 
@@ -455,26 +456,29 @@ public sealed class LR2ConfigTests
         });
     }
 
-    [TestMethod]
-    public void SyncAdditionalOutputBaseRoots_AdoptsChildOfRegisteredBmsRoot()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SyncAdditionalOutputBaseRoots_RejectsParentOrChildWithoutReplacingRegistration(bool outputIsParent)
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
             string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
-            string bmsRoot = Path.Combine(tempRoot, "BMS");
-            string additionalBase = Path.Combine(bmsRoot, "Additional");
-            Directory.CreateDirectory(additionalBase);
+            string parent = Path.Combine(tempRoot, "Additional");
+            string child = Path.Combine(parent, "Songs");
+            string bmsRoot = outputIsParent ? child : parent;
+            string additionalBase = outputIsParent ? parent : child;
+            Directory.CreateDirectory(bmsRoot);
             config.AddBMSSearchDirectories([bmsRoot]);
-            string serializedAdditionalBase = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase]);
+            config.Save();
+            byte[] savedXml = File.ReadAllBytes(configPath);
 
-            CustomFolderOutputBaseSearchRootSyncResult result =
-                CustomFolderOutputBaseSearchRootSyncService.SyncAdditionalOutputBaseRoots(config, "[]", serializedAdditionalBase);
+            Assert.ThrowsException<ArgumentException>(() =>
+                CustomFolderOutputBaseSearchRootSyncService.SyncAdditionalOutputBaseRoots(
+                    config, "[]", CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase])));
 
-            Assert.IsTrue(result.Changed);
-            Assert.AreEqual(1, result.AddedCount);
-            Assert.AreEqual(1, result.RemovedCount);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), bmsRoot);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), additionalBase);
+            CollectionAssert.AreEqual(new[] { bmsRoot }, config.GetBMSSearchDirectoriesForChangeTracking());
+            CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(configPath));
         });
     }
 

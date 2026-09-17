@@ -76,6 +76,8 @@
 
 初回保存後の初期化では、通常の保存後処理を重ねません。ルート、プレイヤー、プレイリストの初期設定は初期化側が担当します。モード変更時は、現在の履歴識別情報と実行時の再生位置など必要な値だけを保存し、他の未確定編集を混ぜません。終了要求の競合と保存失敗の扱いは[終了処理](shutdown.md)に従います。
 
+終了受付前のモード変更要求が失敗した場合は、元のモードへ戻し、設定の編集・取消を再び受け付けます。失敗は既定の通知処理から設定画面の共通表示窓口へ一度だけ渡します。通知処理を差し替えた場合は元の例外をその処理へ渡し、既定通知を重ねません。
+
 ### 反映範囲の型とスナップショット
 
 `SettingsPostSaveImpact` が保存後の対象を明示します。`CustomFolderSearchRootSync` は出力先とLR2検索ルート、`PlayerRuntime` はプレイヤー実行時状態、`Lr2BackupEnabledNotice` はバックアップ有効化の案内、`PlaylistUrlCompletion` はURL補完、`Lr2CoreSync` はモード・ルートの同期、`ExternalLr2FolderRowsSync` は必要な外部フォルダ行、`BeatorajaBmtExport` はBMT出力を扱います。LR2全体同期に含まれる外部行の同期を重ねません。
@@ -84,9 +86,22 @@
 
 ### カスタムフォルダと検索対象
 
-通常のカスタムフォルダ出力先は、既存譜面の走査には残す場合がありますが、利用者の検索ルート、導入候補、フォルダツリーには混ぜません。追加出力先とそのルートは譜面検索対象からも除きますが、必要なjukebox登録は維持します。
+カスタムフォルダ出力先は本アプリの管理領域です。通常出力先だけは従来互換のため楽曲検索に残し、追加通常出力先とルートフォルダ出力先は楽曲検索から除きます。いずれも一般ページのBMSディレクトリ一覧、導入候補、フォルダツリーには混ぜません。楽曲検索の対象とLR2の `jukebox` 登録は区別し、出力に必要な登録は維持します。
 
-新しい通常出力先が、管理外の既存jukeboxルートと一致するか親子関係になる場合は検証エラーです。最終的なBMS検索ルートと出力先が重なる状態を、確認ダイアログや暗黙の部分除外で受理しません。
+出力基点同士の同一・親子関係は禁止します。既存の `jukebox` 登録に対しては、次の配置だけを許可します。比較には表示用一覧で除外する前の登録を使い、現在存在しないパスも残して正規化したパス関係を検証します。
+
+| 指定する出力先と既存登録の関係 | 通常出力先・追加通常出力先 | ルートフォルダ出力先 |
+| --- | --- | --- |
+| 同一 | 許可 | 許可 |
+| 出力先が既存登録の親 | 禁止 | 配下の登録を復元・整理するため許可 |
+| 出力先が既存登録の子 | 禁止 | 禁止 |
+| 同一でも親子でもない | 許可 | 許可 |
+
+保存済みの追加・ルート出力先を通常出力先へ転用する操作は、編集後に追加・ルート側を変更または削除していても、同一・親子関係を拒否します。登録同士の親子重複も設定不備として検出し、通常・追加出力先のために親登録を外して子へ置換する自動補正は行いません。ルート型の基点・旧子登録を現在の表ディレクトリへ揃える同期は[出力仕様](../playlist/lr2-custom-folders.md#jukeboxとの同期)に従います。
+
+既存登録を新たに出力管理領域として採用する場合は、保存時に管理領域とファイル整理の注意を確認します。通常出力先の同一登録への復元では楽曲検索を維持し、追加・ルート出力先として採用する場所は検索対象から外れることを併記します。保存済みの通常出力先を変更する場合も、その旧パスが検索対象から外れることを同じ確認へまとめます。旧通常出力先を追加・ルート出力先へ転用する場合は、既管理領域を理由に検索除外の確認を省略しません。
+
+確認は保存済み設定と最終編集値から作り、参照時の選び直しごとには表示しません。警告の比較元には保存済みと編集中の両方のBMS登録を使い、同じ編集内で登録を削除してから出力先に採用しても確認を省略しません。検証エラーは確認より先に拒否します。確認の取消では編集値を残し、保存・同期・ファイル変更へ進みません。正常保存後に同じ役割・パスを継続する場合は再確認せず、警告済みの永続状態も持ちません。BMSディレクトリ追加は登録済みルートや出力領域との同一・親子関係を拒否し、出力に必要な登録の削除は保護します。出力先の変更は対応する出力設定から行います。
 
 ### 履歴DBの状態と計測
 
@@ -99,11 +114,14 @@
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 表示・閉じる・分類・入力保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs) |
+| 動作モード変更の確認・再起動要求・失敗通知 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) の `OperationModeLR2DB` | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs) の `SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest`: 初回編集、確認の許可・取消、要求失敗時のモード復元・編集再開・保存と終了の抑止、既定通知一回と差替え通知への元例外引渡し。 |
 | 初回・修復設定の保存、閉鎖、通知、初期化の順序 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSettings_ClosesBeforeNotificationAndAwaitsInitialization`: 単独・LR2、初回通知の有無、表示終了と通知の待機、二重要求の拒否。 |
 | 初回設定の実表示と失敗後の再表示 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実際の通知、親ウィンドウ、モーダル表示の終了、失敗後の編集受付、終了要求時の再表示抑止。 |
 | 初回保存・通知・初期化の失敗と再試行 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSaveFailureKeepsDraftWithoutClosingOrInitializing`、`ApplySettingsAsync_InitialSettingsDialogFailureIsReported`、`ApplySettingsAsync_InitialInitializationFailureReopensAfterCleanupAndCanRetry`、`ApplySettingsAsync_InitialDirectoryFailureReopensOnceAfterCleanupAndCanRetry`: 保存失敗では入力保持、通知失敗では初期化抑止、初期化失敗では保存済み値と再試行受付を保持。 |
 | フォーカスと実際の利用者操作 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingsForegroundInteractionTests`](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs) |
 | 変更範囲と検索ルートの比較 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`StartupSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/StartupSettingsSnapshotTests.cs)、[`CustomFolderOutputSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/CustomFolderOutputSettingsSnapshotTests.cs) |
+| 出力先とBMS登録の同一採用・親子禁止・入力順 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs)、[`CustomFolderOutputBaseSearchRootSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/CustomFolderOutputBaseSearchRootSyncService.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `CustomFolderOutput_RejectsForbiddenBmsNestingAtSelectionAndSave`、`CustomFolderOutputChoices_RejectOverlappingBasesInEitherEntryOrder`。旧追加・旧ルートの転用保護とBMS追加・削除は [`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/SettingDialogCustomFolderOutputBaseTests.cs)。 |
+| 出力設定の復元、保存時確認と取消 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) の `ApplySettingsAsync` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_RestoresRegisteredOutputWithCancellableConfirmation`、`ApplySettingsAsync_NormalOutputChangeWarnsOnlyForSavedSearchRoot`: 通常・追加・ルートの復元（登録削除を先行する同一編集を含む）、取消時の編集値・XML保持、保存後の再警告抑止、中間値への通知抑止、旧通常の追加転用。 |
 | LR2設定XMLの構造と読込み結果 | [`LR2Config`](../../../BeMusicSeeker/Models/LR2/LR2Config.cs) の `TryLoad` とコンストラクター | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/LR2ConfigTests.cs) の `TryLoad_UnsetOrInvalidPathReturnsNoConfig`、`TryLoad_InvalidDocumentRejectsWithoutChangingFile`、`TryLoad_ValidConfigPreservesUnavailableRegisteredRoots`、`TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections`: 不正入力の拒否、空登録と `.xml` / `.xmh` の許容、欠落ルートとファイルの保持。 |
 | 無効なLR2設定パスの保存・再表示・取消 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple`: ファイル欠落、XML不正、必要構造不足でも独立した3パスを保持する。 |
 | LR2の保存先とプレイヤー設定 | [`SettingsPlayerSettingsGateway`](../../../BeMusicSeeker/Models/PlayerSettingsGateway.cs) | [`PlayerSettingsGatewayTests`](../../../BeMusicSeeker.Tests/PlayerSettingsGatewayTests.cs) |

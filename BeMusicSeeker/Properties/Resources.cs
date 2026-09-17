@@ -1838,8 +1838,6 @@ public class Resources
 
     public static string Validation_OutputBaseNameDuplicateFormat => ResourceManager.GetString("Validation_OutputBaseNameDuplicateFormat", resourceCulture);
 
-    public static string Validation_AdditionalOutputBasesNested => ResourceManager.GetString("Validation_AdditionalOutputBasesNested", resourceCulture);
-
     public static string Label_NormalOutputBaseFolder => ResourceManager.GetString("Label_NormalOutputBaseFolder", resourceCulture);
 
     public static string Label_AdditionalOutputBaseFolder => ResourceManager.GetString("Label_AdditionalOutputBaseFolder", resourceCulture);
@@ -1850,31 +1848,19 @@ public class Resources
 
     public static string Validation_NormalOutputBaseNameEmpty => ResourceManager.GetString("Validation_NormalOutputBaseNameEmpty", resourceCulture);
 
-    public static string Validation_NormalAndAdditionalOutputBasesNested => ResourceManager.GetString("Validation_NormalAndAdditionalOutputBasesNested", resourceCulture);
-
     public static string Label_NormalOutputBase => ResourceManager.GetString("Label_NormalOutputBase", resourceCulture);
 
     public static string Label_PreviousNormalOutputBase => ResourceManager.GetString("Label_PreviousNormalOutputBase", resourceCulture);
 
     public static string Label_PreviousAdditionalOutputBase => ResourceManager.GetString("Label_PreviousAdditionalOutputBase", resourceCulture);
 
-    public static string Validation_NormalAndRootOutputBasesNested => ResourceManager.GetString("Validation_NormalAndRootOutputBasesNested", resourceCulture);
-
-    public static string Validation_PreviousManagedRootNestedFormat => ResourceManager.GetString("Validation_PreviousManagedRootNestedFormat", resourceCulture);
-
     public static string Label_RootOutputBaseFolder => ResourceManager.GetString("Label_RootOutputBaseFolder", resourceCulture);
 
     public static string Validation_RootOutputBaseNameEmpty => ResourceManager.GetString("Validation_RootOutputBaseNameEmpty", resourceCulture);
 
-    public static string Validation_RootAndNormalOutputBasesNested => ResourceManager.GetString("Validation_RootAndNormalOutputBasesNested", resourceCulture);
-
-    public static string Validation_RootAndAdditionalOutputBasesNested => ResourceManager.GetString("Validation_RootAndAdditionalOutputBasesNested", resourceCulture);
-
     public static string Label_RootOutputBase => ResourceManager.GetString("Label_RootOutputBase", resourceCulture);
 
     public static string Label_PreviousRootOutputBase => ResourceManager.GetString("Label_PreviousRootOutputBase", resourceCulture);
-
-    public static string Validation_OutputBaseSameAsBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseSameAsBmsRootFormat", resourceCulture);
 
     public static string Validation_OutputBaseNestedWithBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseNestedWithBmsRootFormat", resourceCulture);
 
@@ -1887,16 +1873,6 @@ public class Resources
     public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat", resourceCulture);
 
     public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat", resourceCulture);
-
-    public static string Msg_CustomFolderNormalOutputBaseChangedSearchRootRemovedFormat => ResourceManager.GetString("Msg_CustomFolderNormalOutputBaseChangedSearchRootRemovedFormat", resourceCulture);
-
-    public static string Error_AdditionalOutputBaseNestedWithPreviousAdditional => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithPreviousAdditional", resourceCulture);
-
-    public static string Error_AdditionalOutputBaseSameAsBmsRoot => ResourceManager.GetString("Error_AdditionalOutputBaseSameAsBmsRoot", resourceCulture);
-
-    public static string Error_AdditionalOutputBaseNestedWithBmsRoot => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithBmsRoot", resourceCulture);
-
-    public static string Error_AdditionalOutputBaseNestedWithOutputBaseFormat => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithOutputBaseFormat", resourceCulture);
 
     public static string Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot => ResourceManager.GetString("Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot", resourceCulture);
 
@@ -2632,5 +2608,15 @@ public class Resources
 
     /// <summary>発狂BMS難度推定表 FC</summary>
     public static string Insane_estimation_table_fc => ResourceManager.GetString("Insane_estimation_table_fc", resourceCulture);
+
+    public static string Label_CustomFolderOutputBase => ResourceManager.GetString("Label_CustomFolderOutputBase", resourceCulture);
+
+    public static string Validation_OutputBasesOverlapFormat => ResourceManager.GetString("Validation_OutputBasesOverlapFormat", resourceCulture);
+
+    public static string Validation_OutputBaseInsideBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseInsideBmsRootFormat", resourceCulture);
+
+    public static string Confirm_CustomFolderOutputSearchRootsRemovedFormat => ResourceManager.GetString("Confirm_CustomFolderOutputSearchRootsRemovedFormat", resourceCulture);
+
+    public static string Confirm_CustomFolderOutputChangesFormat => ResourceManager.GetString("Confirm_CustomFolderOutputChangesFormat", resourceCulture);
 
 }

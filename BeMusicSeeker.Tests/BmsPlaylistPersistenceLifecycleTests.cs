@@ -1148,7 +1148,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
-    // U2-R5-F1: 復元後の実出力先 I/O failure を readiness consumer へ同じ原因で伝播する。
+    // 復元確定後の出力先 I/O 失敗を、復元呼出元と必須準備の待機側へ同じ例外で伝える。
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistRestore_PostApplyOutputFailureTerminalizesReadiness()
@@ -1162,7 +1162,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             string dbPath = CreateTempSongDbPath(directory);
             PlaylistPersistenceRepository.EnsureSchema(dbPath);
             string lr2Root = Path.Combine(directory, "LR2");
-            LR2Config config = CreateLr2Config(lr2Root, directory);
+            // 配置検証ではなく、出力先の子にある通常ファイルとの衝突で I/O 失敗を起こす。
+            string bmsRoot = Path.Combine(directory, "BMS");
+            Directory.CreateDirectory(bmsRoot);
+            LR2Config config = CreateLr2Config(lr2Root, bmsRoot);
             string outputBase = Path.Combine(directory, "RootOutput");
             Directory.CreateDirectory(outputBase);
             File.WriteAllText(Path.Combine(outputBase, "BlockedRoot"), "directory creation collision");

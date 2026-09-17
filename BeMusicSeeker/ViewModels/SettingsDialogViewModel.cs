@@ -339,11 +339,11 @@ public partial class SettingsDialogViewModel : ViewModel
             }
 
             totalStopwatch.Stop();
-            bool customFolderOutputBaseJukeboxAdoptionConfirmed = ConfirmCustomFolderOutputBaseJukeboxAdoptionBeforeSave(out _);
+            bool customFolderOutputChangesConfirmed = ConfirmCustomFolderOutputChangesBeforeSave();
             totalStopwatch.Start();
-            if (!customFolderOutputBaseJukeboxAdoptionConfirmed)
+            if (!customFolderOutputChangesConfirmed)
             {
-                outcome = "custom_folder_jukebox_adoption_cancelled";
+                outcome = "custom_folder_output_changes_cancelled";
                 return;
             }
 
@@ -2309,11 +2309,9 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value != null && !(ApplicationSettings.LR2CustomFolderOutputBaseDir == value))
             {
-                string previousPath = ApplicationSettings.LR2CustomFolderOutputBaseDir;
                 if (ValidateCustomFolderOutputBaseDir(value, out string errMsg))
                 {
                     ApplicationSettings.LR2CustomFolderOutputBaseDir = value;
-                    NotifyNormalOutputBaseChanged(previousPath, value);
                 }
                 else
                 {
@@ -2327,29 +2325,6 @@ public partial class SettingsDialogViewModel : ViewModel
                 RaiseValidationStateChanged();
             }
         }
-    }
-
-    private void NotifyNormalOutputBaseChanged(string previousPath, string currentPath)
-    {
-        if (!OperationModeLR2DB
-            || string.IsNullOrWhiteSpace(previousPath)
-            || string.IsNullOrWhiteSpace(currentPath)
-            || string.Equals(
-                CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(previousPath),
-                CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(currentPath),
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        ShowUiMessage(
-            string.Format(
-                CultureInfo.CurrentCulture,
-                BeMusicSeeker.Properties.Resources.Msg_CustomFolderNormalOutputBaseChangedSearchRootRemovedFormat,
-                previousPath),
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            "Normal custom folder output base changed warning");
     }
 
     public string BMSInstallDir
@@ -2523,49 +2498,90 @@ public partial class SettingsDialogViewModel : ViewModel
         ShowUiMessage(errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
     }
 
-    internal bool ConfirmCustomFolderOutputBaseJukeboxAdoptionBeforeSave(out bool hasConflicts)
+    private bool ConfirmCustomFolderOutputChangesBeforeSave()
     {
-        IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> conflicts = CollectCustomFolderOutputBaseJukeboxAdoptionConflicts();
-        hasConflicts = conflicts.Count > 0;
-        if (conflicts.Count == 0)
+        IReadOnlyList<string> warningSearchRoots = GetCustomFolderOutputWarningSearchRoots();
+        IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> conflicts =
+            CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(warningSearchRoots);
+        var removedSearchRoots = conflicts
+            .Where(conflict => !conflict.IsNormalOutput)
+            .Select(conflict => conflict.JukeboxRootPath)
+            .ToList();
+        if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(tempLR2CustomFolderOutputDir, LR2CustomFolderOutputDir)
+            && warningSearchRoots.Any(root =>
+                CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, tempLR2CustomFolderOutputDir)))
+        {
+            removedSearchRoots.Add(tempLR2CustomFolderOutputDir);
+        }
+
+        var messages = new List<string>();
+        if (conflicts.Count > 0)
+        {
+            messages.Add(BuildCustomFolderOutputBaseJukeboxAdoptionMessage(conflicts));
+        }
+        if (removedSearchRoots.Count > 0)
+        {
+            messages.Add(FormatResource(
+                BeMusicSeeker.Properties.Resources.Confirm_CustomFolderOutputSearchRootsRemovedFormat,
+                string.Join(Environment.NewLine, CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(removedSearchRoots))));
+        }
+        if (messages.Count == 0)
         {
             return true;
         }
 
         return ShowUiConfirmation(
-            BuildCustomFolderOutputBaseJukeboxAdoptionMessage(conflicts),
+            FormatResource(BeMusicSeeker.Properties.Resources.Confirm_CustomFolderOutputChangesFormat,
+                string.Join(Environment.NewLine + Environment.NewLine, messages)),
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
             MessageBoxButton.OKCancel,
-            "Custom folder output base adoption confirmation");
+            "Custom folder output settings confirmation");
     }
 
-    private IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> CollectCustomFolderOutputBaseJukeboxAdoptionConflicts()
+    // XML自体の不備は設定全体の検証で通知します。表示用のBMS一覧は管理領域を除外するため使いません。
+    private LR2Config GetCustomFolderValidationConfig()
     {
-        if (!OperationModeLR2DB || (lr2config == null && !IsLR2ConfigXmlPathValid()))
+        if (!OperationModeLR2DB)
+        {
+            return null;
+        }
+        if (lr2config != null)
+        {
+            return lr2config;
+        }
+        return LR2Config.TryLoad(ApplicationSettings.LR2ConfigXmlPath, out LR2Config config) ? config : null;
+    }
+
+    private IReadOnlyList<string> GetCustomFolderOutputWarningSearchRoots()
+    {
+        LR2Config config = GetCustomFolderValidationConfig();
+        if (config == null)
         {
             return [];
         }
 
-        LR2Config config;
-        try
-        {
-            config = lr2config ?? new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
-        }
-        catch
-        {
-            return [];
-        }
+        // 同じ編集内で登録を先に削除しても、保存済みの検索領域を管理領域へ採用する確認は省きません。
+        // 検証は編集中の登録を使い、警告だけは保存済み登録と現在の登録の両方を比較元にします。
+        string[] savedSearchRoots = (tempLR2ConfigBmsSearchRoots ?? string.Empty)
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+            savedSearchRoots.Concat(config.GetBMSSearchDirectoriesForChangeTracking()));
+    }
 
+    private IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(
+        IEnumerable<string> jukeboxRoots)
+    {
         return CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(
             CreateCurrentCustomFolderOutputBaseCandidates(),
-            config.GetBMSSearchDirectoriesForChangeTracking(),
-            GetPreviousNonNormalManagedCustomFolderSearchRootDirectories());
+            jukeboxRoots,
+            GetPreviousNonNormalManagedCustomFolderSearchRootDirectories(),
+            tempLR2CustomFolderOutputDir);
     }
 
     private bool HasCustomFolderOutputBaseJukeboxAdoptionConflicts()
     {
-        return CollectCustomFolderOutputBaseJukeboxAdoptionConflicts().Count > 0;
+        return CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(GetCustomFolderOutputWarningSearchRoots()).Count > 0;
     }
 
     private bool ValidateLR2BmsSearchRootsDoNotOverlap(out string errMsg)
@@ -2645,6 +2661,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         var candidates = new List<CustomFolderOutputBaseCandidate>
             {
+                new(BeMusicSeeker.Properties.Resources.Label_NormalOutputBase, LR2CustomFolderOutputDir, isNormalOutput: true),
                 new(BeMusicSeeker.Properties.Resources.Label_RootOutputBase, LR2CustomFolderAsRootOutputDir)
             };
         foreach (string path in CustomFolderAdditionalOutputBaseDirList)
@@ -2652,11 +2669,6 @@ public partial class SettingsDialogViewModel : ViewModel
             candidates.Add(new CustomFolderOutputBaseCandidate(BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder, path));
         }
         return candidates;
-    }
-
-    private IReadOnlyList<string> GetPreviousNormalCustomFolderSearchRootDirectories()
-    {
-        return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories([tempLR2CustomFolderOutputDir]);
     }
 
     private IReadOnlyList<string> GetPreviousNonNormalManagedCustomFolderSearchRootDirectories()
@@ -2670,10 +2682,15 @@ public partial class SettingsDialogViewModel : ViewModel
         return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
     }
 
+    /// <summary>
+    /// 登録済みパスを新たに管理領域へ採用する候補を列挙します。通常出力先は同じ役割を継続する
+    /// 場合だけ確認を省き、追加・ルート出力先への転用による楽曲検索の除外を見落としません。
+    /// </summary>
     internal static IReadOnlyList<CustomFolderOutputBaseJukeboxAdoptionConflict> CollectCustomFolderOutputBaseJukeboxAdoptionConflicts(
         IEnumerable<CustomFolderOutputBaseCandidate> candidates,
         IEnumerable<string> jukeboxRoots,
-        IEnumerable<string> previousManagedRoots)
+        IEnumerable<string> previousManagedRoots,
+        string previousNormalOutputBase = null)
     {
         IReadOnlyList<string> normalizedJukeboxRoots = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(jukeboxRoots);
         IReadOnlyList<string> normalizedPreviousManagedRoots = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(previousManagedRoots);
@@ -2691,6 +2708,9 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 if (string.IsNullOrWhiteSpace(jukeboxRoot)
                     || IsSameOrChildOfAnyRoot(jukeboxRoot, normalizedPreviousManagedRoots)
+                    || (candidate.IsNormalOutput
+                        && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(candidatePath, previousNormalOutputBase)
+                        && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(jukeboxRoot, previousNormalOutputBase))
                     || !CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(candidatePath, jukeboxRoot))
                 {
                     continue;
@@ -2699,7 +2719,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 string key = (candidate?.Label ?? string.Empty) + "\n" + candidatePath + "\n" + jukeboxRoot;
                 if (seen.Add(key))
                 {
-                    conflicts.Add(new CustomFolderOutputBaseJukeboxAdoptionConflict(candidate?.Label, candidatePath, jukeboxRoot));
+                    conflicts.Add(new CustomFolderOutputBaseJukeboxAdoptionConflict(candidate.Label, candidatePath, jukeboxRoot, candidate.IsNormalOutput));
                 }
             }
         }
@@ -2743,11 +2763,16 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal sealed class CustomFolderOutputBaseCandidate
     {
-        internal CustomFolderOutputBaseCandidate(string label, string path)
+        /// <summary>表示名、出力先、通常出力先の互換検索を維持する役割を捕捉します。</summary>
+        internal CustomFolderOutputBaseCandidate(string label, string path, bool isNormalOutput = false)
         {
             Label = label ?? string.Empty;
             Path = path ?? string.Empty;
+            IsNormalOutput = isNormalOutput;
         }
+
+        /// <summary>通常出力先として互換検索を維持する候補かを表します。</summary>
+        internal bool IsNormalOutput { get; }
 
         internal string Label { get; }
 
@@ -2756,12 +2781,17 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal sealed class CustomFolderOutputBaseJukeboxAdoptionConflict
     {
-        internal CustomFolderOutputBaseJukeboxAdoptionConflict(string outputBaseLabel, string outputBasePath, string jukeboxRootPath)
+        /// <summary>採用する出力先と影響する登録、その役割を捕捉します。</summary>
+        internal CustomFolderOutputBaseJukeboxAdoptionConflict(string outputBaseLabel, string outputBasePath, string jukeboxRootPath, bool isNormalOutput)
         {
             OutputBaseLabel = outputBaseLabel ?? string.Empty;
             OutputBasePath = outputBasePath ?? string.Empty;
             JukeboxRootPath = jukeboxRootPath ?? string.Empty;
+            IsNormalOutput = isNormalOutput;
         }
+
+        /// <summary>通常出力先として互換検索を維持する候補かを表します。</summary>
+        internal bool IsNormalOutput { get; }
 
         internal string OutputBaseLabel { get; }
 
@@ -5447,7 +5477,9 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPaths[leftIndex], normalizedPaths[rightIndex]))
                     {
-                        errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_AdditionalOutputBasesNested);
+                        errMsg = FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Validation_OutputBasesOverlapFormat,
+                            BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder,
+                            BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder));
                         return false;
                     }
                 }
@@ -5472,60 +5504,30 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-            CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, BeMusicSeeker.Properties.Resources.Label_NormalOutputBaseFolder);
-
-            string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath);
-            if (string.IsNullOrWhiteSpace(name))
+            string label = BeMusicSeeker.Properties.Resources.Label_NormalOutputBase;
+            CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, label);
+            if (string.IsNullOrWhiteSpace(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath)))
             {
-                errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_NormalOutputBaseNameEmpty);
-                return false;
+                throw new ArgumentException(BeMusicSeeker.Properties.Resources.Validation_NormalOutputBaseNameEmpty);
             }
-
+            ValidateOutputBasesDoNotOverlap(normalizedPath, label,
+                LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
             foreach (string additionalPath in CustomFolderAdditionalOutputBaseDirList)
             {
-                if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, additionalPath))
-                {
-                    errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_NormalAndAdditionalOutputBasesNested);
-                    return false;
-                }
+                ValidateOutputBasesDoNotOverlap(normalizedPath, label,
+                    additionalPath, BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder);
             }
 
-            ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
-                normalizedPath,
-                BeMusicSeeker.Properties.Resources.Label_NormalOutputBase,
-                tempLR2CustomFolderOutputDir,
-                BeMusicSeeker.Properties.Resources.Label_PreviousNormalOutputBase,
-                out errMsg);
-            if (!string.IsNullOrWhiteSpace(errMsg))
-            {
-                return false;
-            }
-
+            ValidatePreviousOutputBase(normalizedPath, label, tempLR2CustomFolderOutputDir,
+                BeMusicSeeker.Properties.Resources.Label_PreviousNormalOutputBase);
+            ValidatePreviousOutputBase(normalizedPath, label, tempLR2CustomFolderAsRootOutputDir,
+                BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase, allowSameDirectory: false);
             foreach (string previousAdditionalPath in CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs))
             {
-                ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
-                    normalizedPath,
-                    BeMusicSeeker.Properties.Resources.Label_NormalOutputBase,
-                    previousAdditionalPath,
-                    BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase,
-                    out errMsg);
-                if (!string.IsNullOrWhiteSpace(errMsg))
-                {
-                    return false;
-                }
+                ValidatePreviousOutputBase(normalizedPath, label, previousAdditionalPath,
+                    BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase, allowSameDirectory: false);
             }
-
-            if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, LR2CustomFolderAsRootOutputDir))
-            {
-                errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_NormalAndRootOutputBasesNested);
-                return false;
-            }
-
-            if (!ValidateNormalOutputBaseDoesNotAdoptUserBmsRoot(normalizedPath, out errMsg))
-            {
-                return false;
-            }
-
+            ValidateOutputBaseAgainstBmsRoots(normalizedPath, label);
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
@@ -5535,22 +5537,32 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private void ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
-        string outputBasePath,
-        string outputBaseLabel,
-        string previousManagedRootPath,
-        string previousManagedRootLabel,
-        out string errMsg)
+    private static void ValidateOutputBasesDoNotOverlap(string path, string label, string otherPath, string otherLabel)
     {
-        errMsg = string.Empty;
-        if (string.IsNullOrWhiteSpace(previousManagedRootPath)
-            || CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(outputBasePath, previousManagedRootPath))
+        if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, otherPath))
+        {
+            throw new InvalidOperationException(FormatResource(
+                BeMusicSeeker.Properties.Resources.Validation_OutputBasesOverlapFormat, label, otherLabel));
+        }
+    }
+
+    private static void ValidatePreviousOutputBase(
+        string path, string label, string previousPath, string previousLabel, bool allowSameDirectory = true)
+    {
+        if (allowSameDirectory && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, previousPath))
         {
             return;
         }
-        if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(outputBasePath, previousManagedRootPath))
+        ValidateOutputBasesDoNotOverlap(path, label, previousPath, previousLabel);
+    }
+
+    private void ValidateOutputBaseAgainstBmsRoots(string path, string label, bool allowRegisteredChildren = false)
+    {
+        LR2Config config = GetCustomFolderValidationConfig();
+        if (config != null)
         {
-            errMsg = FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Validation_PreviousManagedRootNestedFormat, outputBaseLabel, previousManagedRootLabel));
+            CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
+                path, config.GetBMSSearchDirectoriesForChangeTracking(), label, allowRegisteredChildren);
         }
     }
 
@@ -5565,41 +5577,22 @@ public partial class SettingsDialogViewModel : ViewModel
         try
         {
             string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-            CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, BeMusicSeeker.Properties.Resources.Label_RootOutputBaseFolder);
-
-            string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath);
-            if (string.IsNullOrWhiteSpace(name))
+            string label = BeMusicSeeker.Properties.Resources.Label_RootOutputBase;
+            CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, label);
+            if (string.IsNullOrWhiteSpace(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath)))
             {
-                errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_RootOutputBaseNameEmpty);
-                return false;
+                throw new ArgumentException(BeMusicSeeker.Properties.Resources.Validation_RootOutputBaseNameEmpty);
             }
-
-            if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, LR2CustomFolderOutputDir))
-            {
-                errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_RootAndNormalOutputBasesNested);
-                return false;
-            }
-
+            ValidateOutputBasesDoNotOverlap(normalizedPath, label,
+                LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
             foreach (string additionalPath in CustomFolderAdditionalOutputBaseDirList)
             {
-                if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, additionalPath))
-                {
-                    errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_RootAndAdditionalOutputBasesNested);
-                    return false;
-                }
+                ValidateOutputBasesDoNotOverlap(normalizedPath, label,
+                    additionalPath, BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder);
             }
-
-            ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
-                normalizedPath,
-                BeMusicSeeker.Properties.Resources.Label_RootOutputBase,
-                tempLR2CustomFolderAsRootOutputDir,
-                BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase,
-                out errMsg);
-            if (!string.IsNullOrWhiteSpace(errMsg))
-            {
-                return false;
-            }
-
+            ValidatePreviousOutputBase(normalizedPath, label, tempLR2CustomFolderAsRootOutputDir,
+                BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase);
+            ValidateOutputBaseAgainstBmsRoots(normalizedPath, label, allowRegisteredChildren: true);
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
@@ -5609,103 +5602,22 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private bool ValidateNormalOutputBaseDoesNotAdoptUserBmsRoot(string normalizedPath, out string errMsg)
-    {
-        errMsg = string.Empty;
-        IReadOnlyList<string> previousNormalRoots = GetPreviousNormalCustomFolderSearchRootDirectories();
-        if (!OperationModeLR2DB || string.IsNullOrWhiteSpace(normalizedPath))
-        {
-            return true;
-        }
-        if (IsSameOrNestedWithAnyRoot(normalizedPath, GetPreviousNonNormalManagedCustomFolderSearchRootDirectories()))
-        {
-            errMsg = FormatPlaylistValidationMessage(FormatResource(
-                BeMusicSeeker.Properties.Resources.Validation_OutputBaseNestedWithBmsRootFormat,
-                BeMusicSeeker.Properties.Resources.Label_NormalOutputBase));
-            return false;
-        }
-
-        LR2Config config;
-        try
-        {
-            if (lr2config == null && !IsLR2ConfigXmlPathValid())
-            {
-                return true;
-            }
-            config = lr2config ?? new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
-        }
-        catch
-        {
-            return true;
-        }
-
-        foreach (string jukeboxRoot in CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(config.GetBMSSearchDirectoriesForChangeTracking()))
-        {
-            if (string.IsNullOrWhiteSpace(jukeboxRoot) || IsSameAsAnyRoot(jukeboxRoot, previousNormalRoots))
-            {
-                continue;
-            }
-            if (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(normalizedPath, jukeboxRoot))
-            {
-                errMsg = FormatPlaylistValidationMessage(FormatResource(
-                    BeMusicSeeker.Properties.Resources.Validation_OutputBaseSameAsBmsRootFormat,
-                    BeMusicSeeker.Properties.Resources.Label_NormalOutputBase));
-                return false;
-            }
-            if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, jukeboxRoot))
-            {
-                errMsg = FormatPlaylistValidationMessage(FormatResource(
-                    BeMusicSeeker.Properties.Resources.Validation_OutputBaseNestedWithBmsRootFormat,
-                    BeMusicSeeker.Properties.Resources.Label_NormalOutputBase));
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static bool IsSameAsAnyRoot(string path, IEnumerable<string> roots)
-    {
-        string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-        return !string.IsNullOrWhiteSpace(normalizedPath)
-            && roots != null
-            && roots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(normalizedPath, root));
-    }
-
-    private static bool IsSameOrNestedWithAnyRoot(string path, IEnumerable<string> roots)
-    {
-        string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-        return !string.IsNullOrWhiteSpace(normalizedPath)
-            && roots != null
-            && roots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, root));
-    }
-
     private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath)
     {
-        CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(path);
-        ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(path, LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
-        ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(path, LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
-        if (!string.IsNullOrWhiteSpace(oldPath)
-            && !CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, oldPath)
-            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, oldPath))
+        string label = BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder;
+        CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(path, label);
+        ValidateOutputBasesDoNotOverlap(path, label, LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
+        ValidateOutputBasesDoNotOverlap(path, label, LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
+        foreach (string otherPath in CustomFolderAdditionalOutputBaseDirList)
         {
-            throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNestedWithPreviousAdditional);
+            if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(otherPath, path)
+                && !CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(otherPath, oldPath))
+            {
+                ValidateOutputBasesDoNotOverlap(path, label, otherPath, label);
+            }
         }
-
-        // Existing LR2 <jukebox> roots can be adopted as app-managed custom folder output roots.
-        // The destructive-semantics warning is handled once at save time so paths entered before
-        // the LR2 config is selected are checked by the same flow.
-    }
-
-    private void ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(string additionalOutputBasePath, string outputBasePath, string outputBaseLabel)
-    {
-        if (string.IsNullOrWhiteSpace(outputBasePath))
-        {
-            return;
-        }
-        if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(additionalOutputBasePath, outputBasePath))
-        {
-            throw new InvalidOperationException(FormatResource(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNestedWithOutputBaseFormat, outputBaseLabel));
-        }
+        ValidatePreviousOutputBase(path, label, oldPath, BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase);
+        ValidateOutputBaseAgainstBmsRoots(path, label);
     }
 
     private int CountPlaylistCustomFolderOutputBaseReferences(string baseName)
@@ -7983,14 +7895,14 @@ public partial class SettingsDialogViewModel : ViewModel
         UiDialogRoute.ThrowIfNotShown(result, routeName);
     }
 
-    private static void ShowUiMessage(
+    private void ShowUiMessage(
         string messageBoxText,
         string caption,
         MessageBoxImage icon,
         string routeName = "UI message dialog",
         MessageBoxResult defaultResult = MessageBoxResult.OK)
     {
-        UiDialogResult result = new UiDialogCoordinator()
+        UiDialogResult result = schemaDialogs
             .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, defaultResult))
             .GetAwaiter()
             .GetResult();

@@ -20,11 +20,13 @@
 
 起動・差分更新・初期化の前には全出力基点を検査し、読取りと自己所有の一時ファイルの作成・書込み・削除を要求します。使えない基点を自動作成して成功扱いにしません。配下の表ディレクトリや出力ファイルがまだないことは失敗ではありません。スタンドアロンではLR2出力先の残存設定で起動を止めません。
 
-基点同士の同一・親子配置は設定入口で拒否します。既定通常先と管理外BMS検索ルートの重複も拒否します。追加先・ルート型先については既存jukeboxを管理領域として採用する再設定のため、保存時に警告して利用者が続行した場合だけ許可する経路があります。採用後は通常譜面の検索対象ではありません。検索対象の区別は[設定](../runtime/settings.md#カスタムフォルダと検索対象)を参照します。
+基点同士の同一・親子配置は拒否します。通常・追加先は既存BMS登録と同一か、重ならない場所だけを許可し、ルート型先は既存登録の親も許可します。既存登録を管理領域として採用する場合の保存時確認、旧管理領域の保護、検索対象の区別は[設定](../runtime/settings.md#カスタムフォルダと検索対象)を正本とします。
 
 ### jukeboxとの同期
 
-通常・追加先は利用者設定を正本としてjukeboxに不足分を補います。ルート型は基点そのものではなく、各表の実効出力ディレクトリをルートとして扱います。子ディレクトリが未生成なら必要に応じて作成します。保存時と起動時は、基点や不要な旧子ルートを残さず現在の表ディレクトリへ揃えます。起動時は表一覧を読み込んだ後に行います。`ReloadTables` は不足する表ルートを補いますが、不要ルートの完全な整理は保存時・起動時が担当します。
+通常・追加先は利用者設定を正本として `jukebox` に不足分を補い、同一登録は保持します。両者の同期・起動時修復は共通の配置検証を使い、全候補を検証してからディレクトリ作成・登録追加へ進みます。既存登録の親・子を指定した場合は設定不備として拒否し、親登録を外して子へ置換したり、不正な出力先だけ黙って省略したりしません。
+
+ルート型は基点そのものではなく、各表の実効出力ディレクトリをルートとして扱います。既存登録と同じ基点、または既存の表ルートを含む親を指定でき、子ディレクトリが未生成なら必要に応じて作成します。保存時と起動時は基点・不要な旧子登録を現在の表ディレクトリへ揃えますが、基点の外側にある親登録は削除対象にせず、基点がその子となる設定を拒否します。起動時の完全な整理は表一覧を読み込んだ後に行います。`ReloadTables` は不足する表ルートを補い、不要ルートの完全な整理は保存時・起動時が担当します。
 
 ### 出力除外と種類
 
@@ -106,6 +108,8 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 | --- | --- | --- |
 | 種類・SQL・階層と保存設定 | [`BMSTable`](../../../BeMusicSeeker/Models/BMSTable.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/BmsPlaylistCustomFolderOutputTests.cs) |
 | 一括生成・旧出力先・状態・受付 | [`PlaylistCustomFolderOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistCustomFolderOutputOwner.cs) | [`PlaylistCustomFolderOutputOwnerTests`](../../../BeMusicSeeker.Tests/PlaylistCustomFolderOutputOwnerTests.cs)、[`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/BmsPlaylistCustomFolderOutputTests.cs) |
+| 通常・追加先の同一登録維持と親子配置の拒否 | [`CustomFolderOutputBaseSearchRootSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/CustomFolderOutputBaseSearchRootSyncService.cs) | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/LR2ConfigTests.cs) の `OutputBaseSearchRootValidation_OnlyRootOutputCanContainRegisteredDirectories`、`SyncAdditionalOutputBaseRoots_RejectsParentOrChildWithoutReplacingRegistration`、`RepairNormalOutputBaseRoots_RejectsInvalidAdditionalBeforeAddingDefault`: パス方向、全候補の変更前検証、XML・登録の保持。 |
+| ルート型先の復元と外側の親登録の保護 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistCustomFolderOutputMaintenanceOwner.cs) | [`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/SettingDialogCustomFolderOutputBaseTests.cs) のルート同期テストと `RootOutputBaseSync_RejectsRegisteredParentWithoutChangingRootsOrFiles`: 基点・旧子登録からの復元、未生成ディレクトリの補完、禁止配置の未変更性。 |
 | スキーマの互換性・既定値 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/BMSPlaylist.cs) | [`PlaylistSchemaMigrationTests`](../../../BeMusicSeeker.Tests/PlaylistSchemaMigrationTests.cs) |
 
 ## 関連資料

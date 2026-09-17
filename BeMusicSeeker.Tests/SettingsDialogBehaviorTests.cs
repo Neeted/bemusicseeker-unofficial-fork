@@ -359,13 +359,25 @@ public sealed class SettingsDialogBehaviorTests
             activeLibraryProfile: true))
         {
             failedRestartHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-            failedRestartHarness.OperationModeRestart.Failure = new InvalidOperationException("restart request failed");
+            // 再起動要求の失敗と通知自体の失敗を混ぜない。
+            failedRestartHarness.Dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            var requestFailure = new InvalidOperationException("restart request failed");
+            failedRestartHarness.OperationModeRestart.Failure = requestFailure;
 
             failedRestartHarness.Dialog.OperationModeLR2DB = true;
 
             Assert.IsFalse(failedRestartHarness.Dialog.OperationModeLR2DB);
+            Assert.IsFalse(failedRestartHarness.Session.Values.OperationModeLR2DB);
+            Assert.IsTrue(failedRestartHarness.Dialog.IsEditCompletionEnabled);
+            Assert.IsTrue(failedRestartHarness.Dialog.IsEditCancellationEnabled);
+            Assert.AreEqual(1, failedRestartHarness.Dialogs.ConfirmationCount);
+            Assert.AreEqual(1, failedRestartHarness.OperationModeRestart.RequestCount);
+            Assert.AreEqual(0, failedRestartHarness.Lifetime.RestartCount);
             Assert.AreEqual(0, failedRestartHarness.Lifetime.ShutdownCount);
-            Assert.AreEqual(0, failedRestartHarness.Dialogs.MessageCount);
+            Assert.AreEqual(1, failedRestartHarness.Dialogs.MessageCount);
+            Assert.AreEqual(
+                string.Format(Resources.SettingsApplyIncomplete, requestFailure.Message),
+                failedRestartHarness.Dialogs.LastMessageText);
             Assert.AreEqual(0, failedRestartHarness.Session.SaveCount);
         }
 
@@ -383,7 +395,16 @@ public sealed class SettingsDialogBehaviorTests
 
             failedRequestHarness.Dialog.OperationModeLR2DB = true;
 
+            Assert.IsFalse(failedRequestHarness.Dialog.OperationModeLR2DB);
+            Assert.IsFalse(failedRequestHarness.Session.Values.OperationModeLR2DB);
+            Assert.IsTrue(failedRequestHarness.Dialog.IsEditCompletionEnabled);
+            Assert.IsTrue(failedRequestHarness.Dialog.IsEditCancellationEnabled);
+            Assert.AreEqual(1, failedRequestHarness.Dialogs.ConfirmationCount);
+            Assert.AreEqual(1, failedRequestHarness.OperationModeRestart.RequestCount);
+            Assert.AreEqual(0, failedRequestHarness.Lifetime.RestartCount);
             Assert.AreEqual(0, failedRequestHarness.Lifetime.ShutdownCount);
+            Assert.AreEqual(0, failedRequestHarness.Dialogs.MessageCount);
+            Assert.AreEqual(0, failedRequestHarness.Session.SaveCount);
             Assert.AreEqual(1, failedRequestHarnessReportedFailures.Count);
             Assert.AreSame(requestFailure, failedRequestHarnessReportedFailures[0]);
         }

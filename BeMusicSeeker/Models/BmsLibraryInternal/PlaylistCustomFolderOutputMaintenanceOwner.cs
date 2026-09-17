@@ -74,6 +74,10 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         this.areCurrentTables = areCurrentTables ?? throw new ArgumentNullException(nameof(areCurrentTables));
     }
 
+    /// <summary>
+    /// 表の読込み時に不足するルート出力ディレクトリを補います。外側のBMS親登録は設定不備として拒否し、
+    /// 復元用の基点・旧子登録の完全な整理は表読込み後の同期へ委ねます。
+    /// </summary>
     internal bool SyncRootFolderOutputDirectoriesToLr2Config(CustomFolderOutputSettingsSnapshot settings)
     {
         if (settings == null || !settings.OperationModeLR2DB)
@@ -97,12 +101,15 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             return false;
         }
 
+        List<string> beforeDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
+        CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
+            settings.LR2CustomFolderOutputBaseDirRootType, beforeDirectories,
+            Resources.Label_RootOutputBase, allowRegisteredChildren: true);
         foreach (string expectedDirectory in expectedDirectories)
         {
             LongPathFileSystem.CreateDirectory(expectedDirectory);
         }
 
-        List<string> beforeDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
         List<string> missingDirectories = [.. expectedDirectories
             .Where(path => !beforeDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))];
         if (missingDirectories.Count == 0)
@@ -117,6 +124,10 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return true;
     }
 
+    /// <summary>
+    /// ルート出力先の基点・旧子登録を現在の表ディレクトリへ揃えます。
+    /// 基点が既存BMS登録の子になる設定は、ファイル作成や登録変更の前に拒否します。
+    /// </summary>
     internal bool SyncCustomFolderOutputSearchRootsAfterSettingsChange(
         string previousRootOutputBaseDirectory,
         LR2Config configOverride,
@@ -133,6 +144,11 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             throw new InvalidOperationException("LR2 configuration is required for custom-folder search-root synchronization.");
         }
 
+        List<string> beforeDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
+        CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
+            settings.LR2CustomFolderOutputBaseDirRootType, beforeDirectories,
+            Resources.Label_RootOutputBase, allowRegisteredChildren: true);
+
         IReadOnlyList<string> previousRootDirectories = CreateRootCustomFolderOutputDirectories(previousRootOutputBaseDirectory);
         IReadOnlyList<string> currentRootDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
             CreateRootCustomFolderOutputDirectories(settings.LR2CustomFolderOutputBaseDirRootType));
@@ -141,7 +157,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             LongPathFileSystem.CreateDirectory(currentRootDirectory);
         }
 
-        List<string> beforeDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
         IReadOnlyList<string> explicitRemoveDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
             previousRootDirectories.Concat([settings.LR2CustomFolderOutputBaseDirRootType]));
         IEnumerable<string> removeDirectories = beforeDirectories.Where(registeredPath =>
@@ -1022,15 +1037,16 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     private static void EnsureCustomFolderOutputBaseSearchRoot(ICollection<string> directories, string outputBase)
     {
         string normalizedOutputBase = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(outputBase);
-        if (directories == null
-            || string.IsNullOrWhiteSpace(normalizedOutputBase)
-            || directories.Any(directory => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(
-                normalizedOutputBase,
-                CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(directory))))
+        if (directories == null || string.IsNullOrWhiteSpace(normalizedOutputBase))
         {
             return;
         }
-
+        CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
+            normalizedOutputBase, directories, Resources.Label_CustomFolderOutputBase);
+        if (directories.Any(directory => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(normalizedOutputBase, directory)))
+        {
+            return;
+        }
         LongPathFileSystem.CreateDirectory(normalizedOutputBase);
         directories.Add(normalizedOutputBase);
     }
@@ -1040,21 +1056,9 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         string currentRootBase,
         IReadOnlyList<string> currentRootDirectories)
     {
-        if (string.IsNullOrWhiteSpace(registeredPath)
-            || currentRootDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(currentRootBase)
-            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(registeredPath, currentRootBase))
-        {
-            return true;
-        }
-
-        return currentRootDirectories.Any(currentRootDirectory =>
-            !CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(registeredPath, currentRootDirectory)
-            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(registeredPath, currentRootDirectory));
+        // 基点自身と配下の旧登録だけを整理します。外側のBMS検索ルートは採用対象ではありません。
+        return !currentRootDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase)
+            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(registeredPath, currentRootBase);
     }
 
     private static void AddOutputDirectory(ISet<string> directories, string directory)

@@ -38,6 +38,8 @@
 
 設定画面は、親を必須とする `ShowWindowAsync` のモーダル表示です。設定内の選択・通知・子ウィンドウでは、表示中の `SettingsWindow` を親とし、`MainWindow` へ勝手に戻しません。
 
+入力検証の同期通知も、確認・非同期通知と同じ注入済みの表示窓口を使います。通知ごとに調停処理を作り直しません。表示失敗では拒否した入力を採用せず、失敗を呼出元へ伝えます。
+
 初回設定の保存完了通知は、設定内の通知ではなく設定画面終了後の案内です。設定画面とそのモーダル表示の後片付けを終えてから `MainWindow` を親として表示します。通知終了までは初期化を開始しません。初期化などの失敗で設定を再表示する場合は、保存中状態を解除した呼出元からUIキューへ要求し、前の処理が新しい画面の終了を待たないようにします。
 
 LR2詳細パス編集は、子画面内の一時編集値を持ちます。選択はその値だけを変え、「完了」で検証済みの組を `SettingsDialogViewModel` へ一括反映します。取消とウィンドウの閉じる操作は親の編集値を変えません。一般ページのクリック処理は非同期待機し、イベントハンドラー以外へ `async void` を広げません。
@@ -53,6 +55,7 @@ LR2詳細パス編集は、子画面内の一時編集値を持ちます。選�
 | 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../BeMusicSeeker.Tests/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 検出対象のファイル集合と表が一致すること。正規表現・比較対象は実装側を参照する。 |
 | 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同テスト群: コンパイル後の呼出し関係から、緊急表示を使う境界を確認する。 |
 | 設定・子画面の編集と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs)、[SettingsForegroundInteractionTests](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs): 取消、確定、フォーカス、子画面の完了を確認する。 |
+| 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
 | 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
 
 ## 関連資料

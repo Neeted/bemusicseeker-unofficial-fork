@@ -24,46 +24,32 @@ internal readonly struct CustomFolderOutputBaseSearchRootSyncResult
     internal bool Changed => AddedCount > 0 || RemovedCount > 0;
 }
 
+/// <summary>
+/// 不足登録の追加結果と、出力移行が完了してから外す旧登録を保持します。
+/// 準備時に既存の親子登録を置換・削除する処理は持ちません。
+/// </summary>
 internal readonly struct CustomFolderOutputBaseSearchRootSyncPlan
 {
     private readonly IReadOnlyList<string> removedPaths;
 
     internal CustomFolderOutputBaseSearchRootSyncPlan(int addedCount, IReadOnlyList<string> removedPaths)
-        : this(addedCount, removedPaths, 0)
-    {
-    }
-
-    internal CustomFolderOutputBaseSearchRootSyncPlan(int addedCount, IReadOnlyList<string> removedPaths, int appliedRemovedCount)
     {
         AddedCount = addedCount;
         this.removedPaths = removedPaths ?? [];
-        AppliedRemovedCount = appliedRemovedCount;
     }
 
     internal int AddedCount { get; }
-
-    internal int AppliedRemovedCount { get; }
 
     internal IReadOnlyList<string> RemovedPaths => removedPaths ?? [];
 
-    internal bool Changed => AddedCount > 0 || AppliedRemovedCount > 0 || RemovedPaths.Count > 0;
-}
-
-internal readonly struct CustomFolderOutputBaseSearchRootAddResult
-{
-    internal CustomFolderOutputBaseSearchRootAddResult(int addedCount, int removedCount)
-    {
-        AddedCount = addedCount;
-        RemovedCount = removedCount;
-    }
-
-    internal int AddedCount { get; }
-
-    internal int RemovedCount { get; }
+    internal bool Changed => AddedCount > 0 || RemovedPaths.Count > 0;
 }
 
 internal static class CustomFolderOutputBaseSearchRootSyncService
 {
+    /// <summary>
+    /// 通常・追加出力先の不足登録を補います。親子重複は変更前に拒否し、既存登録は置き換えません。
+    /// </summary>
     internal static CustomFolderOutputBaseSearchRootSyncResult RepairNormalOutputBaseRoots(
         LR2Config config,
         string defaultBaseDirectory,
@@ -78,24 +64,13 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         IReadOnlyList<string> additionalPaths = CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(serializedAdditionalBaseDirectories);
         IReadOnlyList<string> expectedPaths = [.. defaultPaths.Concat(additionalPaths)];
         ValidateNoNestedExpectedPaths(expectedPaths);
-        CustomFolderOutputBaseSearchRootAddResult defaultAddResult = AddMissingSearchRoots(
-            config,
-            defaultPaths,
-            adoptNestedRegisteredRoots: false);
-        List<string> registeredBeforeAdditionalAdd = config.GetBMSSearchDirectoriesForChangeTracking();
-        IReadOnlyList<string> protectedRootPaths = CreateRegisteredRootPathsOverlappingDefaultOutputRoots(
-            registeredBeforeAdditionalAdd,
-            defaultPaths);
-        CustomFolderOutputBaseSearchRootAddResult additionalAddResult = AddMissingSearchRoots(
-            config,
-            additionalPaths,
-            registeredBeforeAdditionalAdd,
-            adoptionProtectedRootPaths: protectedRootPaths);
-        return new CustomFolderOutputBaseSearchRootSyncResult(
-            defaultAddResult.AddedCount + additionalAddResult.AddedCount,
-            defaultAddResult.RemovedCount + additionalAddResult.RemovedCount);
+        int addedCount = AddMissingSearchRoots(config, expectedPaths);
+        return new CustomFolderOutputBaseSearchRootSyncResult(addedCount, 0);
     }
 
+    /// <summary>
+    /// 追加出力先の配置を検証して不足登録を補い、不要になった旧追加登録を外します。
+    /// </summary>
     internal static CustomFolderOutputBaseSearchRootSyncResult SyncAdditionalOutputBaseRoots(
         LR2Config config,
         string previousSerializedBaseDirectories,
@@ -110,6 +85,9 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         return CompleteAdditionalOutputBaseRootSync(config, plan);
     }
 
+    /// <summary>
+    /// 通常・追加出力先を検証して不足登録を補い、移行完了後に外す旧登録を返します。
+    /// </summary>
     internal static CustomFolderOutputBaseSearchRootSyncPlan PrepareNormalOutputBaseRoots(
         LR2Config config,
         string previousDefaultBaseDirectory,
@@ -137,29 +115,13 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
 
-        CustomFolderOutputBaseSearchRootAddResult defaultAddResult = AddMissingSearchRoots(
-            config,
-            currentDefaultPaths,
-            registeredBeforeRemove,
-            adoptNestedRegisteredRoots: false);
-        List<string> registeredBeforeAdditionalAdd = config.GetBMSSearchDirectoriesForChangeTracking();
-        IReadOnlyList<string> protectedRootPaths = CreateRegisteredRootPathsOverlappingDefaultOutputRoots(
-            registeredBeforeAdditionalAdd,
-            currentDefaultPaths)
-            .Concat(preservedPaths)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        CustomFolderOutputBaseSearchRootAddResult additionalAddResult = AddMissingSearchRoots(
-            config,
-            currentAdditionalPaths,
-            registeredBeforeAdditionalAdd,
-            adoptionProtectedRootPaths: protectedRootPaths);
-        return new CustomFolderOutputBaseSearchRootSyncPlan(
-            defaultAddResult.AddedCount + additionalAddResult.AddedCount,
-            removedPaths,
-            defaultAddResult.RemovedCount + additionalAddResult.RemovedCount);
+        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
     }
 
+    /// <summary>
+    /// 追加出力先を検証して不足登録を補い、移行完了後に外す旧登録を返します。
+    /// </summary>
     internal static CustomFolderOutputBaseSearchRootSyncPlan PrepareAdditionalOutputBaseRoots(
         LR2Config config,
         string previousSerializedBaseDirectories,
@@ -180,11 +142,13 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
 
-        CustomFolderOutputBaseSearchRootAddResult addResult = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
-
-        return new CustomFolderOutputBaseSearchRootSyncPlan(addResult.AddedCount, removedPaths, addResult.RemovedCount);
+        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
     }
 
+    /// <summary>
+    /// 移行完了後に、準備で確定した旧登録だけを外します。
+    /// </summary>
     internal static CustomFolderOutputBaseSearchRootSyncResult CompleteAdditionalOutputBaseRootSync(
         LR2Config config,
         CustomFolderOutputBaseSearchRootSyncPlan plan)
@@ -199,7 +163,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             .Where(path => registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         int removedCount = config.RemoveBMSSearchDirectories(removablePaths) ? removablePaths.Count : 0;
-        return new CustomFolderOutputBaseSearchRootSyncResult(plan.AddedCount, plan.AppliedRemovedCount + removedCount);
+        return new CustomFolderOutputBaseSearchRootSyncResult(plan.AddedCount, removedCount);
     }
 
     internal static void ValidateSjisDirectoryPath(string path)
@@ -242,60 +206,63 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         LongPathFileSystem.CreateDirectory(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path));
     }
 
-    private static CustomFolderOutputBaseSearchRootAddResult AddMissingSearchRoots(
+    private static int AddMissingSearchRoots(
         LR2Config config,
         IEnumerable<string> paths,
-        IReadOnlyList<string> registeredPaths = null,
-        bool adoptNestedRegisteredRoots = true,
-        IEnumerable<string> adoptionProtectedRootPaths = null)
+        IReadOnlyList<string> registeredPaths = null)
     {
         IReadOnlyList<string> expectedPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
-        List<string> registeredBeforeAdd = registeredPaths == null
-            ? config.GetBMSSearchDirectoriesForChangeTracking()
-            : [.. registeredPaths];
-        IReadOnlyList<string> protectedRootPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(adoptionProtectedRootPaths);
+        registeredPaths ??= config.GetBMSSearchDirectoriesForChangeTracking();
+        ValidateNoNestedExpectedPaths(expectedPaths);
+        foreach (string expectedPath in expectedPaths)
+        {
+            ValidateSjisDirectoryPath(expectedPath, BeMusicSeeker.Properties.Resources.Label_CustomFolderOutputBase);
+            ValidateOutputBaseAgainstSearchRoots(
+                expectedPath, registeredPaths, BeMusicSeeker.Properties.Resources.Label_CustomFolderOutputBase);
+        }
+
+        // 不正な親子登録を削除・置換せず、全候補の検証後に不足する同列の登録だけを補います。
+        List<string> addedPaths = [.. expectedPaths
+            .Where(path => !registeredPaths.Any(registeredPath => IsSameDirectory(path, registeredPath)))];
         foreach (string expectedPath in expectedPaths)
         {
             EnsureSjisDirectoryExists(expectedPath);
         }
-        ValidateNoNestedExpectedPaths(expectedPaths);
-
-        List<string> adoptionRemovedPaths = adoptNestedRegisteredRoots
-            ? [.. registeredBeforeAdd.Where(registeredPath =>
-                !IsSameOrNestedWithAnyRoot(registeredPath, protectedRootPaths)
-                && expectedPaths.Any(expectedPath =>
-                    !IsSameDirectory(expectedPath, registeredPath)
-                    && IsSameOrNestedDirectory(expectedPath, registeredPath)))
-                .Distinct(StringComparer.OrdinalIgnoreCase)]
-            : [];
-        List<string> addedPaths = [.. expectedPaths
-            .Where(path => !registeredBeforeAdd.Contains(path, StringComparer.OrdinalIgnoreCase))
-            .Where(path => adoptNestedRegisteredRoots
-                || !registeredBeforeAdd.Any(registeredPath => IsSameOrNestedDirectory(path, registeredPath)))
-            .Where(path => !IsSameOrNestedWithAnyRoot(path, protectedRootPaths))];
-        if (adoptionRemovedPaths.Count > 0)
-        {
-            IReadOnlyList<string> nextPaths = [.. registeredBeforeAdd
-                .Except(adoptionRemovedPaths, StringComparer.OrdinalIgnoreCase)
-                .Concat(addedPaths)
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            config.SetBMSSearchDirectories(nextPaths);
-        }
-        else if (addedPaths.Count > 0)
+        if (addedPaths.Count > 0)
         {
             config.AddBMSSearchDirectories(addedPaths);
         }
-        return new CustomFolderOutputBaseSearchRootAddResult(addedPaths.Count, adoptionRemovedPaths.Count);
+        return addedPaths.Count;
     }
 
-    private static IReadOnlyList<string> CreateRegisteredRootPathsOverlappingDefaultOutputRoots(
-        IEnumerable<string> registeredPaths,
-        IEnumerable<string> defaultOutputRootPaths)
+    /// <summary>
+    /// 出力先と登録済み検索ルートの配置を検証します。同一パスは採用でき、
+    /// ルートフォルダ出力先に限り配下の登録を復元対象として許可します。
+    /// 禁止する親子関係は設定不備として通知し、登録を自動補正しません。
+    /// </summary>
+    internal static void ValidateOutputBaseAgainstSearchRoots(
+        string outputBasePath,
+        IEnumerable<string> registeredRoots,
+        string outputBaseLabel,
+        bool allowRegisteredChildren = false)
     {
-        IReadOnlyList<string> defaultPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(defaultOutputRootPaths);
-        return [.. CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(registeredPaths)
-            .Where(registeredPath => defaultPaths.Any(defaultPath => IsSameOrNestedDirectory(defaultPath, registeredPath)))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        foreach (string registeredRoot in registeredRoots ?? [])
+        {
+            if (IsSameDirectory(outputBasePath, registeredRoot)
+                || !IsSameOrNestedDirectory(outputBasePath, registeredRoot)
+                || (allowRegisteredChildren && IsSameOrChildDirectory(registeredRoot, outputBasePath)))
+            {
+                continue;
+            }
+            throw new ArgumentException(string.Format(
+                CultureInfo.CurrentCulture,
+                allowRegisteredChildren
+                    ? BeMusicSeeker.Properties.Resources.Validation_OutputBaseInsideBmsRootFormat
+                    : BeMusicSeeker.Properties.Resources.Validation_OutputBaseNestedWithBmsRootFormat,
+                outputBaseLabel,
+                outputBasePath,
+                registeredRoot));
+        }
     }
 
     private static void ValidateNoNestedExpectedPaths(IReadOnlyList<string> expectedPaths)
@@ -307,18 +274,11 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             {
                 if (IsSameOrNestedDirectory(expectedPaths[leftIndex], expectedPaths[rightIndex]))
                 {
-                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Validation_AdditionalOutputBasesNested);
+                    throw new ArgumentException(string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Validation_OutputBasesOverlapFormat,
+                        BeMusicSeeker.Properties.Resources.Label_CustomFolderOutputBase, BeMusicSeeker.Properties.Resources.Label_CustomFolderOutputBase));
                 }
             }
         }
-    }
-
-    private static bool IsSameOrNestedWithAnyRoot(string path, IEnumerable<string> roots)
-    {
-        string normalizedPath = NormalizeComparableDirectoryPath(path);
-        return !string.IsNullOrWhiteSpace(normalizedPath)
-            && roots != null
-            && roots.Any(root => IsSameOrNestedDirectory(normalizedPath, root));
     }
 
     internal static bool IsSameDirectory(string left, string right)
@@ -340,6 +300,18 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
                 || IsSameOrChildPath(normalizedRight, normalizedLeft));
     }
 
+    /// <summary>
+    /// パスを正規化し、同一または子ディレクトリかを区切り文字単位で判定します。
+    /// </summary>
+    internal static bool IsSameOrChildDirectory(string candidate, string parent)
+    {
+        string normalizedCandidate = NormalizeComparableDirectoryPath(candidate);
+        string normalizedParent = NormalizeComparableDirectoryPath(parent);
+        return !string.IsNullOrWhiteSpace(normalizedCandidate)
+            && !string.IsNullOrWhiteSpace(normalizedParent)
+            && IsSameOrChildPath(normalizedCandidate, normalizedParent);
+    }
+
     private static bool IsSameOrChildPath(string candidate, string parent)
     {
         if (string.Equals(candidate, parent, StringComparison.OrdinalIgnoreCase))
@@ -347,7 +319,9 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             return true;
         }
 
-        string parentWithSeparator = TrimDirectorySeparatorUnlessRoot(parent) + Path.DirectorySeparatorChar;
+        string parentWithSeparator = Path.EndsInDirectorySeparator(parent)
+            ? parent
+            : parent + Path.DirectorySeparatorChar;
         return candidate.StartsWith(parentWithSeparator, StringComparison.OrdinalIgnoreCase);
     }
 
