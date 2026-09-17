@@ -24,8 +24,10 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowViewHostTests
 {
-    [TestMethod]
-    public void MainWindowShutdownCapturePrecedesShellCompletion()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MainWindowShutdownCapturePrecedesShellCompletion(bool deferSettingsPresentation)
     {
         const double initialTreeViewWidth = 281d;
         const double capturedTreeViewWidth = 347d;
@@ -60,12 +62,33 @@ public sealed class MainWindowViewHostTests
                 // the unshown view-host construction and close terminal, never startup rendering.
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(viewModel);
+                int settingsPresentationCount = 0;
+                window = new MainWindow(viewModel, settingsWindow =>
+                {
+                    settingsPresentationCount++;
+                    settingsWindow.ContentRendered += (_, _) => settingsWindow.CloseForOwnerShutdown();
+                });
                 window.Closed += (_, _) => events.Add("window-closed");
 
                 ColumnDefinition treeColumn = GetNamedElement<ColumnDefinition>(window, "gridColumn0");
                 treeColumn.Width = new GridLength(capturedTreeViewWidth, GridUnitType.Pixel);
+                var settingsPresentation = (ISettingDialogPresentationPort)window;
+                Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsClosingOrClosed);
+                if (deferSettingsPresentation)
+                {
+                    // 要求時は終了前、実行時は終了受付後になる順序を明示する。
+                    settingsPresentation.OpenSettingsDialog(deferPresentation: true);
+                }
                 window.Close();
+                Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsClosingOrClosed);
+                if (!deferSettingsPresentation)
+                {
+                    settingsPresentation.OpenSettingsDialog();
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task,
+                    "settings-presentation-after-shutdown");
+                Assert.AreEqual(0, settingsPresentationCount);
 
                 Task<ShellShutdownWorkflowCompletionReceipt> closeRequest =
                     viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();

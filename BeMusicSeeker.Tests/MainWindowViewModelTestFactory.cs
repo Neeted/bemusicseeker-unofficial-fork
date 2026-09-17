@@ -95,14 +95,14 @@ internal sealed class NoOpSettingsEditSession : ISettingsEditSession
 internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 {
     private readonly MainWindowViewModel owner;
-    private readonly Func<Task<bool>> initializeLibrary;
+    private readonly Func<Task<StartupInitializationOutcome>> initializeLibrary;
     private readonly Func<Task> reloadScoresOnly;
     private readonly Func<Task> reloadFileDiff;
     private readonly Action? initializationFailed;
 
     internal TestSettingsDialogStatePort(
         MainWindowViewModel owner,
-        Func<Task<bool>> initializeLibrary,
+        Func<Task<StartupInitializationOutcome>> initializeLibrary,
         Action? initializationFailed = null,
         Func<Task>? reloadScoresOnly = null,
         Func<Task>? reloadFileDiff = null)
@@ -119,14 +119,14 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 
     public bool IsLibraryOperationInProgress => owner.IsLibraryOperationInProgress;
 
-    public async Task<bool> InitializeLibraryAsync()
+    public async Task<StartupInitializationOutcome> InitializeLibraryAsync()
     {
-        bool initialized = await initializeLibrary();
-        if (!initialized)
+        StartupInitializationOutcome outcome = await initializeLibrary();
+        if (outcome == StartupInitializationOutcome.SettingsRequired)
         {
             initializationFailed?.Invoke();
         }
-        return initialized;
+        return outcome;
     }
 
     public Task ReloadScoresOnlyAsync() => reloadScoresOnly();
@@ -155,11 +155,22 @@ internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPr
 
     internal List<string> Requests { get; } = new();
 
-    public void OpenSettingsDialog() => Record("open");
+    public void OpenSettingsDialog(bool deferPresentation = false) => Record("open");
 
     public void OpenInitialSetupLanguageDialog() => Record("initial-setup");
 
     public void CloseSettingsDialog() => Record("close");
+
+    internal Func<Task>? WaitForClose { get; set; }
+
+    public async Task CloseSettingsDialogAsync()
+    {
+        CloseSettingsDialog();
+        if (WaitForClose != null)
+        {
+            await WaitForClose();
+        }
+    }
 
     public void RefreshAppearanceSelection() => Record("refresh");
 

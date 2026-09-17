@@ -1169,8 +1169,10 @@ public sealed class SettingsForegroundInteractionTests
                 new TestSettingsDialogStatePort(
                     viewModel,
                     initializeOwner == null
-                        ? () => viewModel.InitializeAsync()
-                        : () => initializeOwner(viewModel),
+                        ? () => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync()
+                        : async () => await initializeOwner(viewModel)
+                            ? StartupInitializationOutcome.Succeeded
+                            : StartupInitializationOutcome.SettingsRequired,
                     () =>
                     {
                         SetPrivateField(viewModel, "initializationCompleted", false);
@@ -1298,7 +1300,7 @@ public sealed class SettingsForegroundInteractionTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+        public Task<StartupInitializationOutcome> InitializeLibraryAsync() => Task.FromResult(StartupInitializationOutcome.Succeeded);
 
         public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
 

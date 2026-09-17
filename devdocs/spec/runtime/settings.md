@@ -50,7 +50,15 @@
 
 ### 保存の受付と処理選択
 
-有効なプロファイルがある場合、ライブラリ操作中のOKは保存を開始せず警告し、編集値を保存済み値へ戻します。変更がないOKは検証・保存・後続処理を行わず閉じます。有効なプロファイルがない初回設定では、変更がなくても必要項目を検証し、保存して初期化完了を待ちます。
+有効なプロファイルがある場合、ライブラリ操作中のOKは保存を開始せず警告し、編集値を保存済み値へ戻します。変更がないOKは検証・保存・後続処理を行わず閉じます。
+
+有効なプロファイルがない場合は、初回設定と設定修復を同じ経路で扱います。変更がなくても必要項目を検証し、必要な保存に成功した後で設定ウィンドウを閉じます。`Closed` の発生だけでなく、モーダル表示からの復帰、表示中ウィンドウの参照解除、表示抑止の復元まで待ってから後続処理へ渡します。
+
+`IsFirstStartup` が真の場合は、設定ウィンドウの終了後にメインウィンドウを親として `Msg_initsetting_completed` を表示し、利用者が通知を閉じた後で初期化を一度だけ開始します。偽の場合は、この通知を表示せず初期化へ進みます。初回起動の判定条件は変更しません。画面を閉じても、保存処理のタスクは通知と初期化の結果まで追跡します。
+
+保存に失敗した場合は閉じず、編集値と必要な失敗状態を保ちます。保存成功後の通知表示失敗では初期化へ進みません。通知または初期化に失敗した場合は、必要な失敗案内と後片付けを終え、保存中状態を解除してから設定画面を一度だけ再表示します。初期化から終了要求が返った場合は通常の失敗と区別し、再表示しません。表示要求はUIキューへ送り、前の保存処理が新しいモーダル画面の終了を待つ状態を作りません。保存済み値を無条件に巻き戻しません。
+
+有効なプロファイルがある通常設定の全初期化・スコア再読込み・ファイル差分更新は、後続処理の結果を待ってから画面の終了を判断します。`Msg_init_completed` の表示境界と自動LR2同期の受付順序は変更しません。
 
 変更内容が必要条件に影響する場合は全体を検証します。その他の場合も、保存に必要な外部状態の確認は省略しません。利用者設定に変更があるときだけ `Settings.Save` を行います。再生位置など実行中に変更された永続化対象も変更に含みます。LR2のXMLは、その内容の変更が必要な場合だけ保存します。
 
@@ -91,6 +99,9 @@
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 表示・閉じる・分類・入力保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs) |
+| 初回・修復設定の保存、閉鎖、通知、初期化の順序 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSettings_ClosesBeforeNotificationAndAwaitsInitialization`: 単独・LR2、初回通知の有無、表示終了と通知の待機、二重要求の拒否。 |
+| 初回設定の実表示と失敗後の再表示 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実際の通知、親ウィンドウ、モーダル表示の終了、失敗後の編集受付、終了要求時の再表示抑止。 |
+| 初回保存・通知・初期化の失敗と再試行 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSaveFailureKeepsDraftWithoutClosingOrInitializing`、`ApplySettingsAsync_InitialSettingsDialogFailureIsReported`、`ApplySettingsAsync_InitialInitializationFailureReopensAfterCleanupAndCanRetry`、`ApplySettingsAsync_InitialDirectoryFailureReopensOnceAfterCleanupAndCanRetry`: 保存失敗では入力保持、通知失敗では初期化抑止、初期化失敗では保存済み値と再試行受付を保持。 |
 | フォーカスと実際の利用者操作 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingsForegroundInteractionTests`](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs) |
 | 変更範囲と検索ルートの比較 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`StartupSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/StartupSettingsSnapshotTests.cs)、[`CustomFolderOutputSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/CustomFolderOutputSettingsSnapshotTests.cs) |
 | LR2設定XMLの構造と読込み結果 | [`LR2Config`](../../../BeMusicSeeker/Models/LR2/LR2Config.cs) の `TryLoad` とコンストラクター | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/LR2ConfigTests.cs) の `TryLoad_UnsetOrInvalidPathReturnsNoConfig`、`TryLoad_InvalidDocumentRejectsWithoutChangingFile`、`TryLoad_ValidConfigPreservesUnavailableRegisteredRoots`、`TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections`: 不正入力の拒否、空登録と `.xml` / `.xmh` の許容、欠落ルートとファイルの保持。 |

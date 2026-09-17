@@ -3228,6 +3228,275 @@ public sealed class SettingsWindowPresentationTests
         StringAssert.Contains(cancelButton.Attribute("Content")!.Value, "Resources.Cancel");
     }
 
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public void MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization(
+        bool initializationSucceeds,
+        bool shutdownRequested)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "BmsInitialSettings-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var events = new List<string>();
+            var lifetime = new DangerApplicationLifetime(events, firstStartup: true);
+            var values = new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = string.Empty,
+                StandaloneBmsRootPaths = string.Empty,
+                BMSInstallDir = string.Empty,
+                TableListURL = new Uri("http://127.0.0.1:1/table-list.json"),
+                EnablePlaylistUrlCompletion = false,
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true,
+                UseBeatorajaScoreDb = false,
+                EnableBeatorajaBmtOutput = false,
+                UseExternalPanelImage = false,
+                UsePlayeruBMplay = false,
+                UsePlayerLR2body = false,
+                UsePlayerBMIIDXView = false,
+                IsLR2BackupEnabled = false
+            };
+            var session = new DangerSettingsEditSession(values, events);
+            var initializeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var initializeReleased = new TaskCompletionSource<StartupInitializationOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reopened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failures = new List<Exception>();
+            var windows = new List<SettingsWindow>();
+            MainWindow? mainWindow = null;
+            MainWindowViewModel? viewModel = null;
+            Window? notificationWindow = null;
+            Task? applyTask = null;
+            int notificationCount = 0;
+            int initializeCount = 0;
+            Visibility previousOverlay = Visibility.Collapsed;
+            ExceptionDispatchInfo? bodyFailure = null;
+            bool hadVmResource = Application.Current.Resources.Contains("vm");
+            object? previousVmResource = hadVmResource ? Application.Current.Resources["vm"] : null;
+            Window? previousMainWindow = Application.Current.MainWindow;
+            var dialogs = new UiDialogCoordinator(new UiDialogOwnerResolver(), modal =>
+            {
+                notificationWindow = modal;
+                windowTest.PrepareForOwnedPresentation(modal);
+                modal.ContentRendered += (_, _) =>
+                {
+                    try
+                    {
+                        notificationCount++;
+                        Assert.IsTrue(modal.IsVisible);
+                        Assert.AreSame(mainWindow, modal.Owner);
+                        Assert.AreEqual(1, windows.Count);
+                        Assert.IsFalse(windows[0].IsVisible);
+                        Assert.IsNull(windows[0].DataContext);
+                        Assert.AreEqual(previousOverlay, mainWindow!.PlaybackOverlayVisibility);
+                        Assert.AreEqual(0, initializeCount);
+                        Assert.IsTrue(FindDescendants<TextBlock>(modal)
+                            .Any(text => text.Text == Resources.Msg_initsetting_completed));
+                        Button ok = FindDescendants<Button>(modal).Single(button =>
+                            AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxOK");
+                        ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                        modal.Close();
+                    }
+                };
+                return UiDialogOwnerResolver.PushActiveModal(modal);
+            });
+            try
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: session,
+                    reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsDialogService: dialogs);
+                viewModel = composition.CreateMainWindowViewModelForTest();
+                // 初回の設定不備までを実際の起動入口で終え、保存後の初期化だけをゲート付き入力に置換する。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false),
+                    "initial-settings-required");
+                viewModel.SettingDialog.Dispose();
+                values.BMSRootPath = root;
+                values.StandaloneBmsRootPaths = root;
+                values.BMSInstallDir = root;
+                SettingsDialogViewModel settings = composition.CreateSettingDialogViewModel(
+                    new TestSettingsDialogStatePort(viewModel, async () =>
+                    {
+                        initializeCount++;
+                        Assert.AreEqual(1, notificationCount);
+                        Assert.IsFalse(notificationWindow!.IsVisible);
+                        Assert.IsFalse(windows[0].IsVisible);
+                        initializeStarted.TrySetResult();
+                        // 初期化の内部ではなく、返された結果に対する設定画面の方針を検証する。
+                        return await initializeReleased.Task;
+                    }),
+                    viewModel.PlaylistWorkspace,
+                    viewModel.PlaylistWorkspace,
+                    viewModel.PlayHistory,
+                    viewModel.LibraryFolderTree,
+                    new TestSettingsDialogPlayerFactoryPort(),
+                    new TestSettingsDialogPlaybackRuntimePort(),
+                    viewModel.Lr2SongDbSyncWorkflow);
+                typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.SettingDialog))!
+                    .SetValue(viewModel, settings);
+                Application.Current.Resources["vm"] = viewModel;
+                settings.ShowRecommUpdatedMsg = !settings.ShowRecommUpdatedMsg;
+                bool savedValue = settings.ShowRecommUpdatedMsg;
+                Assert.IsTrue(settings.CheckValidation(out string validationError), validationError);
+                mainWindow = new MainWindow(viewModel, window =>
+                {
+                    windows.Add(window);
+                    windowTest.PrepareForOwnedPresentation(window);
+                    window.ContentRendered += async (_, _) =>
+                    {
+                        try
+                        {
+                            if (windows.Count == 1)
+                            {
+                                applyTask = window.RunApplyOperationAsync(settings.ApplySettingsAsync);
+                                await applyTask;
+                                if (window.IsVisible)
+                                {
+                                    Assert.Fail("初回設定の保存後に旧設定ウィンドウが残っています。");
+                                }
+                            }
+                            else
+                            {
+                                Assert.IsTrue(applyTask!.IsCompleted);
+                                Assert.IsTrue(settings.IsEditCompletionEnabled);
+                                Assert.IsTrue(settings.IsEditCancellationEnabled);
+                                Assert.AreEqual(savedValue, settings.ShowRecommUpdatedMsg);
+                                Assert.IsFalse(settings.HasPendingSettingChanges());
+                                Assert.AreSame(mainWindow, window.Owner);
+                                reopened.TrySetResult();
+                                window.CloseForOwnerShutdown();
+                            }
+                        }
+                        catch (Exception exception)
+                        {
+                            failures.Add(exception);
+                            reopened.TrySetException(exception);
+                            window.CloseForOwnerShutdown();
+                        }
+                    };
+                });
+                Application.Current.MainWindow = mainWindow;
+                windowTest.PrepareForOwnedPresentation(mainWindow);
+                mainWindow.Show();
+                mainWindow.UpdateLayout();
+                previousOverlay = mainWindow.PlaybackOverlayVisibility;
+
+                settings.OpenCommand.Execute();
+
+                Assert.IsNotNull(applyTask);
+                Assert.AreEqual(1, windows.Count);
+                Assert.IsFalse(windows[0].IsVisible);
+                Assert.IsNull(windows[0].DataContext);
+                Assert.AreEqual(SettingsWindowCloseReason.Apply, windows[0].CloseReason);
+                Assert.AreEqual(previousOverlay, mainWindow.PlaybackOverlayVisibility);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Task.WhenAny(initializeStarted.Task, applyTask!), "initial-settings-notification");
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.IsTrue(initializeStarted.Task.IsCompletedSuccessfully);
+                Assert.IsFalse(applyTask!.IsCompleted);
+                Assert.IsTrue(settings.IsEditCompletionInProgress);
+                initializeReleased.SetResult(shutdownRequested
+                    ? StartupInitializationOutcome.ShutdownRequested
+                    : initializationSucceeds ? StartupInitializationOutcome.Succeeded : StartupInitializationOutcome.SettingsRequired);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(applyTask!, "initial-settings-apply");
+                if (!initializationSucceeds && !shutdownRequested)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reopened.Task, "initial-settings-reopened");
+                }
+                // 遅延表示がキューに残っていても、終了要求後の再表示を見逃さない。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task,
+                    "initial-settings-presentation-drained");
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.AreEqual(initializationSucceeds || shutdownRequested ? 1 : 2, windows.Count);
+                Assert.AreEqual(1, session.SaveCount);
+                Assert.AreEqual(1, notificationCount);
+                Assert.AreEqual(1, initializeCount);
+                Assert.IsTrue(settings.IsEditCompletionEnabled);
+                Assert.IsFalse(((Grid)windows[0].FindName("settingDialogOperationGrid")).IsEnabled);
+                Assert.AreEqual(previousOverlay, mainWindow.PlaybackOverlayVisibility);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                try
+                {
+                    initializeReleased.TrySetResult(StartupInitializationOutcome.Succeeded);
+                    if (notificationWindow?.IsVisible == true)
+                    {
+                        notificationWindow.Close();
+                    }
+                    foreach (SettingsWindow window in windows.Where(window => window.IsVisible).ToArray())
+                    {
+                        window.CloseForOwnerShutdown();
+                    }
+                    if (applyTask != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(applyTask, "initial-settings-apply-cleanup");
+                    }
+                    if (mainWindow != null)
+                    {
+                        CloseMainWindowThroughShutdownWorkflow(mainWindow, lifetime);
+                    }
+                    viewModel?.SettingDialog.Dispose();
+                }
+                catch (Exception cleanupFailure)
+                {
+                    if (bodyFailure != null)
+                    {
+                        bodyFailure.SourceException.Data["CleanupFailure"] = cleanupFailure.ToString();
+                    }
+                    else
+                    {
+                        bodyFailure = ExceptionDispatchInfo.Capture(cleanupFailure);
+                    }
+                }
+                finally
+                {
+                    Application.Current.MainWindow = previousMainWindow;
+                    if (hadVmResource)
+                    {
+                        Application.Current.Resources["vm"] = previousVmResource;
+                    }
+                    else
+                    {
+                        Application.Current.Resources.Remove("vm");
+                    }
+                    try
+                    {
+                        Directory.Delete(root, recursive: true);
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        if (bodyFailure != null)
+                        {
+                            bodyFailure.SourceException.Data["DirectoryCleanupFailure"] = cleanupFailure.ToString();
+                        }
+                        else
+                        {
+                            bodyFailure = ExceptionDispatchInfo.Capture(cleanupFailure);
+                        }
+                    }
+                }
+            }
+            bodyFailure?.Throw();
+        });
+    }
+
     [TestMethod]
     public void MainWindow_PresentsFreshOwnedModalThroughCoordinator()
     {
@@ -3976,7 +4245,7 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+        public Task<StartupInitializationOutcome> InitializeLibraryAsync() => Task.FromResult(StartupInitializationOutcome.Succeeded);
 
         public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
 
@@ -4007,7 +4276,7 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+        public Task<StartupInitializationOutcome> InitializeLibraryAsync() => Task.FromResult(StartupInitializationOutcome.Succeeded);
 
         public Task ReloadScoresOnlyAsync() => reloadScoresOnly();
 
@@ -4295,7 +4564,7 @@ public sealed class SettingsWindowPresentationTests
 
         internal Action? CloseAction { get; set; }
 
-        public void OpenSettingsDialog()
+        public void OpenSettingsDialog(bool deferPresentation = false)
         {
         }
 
@@ -4307,6 +4576,12 @@ public sealed class SettingsWindowPresentationTests
         {
             CloseRequestCount++;
             CloseAction?.Invoke();
+        }
+
+        public Task CloseSettingsDialogAsync()
+        {
+            CloseSettingsDialog();
+            return Task.CompletedTask;
         }
 
         public void RefreshAppearanceSelection()

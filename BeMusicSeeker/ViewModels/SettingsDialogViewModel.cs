@@ -129,7 +129,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>
     /// Gets the command used by views to request the settings dialog.
     /// </summary>
-    public ViewModelCommand OpenCommand => openCommand ??= new ViewModelCommand(RequestOpen);
+    public ViewModelCommand OpenCommand => openCommand ??= new ViewModelCommand(() => RequestOpen());
 
     /// <summary>
     /// Gets the command that restores the saved settings snapshot and closes the dialog.
@@ -202,9 +202,10 @@ public partial class SettingsDialogViewModel : ViewModel
     internal bool IsFileDiffReloadPending => fileDiffReloadPending;
 
     /// <summary>
-    /// Publishes a settings-dialog open request to the shell.
+    /// 設定画面の表示を要求し、表示用の音声デバイス情報を更新します。
     /// </summary>
-    internal void RequestOpen()
+    /// <param name="deferPresentation">失敗後の再表示など、呼出元をモーダル表示で待たせない場合は true。</param>
+    internal void RequestOpen(bool deferPresentation = false)
     {
         AudioDeviceTestStatusMessage = null;
         audioDeviceCatalog.Refresh();
@@ -214,7 +215,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(PlayerDeviceNames));
         RaisePropertyChanged(nameof(PlayerDevice));
         RaisePropertyChanged(nameof(SelectedPlayerDevice));
-        presentationPort?.OpenSettingsDialog();
+        presentationPort?.OpenSettingsDialog(deferPresentation);
     }
 
     /// <summary>
@@ -272,7 +273,8 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// Completes the settings edit through validation, durable persistence, and the existing reload handoff.
+    /// 設定を検証・保存して後続処理まで追跡します。有効プロファイルがない場合は表示を先に終了し、
+    /// 失敗時は保存中状態を解放してから再編集へ戻します。
     /// </summary>
     internal async Task ApplySettingsAsync()
     {
@@ -288,6 +290,7 @@ public partial class SettingsDialogViewModel : ViewModel
         string outcome = "unknown";
         RestartMode needRestart = RestartMode.None;
         bool shouldInitializeAfterSave = false;
+        bool reopenAfterInitialFailure = false;
         try
         {
             if (statePort.IsLibraryOperationInProgress)
@@ -350,34 +353,41 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 await SaveSettingsForInitialInitialize();
                 saveMs = saveStopwatch.ElapsedMilliseconds;
+                reopenAfterInitialFailure = true;
+                if (presentationPort != null)
+                {
+                    await presentationPort.CloseSettingsDialogAsync();
+                }
                 if (applicationLifetime.IsFirstStartup)
                 {
                     totalStopwatch.Stop();
                     await ShowInitialSettingsCompletionMessageAsync();
                     totalStopwatch.Start();
                 }
-                bool initializationSucceeded = await statePort.InitializeLibraryAsync();
-                if (initializationSucceeded)
+                StartupInitializationOutcome initializationOutcome = await statePort.InitializeLibraryAsync();
+                if (initializationOutcome == StartupInitializationOutcome.Succeeded)
                 {
                     SetScoreReloadPending(false);
                     SetFileDiffReloadPending(false);
-                    ClosePresentation();
                     outcome = "saved_initial";
                 }
                 else
                 {
-                    outcome = "saved_initialization_failed";
+                    outcome = initializationOutcome == StartupInitializationOutcome.ShutdownRequested
+                        ? "saved_shutdown_requested"
+                        : "saved_initialization_failed";
                 }
+                reopenAfterInitialFailure = initializationOutcome == StartupInitializationOutcome.SettingsRequired;
             }
             else
             {
                 await SaveSettings();
                 saveMs = saveStopwatch.ElapsedMilliseconds;
-                bool initializationSucceeded = true;
+                StartupInitializationOutcome initializationOutcome = StartupInitializationOutcome.Succeeded;
                 if (needRestart.HasFlag(RestartMode.All)
                     || (needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly)))
                 {
-                    initializationSucceeded = await statePort.InitializeLibraryAsync();
+                    initializationOutcome = await statePort.InitializeLibraryAsync();
                 }
                 else if (needRestart.HasFlag(RestartMode.ScoreOnly))
                 {
@@ -387,7 +397,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     await ReloadFileDiffAsync();
                 }
-                if (initializationSucceeded)
+                if (initializationOutcome == StartupInitializationOutcome.Succeeded)
                 {
                     SetScoreReloadPending(false);
                     SetFileDiffReloadPending(false);
@@ -396,7 +406,9 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
                 else
                 {
-                    outcome = "saved_initialization_failed";
+                    outcome = initializationOutcome == StartupInitializationOutcome.ShutdownRequested
+                        ? "saved_shutdown_requested"
+                        : "saved_initialization_failed";
                 }
             }
         }
@@ -425,6 +437,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 + " restartMode=" + needRestart
                 + " validationMs=" + validationMs
                 + " saveMs=" + saveMs);
+            if (reopenAfterInitialFailure)
+            {
+                // 初期化側では再表示せず、排他と保存中状態が解放されたこの境界から一度だけ戻す。
+                RequestOpen(deferPresentation: true);
+            }
         }
     }
 

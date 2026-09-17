@@ -1907,11 +1907,11 @@ public sealed class SettingsDialogBehaviorTests
 
         internal FileDiffReloadWorkflowOwner? ReloadFileDiffWorkflowOwner { get; set; }
 
-        public Task<bool> InitializeLibraryAsync()
+        public Task<StartupInitializationOutcome> InitializeLibraryAsync()
         {
             runtimeCalls.ThrowIfUnexpected(nameof(InitializeLibraryAsync));
             InitializeCount++;
-            return Task.FromResult(true);
+            return Task.FromResult(StartupInitializationOutcome.Succeeded);
         }
 
         public Task ReloadScoresOnlyAsync()

@@ -6,13 +6,28 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>初期化の成功、設定修復が必要な失敗、既に要求した終了を区別します。</summary>
+internal enum StartupInitializationOutcome
+{
+    /// <summary>初期化に成功しました。</summary>
+    Succeeded,
+    /// <summary>初期化を継続できず、設定の再編集が必要です。</summary>
+    SettingsRequired,
+    /// <summary>終了を要求済みです。設定画面へは戻りません。</summary>
+    ShutdownRequested
+}
+
 internal interface ISettingsDialogStatePort
 {
     bool HasActiveLibraryProfile { get; }
 
     bool IsLibraryOperationInProgress { get; }
 
-    Task<bool> InitializeLibraryAsync();
+    /// <summary>
+    /// 保存済み設定で初期化し、失敗通知と後片付けまで待ちます。設定画面の再表示は呼出元が担当します。
+    /// </summary>
+    /// <returns>初期化の結果。終了要求を設定修復が必要な失敗へ読み替えません。</returns>
+    Task<StartupInitializationOutcome> InitializeLibraryAsync();
 
     Task ReloadScoresOnlyAsync();
 

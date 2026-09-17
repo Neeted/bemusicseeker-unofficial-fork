@@ -250,7 +250,8 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsFalse(initialized);
             Assert.AreEqual(1, failurePresenter.Presentations.Count);
             Assert.AreSame(failure, failurePresenter.Presentations[0].Exception);
-            CollectionAssert.AreEqual(new[] { "open" }, settingsPresentation.Requests);
+            // 再表示はファイル初期化の内側ではなく、外側の排他解放後に行う。
+            Assert.AreEqual(0, settingsPresentation.Requests.Count);
             Assert.IsTrue(progress.IsFailed);
             Assert.IsTrue(progress.IsRetryableFailure);
             Assert.IsFalse(progress.IsStartupUiInteractionBlocked);
@@ -306,7 +307,8 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsFalse(initialized);
             Assert.AreEqual(1, failurePresenter.Presentations.Count);
             Assert.AreSame(initializationFailure, failurePresenter.Presentations[0].Exception);
-            CollectionAssert.AreEqual(new[] { "open" }, settingsPresentation.Requests);
+            // 再表示はファイル初期化の内側ではなく、外側の排他解放後に行う。
+            Assert.AreEqual(0, settingsPresentation.Requests.Count);
             Assert.IsTrue(progress.IsFailed);
             Assert.IsTrue(progress.IsRetryableFailure);
             Assert.AreEqual(initializationFailure.Message, progress.SubLabel);

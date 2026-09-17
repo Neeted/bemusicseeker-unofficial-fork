@@ -279,7 +279,7 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(
                     owner,
-                    () => Task.FromResult(true),
+                    () => Task.FromResult(StartupInitializationOutcome.Succeeded),
                     reloadFileDiff: () =>
                     {
                         reloadCount++;
@@ -339,7 +339,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(StartupInitializationOutcome.Succeeded)),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -385,7 +385,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(StartupInitializationOutcome.Succeeded)),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -429,7 +429,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(StartupInitializationOutcome.Succeeded)),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -514,7 +514,7 @@ public sealed class SettingDialogEditCompletionTests
             var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(
                     owner,
-                    () => Task.FromResult(true),
+                    () => Task.FromResult(StartupInitializationOutcome.Succeeded),
                     reloadFileDiff: () =>
                     {
                         reloadCount++;
@@ -707,7 +707,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialog = new SettingsDialogViewModel(
-                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(StartupInitializationOutcome.Succeeded)),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -780,7 +780,7 @@ public sealed class SettingDialogEditCompletionTests
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             config.Save(configPath);
             var dialog = new SettingsDialogViewModel(
-                new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+                new TestSettingsDialogStatePort(owner, () => Task.FromResult(StartupInitializationOutcome.Succeeded)),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
                 owner.PlayHistory,
@@ -2082,8 +2082,13 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    [TestMethod]
-    public async Task InitializeAsync_FirstStartupValidationFailureCompletesFalseAndRequestsInitialSetup()
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public async Task InitializeLibrary_SettingsValidationFailureRoutesGuidanceByCaller(
+        bool firstStartup, bool fromSettings)
     {
         string root = CreateTemporaryRoot();
         try
@@ -2092,16 +2097,33 @@ public sealed class SettingDialogEditCompletionTests
             invalidSettings.BMSRootPath = string.Empty;
             invalidSettings.StandaloneBmsRootPaths = string.Empty;
             var settingsSession = new CountingSettingsEditSession(invalidSettings);
+            var dialogs = new RecordingRootDialogService();
             MainWindowViewModel viewModel = CreateViewModel(
                 settingsSession,
-                firstStartup: true);
+                firstStartup,
+                dialogs: dialogs);
             var presentation = new RecordingSettingsDialogPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
 
-            bool initialized = await viewModel.InitializeAsync();
-
-            Assert.IsFalse(initialized);
-            CollectionAssert.AreEqual(new[] { "initial-setup" }, presentation.Requests);
+            if (fromSettings)
+            {
+                Assert.AreEqual(
+                    StartupInitializationOutcome.SettingsRequired,
+                    await ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync());
+            }
+            else
+            {
+                Assert.IsFalse(await viewModel.InitializeAsync());
+            }
+            CollectionAssert.AreEqual(
+                fromSettings ? Array.Empty<string>() : new[] { firstStartup ? "initial-setup" : "open" },
+                presentation.Requests);
+            bool languageSelection = firstStartup && !fromSettings;
+            Assert.AreEqual(languageSelection ? 0 : 1, dialogs.MessageCount);
+            if (!languageSelection)
+            {
+                Assert.AreEqual(Resources.Msg_init_settings_check, dialogs.LastMessageText);
+            }
             Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
             Assert.IsFalse(viewModel.IsInitializationCompleted);
             Assert.IsFalse(viewModel.HasActiveLibraryProfile);
@@ -2735,65 +2757,133 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task ApplySettingsAsync_InitialSettings_SavesClosesAndInitializes(bool firstStartup)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task ApplySettingsAsync_InitialSettings_ClosesBeforeNotificationAndAwaitsInitialization(
+        bool firstStartup,
+        bool useLr2)
     {
         string root = CreateTemporaryRoot();
+        var closeReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var messageReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var initializationReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? applyTask = null;
         try
         {
-            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            Settings values = CreateValidStandaloneSettings(root);
+            if (useLr2)
+            {
+                (string songDb, string configPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
+                string musicRoot = Path.Combine(root, "music");
+                Directory.CreateDirectory(musicRoot);
+                var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+                config.AddBMSSearchDirectories([musicRoot]);
+                config.Save();
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = Path.Combine(root, "lr2");
+                values.LR2SongDBPath = songDb;
+                values.LR2ConfigXmlPath = configPath;
+                values.BMSInstallDir = musicRoot;
+                values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "output");
+                values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-output");
+                values.LR2CustomFolderAdditionalOutputBaseDirs = string.Empty;
+            }
+            var settingsSession = new CountingSettingsEditSession(values);
             var sequence = new List<string>();
-            var dialogs = new RecordingRootDialogService();
-            dialogs.MessageObserved = () => sequence.Add("completion-message");
-            using var initializationStarted = new ManualResetEventSlim();
-            var initializationRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstBoundary = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var messageStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var initializationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failures = new List<Exception>();
+            var dialogs = new RecordingRootDialogService
+            {
+                MessageObserved = () =>
+                {
+                    sequence.Add("completion-message");
+                    firstBoundary.TrySetResult("message");
+                    messageStarted.TrySetResult();
+                },
+                MessageObservedAsync = () => messageReleased.Task
+            };
             int initializeCount = 0;
             MainWindowViewModel viewModel = CreateViewModel(
                 settingsSession,
                 firstStartup,
-                initializeOwner: _ =>
+                initializeOwner: async _ =>
                 {
                     initializeCount++;
                     sequence.Add("initialize-start");
-                    initializationStarted.Set();
-                    return initializationRelease.Task.ContinueWith(
-                        _ =>
-                        {
-                            sequence.Add("initialize-completed");
-                            return true;
-                        },
-                        CancellationToken.None,
-                        TaskContinuationOptions.ExecuteSynchronously,
-                        TaskScheduler.Default);
+                    firstBoundary.TrySetResult("initialize");
+                    initializationStarted.TrySetResult();
+                    await initializationReleased.Task;
+                    sequence.Add("initialize-completed");
+                    return true;
                 },
+                reportSettingsApplyFailure: failures.Add,
                 dialogs: dialogs);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             settingsSession.SaveObserved = () => sequence.Add("save");
-            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+            {
+                sequence.Add(request);
+                firstBoundary.TrySetResult(request);
+            })
+            {
+                WaitForClose = () => closeReleased.Task
+            });
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
 
-            Task applyTask = dialog.ApplySettingsAsync();
-            initializationStarted.Wait();
+            applyTask = dialog.ApplySettingsAsync();
+            await Task.WhenAny(firstBoundary.Task, applyTask);
+            Assert.IsTrue(firstBoundary.Task.IsCompletedSuccessfully);
+            Assert.AreEqual("close", await firstBoundary.Task);
+            CollectionAssert.AreEqual(new[] { "save", "close" }, sequence);
             Assert.IsTrue(dialog.IsEditCompletionInProgress);
             Assert.IsFalse(applyTask.IsCompleted);
-            initializationRelease.SetResult(true);
+            Assert.AreEqual(0, dialogs.MessageCount);
+            Assert.AreEqual(0, initializeCount);
+
+            closeReleased.SetResult();
+            if (firstStartup)
+            {
+                await Task.WhenAny(messageStarted.Task, initializationStarted.Task, applyTask);
+                Assert.IsTrue(messageStarted.Task.IsCompletedSuccessfully);
+                Assert.AreEqual(0, initializeCount);
+                Assert.IsFalse(applyTask.IsCompleted);
+                messageReleased.SetResult();
+            }
+            await Task.WhenAny(initializationStarted.Task, applyTask);
+            Assert.IsTrue(initializationStarted.Task.IsCompletedSuccessfully);
+            Assert.IsTrue(dialog.IsEditCompletionInProgress);
+            Assert.IsFalse(applyTask.IsCompleted);
+            await dialog.ApplySettingsAsync();
+            dialog.CancelCommand.Execute();
+            Assert.AreEqual(1, initializeCount);
+            initializationReleased.SetResult();
             await applyTask;
 
             CollectionAssert.AreEqual(
                 firstStartup
-                    ? new[] { "save", "completion-message", "initialize-start", "initialize-completed", "close" }
-                    : new[] { "save", "initialize-start", "initialize-completed", "close" },
+                    ? new[] { "save", "close", "completion-message", "initialize-start", "initialize-completed" }
+                    : new[] { "save", "close", "initialize-start", "initialize-completed" },
                 sequence);
+            Assert.AreEqual(0, failures.Count);
             Assert.AreEqual(firstStartup ? 1 : 0, dialogs.MessageCount);
-            Assert.AreEqual(1, initializeCount);
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
         finally
         {
+            closeReleased.TrySetResult();
+            messageReleased.TrySetResult();
+            initializationReleased.TrySetResult();
+            if (applyTask != null)
+            {
+                await applyTask;
+            }
             Directory.Delete(root, recursive: true);
         }
     }
@@ -2831,6 +2921,15 @@ public sealed class SettingDialogEditCompletionTests
                 dialogs: dialogs);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             settingsSession.SaveObserved = () => sequence.Add("save");
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+            {
+                if (request == "open")
+                {
+                    Assert.IsTrue(dialog.IsEditCompletionEnabled);
+                    Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                }
+                sequence.Add(request);
+            }));
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
 
@@ -2841,8 +2940,9 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(0, initializeCount);
-            CollectionAssert.AreEqual(new[] { "save", "completion-message" }, sequence);
+            CollectionAssert.AreEqual(new[] { "save", "close", "completion-message", "open" }, sequence);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
         }
         finally
         {
@@ -2932,34 +3032,238 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    [TestMethod]
-    public async Task ApplySettingsAsync_InitialInitializationFailureKeepsOverlayOpen()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task ApplySettingsAsync_InitialInitializationFailureReopensAfterCleanupAndCanRetry(
+        bool throws,
+        bool completesAsynchronously)
     {
         string root = CreateTemporaryRoot();
+        var initializeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var initializeReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? applyTask = null;
         try
         {
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var failure = new InvalidOperationException("initialization failed");
+            var failures = new List<Exception>();
+            var sequence = new List<string>();
             int initializeCount = 0;
             MainWindowViewModel viewModel = CreateViewModel(
                 settingsSession,
                 firstStartup: false,
-                initializeOwner: _ =>
+                initializeOwner: async _ =>
                 {
                     initializeCount++;
-                    return Task.FromResult(false);
-                });
+                    sequence.Add("initialize");
+                    initializeEntered.TrySetResult();
+                    if (completesAsynchronously)
+                    {
+                        await initializeReleased.Task;
+                    }
+                    if (initializeCount > 1)
+                    {
+                        return true;
+                    }
+                    if (throws)
+                    {
+                        throw failure;
+                    }
+                    return false;
+                },
+                reportSettingsApplyFailure: failures.Add);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
-            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+            var presentation = new RecordingSettingsDialogPresentationPort(request =>
+            {
+                if (request == "open")
+                {
+                    Assert.IsTrue(dialog.IsEditCompletionEnabled);
+                    Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                    Assert.IsFalse(dialog.HasPendingSettingChanges());
+                }
+                sequence.Add(request);
+            });
             dialog.AttachPresentationPort(presentation);
+
+            applyTask = dialog.ApplySettingsAsync();
+            await Task.WhenAny(initializeEntered.Task, applyTask);
+            Assert.IsTrue(initializeEntered.Task.IsCompletedSuccessfully);
+            if (completesAsynchronously)
+            {
+                CollectionAssert.AreEqual(new[] { "close", "initialize" }, sequence);
+                Assert.IsTrue(dialog.IsEditCompletionInProgress);
+                Assert.IsFalse(applyTask.IsCompleted);
+            }
+            initializeReleased.TrySetResult();
+            await applyTask;
+
+            CollectionAssert.AreEqual(new[] { "close", "initialize", "open" }, sequence);
+            Assert.AreEqual(throws ? 1 : 0, failures.Count);
+            if (throws)
+            {
+                Assert.AreSame(failure, failures[0]);
+            }
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
 
             await dialog.ApplySettingsAsync();
 
-            Assert.AreEqual(1, initializeCount);
-            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
-            CollectionAssert.DoesNotContain(
-                presentation.Requests,
-                "close");
-            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+            Assert.AreEqual(2, initializeCount);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            CollectionAssert.AreEqual(new[] { "close", "initialize", "open", "close", "initialize" }, sequence);
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
+        }
+        finally
+        {
+            initializeReleased.TrySetResult();
+            if (applyTask != null)
+            {
+                await applyTask;
+            }
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplySettingsAsync_InitialDirectoryFailureReopensOnceAfterCleanupAndCanRetry(bool firstStartup)
+    {
+        string root = CreateTemporaryRoot();
+        string musicRoot = Path.Combine(root, "music");
+        string unavailableRoot = Path.Combine(root, "music-offline");
+        Directory.CreateDirectory(musicRoot);
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var session = new CountingSettingsEditSession(CreateValidStandaloneSettings(musicRoot));
+                var dialogs = new RecordingRootDialogService();
+                var failures = new List<Exception>();
+                var sequence = new List<string>();
+                session.SaveObserved = () => sequence.Add("save");
+                dialogs.MessageObserved = () => sequence.Add(
+                    dialogs.LastMessageText == Resources.Msg_initsetting_completed ? "completion-message" : "warning");
+                MainWindowViewModel viewModel = new ApplicationComposition(
+                    settingsEditSession: session,
+                    reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(
+                        Path.Combine(root, "application", "BeMusicSeeker.exe")),
+                    settingsDialogService: dialogs,
+                    fileDbMutationDialogService: dialogs)
+                    .CreateMainWindowViewModelForTest();
+                SettingsDialogViewModel settings = viewModel.SettingDialog;
+                try
+                {
+                    settings.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                    {
+                        sequence.Add(request);
+                        if (request == "close")
+                        {
+                            // 保存の検証後、初期化前に外部ドライブが利用できなくなる場合を再現する。
+                            Directory.Move(musicRoot, unavailableRoot);
+                        }
+                        else if (request == "open")
+                        {
+                            Assert.IsTrue(settings.IsEditCompletionEnabled);
+                            Assert.IsTrue(settings.IsEditCancellationEnabled);
+                            Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                            Assert.IsFalse(settings.HasPendingSettingChanges());
+                            // 再編集に戻った利用者が接続を復旧し、次の保存で再試行する。
+                            Directory.Move(unavailableRoot, musicRoot);
+                        }
+                    }));
+                    settings.ShowRecommUpdatedMsg = !settings.ShowRecommUpdatedMsg;
+                    bool savedValue = settings.ShowRecommUpdatedMsg;
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        sequence.Clear();
+                        Assert.IsTrue(settings.CheckValidation(out string validationError), validationError);
+                        Task apply = settings.ApplySettingsAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "initial-settings-directory-failure");
+
+                        var expected = new List<string>();
+                        if (attempt == 0)
+                        {
+                            expected.Add("save");
+                        }
+                        expected.Add("close");
+                        if (firstStartup)
+                        {
+                            expected.Add("completion-message");
+                        }
+                        expected.Add("warning");
+                        expected.Add("open");
+                        CollectionAssert.AreEqual(expected, sequence);
+                        Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                        Assert.AreEqual(1, session.SaveCount);
+                        Assert.AreEqual(savedValue, settings.ShowRecommUpdatedMsg);
+                        Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+                        Assert.IsFalse(viewModel.IsInitializationCompleted);
+                        StringAssert.Contains(dialogs.LastMessageText, musicRoot);
+                        StringAssert.Contains(dialogs.LastMessageText, Resources.LibraryDirectoryPreflightBmsRootRole);
+                    }
+                }
+                finally
+                {
+                    settings.Dispose();
+                }
+            });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_InitialSaveFailureKeepsDraftWithoutClosingOrInitializing()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var failure = new IOException("settings save failure");
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root))
+            {
+                SaveFailure = failure
+            };
+            var failures = new List<Exception>();
+            var dialogs = new RecordingRootDialogService();
+            int initializeCount = 0;
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: true,
+                initializeOwner: _ =>
+                {
+                    initializeCount++;
+                    return Task.FromResult(true);
+                },
+                reportSettingsApplyFailure: failures.Add,
+                dialogs: dialogs);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
+            dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+            bool editedValue = dialog.ShowRecommUpdatedMsg;
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, failures.Count);
+            Assert.AreSame(failure, failures[0]);
+            Assert.AreEqual(0, presentation.Requests.Count);
+            Assert.AreEqual(0, initializeCount);
+            Assert.AreEqual(0, dialogs.MessageCount);
+            Assert.AreEqual(editedValue, dialog.ShowRecommUpdatedMsg);
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
         }
         finally
         {
@@ -3680,7 +3984,11 @@ public sealed class SettingDialogEditCompletionTests
         var composition = new ApplicationComposition(
             settingsEditSession: settingsSession,
             reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            settingsDialogService: dialogs,
+            fileDbMutationDialogService: dialogs);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null)
         {
@@ -3688,8 +3996,10 @@ public sealed class SettingDialogEditCompletionTests
                 new TestSettingsDialogStatePort(
                     viewModel,
                     initializeOwner == null
-                        ? () => viewModel.InitializeAsync()
-                        : () => initializeOwner(viewModel),
+                        ? () => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync()
+                        : async () => await initializeOwner(viewModel)
+                            ? StartupInitializationOutcome.Succeeded
+                            : StartupInitializationOutcome.SettingsRequired,
                     () =>
                     {
                         SetPrivateField(viewModel, "initializationCompleted", false);
@@ -3762,7 +4072,7 @@ public sealed class SettingDialogEditCompletionTests
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         SetActiveLibraryProfile(owner, true);
         return new SettingsDialogViewModel(
-            new TestSettingsDialogStatePort(owner, () => Task.FromResult(true)),
+            new TestSettingsDialogStatePort(owner, () => Task.FromResult(StartupInitializationOutcome.Succeeded)),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
             owner.PlayHistory,
@@ -3879,7 +4189,7 @@ public sealed class SettingDialogEditCompletionTests
         var dialog = new SettingsDialogViewModel(
             new TestSettingsDialogStatePort(
                 owner,
-                () => Task.FromResult(true),
+                () => Task.FromResult(StartupInitializationOutcome.Succeeded),
                 reloadFileDiff: reloadFileDiff),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -4121,7 +4431,7 @@ public sealed class SettingDialogEditCompletionTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+        public Task<StartupInitializationOutcome> InitializeLibraryAsync() => Task.FromResult(StartupInitializationOutcome.Succeeded);
 
         public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
 
@@ -4275,7 +4585,7 @@ public sealed class SettingDialogEditCompletionTests
     {
         internal SettingsWindow? CurrentWindow { get; set; }
 
-        public void OpenSettingsDialog()
+        public void OpenSettingsDialog(bool deferPresentation = false)
         {
         }
 
@@ -4287,6 +4597,12 @@ public sealed class SettingDialogEditCompletionTests
         {
             (CurrentWindow ?? throw new InvalidOperationException("No settings Window is active."))
                 .CloseFromPresentation();
+        }
+
+        public Task CloseSettingsDialogAsync()
+        {
+            CloseSettingsDialog();
+            return Task.CompletedTask;
         }
 
         public void RefreshAppearanceSelection()

@@ -28,7 +28,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var owner = MainWindowViewModelTestFactory.Create();
         var statePort = new TestSettingsDialogStatePort(
             owner,
-            () => Task.FromResult(true));
+            () => Task.FromResult(StartupInitializationOutcome.Succeeded));
         var settingDialog = new SettingsDialogViewModel(
             statePort,
             owner.PlaylistWorkspace,
@@ -203,7 +203,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             int reloadCount = 0;
             var statePort = new TestSettingsDialogStatePort(
                 owner,
-                () => Task.FromResult(true),
+                () => Task.FromResult(StartupInitializationOutcome.Succeeded),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -276,7 +276,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             int reloadCount = 0;
             var statePort = new TestSettingsDialogStatePort(
                 owner,
-                () => Task.FromResult(true),
+                () => Task.FromResult(StartupInitializationOutcome.Succeeded),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;
@@ -343,7 +343,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             int reloadCount = 0;
             var statePort = new TestSettingsDialogStatePort(
                 owner,
-                () => Task.FromResult(true),
+                () => Task.FromResult(StartupInitializationOutcome.Succeeded),
                 reloadScoresOnly: () =>
                 {
                     reloadCount++;

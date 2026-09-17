@@ -392,15 +392,19 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private void EndViewOperation()
     {
-        settingDialogOperationGrid.IsEnabled = true;
+        if (DataContext != null)
+        {
+            settingDialogOperationGrid.IsEnabled = true;
+        }
         viewOperationInProgress = false;
     }
 
     /// <summary>
-    /// Window が所有する非同期 operation と native close guard を同じ lifetime へ接続します。
+    /// 非同期処理の完了と利用者の閉じる操作の抑止を接続します。
+    /// 保存成功による表示終了後も処理を追跡し、破棄済み画面の操作受付は再開しません。
     /// </summary>
-    /// <param name="operation">設定 Window が表示中のまま完了を待つ operation。</param>
-    /// <returns>operation の完了を表す Task。</returns>
+    /// <param name="operation">画面が閉じられた場合も完了まで追跡する処理。</param>
+    /// <returns>処理と画面側の後片付けの完了を表すタスク。</returns>
     internal async Task RunViewOperationAsync(Func<Task> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -416,10 +420,10 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>
-    /// Runs the settings apply operation without authorizing a close until the ViewModel requests presentation completion.
+    /// ViewModel の終了要求でのみ設定画面を閉じ、保存後の処理まで追跡します。
     /// </summary>
-    /// <param name="operation">The ViewModel-owned apply operation.</param>
-    /// <returns>A task that completes after the apply operation and its presentation callback finish.</returns>
+    /// <param name="operation">ViewModel が所有する設定の保存・後続処理。</param>
+    /// <returns>設定の反映と画面側の後片付けの完了を表すタスク。</returns>
     internal async Task RunApplyOperationAsync(Func<Task> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);

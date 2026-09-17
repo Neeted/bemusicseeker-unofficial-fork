@@ -77,6 +77,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private SettingsWindow settingsWindow;
 
+    private TaskCompletionSource<object> settingsPresentationClosed;
+
 #nullable enable
     private readonly Action<SettingsWindow>? settingsWindowCreated;
 #nullable restore
@@ -1127,9 +1129,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         _ = base.Dispatcher.InvokeAsync((Action)Close).Task;
     }
 
-    void ISettingDialogPresentationPort.OpenSettingsDialog()
+    void ISettingDialogPresentationPort.OpenSettingsDialog(bool deferPresentation)
     {
-        RunOnUiThread(ShowSettingsWindow);
+        // 失敗後の再表示では、前の保存処理を次のモーダル画面の終了待ちにしない。
+        RunOnUiThread(() =>
+        {
+            if (!IsShellClosingOrClosed())
+            {
+                ShowSettingsWindow();
+            }
+        }, deferExecution: deferPresentation);
     }
 
     void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()
@@ -1140,6 +1149,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     void ISettingDialogPresentationPort.CloseSettingsDialog()
     {
         RunOnUiThread(() => settingsWindow?.CloseFromPresentation());
+    }
+
+    Task ISettingDialogPresentationPort.CloseSettingsDialogAsync()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            return Dispatcher.InvokeAsync(CloseSettingsWindowAsync).Task.Unwrap();
+        }
+        return CloseSettingsWindowAsync();
+    }
+
+    private Task CloseSettingsWindowAsync()
+    {
+        if (settingsWindow == null)
+        {
+            throw new InvalidOperationException("No settings presentation is active.");
+        }
+        TaskCompletionSource<object> closed = settingsPresentationClosed ??=
+            new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        settingsWindow.CloseFromPresentation();
+        return closed.Task;
     }
 
     void ISettingDialogPresentationPort.RefreshAppearanceSelection()
@@ -1174,6 +1204,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
+        Exception presentationFailure = null;
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
@@ -1186,10 +1217,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 .GetResult();
             ThrowIfWindowDialogFailed(result.Status, result.Error, "Settings window");
         }
+        catch (Exception exception)
+        {
+            presentationFailure = exception;
+            throw;
+        }
         finally
         {
+            TaskCompletionSource<object> closed = settingsPresentationClosed;
             settingsWindow = null;
+            settingsPresentationClosed = null;
             PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;
+            // Closed だけでは ShowDialog のモーダル範囲が残るため、シェルの後片付け後に受け渡す。
+            if (presentationFailure == null)
+            {
+                closed?.TrySetResult(null);
+            }
+            else
+            {
+                closed?.TrySetException(presentationFailure);
+            }
         }
     }
 
@@ -1226,13 +1273,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         Close();
     }
 
-    private void RunOnUiThread(Action action)
+    private void RunOnUiThread(Action action, bool deferExecution = false)
     {
         if (action == null)
         {
             throw new ArgumentNullException(nameof(action));
         }
-        if (Dispatcher.CheckAccess())
+        if (!deferExecution && Dispatcher.CheckAccess())
         {
             action();
             return;
@@ -1243,7 +1290,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         try
         {
-            Dispatcher.BeginInvoke(DispatcherPriority.Normal, action);
+            // 再表示は旧画面の await 継続より後へ回し、画面側の後処理も先に完了させる。
+            Dispatcher.BeginInvoke(
+                deferExecution ? DispatcherPriority.Background : DispatcherPriority.Normal,
+                action);
         }
         catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {

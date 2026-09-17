@@ -225,8 +225,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
 
-    Task<bool> ISettingsDialogStatePort.InitializeLibraryAsync()
-        => InitializeAsync();
+    Task<StartupInitializationOutcome> ISettingsDialogStatePort.InitializeLibraryAsync()
+        => InitializeLibraryAsync(openSettingsOnFailure: false);
 
     Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()
         => ReloadScoresOnlyAsync();
@@ -4207,9 +4207,13 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// 起動処理を直列化し、設定不備とディレクトリ検査の失敗は排他とUI抑止の解放後に案内します。
+    /// 起動処理を直列化し、設定画面への案内は排他とUI抑止の解放後に行います。
     /// </summary>
+    /// <returns>初期化に成功した場合だけ true。</returns>
     internal async Task<bool> InitializeAsync()
+        => await InitializeLibraryAsync(openSettingsOnFailure: true) == StartupInitializationOutcome.Succeeded;
+
+    private async Task<StartupInitializationOutcome> InitializeLibraryAsync(bool openSettingsOnFailure)
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
@@ -4217,51 +4221,56 @@ public partial class MainWindowViewModel : ViewModel,
         string settingsValidationFailure = null;
         LibraryDirectoryWarningPhase directoryWarningPhase =
             LibraryDirectoryWarningPhase.Early;
+        StartupInitializationOutcome outcome;
         try
         {
-            return await InitializeCoreAsync(
+            outcome = await InitializeCoreAsync(
                 phase => directoryWarningPhase = phase,
                 message => settingsValidationFailure = message);
         }
         catch (LibraryDirectoryPreflightException exception)
         {
             directoryFailure = exception;
-            return false;
+            outcome = StartupInitializationOutcome.SettingsRequired;
         }
         finally
         {
             initializationGate.Dispose();
-            if (directoryFailure != null)
-            {
-                await PresentLibraryDirectoryWarningAsync(
-                    directoryFailure,
-                    directoryWarningPhase,
-                    "Startup directory preflight warning");
-                SettingDialog?.RequestOpen();
-            }
-            else if (settingsValidationFailure != null)
-            {
-                NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + settingsValidationFailure.Replace(Environment.NewLine, " | "));
-                if (applicationLifetime.IsFirstStartup)
-                {
-                    SettingDialog?.RequestInitialSetupLanguageDialog();
-                }
-                else
-                {
-                    UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
-                        BeMusicSeeker.Properties.Resources.Msg_init_settings_check,
-                        BeMusicSeeker.Properties.Resources.Warning,
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Exclamation,
-                        MessageBoxResult.OK));
-                    UiDialogRoute.ThrowIfNotShown(result, "Startup settings validation notification");
-                    SettingDialog?.RequestOpen();
-                }
-            }
         }
+
+        if (directoryFailure != null)
+        {
+            await PresentLibraryDirectoryWarningAsync(
+                directoryFailure,
+                directoryWarningPhase,
+                "Startup directory preflight warning");
+        }
+        else if (settingsValidationFailure != null)
+        {
+            NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + settingsValidationFailure.Replace(Environment.NewLine, " | "));
+            if (openSettingsOnFailure && applicationLifetime.IsFirstStartup)
+            {
+                SettingDialog?.RequestInitialSetupLanguageDialog();
+                return StartupInitializationOutcome.SettingsRequired;
+            }
+
+            UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_init_settings_check,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(result, "Startup settings validation notification");
+        }
+
+        if (openSettingsOnFailure && outcome == StartupInitializationOutcome.SettingsRequired)
+        {
+            SettingDialog?.RequestOpen();
+        }
+        return outcome;
     }
 
-    private async Task<bool> InitializeCoreAsync(
+    private async Task<StartupInitializationOutcome> InitializeCoreAsync(
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
         Action<string> recordSettingsValidationFailure)
     {
@@ -4299,7 +4308,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 recordSettingsValidationFailure(startupValidationErrorMessage ?? string.Empty);
                 startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-                return false;
+                return StartupInitializationOutcome.SettingsRequired;
             }
             RepairCustomFolderOutputSearchRootsAfterStartupValidation(startupSettings, startupLr2Config);
         }
@@ -4320,8 +4329,7 @@ public partial class MainWindowViewModel : ViewModel,
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            SettingDialog?.RequestOpen();
-            return false;
+            return StartupInitializationOutcome.SettingsRequired;
         }
         recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Late);
         try
@@ -4329,7 +4337,7 @@ public partial class MainWindowViewModel : ViewModel,
             if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))
             {
                 startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-                return false;
+                return StartupInitializationOutcome.ShutdownRequested;
             }
         }
         catch (Exception ex)
@@ -4339,8 +4347,7 @@ public partial class MainWindowViewModel : ViewModel,
             string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            SettingDialog?.RequestOpen();
-            return false;
+            return StartupInitializationOutcome.SettingsRequired;
         }
         try
         {
@@ -4382,8 +4389,7 @@ public partial class MainWindowViewModel : ViewModel,
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            SettingDialog?.RequestOpen();
-            return false;
+            return StartupInitializationOutcome.SettingsRequired;
         }
         regularChartListOwner.InitializeColumnPresentation(treeViewFilterTypeSelected);
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
@@ -4664,7 +4670,7 @@ public partial class MainWindowViewModel : ViewModel,
             startupCustomFolderSettings);
         if (!startupLibraryInitialized)
         {
-            return false;
+            return StartupInitializationOutcome.SettingsRequired;
         }
         if (applicationLifetime.IsFirstStartup)
         {
@@ -4713,11 +4719,12 @@ public partial class MainWindowViewModel : ViewModel,
         startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
         startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
         startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
-        return true;
+        return StartupInitializationOutcome.Succeeded;
     }
 
     /// <summary>
-    /// ファイル初期化とその後処理を所有し、ディレクトリ検査の停止だけを外側の通知 owner へ渡します。
+    /// ファイル初期化とその後処理を所有します。設定画面の再表示は排他解放後の外側へ委ね、
+    /// ディレクトリ検査の停止は外側で通知するために伝播します。
     /// </summary>
     /// <param name="initializeStartup">ファイル初期化を実行する操作。</param>
     /// <param name="operationToken">この起動処理に対応する進捗トークン。</param>
@@ -4774,7 +4781,6 @@ public partial class MainWindowViewModel : ViewModel,
             string version = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, version + " - " + Environment.NewLine + ex.ToString(), null);
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            SettingDialog?.RequestOpen();
             return false;
         }
         finally
