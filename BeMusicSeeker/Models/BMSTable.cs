@@ -834,7 +834,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         catch (Exception ex)
         {
-            throw new PlaylistHeaderParseException("ヘッダのパースに失敗しました", ex);
+            throw new PlaylistHeaderParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistHeaderParseFailed, ex);
         }
         if (_data_json != null)
         {
@@ -884,7 +884,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         catch (Exception ex)
         {
-            throw new PlaylistDataParseException("データのパースに失敗しました", ex);
+            throw new PlaylistDataParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistDataParseFailed, ex);
         }
     }
 
@@ -1246,7 +1246,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         string newName,
         IEnumerable<string> existingFolderNames)
     {
-        string baseName = string.IsNullOrWhiteSpace(newName) ? "新しいフォルダー" : newName;
+        string baseName = string.IsNullOrWhiteSpace(newName) ? BeMusicSeeker.Properties.Resources.NewFolderName : newName;
         HashSet<string> names = new(
             existingFolderNames ?? Enumerable.Empty<string>(),
             StringComparer.Ordinal);

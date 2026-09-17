@@ -633,17 +633,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.LR2SongDBPath),
-            "song.db を開く",
+            string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "song.db"),
             "song.db",
-            "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
+            "song.db (*.db)|*.db|" + BeMusicSeeker.Properties.Resources.All_file_exts,
             PathToDirectoryOrSelf(settingDialogViewModel.LR2SongDBPath));
     }
 
     /// <summary>Picks a song database path for the LR2 advanced dialog without mutating the parent settings draft.</summary>
     internal Task<string> PickLr2AdvancedSongDbPathAsync(string currentPath) => PickLr2AdvancedFilePathAsync(
-        "song.db を開く",
+        string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "song.db"),
         "song.db",
-        "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
+        "song.db (*.db)|*.db|" + BeMusicSeeker.Properties.Resources.All_file_exts,
         currentPath,
         "LR2 advanced song database picker");
 
@@ -653,17 +653,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.LR2ConfigXmlPath),
-            "config.xml を開く",
+            string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "config.xml"),
             "config.xml",
-            "|config.xm?|すべてのファイル(*.*)|*.*",
+            "|config.xm?|" + BeMusicSeeker.Properties.Resources.All_file_exts,
             PathToDirectoryOrSelf(settingDialogViewModel.LR2ConfigXmlPath));
     }
 
     /// <summary>Picks a configuration path for the LR2 advanced dialog without mutating the parent settings draft.</summary>
     internal Task<string> PickLr2AdvancedConfigPathAsync(string currentPath) => PickLr2AdvancedFilePathAsync(
-        "config.xml を開く",
+        string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "config.xml"),
         "config.xml",
-        "|config.xm?|すべてのファイル(*.*)|*.*",
+        "|config.xm?|" + BeMusicSeeker.Properties.Resources.All_file_exts,
         currentPath,
         "LR2 advanced configuration picker");
 
@@ -778,9 +778,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.uBMplayPath),
-            "uBMplay.exe を開く",
+            string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "uBMplay.exe"),
             "uBMplay.exe",
-            "|uBMplay.exe|すべてのファイル(*.*)|*.*",
+            "|uBMplay.exe|" + BeMusicSeeker.Properties.Resources.All_file_exts,
             PathToDirectoryOrSelf(settingDialogViewModel.uBMplayPath));
     }
 
@@ -790,9 +790,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         PickFileForSetting(
             nameof(settingDialogViewModel.BMIIDXViewPath),
-            "BMIIDXView2015.exe を開く",
+            string.Format(BeMusicSeeker.Properties.Resources.Open_file_title_format, "BMIIDXView2015.exe"),
             "BMIIDXView2015.exe",
-            "|BMIIDXView2015*.exe|すべてのファイル(*.*)|*.*",
+            "|BMIIDXView2015*.exe|" + BeMusicSeeker.Properties.Resources.All_file_exts,
             PathToDirectoryOrSelf(settingDialogViewModel.BMIIDXViewPath));
     }
 
@@ -907,10 +907,10 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             return;
         }
         UiSaveFilePickerResult result = await dialogService.PickSaveFileAsync(new UiSaveFilePickerRequest(
-            "プレイリストデータを保存",
+            BeMusicSeeker.Properties.Resources.Save_PlaylistBackup,
             "BeMusicSeeker_backup.sql",
             ".sql",
-            "sqlファイル(*.sql)|*.sql",
+            BeMusicSeeker.Properties.Resources.Sql_file_exts,
             addExtension: true,
             Window.GetWindow(this)));
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
@@ -954,8 +954,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             return;
         }
         UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
-            "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？",
-            "確認",
+            BeMusicSeeker.Properties.Resources.Confirm_RestorePlaylistBackup,
+            BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question,
             MessageBoxResult.Cancel,
@@ -966,9 +966,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             return;
         }
         UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
-            "プレイリストバックアップを開く",
+            BeMusicSeeker.Properties.Resources.Open_PlaylistBackup,
             "BeMusicSeeker_backup.sql",
-            filter: "sqlファイル(*.sql)|*.sql",
+            filter: BeMusicSeeker.Properties.Resources.Sql_file_exts,
             defaultExtension: ".sql",
             owner: Window.GetWindow(this)));
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
@@ -979,8 +979,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             Func<Task> closeAfterRestore = async () =>
             {
                 UiDialogResult shutdownNotification = await dialogService.ShowMessageAsync(new UiMessageRequest(
-                    "アプリケーションを終了します。",
-                    "確認",
+                    BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit,
+                    BeMusicSeeker.Properties.Resources.Confirm,
                     MessageBoxButton.OK,
                     MessageBoxImage.Question,
                     MessageBoxResult.OK,

@@ -363,7 +363,7 @@ public partial class App : System.Windows.Application
             if (!Debugger.IsAttached)
             {
                 Thread.Sleep(1000);
-                EmergencyDialog.Show("アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
+                EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
                 try
                 {
                     System.Windows.Application.Current.MainWindow.Close();
@@ -397,7 +397,7 @@ public partial class App : System.Windows.Application
             if (!suppressed)
             {
                 Thread.Sleep(1000);
-                EmergencyDialog.Show("アプリケーションを終了します", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
+                EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
                 try
                 {
                     System.Windows.Application.Current.MainWindow.Close();
@@ -418,7 +418,7 @@ public partial class App : System.Windows.Application
         Logger logger;
         if (showMessage)
         {
-            EmergencyDialog.Show(".NET Frameworkでエラーが発生しました" + Environment.NewLine + Environment.NewLine + "原因の追跡が困難なため、どの操作で発生したか" + Environment.NewLine + "開発者に報告頂けると助かります" + Environment.NewLine + Environment.NewLine + "エラー概要:" + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.Error_UnhandledExceptionFormat, ex.Message), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             logger = networkLogger;
         }
         else

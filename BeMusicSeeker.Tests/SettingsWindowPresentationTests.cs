@@ -375,7 +375,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(1, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual("BeMusicSeeker_backup.sql", dialogs.SaveFileRequests[0].FileName);
                 Assert.AreEqual(".sql", dialogs.SaveFileRequests[0].DefaultExtension);
-                Assert.AreEqual("sqlファイル(*.sql)|*.sql", dialogs.SaveFileRequests[0].Filter);
+                Assert.AreEqual(Resources.Sql_file_exts, dialogs.SaveFileRequests[0].Filter);
                 Assert.IsTrue(dialogs.SaveFileRequests[0].AddExtension);
                 Assert.AreSame(window, dialogs.SaveFileRequests[0].Owner);
                 Assert.AreEqual(2, dialogs.ConfirmationRequests.Count);
@@ -711,8 +711,12 @@ public sealed class SettingsWindowPresentationTests
 
                 Assert.AreNotEqual(englishVersion, version.Text);
                 Assert.AreNotEqual(englishBuild, build.Text);
-                StringAssert.StartsWith(version.Text, "バージョン:");
-                StringAssert.StartsWith(build.Text, "ビルド:");
+                Assembly? entryAssembly = Assembly.GetEntryAssembly();
+                string assemblyVersion = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
+                string? informationalVersion = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                string displayedVersion = string.IsNullOrWhiteSpace(informationalVersion) ? assemblyVersion : informationalVersion;
+                Assert.AreEqual(string.Format(Resources.About_version_format, displayedVersion), version.Text);
+                Assert.AreEqual(string.Format(Resources.About_build_format, assemblyVersion), build.Text);
                 Assert.IsNull(page.FindName("textBlockUpdateStatus"));
                 Assert.IsFalse(FindDescendants<SettingsStatusBanner>(page).Any());
                 Assert.IsTrue(FindDescendants<Button>(page).Any(button =>
@@ -731,7 +735,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void SettingsWindow_JapaneseOperationAndPlayerCopyAppearsOnItsOwningPages()
+    public void SettingsWindow_OperationAndPlayerDescriptionsAppearOnTheirOwningPages()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -748,8 +752,8 @@ public sealed class SettingsWindowPresentationTests
 
                 var generalPage = (GeneralSettingsPage)pageHost.Content;
                 var standalone = (RadioButton)generalPage.FindName("radioButtonNotUseLR2");
-                Assert.AreEqual("スタンドアローン", standalone.Content);
-                Assert.AreEqual("スタンドアローン", new RadioButtonAutomationPeer(standalone).GetName());
+                Assert.AreEqual(Resources.Operation_Mode_Standalone, standalone.Content);
+                Assert.AreEqual(Resources.Operation_Mode_Standalone, new RadioButtonAutomationPeer(standalone).GetName());
 
                 navigation.SelectedIndex = 2;
                 PumpDispatcher(window.Dispatcher);
@@ -758,8 +762,8 @@ public sealed class SettingsWindowPresentationTests
                     .Single(row => Equals(row.Header, Resources.Player_Name_Internal));
                 SettingsOptionRow lr2Player = FindDescendants<SettingsOptionRow>(playbackPage)
                     .Single(row => Equals(row.Header, "LR2"));
-                Assert.AreEqual("※オーディオ設定で設定してください。", internalPlayer.Description);
-                Assert.AreEqual("LR2 の実行ファイルで譜面を再生します。", lr2Player.Description);
+                Assert.AreEqual(Resources.Player_Internal_desc, internalPlayer.Description);
+                Assert.AreEqual(Resources.Settings_player_lr2_description, lr2Player.Description);
             }
             finally
             {
@@ -1172,7 +1176,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void SettingsWindow_JapaneseTitleAndAdvancedCategoryUseDistinctLocalizedAutomationText()
+    public void SettingsWindow_LanguageChangeUpdatesTitleAndAdvancedCategoryAutomationText()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -1187,16 +1191,20 @@ public sealed class SettingsWindowPresentationTests
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var advanced = (ListBoxItem)navigation.Items[8];
 
-                Assert.AreEqual("Settings", window.Title);
-                Assert.AreEqual("Advanced settings", advanced.Content);
-                Assert.AreEqual("Advanced settings", AutomationProperties.GetName(advanced));
+                Assert.AreEqual(Resources.Settings_window_title, window.Title);
+                Assert.AreEqual(Resources.Advanced_settings, advanced.Content);
+                Assert.AreEqual(Resources.Advanced_settings, AutomationProperties.GetName(advanced));
+                string originalTitle = window.Title;
+                object originalAdvancedLabel = advanced.Content;
 
                 ResourceService.Current.ChangeCulture("ja-JP");
                 PumpDispatcher(window.Dispatcher);
 
-                Assert.AreEqual("設定", window.Title);
-                Assert.AreEqual("詳細設定", advanced.Content);
-                Assert.AreEqual("詳細設定", AutomationProperties.GetName(advanced));
+                Assert.AreEqual(Resources.Settings_window_title, window.Title);
+                Assert.AreEqual(Resources.Advanced_settings, advanced.Content);
+                Assert.AreEqual(Resources.Advanced_settings, AutomationProperties.GetName(advanced));
+                Assert.AreNotEqual(originalTitle, window.Title);
+                Assert.AreNotEqual(originalAdvancedLabel, advanced.Content);
                 Assert.AreNotEqual(window.Title, advanced.Content,
                     "The settings window identity must not reuse the Advanced category label.");
             }
@@ -4233,7 +4241,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 events?.Add("message-success");
             }
-            else if (string.Equals(request.MessageBoxText, "アプリケーションを終了します。", StringComparison.Ordinal))
+            else if (string.Equals(request.MessageBoxText, Resources.Msg_ApplicationWillExit, StringComparison.Ordinal))
             {
                 events?.Add("message-exit");
             }

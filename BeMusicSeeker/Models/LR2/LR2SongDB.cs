@@ -372,7 +372,7 @@ public class LR2SongDB : SQLiteConnectionEx
                 return;
             }
             Close();
-            throw new FileNotFoundException("ファイルが見つからないか、song.db ではありません。", value);
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbFile, value);
         }
     }
 

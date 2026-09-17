@@ -89,7 +89,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "confirm", "store", "message", "message" }, dialogs.Events.ToArray());
         Assert.AreEqual(2, dialogs.MessageRequests.Count);
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_success_uninstall, dialogs.MessageRequests[0].MessageBoxText);
-        Assert.AreEqual("アプリケーションを終了します。", dialogs.MessageRequests[1].MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, dialogs.MessageRequests[1].MessageBoxText);
     }
 
     [TestMethod]

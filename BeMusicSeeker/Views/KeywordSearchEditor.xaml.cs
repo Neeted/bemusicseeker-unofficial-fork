@@ -643,12 +643,14 @@ public partial class KeywordSearchEditor : UserControl
 
     private void HandleActionButton(object sender, KeywordSearchEditorAction action)
     {
-        if (sender is not Button { Tag: KeywordSearchPresentationItem item }
+        if (sender is not Button button
+            || button.Tag is not KeywordSearchPresentationItem item
             || assistanceOwner == null)
         {
             return;
         }
 
+        bool restoreFocusAfterKeyboardActivation = button.IsKeyboardFocusWithin;
         KeywordSearchSavedQueryMutationResult result = action switch
         {
             KeywordSearchEditorAction.RemoveFavorite => assistanceOwner.TryRemoveFavorite(item.Query),
@@ -658,11 +660,39 @@ public partial class KeywordSearchEditor : UserControl
         };
         if (!result.Succeeded)
         {
+            RestoreInputFocusAfterKeyboardAction(restoreFocusAfterKeyboardActivation);
             return;
         }
         selectedIndex = -1;
         FocusInputTextBox();
         RefreshFromInput();
+        RestoreInputFocusAfterKeyboardAction(restoreFocusAfterKeyboardActivation);
+    }
+
+    private void RestoreInputFocusAfterKeyboardAction(bool restoreFocus)
+    {
+        if (!restoreFocus)
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Input,
+            new Action(() =>
+            {
+                if (!IsLoaded || InputTextBox.IsKeyboardFocusWithin)
+                {
+                    return;
+                }
+
+                if (Keyboard.FocusedElement is DependencyObject focusedElement
+                    && !IsOwnedElement(focusedElement))
+                {
+                    return;
+                }
+
+                FocusInputTextBox();
+            }));
     }
 
     private void FocusInputTextBox()

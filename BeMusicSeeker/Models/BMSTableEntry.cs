@@ -151,7 +151,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 }
                 return;
             }
-            throw new FormatException("MD5 HASH ではありません。値: " + value.ToString());
+            throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashValueFormat, "MD5", value.ToString()));
         }
     }
 
@@ -177,7 +177,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 }
                 return;
             }
-            throw new FormatException("SHA256 HASH ではありません。値: " + value.ToString());
+            throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashValueFormat, "SHA256", value.ToString()));
         }
     }
 

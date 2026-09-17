@@ -39,7 +39,7 @@ public class LR2IRCache : ObservableObject
         }
         if (!LR2SongDB.md5HashRegex.IsMatch(md5))
         {
-            throw new ArgumentException("md5 hashではありません", "md5");
+            throw new ArgumentException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"), "md5");
         }
         if (!Lr2IrRankingCacheParser.TryParseLookup(getrankingxml, md5, cacheupdate, true, out Lr2IrRankingLookup lookup))
         {
@@ -64,7 +64,7 @@ public class LR2IRCache : ObservableObject
         }
         if (!LR2SongDB.md5HashRegex.IsMatch(md5))
         {
-            throw new ArgumentException("md5 hashではありません", "md5");
+            throw new ArgumentException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"), "md5");
         }
         if (!Lr2IrRankingCacheParser.TryParseLookup(rankingxml, md5, cacheupdate, true, out Lr2IrRankingLookup lookup))
         {

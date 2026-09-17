@@ -105,15 +105,8 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
         }
 
         UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            "BeMusicSeekerのデータをLR2データベースから削除します。"
-                + Environment.NewLine
-                + "続行した場合この操作を取り消しすることは出来ません。"
-                + Environment.NewLine
-                + "必要に応じて事前にバックアップを取得してください。"
-                + Environment.NewLine
-                + Environment.NewLine
-                + "続行しますか？",
-            "確認",
+            BeMusicSeeker.Properties.Resources.Confirm_UninstallApplicationData,
+            BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question,
             MessageBoxResult.Cancel));
@@ -143,8 +136,8 @@ internal sealed class ApplicationDataUninstallWorkflowOwner
             MessageBoxImage.Asterisk,
             "application data uninstall success notification");
         await ShowMessageAsync(
-            "アプリケーションを終了します。",
-            "確認",
+            BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit,
+            BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxImage.Question,
             "application data uninstall exit notification");
         return ApplicationDataUninstallResult.Completed;

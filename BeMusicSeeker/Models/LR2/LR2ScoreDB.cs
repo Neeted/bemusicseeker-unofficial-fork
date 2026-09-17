@@ -281,7 +281,7 @@ public class LR2ScoreDB : SQLiteConnectionEx
                 if (!File.Exists(value) || !(string.Equals(Path.GetExtension(value), ".db", System.StringComparison.OrdinalIgnoreCase)))
                 {
                     Close();
-                    throw new FileNotFoundException("ファイルが見つからないか、db ファイルではありません。", value);
+                    throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ScoreDbFile, value);
                 }
                 _dbPath = value;
             }

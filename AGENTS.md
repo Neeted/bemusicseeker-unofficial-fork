@@ -37,7 +37,7 @@
 
 ログは `Ribbit/Logging/NLogWrapper.cs` を経由します。通常は `NLogWrapper.FileLogger`、名前付き出力は `GetLogger(name)` を使い、NLogの構成・取得を各機能で行いません。高頻度処理の同期ログや不要な個人情報は追加しません。詳細は[ログ仕様](devdocs/spec/core/logging.md)を参照します。
 
-利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残さず、`LocalizationResourceParityTests` で対応を確認します。開発診断・性能記録・内部識別子は対象外です。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
+利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残さず、`LocalizationResourceParityTests` の全件共通検査で対応を確認します。新規キーごとのテストや機能別のキー一覧は増やしません。表示への到達と検査の分担は[テスト作成](devdocs/spec/development/test-authoring.md#表示リソースの検査)に従います。開発診断・性能記録・内部識別子は対象外です。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
 
 ## 文書と検証
 

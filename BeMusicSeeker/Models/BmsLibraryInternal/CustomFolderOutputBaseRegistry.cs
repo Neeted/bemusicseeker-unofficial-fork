@@ -45,7 +45,7 @@ internal static class CustomFolderOutputBaseRegistry
         }
         catch (JsonException ex)
         {
-            throw new ArgumentException("追加出力先設定の形式が壊れています。", nameof(serialized), ex);
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightCauseInvalidConfiguration, nameof(serialized), ex);
         }
     }
 
@@ -167,18 +167,18 @@ internal static class CustomFolderOutputBaseRegistry
         string normalizedName = NormalizeBaseName(newName);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
-            throw new ArgumentException("出力先フォルダが選択されていません。", nameof(path));
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_OutputDirectoryNotSet, nameof(path));
         }
         if (string.IsNullOrWhiteSpace(normalizedName))
         {
-            throw new ArgumentException("出力先フォルダ名が空です。", nameof(newName));
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputBaseNameEmpty, nameof(newName));
         }
 
         string trimmed = normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string parent = Path.GetDirectoryName(trimmed);
         if (string.IsNullOrWhiteSpace(parent))
         {
-            throw new ArgumentException("ルートディレクトリの名前は変更できません。", nameof(path));
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_CannotRenameRootDirectory, nameof(path));
         }
 
         return NormalizeDirectoryPath(Path.Combine(parent, normalizedName));

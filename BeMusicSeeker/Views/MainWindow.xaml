@@ -326,10 +326,10 @@
             <MenuItem.Header>
               <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_insane_estimation_table, Mode=OneWay}" />
             </MenuItem.Header>
-            <MenuItem Header="発狂BMS難度推定表 EASY" Tag="bmseeker:table.estimation?type=easy" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Header="発狂BMS難度推定表 NORMAL" Tag="bmseeker:table.estimation?type=normal" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Header="発狂BMS難度推定表 HARD" Tag="bmseeker:table.estimation?type=hard" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Header="発狂BMS難度推定表 FC" Tag="bmseeker:table.estimation?type=fc" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
+            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_easy, Mode=OneWay}" Tag="bmseeker:table.estimation?type=easy" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
+            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_normal, Mode=OneWay}" Tag="bmseeker:table.estimation?type=normal" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
+            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_hard, Mode=OneWay}" Tag="bmseeker:table.estimation?type=hard" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
+            <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_fc, Mode=OneWay}" Tag="bmseeker:table.estimation?type=fc" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
             <MenuItem Tag="bmseeker:table.recommended?mode=readonly" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_read_only, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick" />
             <MenuItem Tag="bmseeker:table.recommended?mode=update" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_automatic_update, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick" />
           </MenuItem>

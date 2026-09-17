@@ -2471,4 +2471,166 @@ public class Resources
     /// <summary>LR2 出力フォルダーを復旧する案内です。</summary>
     public static string LibraryDirectoryPreflightLr2Guidance => ResourceManager.GetString("LibraryDirectoryPreflightLr2Guidance", resourceCulture);
 
+    /// <summary>ファイルが見つからないか、config.xml / config.xmh ではありません。</summary>
+    public static string Error_InvalidLR2ConfigFile => ResourceManager.GetString("Error_InvalidLR2ConfigFile", resourceCulture);
+
+    /// <summary>LR2設定XMLの config セクションが見つかりません。</summary>
+    public static string Error_LR2ConfigSectionMissing => ResourceManager.GetString("Error_LR2ConfigSectionMissing", resourceCulture);
+
+    /// <summary>Shift_JISで表現できない文字がディレクトリパスに含まれています。</summary>
+    public static string Error_DirectoryPathsNotShiftJisFormat => ResourceManager.GetString("Error_DirectoryPathsNotShiftJisFormat", resourceCulture);
+
+    /// <summary>指定されたディレクトリの一部または全てが存在しません。</summary>
+    public static string Error_BmsSearchDirectoriesMissing => ResourceManager.GetString("Error_BmsSearchDirectoriesMissing", resourceCulture);
+
+    /// <summary>登録済みディレクトリまたはその親・子ディレクトリは追加できません。</summary>
+    public static string Error_BmsSearchDirectoriesOverlap => ResourceManager.GetString("Error_BmsSearchDirectoriesOverlap", resourceCulture);
+
+    /// <summary>値は0より大きい必要があります。</summary>
+    public static string Error_PositiveValueRequired => ResourceManager.GetString("Error_PositiveValueRequired", resourceCulture);
+
+    /// <summary>値は0以上である必要があります。</summary>
+    public static string Error_NonNegativeValueRequired => ResourceManager.GetString("Error_NonNegativeValueRequired", resourceCulture);
+
+    /// <summary>値は{0}以下である必要があります。</summary>
+    public static string Error_ValueMustNotExceedFormat => ResourceManager.GetString("Error_ValueMustNotExceedFormat", resourceCulture);
+
+    /// <summary>ファイルが見つからないか、song.db ではありません。</summary>
+    public static string Error_InvalidLR2SongDbFile => ResourceManager.GetString("Error_InvalidLR2SongDbFile", resourceCulture);
+
+    /// <summary>ファイルが見つからないか、拡張子が .db ではありません。</summary>
+    public static string Error_InvalidLR2ScoreDbFile => ResourceManager.GetString("Error_InvalidLR2ScoreDbFile", resourceCulture);
+
+    /// <summary>実行ファイルが見つからないか、{0} ではありません。</summary>
+    public static string Error_InvalidPlayerExecutableFormat => ResourceManager.GetString("Error_InvalidPlayerExecutableFormat", resourceCulture);
+
+    /// <summary>実行ファイルが見つかりません。</summary>
+    public static string Error_ExecutableNotFound => ResourceManager.GetString("Error_ExecutableNotFound", resourceCulture);
+
+    /// <summary>BMS ファイルが見つかりません。</summary>
+    public static string Error_BmsFileNotFound => ResourceManager.GetString("Error_BmsFileNotFound", resourceCulture);
+
+    /// <summary>{0} ハッシュではありません。</summary>
+    public static string Error_InvalidHashFormat => ResourceManager.GetString("Error_InvalidHashFormat", resourceCulture);
+
+    /// <summary>{0} ハッシュではありません。値: {1}</summary>
+    public static string Error_InvalidHashValueFormat => ResourceManager.GetString("Error_InvalidHashValueFormat", resourceCulture);
+
+    /// <summary>出力先ディレクトリが指定されていません。</summary>
+    public static string Error_OutputDirectoryNotSet => ResourceManager.GetString("Error_OutputDirectoryNotSet", resourceCulture);
+
+    /// <summary>出力先ディレクトリが存在しません。</summary>
+    public static string Error_OutputDirectoryNotFoundFormat => ResourceManager.GetString("Error_OutputDirectoryNotFoundFormat", resourceCulture);
+
+    /// <summary>ルートディレクトリの名前は変更できません。</summary>
+    public static string Error_CannotRenameRootDirectory => ResourceManager.GetString("Error_CannotRenameRootDirectory", resourceCulture);
+
+    /// <summary>ヘッダーの解析に失敗しました。</summary>
+    public static string Error_PlaylistHeaderParseFailed => ResourceManager.GetString("Error_PlaylistHeaderParseFailed", resourceCulture);
+
+    /// <summary>データの解析に失敗しました。</summary>
+    public static string Error_PlaylistDataParseFailed => ResourceManager.GetString("Error_PlaylistDataParseFailed", resourceCulture);
+
+    /// <summary>{0}のメインウィンドウ待機がタイムアウトしました。</summary>
+    public static string Error_PlayerMainWindowTimeoutFormat => ResourceManager.GetString("Error_PlayerMainWindowTimeoutFormat", resourceCulture);
+
+    /// <summary>{0}の起動がタイムアウトしました。</summary>
+    public static string Error_PlayerStartupTimeoutFormat => ResourceManager.GetString("Error_PlayerStartupTimeoutFormat", resourceCulture);
+
+    /// <summary>{0}の起動に失敗しました。</summary>
+    public static string Error_PlayerStartupFailedFormat => ResourceManager.GetString("Error_PlayerStartupFailedFormat", resourceCulture);
+
+    /// <summary>{0}の操作対象ウィンドウへのフォーカス待機がタイムアウトしました。</summary>
+    public static string Error_PlayerFocusTimeoutFormat => ResourceManager.GetString("Error_PlayerFocusTimeoutFormat", resourceCulture);
+
+    /// <summary>{0}起動後の前面ウィンドウの復元がタイムアウトしました。</summary>
+    public static string Error_PlayerForegroundRestoreAfterStartupTimeoutFormat => ResourceManager.GetString("Error_PlayerForegroundRestoreAfterStartupTimeoutFormat", resourceCulture);
+
+    /// <summary>{0}操作後の前面ウィンドウの復元がタイムアウトしました。</summary>
+    public static string Error_PlayerForegroundRestoreAfterOperationTimeoutFormat => ResourceManager.GetString("Error_PlayerForegroundRestoreAfterOperationTimeoutFormat", resourceCulture);
+
+    /// <summary>{0}への接続後の前面ウィンドウの復元がタイムアウトしました。</summary>
+    public static string Error_PlayerForegroundRestoreAfterAttachTimeoutFormat => ResourceManager.GetString("Error_PlayerForegroundRestoreAfterAttachTimeoutFormat", resourceCulture);
+
+    /// <summary>LR2のウィンドウスタイル適用がタイムアウトしました。</summary>
+    public static string Error_LR2WindowStyleTimeout => ResourceManager.GetString("Error_LR2WindowStyleTimeout", resourceCulture);
+
+    /// <summary>uBMplayを起動できませんでした。</summary>
+    public static string Error_UbmplayStartupFailed => ResourceManager.GetString("Error_UbmplayStartupFailed", resourceCulture);
+
+    /// <summary>uBMplayの再生要求の受付待機がタイムアウトしました。</summary>
+    public static string Error_UbmplayPlaybackRequestTimeout => ResourceManager.GetString("Error_UbmplayPlaybackRequestTimeout", resourceCulture);
+
+    /// <summary>uBMplayの譜面読込み待機がタイムアウトしました。</summary>
+    public static string Error_UbmplayChartLoadTimeout => ResourceManager.GetString("Error_UbmplayChartLoadTimeout", resourceCulture);
+
+    /// <summary>{0} を開く</summary>
+    public static string Open_file_title_format => ResourceManager.GetString("Open_file_title_format", resourceCulture);
+
+    /// <summary>すべてのファイル(*.*)|*.*</summary>
+    public static string All_file_exts => ResourceManager.GetString("All_file_exts", resourceCulture);
+
+    /// <summary>SQLファイル(*.sql)|*.sql</summary>
+    public static string Sql_file_exts => ResourceManager.GetString("Sql_file_exts", resourceCulture);
+
+    /// <summary>ヘッダーファイルを開く</summary>
+    public static string Open_PlaylistHeader => ResourceManager.GetString("Open_PlaylistHeader", resourceCulture);
+
+    /// <summary>プレイリストデータを保存</summary>
+    public static string Save_PlaylistBackup => ResourceManager.GetString("Save_PlaylistBackup", resourceCulture);
+
+    /// <summary>プレイリストバックアップを開く</summary>
+    public static string Open_PlaylistBackup => ResourceManager.GetString("Open_PlaylistBackup", resourceCulture);
+
+    /// <summary>プレイリストをバックアップから復元します。</summary>
+    public static string Confirm_RestorePlaylistBackup => ResourceManager.GetString("Confirm_RestorePlaylistBackup", resourceCulture);
+
+    /// <summary>BeMusicSeekerのデータをLR2データベースから削除します。</summary>
+    public static string Confirm_UninstallApplicationData => ResourceManager.GetString("Confirm_UninstallApplicationData", resourceCulture);
+
+    /// <summary>アプリケーションを終了します。</summary>
+    public static string Msg_ApplicationWillExit => ResourceManager.GetString("Msg_ApplicationWillExit", resourceCulture);
+
+    /// <summary>.NETでエラーが発生しました。</summary>
+    public static string Error_UnhandledExceptionFormat => ResourceManager.GetString("Error_UnhandledExceptionFormat", resourceCulture);
+
+    /// <summary>プレイリスト名・URI・出力先フォルダ名を確認してください。</summary>
+    public static string Error_PlaylistPropertiesInvalid => ResourceManager.GetString("Error_PlaylistPropertiesInvalid", resourceCulture);
+
+    /// <summary>譜面ビューアへの登録または状態確認に失敗した譜面があります。詳細はログを確認してください。</summary>
+    public static string Error_ScoreViewerRegistrationPartialFailure => ResourceManager.GetString("Error_ScoreViewerRegistrationPartialFailure", resourceCulture);
+
+    /// <summary>譜面ビューアへの登録処理に失敗しました。</summary>
+    public static string Error_ScoreViewerRegistrationFailedFormat => ResourceManager.GetString("Error_ScoreViewerRegistrationFailedFormat", resourceCulture);
+
+    /// <summary>再生/一時停止</summary>
+    public static string Tooltip_play_pause => ResourceManager.GetString("Tooltip_play_pause", resourceCulture);
+
+    /// <summary>停止</summary>
+    public static string Tooltip_stop => ResourceManager.GetString("Tooltip_stop", resourceCulture);
+
+    /// <summary>前の曲</summary>
+    public static string Tooltip_previous_track => ResourceManager.GetString("Tooltip_previous_track", resourceCulture);
+
+    /// <summary>次の曲</summary>
+    public static string Tooltip_next_track => ResourceManager.GetString("Tooltip_next_track", resourceCulture);
+
+    /// <summary>プレイヤーパネルの開閉</summary>
+    public static string Tooltip_toggle_player_panel => ResourceManager.GetString("Tooltip_toggle_player_panel", resourceCulture);
+
+    /// <summary>プレイヤー設定</summary>
+    public static string Tooltip_player_settings => ResourceManager.GetString("Tooltip_player_settings", resourceCulture);
+
+    /// <summary>発狂BMS難度推定表 EASY</summary>
+    public static string Insane_estimation_table_easy => ResourceManager.GetString("Insane_estimation_table_easy", resourceCulture);
+
+    /// <summary>発狂BMS難度推定表 NORMAL</summary>
+    public static string Insane_estimation_table_normal => ResourceManager.GetString("Insane_estimation_table_normal", resourceCulture);
+
+    /// <summary>発狂BMS難度推定表 HARD</summary>
+    public static string Insane_estimation_table_hard => ResourceManager.GetString("Insane_estimation_table_hard", resourceCulture);
+
+    /// <summary>発狂BMS難度推定表 FC</summary>
+    public static string Insane_estimation_table_fc => ResourceManager.GetString("Insane_estimation_table_fc", resourceCulture);
+
 }

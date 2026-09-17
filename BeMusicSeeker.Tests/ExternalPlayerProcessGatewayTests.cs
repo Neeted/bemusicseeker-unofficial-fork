@@ -340,10 +340,8 @@ public sealed class ExternalPlayerProcessGatewayTests
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            Assert.ThrowsException<InvalidOperationException>(
                 () => player.PlayStart(chartPath, (EventHandler)null!));
-
-            StringAssert.Contains(exception.Message, "window style");
             CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
             CollectionAssert.DoesNotContain(windowHost.Operations, "ApplyWindowPlacement");
             XDocument restoredDocument = XDocument.Load(configPath);
@@ -532,8 +530,11 @@ public sealed class ExternalPlayerProcessGatewayTests
                 () => player.PlayStart(chartPath, (EventHandler)null!));
 
             StringAssert.Contains(failure.Message, configPath);
-            StringAssert.Contains(failure.Message, "window style");
-            StringAssert.Contains(failure.Message, "did not terminate");
+            AggregateException? aggregate = failure.InnerException as AggregateException;
+            Assert.IsNotNull(aggregate);
+            Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
+            Assert.IsInstanceOfType<TimeoutException>(aggregate.InnerExceptions[0]);
+            Assert.IsInstanceOfType<TimeoutException>(aggregate.InnerExceptions[1]);
             Assert.IsTrue(gateway.Session.Started);
             Assert.IsTrue(gateway.Session.KillCount > 0);
             Assert.IsTrue(gateway.Session.HasExitedReadCount > 0);
@@ -584,10 +585,11 @@ public sealed class ExternalPlayerProcessGatewayTests
                     () => player.PlayStart(chartPath, (EventHandler)null!));
 
                 StringAssert.Contains(failure.Message, configPath);
-                StringAssert.Contains(failure.Message, "window style");
                 AggregateException? aggregate = failure.InnerException as AggregateException;
                 Assert.IsNotNull(aggregate);
-                Assert.IsTrue(aggregate!.InnerExceptions.Count >= 2);
+                Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
+                Assert.IsInstanceOfType<InvalidOperationException>(aggregate.InnerExceptions[0]);
+                Assert.IsInstanceOfType<IOException>(aggregate.InnerExceptions[1]);
             }
             finally
             {

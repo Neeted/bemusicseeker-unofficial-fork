@@ -53,7 +53,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             {
                 if (!File.Exists(value) || (!(Path.GetFileName(value) == "LR2body.exe") && !(Path.GetFileName(value) == "LRHbody.exe")))
                 {
-                    throw new FileNotFoundException("実行ファイルが見つからないか、LR2body.exe/LRHbody.exe ではありません。", value);
+                    throw new FileNotFoundException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidPlayerExecutableFormat, "LR2body.exe/LRHbody.exe"), value);
                 }
                 _exePath = value;
             }
@@ -263,11 +263,11 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     () => !process.MainWindowHandle.IsEmpty,
                     () => process.HasExited,
                     () => { },
-                    "LR2のメインウィンドウ待機がタイムアウトしました。",
+                    string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerMainWindowTimeoutFormat, "LR2"),
                     pollMilliseconds: 0);
                 if (process.HasExited)
                 {
-                    throw new TimeoutException("LR2の起動がタイムアウトしました。");
+                    throw new TimeoutException(string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerStartupTimeoutFormat, "LR2"));
                 }
 
                 LR2bodyHandleShowing = process.MainWindowHandle;
@@ -524,7 +524,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             () => RequireWindowHost().IsLr2WindowStyleApplied(LR2bodyHandleShowing),
             () => LR2bodyProcess == null || LR2bodyProcess.HasExited,
             () => RequireWindowHost().ApplyLr2WindowStyle(LR2bodyHandleShowing),
-            "LR2のwindow style適用がタイムアウトしました。",
+            BeMusicSeeker.Properties.Resources.Error_LR2WindowStyleTimeout,
             pollMilliseconds: 0);
     }
 
@@ -538,7 +538,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             () => RequireWindowHost().GetForegroundWindow() == foregroundWindow,
             () => !RequireWindowHost().IsWindow(foregroundWindow),
             () => RequireWindowHost().SetForegroundWindow(foregroundWindow),
-            "LR2起動後のforeground復元がタイムアウトしました.",
+            string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterStartupTimeoutFormat, "LR2"),
             pollMilliseconds: 50);
     }
 

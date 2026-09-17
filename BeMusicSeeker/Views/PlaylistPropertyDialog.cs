@@ -279,8 +279,8 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
     {
         UiDialogRoute.ShowMessageBox(
             this,
-            "プレイリスト名・URI・出力先フォルダ名を確認して下さい。",
-            "エラー",
+            BeMusicSeeker.Properties.Resources.Error_PlaylistPropertiesInvalid,
+            BeMusicSeeker.Properties.Resources.Error,
             MessageBoxButton.OK,
             MessageBoxImage.Hand);
     }

@@ -79,8 +79,8 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
     internal async Task HandleOpenLocalFileAsync()
     {
         UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
-            "ヘッダーファイルを開く",
-            filter: "Jsonファイル(*.json)|*.json",
+            BeMusicSeeker.Properties.Resources.Open_PlaylistHeader,
+            filter: BeMusicSeeker.Properties.Resources.Json_file_exts,
             defaultExtension: ".json",
             owner: Window.GetWindow(this)));
         if (result == null)

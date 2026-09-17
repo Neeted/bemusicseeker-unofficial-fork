@@ -640,7 +640,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreSame(window, saveRequest.Owner);
                 Assert.AreEqual("BeMusicSeeker_backup.sql", saveRequest.FileName);
                 Assert.AreEqual(".sql", saveRequest.DefaultExtension);
-                Assert.AreEqual("sqlファイル(*.sql)|*.sql", saveRequest.Filter);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Sql_file_exts, saveRequest.Filter);
                 Assert.IsTrue(saveRequest.AddExtension);
                 Assert.AreSame(window, dialogs.LastConfirmationRequest.Owner);
 

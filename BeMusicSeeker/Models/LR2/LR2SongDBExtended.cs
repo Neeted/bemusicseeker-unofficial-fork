@@ -390,7 +390,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
                 if (!LR2SongDB.md5HashRegex.IsMatch(value))
                 {
-                    throw new FormatException("MD5 HASH ではありません");
+                    throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"));
                 }
                 string normalized = value.ToLowerInvariant();
                 if (_md5 != normalized)
@@ -415,7 +415,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
                 if (value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
                 {
-                    throw new FormatException("SHA256 HASH ではありません");
+                    throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "SHA256"));
                 }
                 string normalized = value.ToLowerInvariant();
                 if (_sha256 != normalized)
@@ -473,7 +473,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
                 if (!LR2SongDB.md5HashRegex.IsMatch(value))
                 {
-                    throw new FormatException("MD5 HASH ではありません");
+                    throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"));
                 }
                 _md5 = value.ToLowerInvariant();
             }
@@ -642,7 +642,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             if (value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
             {
-                throw new FormatException("SHA256 HASH ではありません");
+                throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "SHA256"));
             }
             return value.ToLowerInvariant();
         }
@@ -684,7 +684,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
                 if (!LR2SongDB.md5HashRegex.IsMatch(value))
                 {
-                    throw new FormatException("MD5 HASH ではありません");
+                    throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"));
                 }
                 _md5 = value.ToLowerInvariant();
             }
@@ -945,7 +945,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
                 if (!LR2SongDB.md5HashRegex.IsMatch(value))
                 {
-                    throw new FormatException("MD5 HASH ではありません");
+                    throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"));
                 }
                 _md5 = value.ToLowerInvariant();
             }
@@ -966,7 +966,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
                 if (value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
                 {
-                    throw new FormatException("SHA256 HASH ではありません");
+                    throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "SHA256"));
                 }
                 _sha256 = value.ToLowerInvariant();
             }
@@ -1073,7 +1073,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                     }
                     return;
                 }
-                throw new FormatException("MD5 HASH ではありません");
+                throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"));
             }
         }
 
@@ -1155,7 +1155,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                     }
                     return;
                 }
-                throw new FormatException("MD5 HASH ではありません");
+                throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "MD5"));
             }
         }
 

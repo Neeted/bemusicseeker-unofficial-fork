@@ -84,7 +84,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             {
                 if (!File.Exists(value) || !Path.GetFileName(value).StartsWith("BMIIDXView2015", StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new FileNotFoundException("実行ファイルが見つからないか、BMIIDXView2015(_64).exe ではありません。", value);
+                    throw new FileNotFoundException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidPlayerExecutableFormat, "BMIIDXView2015(_64).exe"), value);
                 }
                 _exePath = value;
             }
@@ -255,12 +255,12 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
                 () => !BMIIDXView2015Process.MainWindowHandle.IsEmpty,
                 () => BMIIDXView2015Process.HasExited,
                 () => { },
-                "BMIIDXView2015のメインウィンドウ待機がタイムアウトしました。",
+                string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerMainWindowTimeoutFormat, "BMIIDXView2015"),
                 pollMilliseconds: 50);
             RestoreForegroundWindow(foregroundWindow);
             if (BMIIDXView2015Process.HasExited)
             {
-                throw new InvalidOperationException("BMIIDXView2015の起動に失敗しました。");
+                throw new InvalidOperationException(string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerStartupFailedFormat, "BMIIDXView2015"));
             }
             BMIIDXView2015HandleShowing = BMIIDXView2015Process.MainWindowHandle;
             RequireWindowHost().AttachBmiIdxWindow(BMIIDXView2015HandleShowing);
@@ -344,12 +344,12 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         lock (lockThis)
         {
             ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-            FocusWindow(BMIIDXView2015HandleShowing, "BMIIDXView2015の操作対象windowへのfocus待機がタイムアウトしました。");
+            FocusWindow(BMIIDXView2015HandleShowing, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerFocusTimeoutFormat, "BMIIDXView2015"));
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
             NLogWrapper.DebuggerLogger?.Trace("pushed");
             Thread.Sleep(40);
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
-            FocusWindow(foregroundWindow, "BMIIDXView2015操作後のforeground復元がタイムアウトしました。");
+            FocusWindow(foregroundWindow, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterOperationTimeoutFormat, "BMIIDXView2015"));
         }
     }
 
@@ -359,7 +359,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         {
             return;
         }
-        FocusWindow(foregroundWindow, "BMIIDXView2015起動後のforeground復元がタイムアウトしました。");
+        FocusWindow(foregroundWindow, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterStartupTimeoutFormat, "BMIIDXView2015"));
     }
 
     private void FocusWindow(ExternalWindowHandle window, string timeoutMessage)

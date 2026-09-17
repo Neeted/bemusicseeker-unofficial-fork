@@ -252,12 +252,12 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
         }
 
         string message = enabled
-            ? "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"
-            : "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？";
+            ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
+            : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied;
         return UiDialogRoute.ShowMessageBox(
             this,
             message,
-            "警告",
+            BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Exclamation,
             MessageBoxResult.Cancel) == MessageBoxResult.OK;

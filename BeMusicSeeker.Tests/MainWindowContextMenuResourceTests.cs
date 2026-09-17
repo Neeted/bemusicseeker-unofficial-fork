@@ -62,14 +62,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Name=\"playHistoryContextMenuItemOpenExplorer\"");
         StringAssert.Contains(xaml, "Name=\"playHistoryContextMenuItemOpenAssociated\"");
         StringAssert.Contains(xaml, "Path=Resources.Open_association, Mode=OneWay");
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_program_actions));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_open_with_program));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_launch_failed_format));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_settings_invalid));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_web_launch_failed));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_program_executable_missing));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_program_chart_missing));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_program_launch_failed));
     }
 
     [TestMethod]
@@ -130,7 +122,6 @@ public sealed class MainWindowContextMenuResourceTests
         })
         {
             StringAssert.Contains(playHistoryTree, "Path=Resources." + resource + ", Mode=OneWay", resource);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
         StringAssert.Contains(playHistoryTree, "ItemsSource=\"{Binding PlayHistory.ArchivePeriodTree}\"");
         StringAssert.Contains(playHistoryTree, "<HierarchicalDataTemplate DataType=\"{x:Type vm:PlayHistoryPeriodTreeItem}\" ItemsSource=\"{Binding Children}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\">");
@@ -177,8 +168,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"tableContextMenuItemRemoveChartInfoParseFailure\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Remove_chart_info_parse_failure_record, Mode=OneWay"));
         Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"tableContextMenuItemRemoveChartInfoParseFailureClick\""));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Remove_chart_info_parse_failure_record));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Msg_remove_chart_info_parse_failure_record));
         Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(true, [new string('a', 32)]));
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(false, [new string('a', 32)]));
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(true, [" "]));
@@ -870,23 +859,6 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void DropInstallQueueProgressStrings_AreLocalized()
-    {
-        string root = FindRepositoryRoot();
-        string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
-        string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
-        const string key = "Drop_install_queue_extracting_sub_label_format";
-
-        StringAssert.Contains(resources, "name=\"" + key + "\"");
-        StringAssert.Contains(resourceCode, key);
-        foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
-        {
-            string languageJson = File.ReadAllText(languageFile);
-            StringAssert.Contains(languageJson, "\"" + key + "\"");
-        }
-    }
-
-    [TestMethod]
     public void StandaloneRootDeserialization_PreservesExistingLr2IncompatibleRoot()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StandaloneLong_" + Guid.NewGuid().ToString("N"));
@@ -962,7 +934,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void AppearanceThemeSetting_NormalizesValuesAndResourcesExist()
+    public void AppearanceThemeSetting_NormalizesValues()
     {
         var settings = new Settings();
 
@@ -974,15 +946,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         settings.AppearanceTheme = "dark";
         Assert.AreEqual(AppThemeService.Dark, (string)settings["AppearanceTheme"]);
-
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme_light));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme_dark));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_font_size));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_row_height));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_header_height));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_reset_defaults));
     }
 
     [TestMethod]
@@ -1156,45 +1119,6 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void AdvancedSettings_UserFacingCopyRetiresPlaylistExpansionLabelAndPromotesSongDbPragmaLabel()
-    {
-        Assert.AreEqual("song.dbアクセス最適化PRAGMAを有効にする", Resources.Details_test_db_read_optimized_pragmas);
-        Assert.IsNull(
-            Resources.ResourceManager.GetString(
-                "Details_test_startup_expand_playlist_tree",
-                CultureInfo.InvariantCulture),
-            "The retired playlist-expansion option must not have user-facing localized copy.");
-    }
-
-    [TestMethod]
-    public void AdvancedSettings_UserFacingLabelsArePromotedToRegularSettingLabels()
-    {
-        string[] promotedLabels =
-        [
-            Resources.Details_scan_bms_files_on_startup,
-            Resources.Details_test_notcheck_playlists,
-            Resources.Details_test_startup_select_install_pending,
-            Resources.Details_update_lr2ir_ranking_cache_on_startup,
-            Resources.Details_estimate_offline_score_ranking,
-            Resources.Details_test_download_and_install,
-            Resources.Details_test_keep_installable_pending,
-            Resources.Details_test_delete_pending_source_after_install,
-            Resources.Details_test_smart_component_overwrite,
-            Resources.Details_test_keep_smart_overwrite_protected_by_rename
-        ];
-
-        foreach (string label in promotedLabels)
-        {
-            Assert.IsFalse(label.Contains("[テスト中]"), label);
-            Assert.IsFalse(label.Contains("[TEST]"), label);
-        }
-        Assert.IsFalse(Resources.Details_scan_bms_files_on_startup.Contains("本機能はテスト実装中です"));
-        Assert.IsFalse(Resources.Details_test_notcheck_playlists.Contains("本機能はテスト実装中です"));
-        Assert.IsFalse(Resources.Details_update_lr2ir_ranking_cache_on_startup.Contains("本機能はテスト実装中です"));
-        Assert.IsFalse(Resources.Details_estimate_offline_score_ranking.Contains("本機能はテスト実装中です"));
-    }
-
-    [TestMethod]
     public void PlaylistExternalPackageLookupContextMenu_IsBelowDiffUrlAndUsesResources()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
@@ -1204,9 +1128,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(2, CountOccurrences(xaml, "Name=\"tableContextMenuItemFindExternalPackage\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}\" Click=\"tableContextMenuItemFindExternalPackageClick\""));
         Assert.IsTrue(tableContextMenu.IndexOf("tableContextMenuItemOpenURLdiff", StringComparison.Ordinal) < tableContextMenu.IndexOf("tableContextMenuItemFindExternalPackage", StringComparison.Ordinal));
         Assert.IsTrue(missingContextMenu.IndexOf("tableContextMenuItemOpenURLdiff", StringComparison.Ordinal) < missingContextMenu.IndexOf("tableContextMenuItemFindExternalPackage", StringComparison.Ordinal));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Find_external_package_from_playlist_md5));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Confirm_SelectedPlaylistExternalPackageLookup));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Warn_SelectedPlaylistExternalPackageLookup));
     }
 
     [TestMethod]

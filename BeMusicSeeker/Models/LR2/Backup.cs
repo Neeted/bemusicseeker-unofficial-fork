@@ -141,11 +141,11 @@ public class Backup : ObservableObject
             }
             if (dstDir == null)
             {
-                throw new ArgumentNullException("dstDir", "出力先ディレクトリが与えられていません");
+                throw new ArgumentNullException("dstDir", BeMusicSeeker.Properties.Resources.Error_OutputDirectoryNotSet);
             }
             if (!LongPathFileSystem.DirectoryExists(dstDir))
             {
-                throw new DirectoryNotFoundException("出力先ディレクトリが存在しません" + Environment.NewLine + dstDir);
+                throw new DirectoryNotFoundException(string.Format(BeMusicSeeker.Properties.Resources.Error_OutputDirectoryNotFoundFormat, dstDir));
             }
             genNum = Math.Max(1, genNum);
             List<string> sources = [.. _paths.Where(path => !string.IsNullOrWhiteSpace(path))];

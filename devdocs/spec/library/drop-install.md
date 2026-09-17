@@ -60,6 +60,8 @@ WPFの対応形式は `DataFormats.FileDrop` です。ドラッグ中は `GetDat
 
 `FileGroupDescriptorW` と `FileContents` だけの仮想ファイルは対象外です。実装していない形式に対してCopyを示しません。
 
+導入キューの進捗表示は、完了パス数、総パス数、待機バッチ数を区別します。`Drop_install_queue_label_format` の引数はこの順序の3値であり、総パス数を待機バッチ数として表示しません。辞書間の書式対応は[全件共通検査](../development/test-authoring.md#表示リソースの検査)で確認します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |

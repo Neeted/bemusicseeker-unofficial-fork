@@ -51,7 +51,7 @@ public class LR2Config : XDocument
                 }
                 return;
             }
-            throw new FileNotFoundException("ファイルが見つからないか、config.xml ではありません。", value);
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ConfigFile, value);
         }
     }
 
@@ -179,7 +179,7 @@ public class LR2Config : XDocument
 
     private XElement GetOrCreateSystemElement()
     {
-        XElement config = Element("config") ?? throw new InvalidOperationException("LR2 config.xml の config セクションが見つかりません。");
+        XElement config = Element("config") ?? throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_LR2ConfigSectionMissing);
         XElement system = config.Element("system");
         if (system == null)
         {
@@ -314,7 +314,7 @@ public class LR2Config : XDocument
         List<string> list = [.. dirs.Where(d => !d.IsSjisSchemeString())];
         if (list.Count() > 0)
         {
-            throw new ArgumentException("Shift_JISで表現できない文字がディレクトリパスに含まれています。" + Environment.NewLine + string.Join(Environment.NewLine, list));
+            throw new ArgumentException(string.Format(BeMusicSeeker.Properties.Resources.Error_DirectoryPathsNotShiftJisFormat, string.Join(Environment.NewLine, list)));
         }
         using (new WriterGuard(rwlock))
         {
@@ -332,12 +332,12 @@ public class LR2Config : XDocument
         dirs = [.. dirs.Where(d => LongPathFileSystem.DirectoryExists(d)).Select(d => d.TrimEnd('\\')).Distinct(StringComparer.OrdinalIgnoreCase)];
         if (dirs.Any(d => !LongPathFileSystem.DirectoryExists(d)))
         {
-            throw new ArgumentException("指定されたディレクトリの一部または全てが存在しません。");
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesMissing);
         }
         List<string> list = [.. dirs.Where(d => !d.IsSjisSchemeString())];
         if (list.Count() > 0)
         {
-            throw new ArgumentException("Shift_JISで表現できない文字がディレクトリパスに含まれています。" + Environment.NewLine + string.Join(Environment.NewLine, list));
+            throw new ArgumentException(string.Format(BeMusicSeeker.Properties.Resources.Error_DirectoryPathsNotShiftJisFormat, string.Join(Environment.NewLine, list)));
         }
         List<string> dirsInXML = GetBMSSearchDirectoriesForChangeTracking();
         using (new WriterGuard(rwlock))
@@ -345,7 +345,7 @@ public class LR2Config : XDocument
             if (dirs.Any(dnew => dirsInXML.Any(dold => IsSameOrNestedDirectory(dnew, dold)))
                 || dirs.Any(dnew => dirs.Any(dother => !dnew.Equals(dother, StringComparison.OrdinalIgnoreCase) && IsSameOrNestedDirectory(dnew, dother))))
             {
-                throw new ArgumentException("登録済みディレクトリまたはその親・子ディレクトリは追加できません。");
+                throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap);
             }
             Element("config").Element("jukebox").Add(dirs.Select(d => new XElement("path")
             {
@@ -465,7 +465,7 @@ public class LR2Config : XDocument
     {
         if (x <= 0)
         {
-            throw new ArgumentOutOfRangeException("x", "引数は0より大きい必要が有ります");
+            throw new ArgumentOutOfRangeException("x", BeMusicSeeker.Properties.Resources.Error_PositiveValueRequired);
         }
         using (new WriterGuard(rwlock))
         {
@@ -477,7 +477,7 @@ public class LR2Config : XDocument
     {
         if (y <= 0)
         {
-            throw new ArgumentOutOfRangeException("y", "引数は0より大きい必要が有ります");
+            throw new ArgumentOutOfRangeException("y", BeMusicSeeker.Properties.Resources.Error_PositiveValueRequired);
         }
         using (new WriterGuard(rwlock))
         {
@@ -533,11 +533,11 @@ public class LR2Config : XDocument
     {
         if (v < 0)
         {
-            throw new ArgumentOutOfRangeException("v", "引数は0より大きい必要が有ります");
+            throw new ArgumentOutOfRangeException("v", BeMusicSeeker.Properties.Resources.Error_NonNegativeValueRequired);
         }
         if (v > 100)
         {
-            throw new ArgumentOutOfRangeException("v", "引数は100以下である必要が有ります");
+            throw new ArgumentOutOfRangeException("v", string.Format(BeMusicSeeker.Properties.Resources.Error_ValueMustNotExceedFormat, 100));
         }
         using (new WriterGuard(rwlock))
         {
@@ -745,7 +745,7 @@ public class LR2Config : XDocument
     private static void SetPreviewField(XDocument document, string sectionName, string fieldName, string value)
     {
         XElement config = document.Element("config")
-            ?? throw new InvalidOperationException("LR2 config.xml の config セクションが見つかりません。");
+            ?? throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_LR2ConfigSectionMissing);
         XElement section = config.Element(sectionName);
         if (section == null)
         {

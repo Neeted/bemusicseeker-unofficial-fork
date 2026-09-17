@@ -3369,4 +3369,183 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="LibraryDirectoryPreflightCleanupFailure" xml:space="preserve"><value>一時確認ファイルの後片付けにも失敗しました。</value></data>
   <data name="LibraryDirectoryPreflightBmsGuidance" xml:space="preserve"><value>フォルダーを再接続するか、設定の一般にある BMS 検索フォルダーを修正してから再試行してください。</value></data>
   <data name="LibraryDirectoryPreflightLr2Guidance" xml:space="preserve"><value>フォルダーを再接続するか、設定のプレイリスト出力先を修正してから再試行してください。</value></data>
+  <data name="Error_InvalidLR2ConfigFile" xml:space="preserve">
+    <value>ファイルが見つからないか、config.xml / config.xmh ではありません。</value>
+  </data>
+  <data name="Error_LR2ConfigSectionMissing" xml:space="preserve">
+    <value>LR2設定XMLの config セクションが見つかりません。</value>
+  </data>
+  <data name="Error_DirectoryPathsNotShiftJisFormat" xml:space="preserve">
+    <value>Shift_JISで表現できない文字がディレクトリパスに含まれています。
+{0}</value>
+  </data>
+  <data name="Error_BmsSearchDirectoriesMissing" xml:space="preserve">
+    <value>指定されたディレクトリの一部または全てが存在しません。</value>
+  </data>
+  <data name="Error_BmsSearchDirectoriesOverlap" xml:space="preserve">
+    <value>登録済みディレクトリまたはその親・子ディレクトリは追加できません。</value>
+  </data>
+  <data name="Error_PositiveValueRequired" xml:space="preserve">
+    <value>値は0より大きい必要があります。</value>
+  </data>
+  <data name="Error_NonNegativeValueRequired" xml:space="preserve">
+    <value>値は0以上である必要があります。</value>
+  </data>
+  <data name="Error_ValueMustNotExceedFormat" xml:space="preserve">
+    <value>値は{0}以下である必要があります。</value>
+  </data>
+  <data name="Error_InvalidLR2SongDbFile" xml:space="preserve">
+    <value>ファイルが見つからないか、song.db ではありません。</value>
+  </data>
+  <data name="Error_InvalidLR2ScoreDbFile" xml:space="preserve">
+    <value>ファイルが見つからないか、拡張子が .db ではありません。</value>
+  </data>
+  <data name="Error_InvalidPlayerExecutableFormat" xml:space="preserve">
+    <value>実行ファイルが見つからないか、{0} ではありません。</value>
+  </data>
+  <data name="Error_ExecutableNotFound" xml:space="preserve">
+    <value>実行ファイルが見つかりません。</value>
+  </data>
+  <data name="Error_BmsFileNotFound" xml:space="preserve">
+    <value>BMS ファイルが見つかりません。</value>
+  </data>
+  <data name="Error_InvalidHashFormat" xml:space="preserve">
+    <value>{0} ハッシュではありません。</value>
+  </data>
+  <data name="Error_InvalidHashValueFormat" xml:space="preserve">
+    <value>{0} ハッシュではありません。値: {1}</value>
+  </data>
+  <data name="Error_OutputDirectoryNotSet" xml:space="preserve">
+    <value>出力先ディレクトリが指定されていません。</value>
+  </data>
+  <data name="Error_OutputDirectoryNotFoundFormat" xml:space="preserve">
+    <value>出力先ディレクトリが存在しません。
+{0}</value>
+  </data>
+  <data name="Error_CannotRenameRootDirectory" xml:space="preserve">
+    <value>ルートディレクトリの名前は変更できません。</value>
+  </data>
+  <data name="Error_PlaylistHeaderParseFailed" xml:space="preserve">
+    <value>ヘッダーの解析に失敗しました。</value>
+  </data>
+  <data name="Error_PlaylistDataParseFailed" xml:space="preserve">
+    <value>データの解析に失敗しました。</value>
+  </data>
+  <data name="Error_PlayerMainWindowTimeoutFormat" xml:space="preserve">
+    <value>{0}のメインウィンドウ待機がタイムアウトしました。</value>
+  </data>
+  <data name="Error_PlayerStartupTimeoutFormat" xml:space="preserve">
+    <value>{0}の起動がタイムアウトしました。</value>
+  </data>
+  <data name="Error_PlayerStartupFailedFormat" xml:space="preserve">
+    <value>{0}の起動に失敗しました。</value>
+  </data>
+  <data name="Error_PlayerFocusTimeoutFormat" xml:space="preserve">
+    <value>{0}の操作対象ウィンドウへのフォーカス待機がタイムアウトしました。</value>
+  </data>
+  <data name="Error_PlayerForegroundRestoreAfterStartupTimeoutFormat" xml:space="preserve">
+    <value>{0}起動後の前面ウィンドウの復元がタイムアウトしました。</value>
+  </data>
+  <data name="Error_PlayerForegroundRestoreAfterOperationTimeoutFormat" xml:space="preserve">
+    <value>{0}操作後の前面ウィンドウの復元がタイムアウトしました。</value>
+  </data>
+  <data name="Error_PlayerForegroundRestoreAfterAttachTimeoutFormat" xml:space="preserve">
+    <value>{0}への接続後の前面ウィンドウの復元がタイムアウトしました。</value>
+  </data>
+  <data name="Error_LR2WindowStyleTimeout" xml:space="preserve">
+    <value>LR2のウィンドウスタイル適用がタイムアウトしました。</value>
+  </data>
+  <data name="Error_UbmplayStartupFailed" xml:space="preserve">
+    <value>uBMplayを起動できませんでした。
+uBMplayが正常に動作するか確認してください。</value>
+  </data>
+  <data name="Error_UbmplayPlaybackRequestTimeout" xml:space="preserve">
+    <value>uBMplayの再生要求の受付待機がタイムアウトしました。</value>
+  </data>
+  <data name="Error_UbmplayChartLoadTimeout" xml:space="preserve">
+    <value>uBMplayの譜面読込み待機がタイムアウトしました。</value>
+  </data>
+  <data name="Open_file_title_format" xml:space="preserve">
+    <value>{0} を開く</value>
+  </data>
+  <data name="All_file_exts" xml:space="preserve">
+    <value>すべてのファイル(*.*)|*.*</value>
+  </data>
+  <data name="Sql_file_exts" xml:space="preserve">
+    <value>SQLファイル(*.sql)|*.sql</value>
+  </data>
+  <data name="Open_PlaylistHeader" xml:space="preserve">
+    <value>ヘッダーファイルを開く</value>
+  </data>
+  <data name="Save_PlaylistBackup" xml:space="preserve">
+    <value>プレイリストデータを保存</value>
+  </data>
+  <data name="Open_PlaylistBackup" xml:space="preserve">
+    <value>プレイリストバックアップを開く</value>
+  </data>
+  <data name="Confirm_RestorePlaylistBackup" xml:space="preserve">
+    <value>プレイリストをバックアップから復元します。
+現在のプレイリストは全て削除され置き換えられます。
+バックアップデータが不正な場合、元に戻せなくなる可能性があります。
+
+続行しますか？</value>
+  </data>
+  <data name="Confirm_UninstallApplicationData" xml:space="preserve">
+    <value>BeMusicSeekerのデータをLR2データベースから削除します。
+続行した場合、この操作を取り消すことはできません。
+必要に応じて事前にバックアップを取得してください。
+
+続行しますか？</value>
+  </data>
+  <data name="Msg_ApplicationWillExit" xml:space="preserve">
+    <value>アプリケーションを終了します。</value>
+  </data>
+  <data name="Error_UnhandledExceptionFormat" xml:space="preserve">
+    <value>.NETでエラーが発生しました。
+
+原因の特定のため、どの操作で発生したか開発者へ報告してください。
+
+エラー概要:
+{0}</value>
+  </data>
+  <data name="Error_PlaylistPropertiesInvalid" xml:space="preserve">
+    <value>プレイリスト名・URI・出力先フォルダ名を確認してください。</value>
+  </data>
+  <data name="Error_ScoreViewerRegistrationPartialFailure" xml:space="preserve">
+    <value>譜面ビューアへの登録または状態確認に失敗した譜面があります。詳細はログを確認してください。</value>
+  </data>
+  <data name="Error_ScoreViewerRegistrationFailedFormat" xml:space="preserve">
+    <value>譜面ビューアへの登録処理に失敗しました。
+{0}</value>
+  </data>
+  <data name="Tooltip_play_pause" xml:space="preserve">
+    <value>再生/一時停止</value>
+  </data>
+  <data name="Tooltip_stop" xml:space="preserve">
+    <value>停止</value>
+  </data>
+  <data name="Tooltip_previous_track" xml:space="preserve">
+    <value>前の曲</value>
+  </data>
+  <data name="Tooltip_next_track" xml:space="preserve">
+    <value>次の曲</value>
+  </data>
+  <data name="Tooltip_toggle_player_panel" xml:space="preserve">
+    <value>プレイヤーパネルの開閉</value>
+  </data>
+  <data name="Tooltip_player_settings" xml:space="preserve">
+    <value>プレイヤー設定</value>
+  </data>
+  <data name="Insane_estimation_table_easy" xml:space="preserve">
+    <value>発狂BMS難度推定表 EASY</value>
+  </data>
+  <data name="Insane_estimation_table_normal" xml:space="preserve">
+    <value>発狂BMS難度推定表 NORMAL</value>
+  </data>
+  <data name="Insane_estimation_table_hard" xml:space="preserve">
+    <value>発狂BMS難度推定表 HARD</value>
+  </data>
+  <data name="Insane_estimation_table_fc" xml:space="preserve">
+    <value>発狂BMS難度推定表 FC</value>
+  </data>
 </root>

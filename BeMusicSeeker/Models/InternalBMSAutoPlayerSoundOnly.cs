@@ -540,7 +540,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     {
         if (!LongPathFileSystem.FileExists(bmsFilePath))
         {
-            throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFilePath);
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFilePath);
         }
         BMSAutoPlayer bMSAutoPlayer;
         lock (_sharedObjectLock)

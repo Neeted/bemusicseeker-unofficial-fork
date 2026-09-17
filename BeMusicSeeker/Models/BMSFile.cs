@@ -1884,7 +1884,7 @@ public class BMSFile : LR2SongDB.song
         int length = end - start + 1;
         if (length != 64)
         {
-            throw new FormatException("SHA256 HASH ではありません");
+            throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "SHA256"));
         }
         bool hasUpper = false;
         for (int i = start; i <= end; i++)
@@ -1899,7 +1899,7 @@ public class BMSFile : LR2SongDB.song
                 hasUpper = true;
                 continue;
             }
-            throw new FormatException("SHA256 HASH ではありません");
+            throw new FormatException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidHashFormat, "SHA256"));
         }
         if (start == 0 && length == value.Length)
         {
@@ -1921,7 +1921,7 @@ public class BMSFile : LR2SongDB.song
         }
         if (string.IsNullOrWhiteSpace(bmsFile.path) || !LongPathFileSystem.FileExists(bmsFile.path))
         {
-            throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFile.path ?? "");
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFile.path ?? "");
         }
         if (string.IsNullOrWhiteSpace(codepageName))
         {
@@ -2386,7 +2386,7 @@ public class BMSFile : LR2SongDB.song
     {
         if (string.IsNullOrWhiteSpace(path) || !LongPathFileSystem.FileExists(path))
         {
-            throw new FileNotFoundException("BMS ファイルが見つかりません。", path ?? "");
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, path ?? "");
         }
         return DetectEncodingOfBMSFileCore(LongPathFileSystem.ReadAllBytes(path)).EncodingName;
     }

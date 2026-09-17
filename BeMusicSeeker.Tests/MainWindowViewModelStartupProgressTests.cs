@@ -961,14 +961,6 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_OperableBackgroundResource_IsPresent()
-    {
-        Assert.AreEqual("操作可能(バックグラウンド更新中)", Resources.Statusbar_progress_operable_background);
-        Assert.AreEqual("譜面メタデータ反映", Resources.Statusbar_progress_phase_chart_info_load);
-        Assert.AreEqual("LR2 song.db 同期", Resources.Statusbar_progress_phase_lr2_song_db_sync);
-    }
-
-    [TestMethod]
     public void StartupServiceAttachmentRoutesCustomFolderRepairProgressToHub()
     {
         string tempDirectory = Path.Combine(

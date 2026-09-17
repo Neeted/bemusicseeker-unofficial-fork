@@ -547,7 +547,7 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
         if (result?.HasFailures == true)
         {
             await ShowMessageAsync(
-                "譜面ビューアへの登録または状態確認に失敗した譜面があります。詳細はログを確認してください。",
+                BeMusicSeeker.Properties.Resources.Error_ScoreViewerRegistrationPartialFailure,
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxImage.Exclamation,
                 "Score Viewer registration partial failure notification");
@@ -557,7 +557,7 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
     public Task PresentFailureAsync(Exception exception)
     {
         return ShowMessageAsync(
-            "譜面ビューアへの登録処理に失敗しました。" + Environment.NewLine + exception?.Message,
+            string.Format(BeMusicSeeker.Properties.Resources.Error_ScoreViewerRegistrationFailedFormat, exception?.Message),
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxImage.Hand,
             "Score Viewer registration failure notification");

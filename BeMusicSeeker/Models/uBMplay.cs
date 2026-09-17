@@ -305,7 +305,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             {
                 if (!File.Exists(value) || !(Path.GetFileName(value) == "uBMplay.exe"))
                 {
-                    throw new FileNotFoundException("実行ファイルが見つからないか、uBMplay.exe ではありません。", value);
+                    throw new FileNotFoundException(string.Format(BeMusicSeeker.Properties.Resources.Error_InvalidPlayerExecutableFormat, "uBMplay.exe"), value);
                 }
                 _exePath = value;
             }
@@ -477,11 +477,11 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
         if (!File.Exists(bmsFilePath))
         {
-            throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFilePath);
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFilePath);
         }
         if (string.IsNullOrEmpty(ExePath))
         {
-            throw new FileNotFoundException("実行ファイルが見つかりません。", "");
+            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_ExecutableNotFound, "");
         }
         string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "ubm.ini");
         lock (lockThis)
@@ -602,7 +602,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private static void ThrowStartupFailed()
     {
-        throw new InvalidOperationException("uBMplayを起動できませんでした。" + Environment.NewLine + "uBMplayが正常に動作するか確認してください。");
+        throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_UbmplayStartupFailed);
     }
 
     private bool createProcess(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
@@ -688,7 +688,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 },
                 () => uBMplayProcess.HasExited,
                 () => { },
-                "uBMplayのメインウィンドウ待機がタイムアウトしました。",
+                string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerMainWindowTimeoutFormat, "uBMplay"),
                 pollMilliseconds: 0);
         }
         else
@@ -709,7 +709,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                             RequireWindowHost().MoveExternalWindowOffscreen(uBMplayHandleShowing);
                         }
                     },
-                    "uBMplayの再生request受付待機がタイムアウトしました。",
+                    BeMusicSeeker.Properties.Resources.Error_UbmplayPlaybackRequestTimeout,
                     pollMilliseconds: 0);
                 CompleteRequestProcessExitLocked(process);
             }
@@ -778,7 +778,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             },
             () => uBMplayProcess.HasExited,
             () => { },
-            "uBMplayの譜面読み込み待機がタイムアウトしました。",
+            BeMusicSeeker.Properties.Resources.Error_UbmplayChartLoadTimeout,
             pollMilliseconds: 0);
         if (!loaded)
         {
@@ -786,10 +786,10 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
         if (!RequireWindowHost().UsesLegacyWindowEmbedding)
         {
-            FocusWindow(uBMplayHandleShowing, "uBMplayのforeground待機がタイムアウトしました。");
+            FocusWindow(uBMplayHandleShowing, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerFocusTimeoutFormat, "uBMplay"));
             FocusWindow(
                 foregroundWindowHandle.IsEmpty ? RequireWindowHost().ParentHandle : foregroundWindowHandle,
-                "uBMplay起動後のforeground復元がタイムアウトしました。");
+                string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterStartupTimeoutFormat, "uBMplay"));
         }
     }
 
@@ -828,7 +828,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             ExternalWindowHandle restoreWindow = foregroundWindowHandle.IsEmpty
                 ? RequireWindowHost().ParentHandle
                 : foregroundWindowHandle;
-            FocusWindow(restoreWindow, "uBMplay attach後のforeground復元がタイムアウトしました。");
+            FocusWindow(restoreWindow, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterAttachTimeoutFormat, "uBMplay"));
             foregroundWindow = RequireWindowHost().GetForegroundWindow();
             RequireWindowHost().SetFocus(foregroundWindowHandle);
             NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
