@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 
@@ -42,11 +43,14 @@ internal static class MainWindowViewModelTestFactory
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
     }
 
-    internal static TestBmsPlaylist CreatePlaylist(string songDbPath, Settings settings)
+    internal static TestBmsPlaylist CreatePlaylist(
+        string songDbPath,
+        Settings settings,
+        Func<LR2Config>? getLr2Config = null)
     {
         return new TestBmsPlaylist(
             songDbPath,
-            getLr2Config: null,
+            getLr2Config: getLr2Config,
             scoreDbPath: null,
             getBmsScores: null,
             getBeatorajaBmtSongHashResolver: null,

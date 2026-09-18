@@ -1894,6 +1894,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Warning" xml:space="preserve">
     <value>警告</value>
   </data>
+  <data name="Warning_LR2RootPathNotSet" xml:space="preserve">
+    <value>LR2ディレクトリが設定されていません。LR2のスコアDBの場所を解決できないため、LR2のスコアDBを利用できません。LR2バックアップやLR2標準カスタムフォルダの検出で予期しない動作になる可能性があります。設定画面でLR2ディレクトリを設定してください。</value>
+  </data>
   <data name="Record_setting_encoder_tooltip" xml:space="preserve">
     <value>エンコーダの実行ファイルが保存されているディレクトリを指定して下さい</value>
   </data>

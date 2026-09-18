@@ -1229,6 +1229,8 @@ public class Resources
 
     public static string Warning => ResourceManager.GetString("Warning", resourceCulture);
 
+    public static string Warning_LR2RootPathNotSet => ResourceManager.GetString("Warning_LR2RootPathNotSet", resourceCulture);
+
     public static string Weekly => ResourceManager.GetString("Weekly", resourceCulture);
 
     public static string Playlist_summary_header => ResourceManager.GetString("Playlist_summary_header", resourceCulture);

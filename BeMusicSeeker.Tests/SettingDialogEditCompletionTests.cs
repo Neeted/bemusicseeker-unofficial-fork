@@ -25,9 +25,11 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
+using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -2135,6 +2137,102 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void InitializeLibrary_Lr2RootPathWarningIsLimitedToEmptyRootOnNormalStartup(bool rootPathEmpty, bool fromSettings)
+    {
+        string scope = CreateTemporaryRoot();
+        string lr2LayoutRoot = Path.Combine(scope, "lr2-layout");
+        string applicationRoot = Path.Combine(scope, "application");
+        try
+        {
+            Settings settings = CreateValidCustomFolderSettings(lr2LayoutRoot, []);
+            if (rootPathEmpty)
+            {
+                settings.LR2RootPath = string.Empty;
+            }
+            string songDbPath = settings.LR2SongDBPath;
+            using (var db = new SQLiteConnection(songDbPath, storeDateTimeAsTicks: true))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            new BmsLibraryDbGateway(songDbPath).EnsureAppOwnedSchema();
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var config = new LR2Config(settings.LR2ConfigXmlPath);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    () => config,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, () => config);
+                var composition = new ApplicationComposition(
+                    settingsEditSession: settingsSession,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: applicationPath,
+                    fileDbMutationDialogService: dialogs);
+                MainWindowViewModel viewModel = new(
+                    composition,
+                    new LateFailureStartupLibraryFactory(library, playlist));
+                var presentation = new RecordingSettingsDialogPresentationPort();
+                viewModel.SettingDialog.AttachPresentationPort(presentation);
+                try
+                {
+                    if (fromSettings)
+                    {
+                        Task<StartupInitializationOutcome> initialization =
+                            ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "lr2-root-warning-settings-initialization");
+                        Assert.AreEqual(StartupInitializationOutcome.Succeeded, initialization.GetAwaiter().GetResult());
+                    }
+                    else
+                    {
+                        Task<bool> initialization = viewModel.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "lr2-root-warning-startup-initialization");
+                        Assert.IsTrue(initialization.GetAwaiter().GetResult());
+                    }
+
+                    bool warningExpected = rootPathEmpty && !fromSettings;
+                    Assert.AreEqual(warningExpected ? 1 : 0, dialogs.MessageCount);
+                    if (warningExpected)
+                    {
+                        Assert.AreEqual(Resources.Warning_LR2RootPathNotSet, dialogs.LastMessageText);
+                    }
+                    Assert.IsTrue(viewModel.IsInitializationCompleted);
+                    Assert.IsTrue(viewModel.HasActiveLibraryProfile);
+                    Assert.AreEqual(0, presentation.Requests.Count);
+                }
+                finally
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                        "lr2-root-warning-shutdown");
+                    viewModel.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(scope))
+            {
+                Directory.Delete(scope, recursive: true);
+            }
+        }
+    }
+
+    [DataTestMethod]
     [DataRow("null-path", false)]
     [DataRow("null-path", true)]
     [DataRow("empty-path", false)]
@@ -3353,6 +3451,94 @@ public sealed class SettingDialogEditCompletionTests
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2RootPathEmpty_IsWarningOnlyAndDoesNotBlockSaving()
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidCustomFolderSettings(root, []);
+            values.LR2RootPath = string.Empty;
+            var session = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            Assert.AreEqual("Warning", dialog.Lr2RootPathValidationStatus);
+            Assert.AreEqual(Resources.Warning_LR2RootPathNotSet, dialog.Lr2RootPathValidationMessage);
+            Assert.IsFalse(dialog.HasLr2PathSelectionError);
+            Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
+            Assert.IsTrue(dialog.CheckValidationBeforeSave(out string saveError), saveError);
+
+            dialog.OperationModeLR2DB = false;
+            Assert.AreEqual(string.Empty, dialog.Lr2RootPathValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.Lr2RootPathValidationMessage);
+
+            dialog.OperationModeLR2DB = true;
+            dialog.LR2RootPath = Path.Combine(root, "missing-lr2-root");
+            Assert.AreEqual("Warning", dialog.Lr2RootPathValidationStatus);
+            Assert.AreEqual(Resources.Warning_LR2RootPathNotSet, dialog.Lr2RootPathValidationMessage);
+            Assert.IsTrue(dialog.HasLr2PathSelectionError);
+
+            dialog.LR2RootPath = root;
+
+            Assert.AreEqual(string.Empty, dialog.Lr2RootPathValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.Lr2RootPathValidationMessage);
+            Assert.IsFalse(dialog.HasLr2PathSelectionError);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void RequiredSettingsValidationPresentation_UsesErrorStateForSaveBlockingFields()
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidCustomFolderSettings(root, []);
+            string validInstallDir = values.BMSInstallDir;
+            string validNormalOutput = values.LR2CustomFolderOutputBaseDir;
+            string validRootOutput = values.LR2CustomFolderOutputBaseDirRootType;
+            values.BMSInstallDir = string.Empty;
+            values.LR2CustomFolderOutputBaseDir = string.Empty;
+            values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+            var session = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+
+            Assert.AreEqual("Error", dialog.BmsInstallDirValidationStatus);
+            Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage);
+            Assert.AreEqual("Error", dialog.CustomFolderOutputDirValidationStatus);
+            Assert.AreEqual(Resources.Error_CustomFolderOutputPathNotSet, dialog.CustomFolderOutputDirValidationMessage);
+            Assert.AreEqual("Error", dialog.CustomFolderRootOutputDirValidationStatus);
+            Assert.AreEqual(Resources.Error_CustomFolderRootOutputPathNotSet, dialog.CustomFolderRootOutputDirValidationMessage);
+            Assert.IsFalse(dialog.CheckValidationBeforeSave(out string saveError));
+            StringAssert.Contains(saveError, Resources.Error_InvalidBmsInstallDir);
+            StringAssert.Contains(saveError, Resources.Error_CustomFolderOutputPathNotSet);
+            StringAssert.Contains(saveError, Resources.Error_CustomFolderRootOutputPathNotSet);
+
+            dialog.BMSInstallDir = validInstallDir;
+            dialog.LR2CustomFolderOutputDir = validNormalOutput;
+            dialog.LR2CustomFolderAsRootOutputDir = validRootOutput;
+
+            Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationMessage);
+            Assert.AreEqual(string.Empty, dialog.CustomFolderOutputDirValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.CustomFolderOutputDirValidationMessage);
+            Assert.AreEqual(string.Empty, dialog.CustomFolderRootOutputDirValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.CustomFolderRootOutputDirValidationMessage);
+            Assert.IsTrue(dialog.CheckValidationBeforeSave(out saveError), saveError);
+        }
+        finally
+        {
+            dialog?.Dispose();
             Directory.Delete(root, recursive: true);
         }
     }

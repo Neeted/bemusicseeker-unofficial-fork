@@ -3107,6 +3107,119 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
+    public void SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation()
+    {
+        XDocument[] pages = LoadSettingsPageXamls();
+        XDocument general = pages.Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".GeneralSettingsPage", StringComparison.Ordinal) == true);
+        XDocument install = pages.Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".InstallSettingsPage", StringComparison.Ordinal) == true);
+        XDocument playlist = pages.Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".PlaylistSettingsPage", StringComparison.Ordinal) == true);
+
+        XElement lr2RootPicker = general.Descendants().Single(element =>
+            element.Name.LocalName == nameof(SettingsPathPicker)
+            && element.Attribute("Path")?.Value.Contains(nameof(SettingsDialogViewModel.LR2RootPath), StringComparison.Ordinal) == true);
+        StringAssert.Contains(lr2RootPicker.Attribute("ValidationMessage")!.Value, nameof(SettingsDialogViewModel.Lr2RootPathValidationMessage));
+        StringAssert.Contains(lr2RootPicker.Attribute("ValidationStatus")!.Value, nameof(SettingsDialogViewModel.Lr2RootPathValidationStatus));
+
+        XElement installField = install.Descendants().Single(element =>
+            element.Name.LocalName == nameof(SettingsField)
+            && element.Descendants(PresentationName("ComboBox")).Any(combo =>
+                combo.Attribute("SelectedItem")?.Value.Contains(nameof(SettingsDialogViewModel.BMSInstallDir), StringComparison.Ordinal) == true));
+        StringAssert.Contains(installField.Attribute("ValidationMessage")!.Value, nameof(SettingsDialogViewModel.BmsInstallDirValidationMessage));
+        StringAssert.Contains(installField.Attribute("ValidationStatus")!.Value, nameof(SettingsDialogViewModel.BmsInstallDirValidationStatus));
+        XElement installComboBox = installField.Descendants(PresentationName("ComboBox")).Single();
+        Assert.AreEqual("{StaticResource SettingsValidatedComboBoxStyle}", installComboBox.Attribute("Style")?.Value);
+
+        foreach ((string pathProperty, string messageProperty, string statusProperty) in new[]
+        {
+            (nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationStatus)),
+            (nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationStatus))
+        })
+        {
+            XElement picker = playlist.Descendants().Single(element =>
+                element.Name.LocalName == nameof(SettingsPathPicker)
+                && element.Attribute("Path")?.Value.Contains(pathProperty, StringComparison.Ordinal) == true);
+            StringAssert.Contains(picker.Attribute("ValidationMessage")!.Value, messageProperty);
+            StringAssert.Contains(picker.Attribute("ValidationStatus")!.Value, statusProperty);
+        }
+    }
+
+    [TestMethod]
+    public void SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            Grid host = CreateSettingsControlHost();
+            var panel = new StackPanel();
+            host.Children.Add(panel);
+            var warningPicker = new SettingsPathPicker
+            {
+                Label = "LR2 directory",
+                Path = string.Empty,
+                ValidationMessage = "Configure the LR2 directory.",
+                ValidationStatus = "Warning"
+            };
+            var errorPicker = new SettingsPathPicker
+            {
+                Label = "Playlist output",
+                Path = string.Empty,
+                ValidationMessage = "Select an output directory.",
+                ValidationStatus = "Error"
+            };
+            var errorField = new SettingsField
+            {
+                Header = "Install destination",
+                ValidationMessage = "Select an install destination.",
+                ValidationStatus = "Error"
+            };
+            var errorEditor = new ComboBox
+            {
+                Style = (Style)host.FindResource("SettingsValidatedComboBoxStyle")
+            };
+            errorField.Content = errorEditor;
+            panel.Children.Add(warningPicker);
+            panel.Children.Add(errorPicker);
+            panel.Children.Add(errorField);
+            var window = new Window { Content = host, Width = 640, Height = 320 };
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                window.UpdateLayout();
+
+                TextBox warningEditor = FindDescendants<TextBox>(warningPicker).Single();
+                Assert.AreEqual("Warning", AutomationProperties.GetItemStatus(warningEditor));
+                Assert.AreEqual(warningPicker.ValidationMessage, AutomationProperties.GetHelpText(warningEditor));
+                Assert.AreEqual("Warning", AutomationProperties.GetItemStatus(warningPicker));
+                Assert.AreEqual(warningPicker.ValidationMessage, AutomationProperties.GetHelpText(warningPicker));
+                AssertBrushColor(warningPicker, "App.WarningTextBrush", warningEditor.BorderBrush);
+                Assert.IsTrue(FindDescendants<TextBlock>(warningPicker).Any(text =>
+                    text.Text == warningPicker.ValidationMessage && text.Visibility == Visibility.Visible));
+
+                TextBox errorPathEditor = FindDescendants<TextBox>(errorPicker).Single();
+                Assert.AreEqual("Error", AutomationProperties.GetItemStatus(errorPathEditor));
+                Assert.AreEqual(errorPicker.ValidationMessage, AutomationProperties.GetHelpText(errorPathEditor));
+                AssertBrushColor(errorPicker, "App.ErrorTextBrush", errorPathEditor.BorderBrush);
+                Assert.IsTrue(FindDescendants<TextBlock>(errorPicker).Any(text =>
+                    text.Text == errorPicker.ValidationMessage && text.Visibility == Visibility.Visible));
+
+                Assert.AreEqual("Error", AutomationProperties.GetItemStatus(errorField));
+                Assert.AreEqual(errorField.ValidationMessage, AutomationProperties.GetHelpText(errorField));
+                Assert.AreEqual("Error", AutomationProperties.GetItemStatus(errorEditor));
+                Assert.AreEqual(errorField.ValidationMessage, AutomationProperties.GetHelpText(errorEditor));
+                AssertBrushColor(errorField, "App.ErrorTextBrush", errorEditor.BorderBrush);
+                Assert.IsTrue(FindDescendants<TextBlock>(errorField).Any(text =>
+                    text.Text == errorField.ValidationMessage && text.Visibility == Visibility.Visible));
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void SettingsWindow_AllPagesContinuouslyStretchWithoutWidthBreakpoints()
     {
         XDocument window = LoadSettingsWindowXaml();

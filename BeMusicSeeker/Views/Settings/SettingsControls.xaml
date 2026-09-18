@@ -66,6 +66,20 @@
          TargetType="{x:Type ComboBox}"
          BasedOn="{StaticResource App.Canonical.ComboBoxStyle}" />
   <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource SettingsComboBoxStyle}" />
+  <Style x:Key="SettingsValidatedComboBoxStyle"
+         TargetType="{x:Type ComboBox}"
+         BasedOn="{StaticResource SettingsComboBoxStyle}">
+    <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" />
+    <Setter Property="AutomationProperties.HelpText" Value="{Binding ValidationMessage, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" />
+    <Style.Triggers>
+      <DataTrigger Binding="{Binding ValidationStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" Value="Warning">
+        <Setter Property="BorderBrush" Value="{DynamicResource App.WarningTextBrush}" />
+      </DataTrigger>
+      <DataTrigger Binding="{Binding ValidationStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" Value="Error">
+        <Setter Property="BorderBrush" Value="{DynamicResource App.ErrorTextBrush}" />
+      </DataTrigger>
+    </Style.Triggers>
+  </Style>
 
   <Style x:Key="SettingsCheckBoxStyle"
          TargetType="{x:Type CheckBox}"
@@ -241,6 +255,8 @@
     <Setter Property="Margin" Value="0,0,0,14" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource Self}}" />
+    <Setter Property="AutomationProperties.HelpText" Value="{Binding ValidationMessage, RelativeSource={RelativeSource Self}}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type settings:SettingsField}">
@@ -261,7 +277,8 @@
               </TextBlock.Style>
             </TextBlock>
             <ContentPresenter Margin="0,6,0,0" />
-            <TextBlock Margin="0,4,0,0"
+            <TextBlock x:Name="ValidationText"
+                       Margin="0,4,0,0"
                        Foreground="{DynamicResource App.WarningTextBrush}"
                        Text="{TemplateBinding ValidationMessage}"
                        TextWrapping="Wrap">
@@ -276,6 +293,14 @@
               </TextBlock.Style>
             </TextBlock>
           </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="ValidationStatus" Value="Warning">
+              <Setter TargetName="ValidationText" Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" />
+            </Trigger>
+            <Trigger Property="ValidationStatus" Value="Error">
+              <Setter TargetName="ValidationText" Property="Foreground" Value="{DynamicResource App.ErrorTextBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
@@ -311,6 +336,8 @@
   <Style TargetType="{x:Type settings:SettingsPathPicker}">
     <Setter Property="Margin" Value="0,0,0,14" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource Self}}" />
+    <Setter Property="AutomationProperties.HelpText" Value="{Binding ValidationMessage, RelativeSource={RelativeSource Self}}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type settings:SettingsPathPicker}">
@@ -335,10 +362,13 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
-              <TextBox MinWidth="180"
+              <TextBox x:Name="PART_PathEditor"
+                       MinWidth="180"
                        Text="{Binding Path, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                        IsReadOnly="{TemplateBinding IsPathReadOnly}"
-                       AutomationProperties.Name="{TemplateBinding Label}" />
+                       AutomationProperties.Name="{TemplateBinding Label}"
+                       AutomationProperties.ItemStatus="{TemplateBinding ValidationStatus}"
+                       AutomationProperties.HelpText="{TemplateBinding ValidationMessage}" />
               <Button x:Name="PART_BrowseButton"
                       Grid.Column="1"
                       MinWidth="88"
@@ -346,7 +376,32 @@
                       Content="{TemplateBinding BrowseText}"
                       AutomationProperties.Name="{TemplateBinding BrowseText}" />
             </Grid>
+            <TextBlock x:Name="ValidationText"
+                       Margin="0,4,0,0"
+                       Foreground="{DynamicResource App.WarningTextBrush}"
+                       Text="{TemplateBinding ValidationMessage}"
+                       TextWrapping="Wrap">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Style.Triggers>
+                    <Trigger Property="Text" Value="">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                    </Trigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
           </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="ValidationStatus" Value="Warning">
+              <Setter TargetName="PART_PathEditor" Property="BorderBrush" Value="{DynamicResource App.WarningTextBrush}" />
+              <Setter TargetName="ValidationText" Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" />
+            </Trigger>
+            <Trigger Property="ValidationStatus" Value="Error">
+              <Setter TargetName="PART_PathEditor" Property="BorderBrush" Value="{DynamicResource App.ErrorTextBrush}" />
+              <Setter TargetName="ValidationText" Property="Foreground" Value="{DynamicResource App.ErrorTextBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

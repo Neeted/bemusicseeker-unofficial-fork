@@ -574,6 +574,7 @@
   "Fix_character_encoding": "Fix character encoding",
   "Add_ignore": "Add to ignored list",
   "Warning": "Warning",
+  "Warning_LR2RootPathNotSet": "Le répertoire LR2 n’est pas configuré. L’emplacement de la base de scores LR2 ne peut pas être déterminé ; la base de scores LR2 ne peut donc pas être utilisée. La sauvegarde LR2 et la détection des dossiers personnalisés intégrés de LR2 peuvent se comporter de manière inattendue. Configurez le répertoire LR2 dans les paramètres.",
   "Record_setting_encoder_tooltip": "Specify the directory where the encoder exe files are stored",
   "Msg_move_to_other_root": "Target BMS folders will be moved to the other root directory.\nAre you sure you want to continue?",
   "Install_desc": "Restrict usable characters to shift JIS set",

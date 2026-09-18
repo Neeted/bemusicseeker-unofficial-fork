@@ -584,6 +584,7 @@
   "Fix_character_encoding": "文字化けを修正",
   "Add_ignore": "無視リストに追加",
   "Warning": "警告",
+  "Warning_LR2RootPathNotSet": "LR2ディレクトリが設定されていません。LR2のスコアDBの場所を解決できないため、LR2のスコアDBを利用できません。LR2バックアップやLR2標準カスタムフォルダの検出で予期しない動作になる可能性があります。設定画面でLR2ディレクトリを設定してください。",
   "Record_setting_encoder_tooltip": "エンコーダの実行ファイルが保存されているディレクトリを指定して下さい",
   "Msg_move_to_other_root": "対象の楽曲を別のルートフォルダへ移動します。\nよろしいですか？",
   "Install_desc": "使用可能文字をシフトJISに制限する",

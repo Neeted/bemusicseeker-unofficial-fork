@@ -30,10 +30,14 @@ public class SettingsField : HeaderedContentControl
     public static readonly DependencyProperty DescriptionProperty = DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingsField), new PropertyMetadata(string.Empty));
     /// <summary>Identifies the optional field validation text.</summary>
     public static readonly DependencyProperty ValidationMessageProperty = DependencyProperty.Register(nameof(ValidationMessage), typeof(string), typeof(SettingsField), new PropertyMetadata(string.Empty));
+    /// <summary>表示スタイルと自動化へ渡す検証状態を識別します。</summary>
+    public static readonly DependencyProperty ValidationStatusProperty = DependencyProperty.Register(nameof(ValidationStatus), typeof(string), typeof(SettingsField), new PropertyMetadata(string.Empty));
     /// <summary>Gets or sets the optional explanatory text.</summary>
     public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
     /// <summary>Gets or sets the optional validation text.</summary>
     public string ValidationMessage { get => (string)GetValue(ValidationMessageProperty); set => SetValue(ValidationMessageProperty, value); }
+    /// <summary><c>Warning</c> または <c>Error</c> の検証表示状態を取得または設定します。正常時は空文字列を使います。</summary>
+    public string ValidationStatus { get => (string)GetValue(ValidationStatusProperty); set => SetValue(ValidationStatusProperty, value); }
 
     /// <inheritdoc />
     public override void OnApplyTemplate()
@@ -172,6 +176,10 @@ public class SettingsPathPicker : Control
     public static readonly DependencyProperty IsPathReadOnlyProperty = DependencyProperty.Register(nameof(IsPathReadOnly), typeof(bool), typeof(SettingsPathPicker), new PropertyMetadata(true));
     /// <summary>Identifies the browse button text.</summary>
     public static readonly DependencyProperty BrowseTextProperty = DependencyProperty.Register(nameof(BrowseText), typeof(string), typeof(SettingsPathPicker), new PropertyMetadata(string.Empty));
+    /// <summary>任意のパス検証文言を識別します。</summary>
+    public static readonly DependencyProperty ValidationMessageProperty = DependencyProperty.Register(nameof(ValidationMessage), typeof(string), typeof(SettingsPathPicker), new PropertyMetadata(string.Empty));
+    /// <summary>表示スタイルと自動化へ渡す検証状態を識別します。</summary>
+    public static readonly DependencyProperty ValidationStatusProperty = DependencyProperty.Register(nameof(ValidationStatus), typeof(string), typeof(SettingsPathPicker), new PropertyMetadata(string.Empty));
     /// <summary>Identifies the routed browse request event.</summary>
     public static readonly RoutedEvent BrowseRequestedEvent = EventManager.RegisterRoutedEvent(nameof(BrowseRequested), RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(SettingsPathPicker));
 
@@ -185,6 +193,10 @@ public class SettingsPathPicker : Control
     public bool IsPathReadOnly { get => (bool)GetValue(IsPathReadOnlyProperty); set => SetValue(IsPathReadOnlyProperty, value); }
     /// <summary>Gets or sets the browse button text.</summary>
     public string BrowseText { get => (string)GetValue(BrowseTextProperty); set => SetValue(BrowseTextProperty, value); }
+    /// <summary>任意のパス検証文言を取得または設定します。</summary>
+    public string ValidationMessage { get => (string)GetValue(ValidationMessageProperty); set => SetValue(ValidationMessageProperty, value); }
+    /// <summary><c>Warning</c> または <c>Error</c> の検証表示状態を取得または設定します。正常時は空文字列を使います。</summary>
+    public string ValidationStatus { get => (string)GetValue(ValidationStatusProperty); set => SetValue(ValidationStatusProperty, value); }
 
     /// <summary>Occurs when the browse button is activated.</summary>
     public event RoutedEventHandler BrowseRequested { add => AddHandler(BrowseRequestedEvent, value); remove => RemoveHandler(BrowseRequestedEvent, value); }

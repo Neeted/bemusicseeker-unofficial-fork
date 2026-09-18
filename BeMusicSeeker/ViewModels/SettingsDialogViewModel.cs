@@ -848,11 +848,55 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public bool CanSaveSettings => CheckValidationForSave();
 
+    /// <summary>LR2 ディレクトリ未設定時に表示する、保存を阻止しない警告です。</summary>
+    public string Lr2RootPathValidationMessage => OperationModeLR2DB && string.IsNullOrWhiteSpace(LR2RootPath)
+        ? BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet
+        : string.Empty;
+
+    /// <summary>LR2 ディレクトリ欄の検証表示種別です。</summary>
+    public string Lr2RootPathValidationStatus => string.IsNullOrWhiteSpace(Lr2RootPathValidationMessage) ? string.Empty : "Warning";
+
+    /// <summary>BMS インストール先欄の保存時検証メッセージです。</summary>
+    public string BmsInstallDirValidationMessage => IsBMSInstallDirValid()
+        ? string.Empty
+        : BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir;
+
+    /// <summary>BMS インストール先欄の検証表示種別です。</summary>
+    public string BmsInstallDirValidationStatus => string.IsNullOrWhiteSpace(BmsInstallDirValidationMessage) ? string.Empty : "Error";
+
+    /// <summary>通常カスタムフォルダ出力先欄の保存時検証メッセージです。</summary>
+    public string CustomFolderOutputDirValidationMessage => GetCustomFolderOutputDirValidationMessage();
+
+    /// <summary>通常カスタムフォルダ出力先欄の検証表示種別です。</summary>
+    public string CustomFolderOutputDirValidationStatus => string.IsNullOrWhiteSpace(CustomFolderOutputDirValidationMessage) ? string.Empty : "Error";
+
+    /// <summary>ROOT 形式カスタムフォルダ出力先欄の保存時検証メッセージです。</summary>
+    public string CustomFolderRootOutputDirValidationMessage => GetCustomFolderRootOutputDirValidationMessage();
+
+    /// <summary>ROOT 形式カスタムフォルダ出力先欄の検証表示種別です。</summary>
+    public string CustomFolderRootOutputDirValidationStatus => string.IsNullOrWhiteSpace(CustomFolderRootOutputDirValidationMessage) ? string.Empty : "Error";
+
+    /// <summary>表一覧URL欄の検証表示種別です。</summary>
+    public string TableListUriValidationStatus => string.IsNullOrWhiteSpace(TableListUriValidationMessage) ? string.Empty : "Error";
+
+    /// <summary>プレイリストURL対応表欄の検証表示種別です。</summary>
+    public string PlaylistMd5UrlMappingTsvUriValidationStatus => string.IsNullOrWhiteSpace(PlaylistMd5UrlMappingTsvUriValidationMessage) ? string.Empty : "Error";
+
     private void RaiseValidationStateChanged()
     {
         RaisePropertyChanged(nameof(CanSaveSettings));
+        RaisePropertyChanged(nameof(Lr2RootPathValidationMessage));
+        RaisePropertyChanged(nameof(Lr2RootPathValidationStatus));
+        RaisePropertyChanged(nameof(BmsInstallDirValidationMessage));
+        RaisePropertyChanged(nameof(BmsInstallDirValidationStatus));
+        RaisePropertyChanged(nameof(CustomFolderOutputDirValidationMessage));
+        RaisePropertyChanged(nameof(CustomFolderOutputDirValidationStatus));
+        RaisePropertyChanged(nameof(CustomFolderRootOutputDirValidationMessage));
+        RaisePropertyChanged(nameof(CustomFolderRootOutputDirValidationStatus));
         RaisePropertyChanged(nameof(TableListUriValidationMessage));
+        RaisePropertyChanged(nameof(TableListUriValidationStatus));
         RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationMessage));
+        RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationStatus));
     }
 
     private void RightClickActionSettingsEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -4205,6 +4249,7 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
             settingDialogViewModel.RaiseLr2PathPresentationChanged();
+            settingDialogViewModel.RaiseValidationStateChanged();
             settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
@@ -5446,12 +5491,12 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private bool ValidateCustomFolderOutputBaseDir(out string errMsg)
+    private bool ValidateCustomFolderOutputBaseDir(out string errMsg, bool includeSection = true)
     {
-        return ValidateCustomFolderOutputBaseDir(LR2CustomFolderOutputDir, out errMsg);
+        return ValidateCustomFolderOutputBaseDir(LR2CustomFolderOutputDir, out errMsg, includeSection);
     }
 
-    private bool ValidateCustomFolderOutputBaseDir(string path, out string errMsg)
+    private bool ValidateCustomFolderOutputBaseDir(string path, out string errMsg, bool includeSection = true)
     {
         errMsg = string.Empty;
         try
@@ -5485,9 +5530,24 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
         {
-            errMsg = FormatPlaylistValidationMessage(ex.Message);
+            errMsg = includeSection ? FormatPlaylistValidationMessage(ex.Message) : ex.Message;
             return false;
         }
+    }
+
+    private string GetCustomFolderOutputDirValidationMessage()
+    {
+        if (!OperationModeLR2DB)
+        {
+            return string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(LR2CustomFolderOutputDir))
+        {
+            return BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputPathNotSet;
+        }
+        return ValidateCustomFolderOutputBaseDir(out string errMsg, includeSection: false)
+            ? string.Empty
+            : errMsg;
     }
 
     private static void ValidateOutputBasesDoNotOverlap(string path, string label, string otherPath, string otherLabel)
@@ -5519,12 +5579,12 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private bool ValidateCustomFolderAsRootOutputBaseDir(out string errMsg)
+    private bool ValidateCustomFolderAsRootOutputBaseDir(out string errMsg, bool includeSection = true)
     {
-        return ValidateCustomFolderAsRootOutputBaseDir(LR2CustomFolderAsRootOutputDir, out errMsg);
+        return ValidateCustomFolderAsRootOutputBaseDir(LR2CustomFolderAsRootOutputDir, out errMsg, includeSection);
     }
 
-    private bool ValidateCustomFolderAsRootOutputBaseDir(string path, out string errMsg)
+    private bool ValidateCustomFolderAsRootOutputBaseDir(string path, out string errMsg, bool includeSection = true)
     {
         errMsg = string.Empty;
         try
@@ -5550,9 +5610,24 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
         {
-            errMsg = FormatPlaylistValidationMessage(ex.Message);
+            errMsg = includeSection ? FormatPlaylistValidationMessage(ex.Message) : ex.Message;
             return false;
         }
+    }
+
+    private string GetCustomFolderRootOutputDirValidationMessage()
+    {
+        if (!OperationModeLR2DB)
+        {
+            return string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir))
+        {
+            return BeMusicSeeker.Properties.Resources.Error_CustomFolderRootOutputPathNotSet;
+        }
+        return ValidateCustomFolderAsRootOutputBaseDir(out string errMsg, includeSection: false)
+            ? string.Empty
+            : errMsg;
     }
 
     private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath)

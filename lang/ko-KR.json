@@ -574,6 +574,7 @@
   "Fix_character_encoding": "문자 인코딩 (글자 깨짐) 수정",
   "Add_ignore": "무시 목록에 추가",
   "Warning": "경고",
+  "Warning_LR2RootPathNotSet": "LR2 디렉터리가 설정되어 있지 않습니다. LR2 스코어 DB 위치를 확인할 수 없어 LR2 스코어 DB를 사용할 수 없습니다. LR2 백업 및 LR2 기본 커스텀 폴더 감지가 예상과 다르게 동작할 수 있습니다. 설정에서 LR2 디렉터리를 지정해 주세요.",
   "Record_setting_encoder_tooltip": "인코더 실행 파일이 위치한 디렉토리를 지정합니다",
   "Msg_move_to_other_root": "대상 BMS 폴더를 다른 루트(최상위) 디렉토리로 이동시킵니다.\n실행하시겠습니까?",
   "Install_desc": "가능한 문자 구성을 Shift-JIS 범주로 제한",

@@ -574,6 +574,7 @@
   "Fix_character_encoding": "修复字符编码 (乱码)",
   "Add_ignore": "添加到忽略列表",
   "Warning": "警告",
+  "Warning_LR2RootPathNotSet": "尚未设置 LR2 目录。无法解析 LR2 分数数据库的位置，因此无法使用 LR2 分数数据库。LR2 备份以及 LR2 内置自定义文件夹的检测可能出现非预期行为。请在设置中指定 LR2 目录。",
   "Record_setting_encoder_tooltip": "指定存放编码器可执行文件的目录",
   "Msg_move_to_other_root": "目标 BMS 文件夹将被移动到其他的根目录下。\n确定要继续吗？",
   "Install_desc": "将可用字符限制为 Shift-JIS 字符集",

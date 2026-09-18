@@ -226,7 +226,7 @@ public partial class MainWindowViewModel : ViewModel,
     private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
 
     Task<StartupInitializationOutcome> ISettingsDialogStatePort.InitializeLibraryAsync()
-        => InitializeLibraryAsync(openSettingsOnFailure: false);
+        => InitializeLibraryAsync(isNormalStartup: false);
 
     Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()
         => ReloadScoresOnlyAsync();
@@ -4211,14 +4211,15 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     /// <returns>初期化に成功した場合だけ true。</returns>
     internal async Task<bool> InitializeAsync()
-        => await InitializeLibraryAsync(openSettingsOnFailure: true) == StartupInitializationOutcome.Succeeded;
+        => await InitializeLibraryAsync(isNormalStartup: true) == StartupInitializationOutcome.Succeeded;
 
-    private async Task<StartupInitializationOutcome> InitializeLibraryAsync(bool openSettingsOnFailure)
+    private async Task<StartupInitializationOutcome> InitializeLibraryAsync(bool isNormalStartup)
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
         LibraryDirectoryPreflightException directoryFailure = null;
         string settingsValidationFailure = null;
+        StartupSettingsSnapshot initializedSettings = null;
         LibraryDirectoryWarningPhase directoryWarningPhase =
             LibraryDirectoryWarningPhase.Early;
         StartupInitializationOutcome outcome;
@@ -4226,7 +4227,8 @@ public partial class MainWindowViewModel : ViewModel,
         {
             outcome = await InitializeCoreAsync(
                 phase => directoryWarningPhase = phase,
-                message => settingsValidationFailure = message);
+                message => settingsValidationFailure = message,
+                settings => initializedSettings = settings);
         }
         catch (LibraryDirectoryPreflightException exception)
         {
@@ -4248,7 +4250,7 @@ public partial class MainWindowViewModel : ViewModel,
         else if (settingsValidationFailure != null)
         {
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + settingsValidationFailure.Replace(Environment.NewLine, " | "));
-            if (openSettingsOnFailure && applicationLifetime.IsFirstStartup)
+            if (isNormalStartup && applicationLifetime.IsFirstStartup)
             {
                 SettingDialog?.RequestInitialSetupLanguageDialog();
                 return StartupInitializationOutcome.SettingsRequired;
@@ -4263,7 +4265,18 @@ public partial class MainWindowViewModel : ViewModel,
             UiDialogRoute.ThrowIfNotShown(result, "Startup settings validation notification");
         }
 
-        if (openSettingsOnFailure && outcome == StartupInitializationOutcome.SettingsRequired)
+        if (isNormalStartup
+            && outcome == StartupInitializationOutcome.Succeeded
+            && initializedSettings?.OperationModeLR2DB == true
+            && string.IsNullOrWhiteSpace(initializedSettings.LR2RootPath))
+        {
+            UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+                BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet,
+                BeMusicSeeker.Properties.Resources.Warning));
+            UiDialogRoute.ThrowIfNotShown(result, "Startup LR2 root path warning");
+        }
+
+        if (isNormalStartup && outcome == StartupInitializationOutcome.SettingsRequired)
         {
             SettingDialog?.RequestOpen();
         }
@@ -4272,7 +4285,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private async Task<StartupInitializationOutcome> InitializeCoreAsync(
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
-        Action<string> recordSettingsValidationFailure)
+        Action<string> recordSettingsValidationFailure,
+        Action<StartupSettingsSnapshot> recordStartupSettings)
     {
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
@@ -4294,6 +4308,7 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             startupSettings = GetStartupSettingsSnapshot();
+            recordStartupSettings?.Invoke(startupSettings);
             if (startupSettings.OperationModeLR2DB)
             {
                 startupCustomFolderSettings = customFolderOutputSettingsProvider()
