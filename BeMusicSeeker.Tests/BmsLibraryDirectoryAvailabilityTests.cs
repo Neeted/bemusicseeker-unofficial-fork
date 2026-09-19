@@ -17,7 +17,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
     [TestMethod]
     public void ReloadFileDiff_WhenRegisteredRootDisappears_PreservesCatalogSentinel()
     {
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string rootDirectoryA = Path.Combine(scope.DirectoryPath, "BMS-A");
         string rootDirectoryB = Path.Combine(scope.DirectoryPath, "BMS-B");
@@ -114,7 +114,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
     [TestMethod]
     public void ReloadFileDiff_WhenRootDisappearsDuringPrefetch_PreservesCatalogSentinel()
     {
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string rootDirectoryA = Path.Combine(scope.DirectoryPath, "BMS-A");
         string rootDirectoryB = Path.Combine(scope.DirectoryPath, "BMS-B");
@@ -212,7 +212,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
     [TestMethod]
     public void Reinitialize_WhenRegisteredRootDisappears_PreservesCatalogSentinel()
     {
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string rootDirectoryA = Path.Combine(scope.DirectoryPath, "BMS-A");
         string rootDirectoryB = Path.Combine(scope.DirectoryPath, "BMS-B");
@@ -298,7 +298,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
     [TestMethod]
     public void ReloadFileDiff_AfterPreflightFailureAndRootRestore_Succeeds()
     {
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string rootDirectoryA = Path.Combine(scope.DirectoryPath, "BMS-A");
         string rootDirectoryB = Path.Combine(scope.DirectoryPath, "BMS-B");

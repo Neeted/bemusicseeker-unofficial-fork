@@ -136,7 +136,7 @@ internal sealed class NormalLibraryRowCache
                 bool hasPreviousSortKeys = bmsonSortKeysByPath.TryGetValue(song.path, out BmsonLibrarySortKeySnapshot previousSortKeys);
                 row.UpdateFromBmsonSong(song);
                 configureRow?.Invoke(row);
-                BmsonLibrarySortKeySnapshot nextSortKeys = BmsonLibrarySortKeySnapshot.Capture(song);
+                var nextSortKeys = BmsonLibrarySortKeySnapshot.Capture(song);
                 if (!hasPreviousSortKeys || previousSortKeys.HasChanged(nextSortKeys))
                 {
                     sortKeyChanged = true;

@@ -14,7 +14,7 @@ public sealed class EverythingNativeRuntimeTests
     public void MissingBridgeIsReportedWithoutUsingCurrentDirectory()
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(EverythingNativeRuntimeTests), Guid.NewGuid().ToString("N"));
-        ApplicationPathSnapshot snapshot = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
+        var snapshot = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
         var native = new EverythingNative(snapshot);
 
         try

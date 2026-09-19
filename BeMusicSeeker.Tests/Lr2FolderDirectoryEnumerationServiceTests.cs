@@ -13,7 +13,7 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
     [TestMethod]
     public void CreateEntriesFromSurface_UsesDirectNormalizedTargetLookup()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string target = Lr2FolderPath.NormalizeDirectoryPath(Path.Combine(scope.DirectoryPath, "BMS", "Table"));
         DateTime timestamp = new(2026, 6, 8, 1, 2, 3, DateTimeKind.Utc);
         var sourceEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
@@ -32,7 +32,7 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
     [TestMethod]
     public void CreateEntriesFromSurface_FallsBackToEntryPathWhenKeyIsNotNormalizedTarget()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string target = Lr2FolderPath.NormalizeDirectoryPath(Path.Combine(scope.DirectoryPath, "BMS", "Table"));
         var sourceEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
         {
@@ -49,7 +49,7 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
     [TestMethod]
     public void CreateEntriesFromGroupedResult_CompletesMissingExistingTargetWithinAllowedRoots()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "BMS");
         string target = Path.Combine(root, "#minbp", "InsaneTable");
         DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
@@ -77,7 +77,7 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
     [TestMethod]
     public void CompleteMissingEntriesFromDirectoryMetadata_LeavesOutsideMissingAndUnreadableTargetsAbsent()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "BMS");
         string inside = Path.Combine(root, "Inside");
         string outside = Path.Combine(scope.DirectoryPath, "Outside");

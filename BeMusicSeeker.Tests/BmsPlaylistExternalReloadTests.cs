@@ -45,7 +45,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "Output");
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             synchronization.Failure = new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
@@ -95,7 +95,7 @@ public sealed class BmsPlaylistExternalReloadTests
             {
             }
             var originalException = new InvalidOperationException("forced LR2 folder sync failure");
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             synchronization.Failure = originalException;
@@ -281,7 +281,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootCustomFolder"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 null,
@@ -381,7 +381,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 string songDbPath = CreateTempSongDbPath(tempDirectory);
                 PlaylistPersistenceRepository.EnsureSchema(songDbPath);
                 CustomFolderOutputSettingsSnapshot outputSettings = CreateLocalMutationOutputSettings(tempDirectory, outputBaseDir, operationModeLr2Db: true);
-                var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                     songDbPath,
                     CustomFolderOutputPhysicalSurface.Empty);
                 var leaseProvider = new CountingMutationLeaseProvider();
@@ -460,7 +460,7 @@ public sealed class BmsPlaylistExternalReloadTests
                         tempDirectory,
                         outputBaseDir,
                         OperationModeLr2Db);
-                    var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                         songDbPath,
                         CustomFolderOutputPhysicalSurface.Empty);
                     var leaseProvider = new CountingMutationLeaseProvider

@@ -440,7 +440,7 @@ internal sealed class PlaylistRecommendedTableOwner
             })
             .Where(entry => entry != null && entry.type != "course")
             .ToList();
-        List<EstimationSource> source = insane.entries.Concat(overjoy.entries)
+        var source = insane.entries.Concat(overjoy.entries)
             .GroupJoin(
                 inner,
                 entry => entry.lr2_bmsid,
@@ -777,7 +777,7 @@ internal sealed class PlaylistRecommendedTableOwner
         {
             DateParseHandling = DateParseHandling.None
         };
-        JToken token = JToken.ReadFrom(reader);
+        var token = JToken.ReadFrom(reader);
         if (reader.Read())
         {
             throw new JsonReaderException("JSON document contains trailing content.");

@@ -40,7 +40,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void BuildDetailSourceRows_FiltersFolderAndRemovedEntriesInsideWorkspace()
     {
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
         var included = new TestablePlaylistEntry("11111111111111111111111111111111", "included") { folder = "target" };
         var otherFolder = new TestablePlaylistEntry("22222222222222222222222222222222", "other") { folder = "other" };
         var removed = new TestablePlaylistEntry("33333333333333333333333333333333", "removed") { folder = "target", is_removed = true };
@@ -68,7 +68,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void BuildDetailSourceRows_OrdinaryRootRetainsSpecialFolderRows()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var normal = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "normal")
         {
             folder = "normal"
@@ -104,7 +104,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_ReplacesCurrentGenerationWithoutMutatingOldRow()
     {
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
         var oldInfo = new LR2SongDBExtended.chart_info
         {
             sha256 = new string('a', 64),
@@ -162,7 +162,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_ReResolvesUnownedBeatorajaScoreFromHydratedChartInfo()
     {
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
         var entry = new TestablePlaylistEntry("66666666666666666666666666666666", "chart-info-score");
         var oldRow = new PlaylistDetailSourceRow(entry, resolvedChart: null);
         workspace.DetailViewState.Source.Rows = [oldRow];
@@ -235,7 +235,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_RejectsStaleRequestWithoutReplacingSource()
     {
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
         var oldInfo = new LR2SongDBExtended.chart_info
         {
             sha256 = new string('b', 64),
@@ -274,11 +274,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void BuildDetailSourceRows_OnlyNotOwnedExcludesResolvedLibraryCharts()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var owned = new TestablePlaylistEntry("66666666666666666666666666666666", "owned");
         var missing = new TestablePlaylistEntry("77777777777777777777777777777777", "missing");
         var table = new BMSTable { entries = [owned, missing] };
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
             [LibraryChartRef.FromPath(LibraryChartKind.Bms, @"C:\songs\owned.bms", owned.md5, null)]);
         string cancellationStage = string.Empty;
 
@@ -298,7 +298,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void BuildDetailSourceRows_CancellationIsNotHidden()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var table = new BMSTable
         {
             entries = [new TestablePlaylistEntry("88888888888888888888888888888888", "cancel")]
@@ -395,7 +395,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void RequestDetailRefresh_AfterShutdownIsIgnoredWithoutStartingWorker()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         workspace.CancelDetailBuilds();
         workspace.RequestDetailSelection(new BMSTable());
 
@@ -415,7 +415,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void RequestDetailRefresh_WithoutOwnerSelectionIsIgnored()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         int initialRequestVersion = workspace.DetailBuildState.RequestVersion;
 
         int requestVersion = workspace.RequestDetailRefresh(
@@ -434,7 +434,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void PlaylistSyncStatusOwner_ReplacesSourceKeyAndUsesSourceFallback()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var sourceTable = new BMSTable { playlist_id = 1 };
         var resultTable = new BMSTable { playlist_id = 2 };
 
@@ -466,7 +466,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void PlaylistSyncStatusOwner_CapturesIsolatedSnapshots()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var table = new BMSTable { playlist_id = 3 };
         workspace.RecordPlaylistSyncResult(
             PlaylistSyncAttemptResult.CreateSuccess(
@@ -493,7 +493,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void PlaylistSyncProgressOwner_SuppressesInactiveUntilLastScopeEnds()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         List<PlaylistSyncProgressSnapshot> snapshots = [];
         workspace.PlaylistSyncProgressChanged += (_, request) => snapshots.Add(request.Snapshot);
 
@@ -525,7 +525,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void PlaylistSyncProgressOwner_TracksBeatorajaOperationIdsExactlyOnce()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         List<PlaylistSyncProgressSnapshot> snapshots = [];
         workspace.PlaylistSyncProgressChanged += (_, request) => snapshots.Add(request.Snapshot);
 
@@ -568,7 +568,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void PlaylistSyncProgressOwner_BeatorajaCompletionDoesNotClearManualScope()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         List<PlaylistSyncProgressSnapshot> snapshots = [];
         workspace.PlaylistSyncProgressChanged += (_, request) => snapshots.Add(request.Snapshot);
 
@@ -595,7 +595,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TreeSelection_NormalFolderAndNotOwnedUseCanonicalDetailSelection()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var table = new BMSTable();
         PlaylistTreeSelectionActivatedEventArgs? request = null;
         workspace.TreeSelectionActivated += (_, e) => request = e;
@@ -628,7 +628,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TreeSelection_SummaryCanBeRequestedRepeatedly()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         int requestCount = 0;
         workspace.TreeSelectionActivated += (_, request) =>
         {
@@ -646,7 +646,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TreeSelectionActivationsPublishOnCallerThread()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         int callerThreadId = Thread.CurrentThread.ManagedThreadId;
         List<int> requestThreadIds = [];
         workspace.TreeSelectionActivated += (_, _) => requestThreadIds.Add(Thread.CurrentThread.ManagedThreadId);
@@ -661,7 +661,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public void TreeSelection_StaleSummaryIsNotActivatedAfterDetailSelection()
     {
         Queue<Action> pendingActions = new();
-        var workspace = CreateDetailWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             dispatchPresentation: action => pendingActions.Enqueue(action));
         List<PlaylistTreeSelectionActivatedEventArgs> activations = [];
@@ -682,7 +682,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public void TreeSelection_CurrentSummaryActivationOwnsPresentation()
     {
         int presentationRefreshRequestCount = 0;
-        var workspace = CreateDetailWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             presentationRefreshDeferredProvider: request =>
             {
@@ -714,7 +714,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public void TreeSelection_ReentrantDetailSelectionPreventsStaleSummaryRefresh()
     {
         int summaryRefreshCount = 0;
-        var workspace = CreateDetailWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             presentationRefreshDeferredProvider: request =>
             {
@@ -747,7 +747,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public void TreeSelection_CurrentDetailActivationIsRejectedAfterClear()
     {
         Queue<Action> pendingActions = new();
-        var workspace = CreateDetailWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             dispatchPresentation: action => pendingActions.Enqueue(action));
         int activationCount = 0;
@@ -767,7 +767,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TreeSelection_CurrentDetailActivationOwnsSummaryTransition()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var table = new BMSTable();
         PlaylistTreeSelectionActivatedEventArgs? activation = null;
         workspace.TreeSelectionActivated += (_, request) =>
@@ -795,7 +795,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public async Task RequestDetailRefresh_StaleInputUsesCurrentOwnerSelection()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("old", ChartModeFilter.All));
         var oldTable = new BMSTable();
         var currentTable = new BMSTable();
@@ -833,7 +833,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TreeSelection_NullTableSelectionRemainsResolvedAsSelectionState()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         PlaylistTreeSelectionActivatedEventArgs? request = null;
         workspace.TreeSelectionActivated += (_, e) => request = e;
 
@@ -854,7 +854,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void TreeSelection_OwnerPreservesReplacementRemapAndContentRevision()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var oldTable = new BMSTable();
         var newTable = new BMSTable();
         PlaylistTreeSelectionActivatedEventArgs? request = null;
@@ -899,7 +899,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void RequestPlaylistDetailScoreSnapshotRefresh_DefersDuringEditAndPreservesHighestVersion()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         workspace.IsPlaylistDetailViewActive = true;
         workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
         workspace.DetailViewState.Source.IsPlaylistCellEditing = true;
@@ -927,7 +927,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void RequestPlaylistDetailScoreSnapshotRefresh_IgnoresStaleOrInactiveRequests()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
         var refreshes = new List<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs>();
         workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refreshes.Add(request);
@@ -945,7 +945,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void RequestPlaylistDetailReloadRefresh_PublishesReloadOpportunity()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         int refreshCount = 0;
         workspace.PlaylistDetailReloadRefreshRequested += (_, _) => refreshCount++;
 
@@ -965,7 +965,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public void SetDetailDataSource_ReinitializeUsesReplacementSource()
     {
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource firstSource);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource firstSource);
         var replacementSource = new FakePlaylistDetailDataSource();
         using var activeBuildCancellation = new CancellationTokenSource();
         PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(
@@ -1179,7 +1179,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public async Task PlaylistLibraryIndexPrewarm_UsesWorkspaceSchedulerAndRuntimeCache()
     {
         var queuedWork = new List<Func<Task>>();
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, work) =>
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, work) =>
         {
             queuedWork.Add(work);
             return true;
@@ -1326,7 +1326,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_DuplicateRefreshDefersUntilUiPriorityEnds()
     {
-        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, _) => true);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, _) => true);
         workspace.BeginDuplicateRefreshPriorityWindow("test");
 
         workspace.InvalidatePlaylistLibraryIndexSnapshot(

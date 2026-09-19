@@ -232,7 +232,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
                 BMIIDXView2015HandleShowing = default;
                 BMIIDXView2015Process = null;
             }
-            ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
+            var launchRequest = ExternalPlayerProcessLaunchRequest.Create(
                 ExePath,
                 "-S \"" + bmsFilePath + "\"",
                 System.Diagnostics.ProcessWindowStyle.Minimized);

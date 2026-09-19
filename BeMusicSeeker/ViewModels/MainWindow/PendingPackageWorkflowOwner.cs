@@ -1133,7 +1133,7 @@ internal sealed class PendingPackageWorkflowOwner
 
         using var cancellationTokenSource = new CancellationTokenSource();
         int processedCount = 0;
-        Task operationTask = Task.Run(() =>
+        var operationTask = Task.Run(() =>
             operation(
                 cancellationTokenSource.Token,
                 () => Interlocked.Increment(ref processedCount)));
@@ -1438,7 +1438,7 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 return;
             }
-            Task operationTask = Task.Run(operation);
+            var operationTask = Task.Run(operation);
             operationScheduled = true;
             await operationTask;
         }

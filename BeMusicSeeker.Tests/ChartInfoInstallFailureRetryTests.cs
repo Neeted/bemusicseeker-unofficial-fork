@@ -12,17 +12,16 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
-
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
@@ -61,7 +60,7 @@ public sealed class ChartInfoInstallFailureRetryTests
                     + "#00251:0101\r\n"
                     + "#003D1:01\r\n",
                 Encoding.ASCII);
-            BMSFile pendingChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            var pendingChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingChart))]);
             package.path = sourceDir;
             package.delete_parent = false;
@@ -111,7 +110,7 @@ public sealed class ChartInfoInstallFailureRetryTests
                     + "#PLAYLEVEL 7\r\n"
                     + "#00111:01\r\n",
                 Encoding.ASCII);
-            PackageChartEntry pendingChart = PackageChartEntry.FromPath(sourceChartPath);
+            var pendingChart = PackageChartEntry.FromPath(sourceChartPath);
             Assert.IsNotNull(pendingChart);
             string discoveryMd5 = pendingChart.Chart.Md5;
 
@@ -214,7 +213,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             Directory.CreateDirectory(installDir);
             string sourceChartPath = Path.Combine(sourceDir, "bad-install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE bad install\r\n#00111:01\r\n", Encoding.ASCII);
-            PackageChartEntry pendingChart = PackageChartEntry.FromPath(sourceChartPath);
+            var pendingChart = PackageChartEntry.FromPath(sourceChartPath);
             var package = ChartPackage.FromChartEntries([pendingChart]);
             package.path = sourceDir;
             package.delete_parent = false;
@@ -300,13 +299,13 @@ public sealed class ChartInfoInstallFailureRetryTests
                 Assert.AreEqual(expectedMessage, parseFailureWarning.Message);
                 StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), expectedMessage);
 
-                LibraryChartRow materializedRow = LibraryChartRow.FromChartFile(row);
+                var materializedRow = LibraryChartRow.FromChartFile(row);
                 Assert.IsTrue(materializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
                 Assert.IsTrue(materializedRow.HasHighlightedWarning);
                 Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, materializedRow.WarningDigestText);
 
-                ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(row);
-                LibraryChartRow virtualMaterializedRow = LibraryChartRow.FromChartFile(sourceRow.Chart);
+                var sourceRow = ChartListSourceRow.FromChartFile(row);
+                var virtualMaterializedRow = LibraryChartRow.FromChartFile(sourceRow.Chart);
                 Assert.IsTrue(virtualMaterializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
                 Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, virtualMaterializedRow.WarningDigestText);
             }
@@ -402,7 +401,7 @@ public sealed class ChartInfoInstallFailureRetryTests
         {
             string chartPath = Path.Combine(tempRootPath, "retry-after-delete.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 8\r\n#BPM 140\r\n#00111:01\r\n", Encoding.ASCII);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(chartPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(chartPath);
             var file = new TestableBmsFile { path = chartPath };
             file.SetHash(parsed.hash);
             file.SetSha256(parsed.sha256);

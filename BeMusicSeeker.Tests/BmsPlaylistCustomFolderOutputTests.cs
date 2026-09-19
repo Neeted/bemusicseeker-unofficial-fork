@@ -66,10 +66,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 db.CreateTable<LR2SongDB.folder>();
             }
             string outputPath = Path.Combine(outputBaseDir, "FolderTable", "0001.lr2folder");
-            CustomFolderOutputPhysicalSurface physicalSurface = CustomFolderOutputPhysicalSurface.FromEntries(
+            var physicalSurface = CustomFolderOutputPhysicalSurface.FromEntries(
                 [new RootFileEnumerationEntry(outputPath, DateTime.UtcNow)],
                 discoveryComplete: true);
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, physicalSurface);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, physicalSurface);
             var playlist = new TestBmsPlaylist(songDbPath, synchronization)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
@@ -129,7 +129,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")],
                 Folder_order = ["Folder A"]
             };
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             var expectedFailure = new InvalidOperationException("forced custom-folder sync failure");
@@ -436,7 +436,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string outputPath = Path.Combine(outputDirectory, "0001.lr2folder");
             Assert.IsTrue(File.Exists(outputPath));
             using var verify = new LR2SongDBExtended(songDbPath);
-            List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
+            var rows = verify.Table<LR2SongDB.folder>().ToList();
             string rowSummary = string.Join(" | ", rows.Select(row => $"{row.type}:{row.parent}:{row.path}").Take(20));
             LR2SongDB.folder? outputBaseRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(additionalOutputBaseDir));
             Assert.IsNotNull(outputBaseRow, rowSummary);
@@ -1819,8 +1819,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
-            var playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot));
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            BMSPlaylist playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot));
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
             var progressLabels = new List<string>();
 
@@ -1903,7 +1903,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderOutputBaseDirRootType = providerRootOutputBaseDir,
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 () => config,
@@ -2607,7 +2607,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             playlist.CommitBMSTableEntry(entry);
 
             using var verify = new LR2SongDBExtended(songDbPath);
-            List<LR2SongDB.folder> folders = verify.Table<LR2SongDB.folder>().ToList();
+            var folders = verify.Table<LR2SongDB.folder>().ToList();
             Assert.AreEqual(1, providerCallCount);
             Assert.IsTrue(Directory.Exists(Path.Combine(providerOutputBaseDir, table.Output_dir)));
             Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));

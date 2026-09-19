@@ -197,7 +197,7 @@ public sealed class LibraryDirectoryPreflightTests
         Directory.CreateDirectory(additional);
         try
         {
-            var options = CreateLinkedOptions(normal, additional, missingRootType);
+            BmsLibraryOptionsSnapshot options = CreateLinkedOptions(normal, additional, missingRootType);
             LibraryDirectoryPreflightService service = new();
             LibraryDirectoryPreflightRequest request = service.CreateRequest(
                 [normal],
@@ -259,7 +259,7 @@ public sealed class LibraryDirectoryPreflightTests
         Directory.CreateDirectory(managedRoot);
         try
         {
-            var options = CreateLinkedOptions(normal, additional: null, rootType: managedRoot);
+            BmsLibraryOptionsSnapshot options = CreateLinkedOptions(normal, additional: null, rootType: managedRoot);
             LibraryDirectoryPreflightService service = new();
             LibraryDirectoryPreflightRequest request = service.CreateRequest(
                 [normal, managedRoot, uncreatedChild],

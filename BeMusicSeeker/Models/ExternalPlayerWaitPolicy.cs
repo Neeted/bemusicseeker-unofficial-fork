@@ -60,7 +60,7 @@ internal sealed class ExternalPlayerWaitPolicy
         ArgumentNullException.ThrowIfNull(hasExited);
         ArgumentNullException.ThrowIfNull(forceTerminate);
         var stopwatch = Stopwatch.StartNew();
-        TimeSpan forceTerminateAt = TimeSpan.FromTicks(timeout.Ticks / 2);
+        var forceTerminateAt = TimeSpan.FromTicks(timeout.Ticks / 2);
         int pollMilliseconds = Math.Max(
             1,
             Math.Min(100, (int)Math.Ceiling(timeout.TotalMilliseconds / 20d)));

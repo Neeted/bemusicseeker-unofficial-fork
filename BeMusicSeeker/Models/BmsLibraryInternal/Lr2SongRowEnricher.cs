@@ -40,7 +40,7 @@ internal static class Lr2SongRowEnricher
         }
 
         BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
-        BMSFile song = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+        var song = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
         song.RememberSnapshotEncodingDetectionResult(snapshot, detectionResult);
         EnrichParsedSong(song, snapshot, textFlag, existingSong, folderParentHashCache);
         return song;

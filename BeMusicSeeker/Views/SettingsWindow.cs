@@ -462,7 +462,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     /// <param name="settingDialogViewModel">The shared settings edit session expected on the connected page.</param>
     internal void RefreshAppearanceThemeSelection(SettingsDialogViewModel settingDialogViewModel)
     {
-        AppearanceSettingsPage appearancePage = (AppearanceSettingsPage)categoryPages[1];
+        var appearancePage = (AppearanceSettingsPage)categoryPages[1];
         if (appearancePage.IsLoaded && ReferenceEquals(appearancePage.DataContext, settingDialogViewModel))
         {
             appearancePage.RefreshThemeSelection();

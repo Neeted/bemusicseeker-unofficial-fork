@@ -67,7 +67,7 @@ internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
         {
             DateParseHandling = DateParseHandling.None
         };
-        JToken token = JToken.ReadFrom(reader);
+        var token = JToken.ReadFrom(reader);
         if (reader.Read())
         {
             throw new JsonReaderException("JSON document contains trailing content.");

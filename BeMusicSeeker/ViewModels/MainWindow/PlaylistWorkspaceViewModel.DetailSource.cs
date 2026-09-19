@@ -180,7 +180,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
         var resolvedChartInfos = new LR2SongDBExtended.chart_info[sourceRows.Count];
         var resolvedScores = new BMSScore[sourceRows.Count];
-        var chartInfoPatchCandidates = new bool[sourceRows.Count];
+        bool[] chartInfoPatchCandidates = new bool[sourceRows.Count];
         for (int index = 0; index < sourceRows.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();

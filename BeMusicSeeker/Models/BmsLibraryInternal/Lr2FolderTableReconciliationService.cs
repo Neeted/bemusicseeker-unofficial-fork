@@ -364,7 +364,7 @@ internal static class Lr2FolderTableReconciliationService
         // this table has not yet been materialized.
         songDb.CreateTable<LR2SongDB.folder>();
         List<LR2SongDB.folder> existingRows = [.. songDb.Table<LR2SongDB.folder>()];
-        Dictionary<string, LR2SongDB.folder> existingByPath = existingRows
+        var existingByPath = existingRows
             .Where(row => !string.IsNullOrWhiteSpace(row?.path))
             .GroupBy(row => row.path, PathComparer)
             .ToDictionary(group => group.Key, group => group

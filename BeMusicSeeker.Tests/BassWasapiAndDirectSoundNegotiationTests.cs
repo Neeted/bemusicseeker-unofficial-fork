@@ -55,7 +55,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         native.InitializationResults.Enqueue(false);
         native.InitializationErrors.Enqueue(Errors.SampleFormat);
         native.InitializationResults.Enqueue(true);
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE);
 
         BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
             CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
@@ -127,7 +127,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     public void WasapiShared_PublishesMixerAndAppliesInitialGainBeforeStart()
     {
         var native = new RecordingWasapiBoundary();
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
         native.SetVolumeEffectObserver = () => Assert.AreEqual(0, session.CallbackOutputHandle);
         native.StartObserver = () => Assert.AreEqual(123, session.CallbackOutputHandle);
@@ -161,7 +161,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             SetVolumeEffectResult = false,
             CoreError = Errors.Handle
         };
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -194,7 +194,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             CreateVolumeEffectResult = 0,
             CoreError = Errors.Handle
         };
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -216,7 +216,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     public void WasapiShared_DynamicGainUsesTheSameMixerBoundary()
     {
         var native = new RecordingWasapiBoundary();
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
         var negotiator = new BassWasapiNegotiator(native);
         negotiator.Initialize(
@@ -247,7 +247,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
             SetVolumeEffectResult = false,
             CoreError = Errors.Handle
         };
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         session.MixerHandle = 123;
         var warnings = new List<string>();
 
@@ -296,7 +296,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         native.InitializationErrors.Enqueue(Errors.Busy);
         native.InitializationResults.Enqueue(false);
         native.InitializationErrors.Enqueue(Errors.NotAvailable);
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
@@ -316,7 +316,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     [TestMethod]
     public void WasapiSuccessfulInit_ClaimsOwnershipBeforeGetInfoReadback()
     {
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         var native = new RecordingWasapiBoundary
         {
             GetInfoObserver = () => Assert.IsTrue(session.WasapiInitialized)
@@ -336,7 +336,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
     [TestMethod]
     public void WasapiInfoFailure_ReportsBoundaryErrorAfterClaimingOwnership()
     {
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         var native = new RecordingWasapiBoundary
         {
             GetWasapiInfoResult = false,
@@ -366,7 +366,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         native.InitializationResults.Enqueue(false);
         native.InitializationErrors.Enqueue(Errors.Busy);
         native.InitializationResults.Enqueue(true);
-        var session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
         BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
             CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
@@ -400,7 +400,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
                 "explicit-id")
         };
         native.InitializationResults.Enqueue(true);
-        var request = CreateWasapiRequest(
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
             BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             device: new BassAudioPlayer.DeviceDescriptor("Explicit WASAPI", "explicit-id"));
 
@@ -552,7 +552,7 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
                 "Non-default WASAPI",
                 "non-default-id")
         };
-        var request = CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        BassAudioNegotiationRequest request = CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(

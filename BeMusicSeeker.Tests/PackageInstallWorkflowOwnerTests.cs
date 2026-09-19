@@ -242,7 +242,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var published = new List<string>();
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     for (int index = 1; index <= 20; index++)
@@ -817,7 +817,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             var calls = new List<string>();
-            var completions = 0;
+            int completions = 0;
             owner = CreateOwner(
                 (library, paths, token, onPath, onArchive) =>
                 {
@@ -970,7 +970,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         Directory.CreateDirectory(root);
         int diagnosticReports = 0;
         int mutationCalls = 0;
-        var owner = CreateOwner(
+        PackageInstallWorkflowOwner owner = CreateOwner(
             (_, _, _, _, _) =>
             {
                 Interlocked.Increment(ref mutationCalls);
@@ -1096,7 +1096,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var terminalInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var observationLock = new object();
+        object observationLock = new object();
         var chartFileOperations = new ChartFileOperationSynchronizer();
         var terminalAdmissions = new List<bool>();
         PackageInstallWorkflowOwner? owner = null;
@@ -1666,7 +1666,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed"),
                 action =>
                 {
@@ -1901,7 +1901,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var busyFailure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             var calls = new List<string>();
-            var completions = 0;
+            int completions = 0;
             owner = CreateOwner(
                 (library, paths, token, onPath, onArchive) =>
                 {
@@ -1972,7 +1972,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
@@ -2015,7 +2015,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     int call = Interlocked.Increment(ref mutationCalls);
@@ -2054,7 +2054,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var owner = CreateOwner((_, _, _, _, _) => [], _ => true);
+        PackageInstallWorkflowOwner owner = CreateOwner((_, _, _, _, _) => [], _ => true);
         var request = new DroppedInstallBatchRequest(
             [Path.Combine(root, "chart.bms")],
             ["chart.bms"],
@@ -2091,7 +2091,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             int mutationCalls = 0;
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (_, _, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
@@ -2116,7 +2116,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
             enqueueStatusDispatchEntered.Wait();
 
-            Task shutdown = Task.Run(owner.RequestShutdown);
+            var shutdown = Task.Run(owner.RequestShutdown);
             await shutdown;
             releaseEnqueueStatusDispatch.Set();
 
@@ -2161,7 +2161,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             int mutationCalls = 0;
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (_, paths, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
@@ -2245,7 +2245,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var firstLibrary = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var secondLibrary = new TestBmsLibrary(secondDb, null, null, string.Empty);
-            var owner = CreateOwner(
+            PackageInstallWorkflowOwner owner = CreateOwner(
                 (library, _, token, _, _) =>
                 {
                     if (ReferenceEquals(library, firstLibrary))

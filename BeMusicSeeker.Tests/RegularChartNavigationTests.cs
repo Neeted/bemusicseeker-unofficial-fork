@@ -1,8 +1,8 @@
 using System;
-using System.Collections.ObjectModel;
-using System.Collections.Concurrent;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -34,7 +34,7 @@ public sealed class RegularChartNavigationTests
         var table = new MainChartListViewModel(action => action());
         PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(table);
         var store = new PendingPackageWorkflowOwnerTests.RecordingStore([]);
-        BMSLibrary library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var pendingOwner = new PendingPackageWorkflowOwner(
             () => library,
             new ChartFileOperationSynchronizer(),
@@ -75,9 +75,9 @@ public sealed class RegularChartNavigationTests
             hash = "ffffffffffffffffffffffffffffffff",
             title = "Owner chain chart"
         };
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
         store.SetResult = entry.Chart;
-        LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
+        var row = LibraryChartRow.FromPackageChartEntry(entry);
         const string destination = @"C:\wave6e-owner-chain\destination";
 
         table.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -70,8 +69,7 @@ internal sealed class LibraryChartRemovalOutcome
 }
 
 /// <summary>Stops dependent repair maintenance while carrying the already observed deletion facts.</summary>
-[SuppressMessage("Roslynator", "RCS1194:Implement exception constructors",
-    Justification = "削除済み対象とカタログ反映結果の引き継ぎが必須であり、結果を持たない標準コンストラクターは提供しない。")]
+/// <remarks>削除済み対象とカタログ反映結果を引き継ぐ必要があるため、結果を持たない標準の簡略コンストラクターは提供しません。</remarks>
 internal sealed class LibraryChartRemovalException : Exception
 {
     /// <summary>Preserves the deletion outcome across the repair bridge's unwind.</summary>

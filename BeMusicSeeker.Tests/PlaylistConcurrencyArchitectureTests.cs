@@ -1,6 +1,6 @@
 using System;
-using System.ComponentModel;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -79,7 +79,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         BMSScore score = new();
         int callbackCount = 0;
-        PropertyChangedSubscription subscription = PropertyChangedSubscription.Create(score);
+        var subscription = PropertyChangedSubscription.Create(score);
         subscription.RegisterHandler(() => score.ranking, () => callbackCount++);
 
         score.ranking = 1;

@@ -22,7 +22,7 @@ internal sealed class ChartFileOperationSynchronizer
     /// <returns><see langword="true"/> only when this call owns the gate.</returns>
     internal bool TryEnter(out IDisposable lease)
     {
-        var token = new object();
+        object token = new object();
         if (Interlocked.CompareExchange(ref activeLease, token, null) != null)
         {
             lease = null;

@@ -1,6 +1,5 @@
 using System;
 using System.Configuration;
-using System.Diagnostics.CodeAnalysis;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
@@ -75,8 +74,7 @@ internal sealed class SettingsEditSession : ISettingsEditSession
 }
 
 /// <summary>Reports the second file failure after user.config was already saved successfully.</summary>
-[SuppressMessage("Roslynator", "RCS1194:Implement exception constructors",
-    Justification = "部分保存失敗の報告には未保存ファイルのパスと原因例外が必須であり、それらを欠く標準コンストラクターは提供しない。")]
+/// <remarks>部分保存失敗の表示と診断に未保存ファイルのパスと原因例外が必要なため、標準の簡略コンストラクターは提供しません。</remarks>
 internal sealed class PartialSettingsSaveException(string filePath, Exception cause)
     : Exception("Application settings were saved, but LR2 configuration could not be saved: " + filePath, cause)
 {

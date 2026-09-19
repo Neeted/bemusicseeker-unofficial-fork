@@ -748,7 +748,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return result;
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         foreach (LegacyInvalidExtensionRenamePlanItem item in plan.Items)
         {
             RenameInvalidExtensionOutcome outcome = ProcessInvalidExtensionRename(
@@ -1249,7 +1249,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static LibraryChartRef CreateStableLibraryChartRefSnapshot(LibraryChartRef chart)
     {
-        ChartFile chartSnapshot = chart?.ToChartFile();
+        var chartSnapshot = chart?.ToChartFile();
         return chartSnapshot == null ? null : LibraryChartRef.FromChartFile(chartSnapshot);
     }
 
@@ -1645,7 +1645,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             using var md5 = MD5.Create();
             byte[] hashBytes;
-            using (var inputStream = LongPathFileSystem.OpenRead(filePath))
+            using (FileStream inputStream = LongPathFileSystem.OpenRead(filePath))
             {
                 hashBytes = md5.ComputeHash(inputStream);
             }

@@ -45,7 +45,7 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void PlaylistSummaryKeywordFilterChangedThroughWorkspaceUpdatesWarningPresentation()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
 
         viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter = "memo:alpha";
 

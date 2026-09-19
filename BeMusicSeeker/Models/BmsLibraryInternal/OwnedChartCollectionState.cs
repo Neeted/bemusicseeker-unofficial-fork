@@ -800,7 +800,7 @@ internal sealed class OwnedChartCollectionState
 
     internal bool ContainsKnownChart(ChartFile chart)
     {
-        LibraryChartRef inputRef = LibraryChartRef.FromChartFile(chart);
+        var inputRef = LibraryChartRef.FromChartFile(chart);
         if (inputRef == null)
         {
             return false;
@@ -843,7 +843,7 @@ internal sealed class OwnedChartCollectionState
                 continue;
             }
 
-            PlaylistLibraryResolveChartFact fact = PlaylistLibraryResolveChartFact.FromChart(
+            var fact = PlaylistLibraryResolveChartFact.FromChart(
                 chartRef,
                 stableOrder);
             if (fact != null)
@@ -1088,8 +1088,8 @@ internal sealed class OwnedChartCollectionState
     {
         var removedBmsFiles = new HashSet<BMSFile>();
         var removedBmsonSongs = new HashSet<LR2SongDBExtended.bmson_song>();
-        var deletedBmsPathSet = CreatePathSet(deletedBmsPaths);
-        var deletedBmsonPathSet = CreatePathSet(deletedBmsonPaths);
+        HashSet<string> deletedBmsPathSet = CreatePathSet(deletedBmsPaths);
+        HashSet<string> deletedBmsonPathSet = CreatePathSet(deletedBmsonPaths);
         var nextBmsFileSet = new HashSet<BMSFile>((nextBmsFiles ?? []).Where(file => file != null));
         var nextBmsonSongSet = new HashSet<LR2SongDBExtended.bmson_song>((nextBmsonSongs ?? []).Where(song => song != null));
 
@@ -1113,7 +1113,7 @@ internal sealed class OwnedChartCollectionState
             }
         }
 
-        var removedCharts = ChartFileProjection.FromBmsStorageOwnerIdentities(removedBmsFiles);
+        List<ChartFile> removedCharts = ChartFileProjection.FromBmsStorageOwnerIdentities(removedBmsFiles);
         removedCharts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(removedBmsonSongs));
         return removedCharts;
     }
@@ -1657,7 +1657,7 @@ internal sealed class OwnedChartCollectionState
         int removed = removedCharts.Count;
         if (removed > 0)
         {
-            RemovedChartKeySet actualRemovedKeys = RemovedChartKeySet.FromCharts(removedCharts, includePaths: false);
+            var actualRemovedKeys = RemovedChartKeySet.FromCharts(removedCharts, includePaths: false);
             RemoveDuplicateRows(actualRemovedKeys);
             libraryChartRefIndexSnapshot?.RemoveCharts(removedCharts);
         }
@@ -1679,7 +1679,7 @@ internal sealed class OwnedChartCollectionState
             {
                 if (TryResolveRemoveRequest(request, out ChartFile resolvedPathChart))
                 {
-                    OwnedChartRemoveRequest resolvedRequest =
+                    var resolvedRequest =
                         OwnedChartRemoveRequest.FromResolvedPathCleanup(resolvedPathChart);
                     if (resolvedRequest != null && resolvedCharts.Add(resolvedPathChart))
                     {
@@ -1702,7 +1702,7 @@ internal sealed class OwnedChartCollectionState
             BMSFile bmsOwner = currentChart.GetBmsStorageOwner();
             if (bmsOwner != null)
             {
-                OwnedChartRemoveRequest resolvedRequest = OwnedChartRemoveRequest.FromOwnerReference(
+                var resolvedRequest = OwnedChartRemoveRequest.FromOwnerReference(
                     bmsOwner,
                     request.CreateChartSnapshot());
                 // pathless owner要求はchart snapshotを持たないが、
@@ -1714,7 +1714,7 @@ internal sealed class OwnedChartCollectionState
             LR2SongDBExtended.bmson_song bmsonOwner = currentChart.GetBmsonStorageOwner();
             if (bmsonOwner != null)
             {
-                OwnedChartRemoveRequest resolvedRequest = OwnedChartRemoveRequest.FromOwnerReference(
+                var resolvedRequest = OwnedChartRemoveRequest.FromOwnerReference(
                     bmsonOwner,
                     request.CreateChartSnapshot());
                 resolvedRequests.Add(resolvedRequest ?? request);

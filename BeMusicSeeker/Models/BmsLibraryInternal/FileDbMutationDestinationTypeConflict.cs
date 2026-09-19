@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using BeMusicSeeker.Models.Utils;
 
@@ -52,8 +51,7 @@ internal sealed class FileDbMutationDestinationTypeConflict
 /// <summary>
 /// ファイルとディレクトリの置換を拒否したことを示す専用 IOException です。
 /// </summary>
-[SuppressMessage("Roslynator", "RCS1194:Implement exception constructors",
-    Justification = "型衝突の拒否事実を必須とし、source・宛先・予定型・既存型を欠く標準コンストラクターを提供しない。")]
+/// <remarks>source、宛先、予定型、既存型を保持することが拒否事実の契約であるため、標準の簡略コンストラクターは提供しません。</remarks>
 internal sealed class FileDbMutationDestinationTypeConflictException : IOException
 {
     /// <summary>

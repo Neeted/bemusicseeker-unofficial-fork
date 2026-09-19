@@ -9,11 +9,11 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using Ribbit.Logging;
+using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Ribbit.Logging;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
@@ -535,7 +535,7 @@ internal sealed partial class LibraryMutationOwner
             var usedPreflightTargets = new HashSet<LibraryFileOperationTargetSnapshot>();
             foreach (LibraryChartRef currentChart in currentResolveResult.CanonicalCharts.Where(chart => !string.IsNullOrWhiteSpace(chart?.Path)))
             {
-                LibraryFileOperationTargetSnapshot currentTarget = LibraryFileOperationTargetSnapshot.FromChart(
+                var currentTarget = LibraryFileOperationTargetSnapshot.FromChart(
                     currentChart.ToChartFile(),
                     captureSourceFileExistence: true);
                 LibraryFileOperationTargetSnapshot expectedTarget = FindMatchingTargetSnapshot(
@@ -1173,13 +1173,13 @@ internal sealed partial class LibraryMutationOwner
             ];
         }
         bool physicalStopped = false;
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         for (int mappingIndex = 0; mappingIndex < mappings.Count; mappingIndex++)
         {
             DetachedFixTarget mapping = mappings[mappingIndex];
             LibraryFileOperationTargetSnapshot originalTarget = mapping.Original;
             ChartFile ownerChart = CreateOwnerChartSnapshot(originalTarget);
-            PackageChartEntry entry = PackageChartEntry.FromChart(mapping.DetachedChart);
+            var entry = PackageChartEntry.FromChart(mapping.DetachedChart);
             if (ownerChart == null || entry == null)
             {
                 Exception invalidTargetFailure = new InvalidOperationException(
@@ -1199,7 +1199,7 @@ internal sealed partial class LibraryMutationOwner
                 continue;
             }
 
-            ChartPackage package = ChartPackage.FromChartEntries([entry]);
+            var package = ChartPackage.FromChartEntries([entry]);
             package.path = originalTarget.SourcePath;
             package.delete_parent = false;
             string lookupKey = ChartLookupKey.GetPrimaryHash(mapping.DetachedChart);
@@ -1261,7 +1261,7 @@ internal sealed partial class LibraryMutationOwner
                 result.DuplicateSkippedCount++;
                 if (IsApprovedDuplicateRemoval(ownerChart, approvedDuplicateRemovalChartPaths))
                 {
-                    LibraryChartRef removableChart = LibraryChartRef.FromChartFile(ownerChart);
+                    var removableChart = LibraryChartRef.FromChartFile(ownerChart);
                     if (removableChart != null)
                     {
                         approvedDuplicateRemovals.Add(removableChart);
@@ -1615,7 +1615,7 @@ internal sealed partial class LibraryMutationOwner
                 .Select(ChartFileProjection.ToImmutableSnapshot)
                 .Select(PackageChartEntry.FromChart)
                 .Where(entry => entry?.Chart != null)];
-            ChartPackage snapshot = ChartPackage.FromChartEntries(entries);
+            var snapshot = ChartPackage.FromChartEntries(entries);
             snapshot.path = package.path;
             snapshot.delete_parent = package.delete_parent;
             snapshots.Add(snapshot);
@@ -1662,7 +1662,7 @@ internal sealed partial class LibraryMutationOwner
                 .GetChartRefsUnderInstallDestination(target.FolderPath)
                 .Where(chart => IsSameInstallDestinationTarget(chart?.ToChartFile(), target)))
             {
-                ChartFile chart = chartRef?.ToChartFile();
+                var chart = chartRef?.ToChartFile();
                 LibraryFileOperationTargetSnapshot liveTarget = (liveLibraryTargets ?? [])
                     .FirstOrDefault(candidate => IsSameInstallDestinationTarget(candidate?.ChartSnapshot, target));
                 bindings.Add(new LibraryChartRemovalInstallDestinationBinding

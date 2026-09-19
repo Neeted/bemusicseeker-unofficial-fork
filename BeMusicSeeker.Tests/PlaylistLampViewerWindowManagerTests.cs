@@ -168,7 +168,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 TestUiDispatcherHost.Drain();
 
                 int firstClosedCount = 0;
-                var firstClosed = Completion<bool>();
+                TaskCompletionSource<bool> firstClosed = Completion<bool>();
                 firstWindow.Closed += (_, _) =>
                 {
                     firstClosedCount++;
@@ -244,7 +244,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreSame(firstGlobalRank, firstWindow.ViewModel.SelectedSegment);
                 Assert.AreSame(secondGlobalRank, secondWindow.ViewModel.SelectedSegment);
 
-                var firstClosed = Completion<bool>();
+                TaskCompletionSource<bool> firstClosed = Completion<bool>();
                 int firstClosedCount = 0;
                 firstWindow.Closed += (_, _) =>
                 {
@@ -319,7 +319,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     ?? throw new AssertFailedException("The live-failure viewer did not open.");
 
                 int closedCount = 0;
-                var closed = Completion<bool>();
+                TaskCompletionSource<bool> closed = Completion<bool>();
                 window.Closed += (_, _) =>
                 {
                     closedCount++;

@@ -8,10 +8,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using PackageStateMutationApplier = BeMusicSeeker.Models.BmsLibraryInternal.PackageLifecycleOwner.PackageStateMutationApplier;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.BmsLibraryStateApplierTestSupport;
+using PackageStateMutationApplier = BeMusicSeeker.Models.BmsLibraryInternal.PackageLifecycleOwner.PackageStateMutationApplier;
 
 namespace BeMusicSeeker.Tests;
 
@@ -49,7 +49,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 {
                     path = Path.Combine(tempRootPath, "pending_chart.bms")
                 };
-                var installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
+                ChartPackage installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
                 installedPackage.path = oldDirectoryPath;
                 installedPackage.delete_parent = false;
                 using (var songDb = new LR2SongDBExtended(songDbPath))

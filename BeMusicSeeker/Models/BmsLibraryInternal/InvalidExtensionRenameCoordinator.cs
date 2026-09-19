@@ -62,7 +62,7 @@ internal static class InvalidExtensionRenameCoordinator
             return LibraryMutationSessionReceipt.Empty;
         }
 
-        var preflightTargets = targetBatches
+        List<LibraryFileOperationTargetSnapshot>[] preflightTargets = targetBatches
             .Select(batch => host.CaptureNormalInvalidExtensionRenameTargets(batch.Charts, batch.NewExtension))
             .ToArray();
         List<Action> postLeaseNotifications = [];

@@ -11,12 +11,12 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Microsoft.VisualBasic.FileIO;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -617,7 +617,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         try
         {
-            BMSFile entry = BMSFile.CreateBMSFileFromFile(filePath);
+            var entry = BMSFile.CreateBMSFileFromFile(filePath);
             return entry;
         }
         catch
@@ -734,7 +734,7 @@ internal sealed class BmsLibraryPackageInstallService
             };
         }
 
-        ChartPackage package = ChartPackage.FromChartEntries(knownEntries);
+        var package = ChartPackage.FromChartEntries(knownEntries);
         package.path = canonicalPackagePath;
         package.delete_parent = deleteParent;
         return package;
@@ -856,7 +856,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             bool isArchivePath = archiveExtensions.Any(ext => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
             string extractedTempDirectoryPath = null;
-            Stopwatch sourceStopwatch = Stopwatch.StartNew();
+            var sourceStopwatch = Stopwatch.StartNew();
             try
             {
                 if (!isArchivePath)
@@ -872,7 +872,7 @@ internal sealed class BmsLibraryPackageInstallService
                         archiveSourceTotal));
                     extractedTempDirectoryPath = TempDirectoryPublisher.Get();
                     logInfo?.Invoke("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
-                    Stopwatch extractStopwatch = Stopwatch.StartNew();
+                    var extractStopwatch = Stopwatch.StartNew();
                     List<ArchiveEntryMetadata> archiveEntries = SevenZipArchiveExtractor.ExtractArchiveEntries(installPath, extractedTempDirectoryPath);
                     extractStopwatch.Stop();
                     logInfo?.Invoke("auto_install extract_done path=" + installPath + " destination=" + extractedTempDirectoryPath + " entries=" + archiveEntries.Count + " elapsedMs=" + extractStopwatch.ElapsedMilliseconds);
@@ -2936,7 +2936,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
 
-        ChartPackage installWorkPackage = ChartPackage.FromChartEntries(installWorkPackageEntries);
+        var installWorkPackage = ChartPackage.FromChartEntries(installWorkPackageEntries);
         installWorkPackage.path = originalPackage.path;
         installWorkPackage.delete_parent = originalPackage.delete_parent;
         HashSet<string> excludedPaths = null;

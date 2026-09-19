@@ -26,7 +26,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 path = Path.Combine(packageDirectoryPath, "missing.bms")
             };
             chartFile.SetHash(new string('a', 32));
-            var package = ChartPackageTestExtensions.CreatePackage([chartFile]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
             package.path = chartFile.path;
             var fileMutationService = new RecordingDeleteFileMutationService();
             var service = new BmsLibraryPackageInstallService();
@@ -64,7 +64,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 path = packageDirectoryPath
             };
             chartFile.SetHash(new string('a', 32));
-            var package = ChartPackageTestExtensions.CreatePackage([chartFile]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
             package.path = chartFile.path;
             var fileMutationService = new RecordingDeleteFileMutationService();
             var service = new BmsLibraryPackageInstallService();
@@ -115,7 +115,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 path = linkPath
             };
             chartFile.SetHash(new string('a', 32));
-            var package = ChartPackageTestExtensions.CreatePackage([chartFile]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
             package.path = chartFile.path;
             var fileMutationService = new RecordingDeleteFileMutationService();
             var service = new BmsLibraryPackageInstallService();
@@ -152,7 +152,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Directory.CreateDirectory(packageDirectoryPath);
             TestableBmsFile failedFile = CreateChart(packageDirectoryPath, "failed.bms", "a");
             TestableBmsFile successfulFile = CreateChart(packageDirectoryPath, "successful.bms", "b");
-            var package = ChartPackageTestExtensions.CreatePackage([failedFile, successfulFile]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([failedFile, successfulFile]);
             package.path = packageDirectoryPath;
             var fileMutationService = new RecordingDeleteFileMutationService(failedFile.path);
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -415,7 +415,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             };
             sourceFile.SetHash(new string('a', 32));
             var service = new BmsLibraryLibraryFileOperationsService();
-            LibraryFileOperationTargetSnapshot snapshot = LibraryFileOperationTargetSnapshot.FromChart(
+            var snapshot = LibraryFileOperationTargetSnapshot.FromChart(
                 ChartFileProjection.FromBmsFile(sourceFile),
                 captureSourceFileExistence: true);
             LegacyInvalidExtensionRenamePlan plan = service.BuildInvalidExtensionRenamePlan(
@@ -465,7 +465,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             };
             sourceFile.SetHash(new string('a', 32));
             var service = new BmsLibraryLibraryFileOperationsService();
-            LibraryFileOperationTargetSnapshot snapshot = LibraryFileOperationTargetSnapshot.FromChart(
+            var snapshot = LibraryFileOperationTargetSnapshot.FromChart(
                 ChartFileProjection.FromBmsFile(sourceFile),
                 captureSourceFileExistence: true);
             LegacyInvalidExtensionRenamePlan plan = service.BuildInvalidExtensionRenamePlan(

@@ -1231,7 +1231,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     private static StartupProgressWorkflowOwner Start(StartupProgressOperationKind operationKind)
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var owner = TestStartupProgressOwnerFactory.Create();
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
         owner.StartStartupProgressOperation(operationKind);
         return owner;
     }

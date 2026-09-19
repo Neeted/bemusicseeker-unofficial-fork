@@ -304,7 +304,7 @@ public sealed class Lr2FolderFileProjectionTests
         string tableDirectory = Path.Combine(rootOutput, "Table");
         Directory.CreateDirectory(tableDirectory);
         string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
-        DateTime lastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
+        var lastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
         try
         {
             File.WriteAllText(filePath, "#TITLE Table Child");

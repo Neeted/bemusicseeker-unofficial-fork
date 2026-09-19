@@ -154,7 +154,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             EnsureCurrent(storageRowsOwner, cancellationToken);
             OwnedChartHashIndexSnapshot builtSnapshot = null;
             StorageRowsVersionSnapshot storageRowsVersion;
@@ -409,7 +409,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
                 {
                     return;
                 }
-                OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
+                var rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
                     snapshot.BmsRows,
                     snapshot.BmsonRows,
                     cancellationToken,
@@ -670,7 +670,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
             }
         }
 
-        OwnedChartCollectionState replacement = OwnedChartCollectionState.FromStorageRows(
+        var replacement = OwnedChartCollectionState.FromStorageRows(
             storageRows.BmsRows,
             storageRows.BmsonRows,
             out OwnedChartStorageRowFilterSummary filterSummary);

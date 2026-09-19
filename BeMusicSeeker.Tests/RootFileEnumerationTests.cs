@@ -468,7 +468,7 @@ public sealed class RootFileEnumerationTests
 
     private static void WriteAllText(string path, string contents)
     {
-        using var stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new StreamWriter(stream);
         writer.Write(contents);
     }

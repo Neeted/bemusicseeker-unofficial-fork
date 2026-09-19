@@ -115,7 +115,7 @@ internal static class LongPathFileSystem
             throw new IOException("File is too large to read into memory.");
         }
 
-        var bytes = new byte[(int)length];
+        byte[] bytes = new byte[(int)length];
         int offset = 0;
         while (offset < bytes.Length)
         {

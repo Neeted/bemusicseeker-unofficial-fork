@@ -617,7 +617,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([new BMSTable { name = "Initial" }])
             };
-            var viewModel = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             List<string> workspacePropertyNames = [];
             int playlistTablesPresentationChangedCount = 0;
             viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => workspacePropertyNames.Add(e.PropertyName!);
@@ -1341,7 +1341,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var tableA = new BMSTable
             {
                 playlist_id = 7603,
@@ -1436,7 +1436,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     file.LastWriteTimeUtc,
                     file.Length))
                 .ToArray();
-            CustomFolderOutputPhysicalSurface capturedPhysicalSurface =
+            var capturedPhysicalSurface =
                 CustomFolderOutputPhysicalSurface.FromEntries(physicalEntries, discoveryComplete: true);
             synchronization.PhysicalSurfaceFactory = () => capturedPhysicalSurface;
             PlaylistPersistenceRepository statusRepository = new(songDbPath);
@@ -1702,7 +1702,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 }
             }
 
-            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             var admissionRequests = new List<(string Operation, bool ShowMessage)>();
@@ -1771,7 +1771,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Dictionary<string, byte[]> filesBeforeRepair = SnapshotFiles();
             string[] directoriesBeforeRepair = SnapshotDirectories();
-            var databaseBeforeRepair = SnapshotDatabase();
+            (long PlaylistCount, string Name, string Symbol, string OutputDirectory, long EntryCount, string EntryMd5, string EntryFolder, long FolderRowCount, long StatusRowCount) databaseBeforeRepair = SnapshotDatabase();
             int synchronizationOperationCountBeforeRepair = synchronization.Operations.Count;
 
             static Task ExecuteCapturedWork(Func<Task> work)

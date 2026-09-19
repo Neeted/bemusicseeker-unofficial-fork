@@ -134,60 +134,60 @@ public sealed class BassAudioEffectTests
     [TestMethod]
     public void Catalog_PreservesLegacyEffectDefaults()
     {
-        DXChorusParameters dxChorus = (DXChorusParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Chorus);
+        var dxChorus = (DXChorusParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Chorus);
         Assert.AreEqual(0f, dxChorus.fWetDryMix);
         Assert.AreEqual(25f, dxChorus.fDepth);
         Assert.AreEqual(DXWaveform.Sine, dxChorus.lWaveform);
         Assert.AreEqual(DXPhase.Zero, dxChorus.lPhase);
 
-        DXDistortionParameters dxDistortion = (DXDistortionParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Distortion);
+        var dxDistortion = (DXDistortionParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Distortion);
         Assert.AreEqual(50f, dxDistortion.fEdge);
         Assert.AreEqual(4000f, dxDistortion.fPostEQCenterFrequency);
         Assert.AreEqual(4000f, dxDistortion.fPostEQBandwidth);
         Assert.AreEqual(4000f, dxDistortion.fPreLowpassCutoff);
 
-        DXEchoParameters dxEcho = (DXEchoParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Echo);
+        var dxEcho = (DXEchoParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Echo);
         Assert.AreEqual(333f, dxEcho.fLeftDelay);
         Assert.AreEqual(333f, dxEcho.fRightDelay);
 
-        DXFlangerParameters dxFlanger = (DXFlangerParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Flanger);
+        var dxFlanger = (DXFlangerParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Flanger);
         Assert.AreEqual(25f, dxFlanger.fDepth);
         Assert.AreEqual(DXPhase.Zero, dxFlanger.lPhase);
 
-        DXParamEQParameters dxParamEq = (DXParamEQParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8ParamEq);
+        var dxParamEq = (DXParamEQParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8ParamEq);
         Assert.AreEqual(100f, dxParamEq.fCenter);
         Assert.AreEqual(18f, dxParamEq.fBandwidth);
 
-        DXReverbParameters dxReverb = (DXReverbParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Reverb);
+        var dxReverb = (DXReverbParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Reverb);
         Assert.AreEqual(1000f, dxReverb.fReverbTime);
         Assert.AreEqual(0.001f, dxReverb.fHighFreqRTRatio);
 
-        ManagedBassBfxEchoParameters bfxEcho = (ManagedBassBfxEchoParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxEcho);
+        var bfxEcho = (ManagedBassBfxEchoParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxEcho);
         Assert.AreEqual(1200, bfxEcho.Delay);
-        ManagedBassBfxFlangerParameters bfxFlanger = (ManagedBassBfxFlangerParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxFlanger);
+        var bfxFlanger = (ManagedBassBfxFlangerParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxFlanger);
         Assert.AreEqual(1f, bfxFlanger.WetDry);
         Assert.AreEqual(0.01f, bfxFlanger.Speed);
         Assert.AreEqual(-1, bfxFlanger.Channel);
-        ManagedBassBfxVolumeParameters bfxVolume = (ManagedBassBfxVolumeParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxVolume);
+        var bfxVolume = (ManagedBassBfxVolumeParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxVolume);
         Assert.AreEqual(-1, bfxVolume.Channel);
         Assert.AreEqual(1f, bfxVolume.Volume);
-        ManagedBassBfxReverbParameters bfxReverb = (ManagedBassBfxReverbParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxReverb);
+        var bfxReverb = (ManagedBassBfxReverbParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxReverb);
         Assert.AreEqual(1200, bfxReverb.Delay);
-        ManagedBassBfxLpfParameters bfxLpf = (ManagedBassBfxLpfParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxLpf);
+        var bfxLpf = (ManagedBassBfxLpfParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxLpf);
         Assert.AreEqual(2f, bfxLpf.Resonance);
         Assert.AreEqual(200f, bfxLpf.CutOffFrequency);
         Assert.AreEqual(-1, bfxLpf.Channel);
 
-        AutoWahParameters autoWah = (AutoWahParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxAutoWah);
+        var autoWah = (AutoWahParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxAutoWah);
         Assert.AreEqual(0f, autoWah.fDryMix);
-        PhaserParameters phaser = (PhaserParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxPhaser);
+        var phaser = (PhaserParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxPhaser);
         Assert.AreEqual(0f, phaser.fDryMix);
-        ChorusParameters chorus = (ChorusParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxChorus);
+        var chorus = (ChorusParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxChorus);
         Assert.AreEqual(0f, chorus.fDryMix);
-        DistortionParameters distortion = (DistortionParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxDistortion);
+        var distortion = (DistortionParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxDistortion);
         Assert.AreEqual(0f, distortion.fDryMix);
 
-        ManagedBassBfxVolumeEnvelopeParameters envelope = (ManagedBassBfxVolumeEnvelopeParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxVolumeEnvelope);
+        var envelope = (ManagedBassBfxVolumeEnvelopeParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxVolumeEnvelope);
         Assert.AreEqual(-1, envelope.Channel);
         Assert.IsTrue(envelope.Follow);
     }
@@ -346,12 +346,12 @@ public sealed class BassAudioEffectTests
     [TestMethod]
     public void NativeParameterLease_PreservesCleanupPrimaryErrorAndReleasesPins()
     {
-        GCHandle pin = GCHandle.Alloc(new byte[1], GCHandleType.Pinned);
+        var pin = GCHandle.Alloc(new byte[1], GCHandleType.Pinned);
         IntPtr pinHandle = GCHandle.ToIntPtr(pin);
         InvalidOperationException cleanupFailure = new("cleanup sentinel");
         try
         {
-            NativeEffectParameterLease lease = NativeEffectParameterLease.Create(
+            var lease = NativeEffectParameterLease.Create(
                 new ManagedBassBfxVolumeParameters(),
                 pins: new[] { pin },
                 cleanup: () => throw cleanupFailure);
@@ -359,7 +359,7 @@ public sealed class BassAudioEffectTests
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
                 () => lease.Dispose());
             Assert.AreSame(cleanupFailure, exception);
-            GCHandle releasedHandle = GCHandle.FromIntPtr(pinHandle);
+            var releasedHandle = GCHandle.FromIntPtr(pinHandle);
             Assert.IsNull(releasedHandle.Target);
         }
         finally

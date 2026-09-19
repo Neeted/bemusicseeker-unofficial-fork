@@ -70,7 +70,7 @@ public sealed class ApplicationSettingsMetadataTests
         Assert.AreEqual(typeof(ClientSettingsSection), settingsSectionType, "Unexpected application settings section type.");
 
         XElement settingsSection = GetSettingsSection(config);
-        List<XElement> configSettings = settingsSection.Elements("setting").ToList();
+        var configSettings = settingsSection.Elements("setting").ToList();
         Assert.IsTrue(configSettings.Count > 0, "The compatibility subset must not be empty.");
 
         string?[] configNames = configSettings
@@ -89,7 +89,7 @@ public sealed class ApplicationSettingsMetadataTests
         Dictionary<string, SettingsProperty> runtimeProperties = GetRuntimeProperties();
         SettingsProviderAttribute? settingsProviderAttribute = typeof(Settings).GetCustomAttribute<SettingsProviderAttribute>();
         Assert.IsNotNull(settingsProviderAttribute, "Settings must declare its runtime settings provider.");
-        Type? providerType = Type.GetType(settingsProviderAttribute!.ProviderTypeName, throwOnError: true);
+        var providerType = Type.GetType(settingsProviderAttribute!.ProviderTypeName, throwOnError: true);
 
         foreach (XElement configSetting in configSettings)
         {
@@ -287,7 +287,7 @@ public sealed class ApplicationSettingsMetadataTests
     {
         string? typeName = (string?)element.Attribute(attributeName);
         Assert.IsFalse(string.IsNullOrWhiteSpace(typeName), "Missing config type: " + attributeName);
-        Type? resolvedType = Type.GetType(typeName, throwOnError: false);
+        var resolvedType = Type.GetType(typeName, throwOnError: false);
         Assert.IsNotNull(resolvedType, "Unable to resolve config type: " + typeName);
         return resolvedType!;
     }

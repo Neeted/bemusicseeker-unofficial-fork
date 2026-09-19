@@ -10,8 +10,8 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
-using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 

@@ -306,7 +306,7 @@ internal sealed class FileScanParseCommitOwner
         {
             return pipelineResult;
         }
-        PerformanceInteraction performanceInteraction =
+        var performanceInteraction =
             PerformanceInteraction.Start("managed_scan_parse");
         if (Net10PerformanceLog.IsEnabled)
         {
@@ -2064,7 +2064,7 @@ internal sealed class FileScanParseCommitOwner
         private void WaitForWriterBarrier()
         {
             ThrowIfWriterFailed();
-            using FileDiffCommitWriterItem barrier = FileDiffCommitWriterItem.CreateBarrier();
+            using var barrier = FileDiffCommitWriterItem.CreateBarrier();
             AddWriterItemWithWait(barrier);
             while (!barrier.Wait(100))
             {

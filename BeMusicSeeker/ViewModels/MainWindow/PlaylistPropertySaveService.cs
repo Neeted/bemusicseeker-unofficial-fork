@@ -303,7 +303,7 @@ internal sealed class PlaylistPropertySaveService
                 Uri pageUrl = NormalizeUriTextForStandardStorage(values.PageUrl);
                 Uri headerUrl = NormalizeUriTextForStandardStorage(values.HeaderUrl);
                 Uri dataUrl = NormalizeUriTextForStandardStorage(values.DataUrl);
-                PlaylistPropertyValues originalValues = PlaylistPropertyValues.Capture(table);
+                var originalValues = PlaylistPropertyValues.Capture(table);
                 try
                 {
                     ApplyPropertyValues(table, values, pageUrl, headerUrl, dataUrl);

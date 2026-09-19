@@ -13,11 +13,11 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using Ribbit.Util.Extensions;
+using SQLite;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Ribbit.Util.Extensions;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -667,7 +667,7 @@ internal sealed class BmsLibraryInitializationService
             Lr2FolderExistingRowLookup.QueryExactPaths(
                 songDb,
                 approved.Select(candidate => candidate.OriginalFolderPath));
-        Dictionary<string, LR2SongDB.folder> rowsByExactPath = existingRows
+        var rowsByExactPath = existingRows
             .Where(folder => folder != null && !string.IsNullOrWhiteSpace(folder.path))
             .GroupBy(folder => folder.path, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);

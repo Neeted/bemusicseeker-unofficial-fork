@@ -1186,7 +1186,7 @@ internal sealed class ShellShutdownWorkflowOwner
         }
         var stopwatch = Stopwatch.StartNew();
         bool warningLogged = false;
-        Task warningDelay = Task.Delay(warningThreshold);
+        var warningDelay = Task.Delay(warningThreshold);
         if (await Task.WhenAny(task, warningDelay).ConfigureAwait(false) == warningDelay)
         {
             LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);

@@ -15,7 +15,7 @@ public sealed class WpfChromeBoundaryTests
         string xamlPath = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml");
         string source = File.ReadAllText(xamlPath);
         string codeBehind = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
-        XDocument document = XDocument.Load(xamlPath);
+        var document = XDocument.Load(xamlPath);
         XElement window = document.Root!;
         XElement windowChrome = document.Descendants().Single(element => element.Name.LocalName == "WindowChrome");
         XElement captionButtonStyle = document.Descendants().Single(element =>

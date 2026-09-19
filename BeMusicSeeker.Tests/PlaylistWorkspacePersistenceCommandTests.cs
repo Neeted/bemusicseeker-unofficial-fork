@@ -41,7 +41,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             new BmtTableExportService.FileOperationFailure("owned-output/locked.bmt", "sharing-denied")
         }));
         Assert.IsNotNull(observed);
-        var notification = observed!.Receipt.Notifications.Single();
+        PlaylistOperationNotificationOwner.OperationNotification notification = observed!.Receipt.Notifications.Single();
         Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
         StringAssert.Contains(notification.Message, "owned-output/locked.bmt");
         StringAssert.Contains(notification.Message, "sharing-denied");
@@ -322,7 +322,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             using (var _ = new LR2SongDBExtended(dbPath)) { }
             var oldTable = new BMSTable { playlist_id = 11, name = "Old live", symbol = "O" };
             PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(
-                dbPath, [oldTable], out BMSPlaylist playlist, out var notifications,
+                dbPath, [oldTable], out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs>? notifications,
                 action =>
                 {
                     Interlocked.Increment(ref scheduleCount);
@@ -598,7 +598,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            BMSTable table = new BMSTable
+            var table = new BMSTable
             {
                 name = "Export",
                 symbol = "EX",
@@ -642,8 +642,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[1].Filter);
             Assert.IsTrue(dialogs.SaveFilePickerRequests[1].AddExtension);
 
-            Uri persistedHeaderUrl = new Uri("https://example.test/export-header.json");
-            Uri persistedDataUrl = new Uri("https://example.test/export-data.json");
+            var persistedHeaderUrl = new Uri("https://example.test/export-header.json");
+            var persistedDataUrl = new Uri("https://example.test/export-data.json");
             table.Header_url = persistedHeaderUrl;
             table.Data_url = persistedDataUrl;
             string persistedHeaderPath = Path.Combine(tempDirectory, "persisted-header.json");
@@ -684,7 +684,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            BMSTable table = new BMSTable { name = "Export failure", Folder_order = [] };
+            var table = new BMSTable { name = "Export failure", Folder_order = [] };
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
@@ -752,7 +752,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
             workspace.PlaylistOperationNotificationPresentationRequested +=
                 (_, request) => notifications.Add(request);
-            BMSTable table = new BMSTable { name = "Export cancelled", Folder_order = [] };
+            var table = new BMSTable { name = "Export cancelled", Folder_order = [] };
             string headerPath = Path.Combine(tempDirectory, "cancelled-header.json");
             string dataPath = Path.Combine(tempDirectory, "cancelled-data.json");
 
@@ -796,7 +796,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
             workspace.PlaylistOperationNotificationPresentationRequested +=
                 (_, request) => notifications.Add(request);
-            BMSTable table = new BMSTable { name = "Export picker failure", Folder_order = [] };
+            var table = new BMSTable { name = "Export picker failure", Folder_order = [] };
             string headerPath = Path.Combine(tempDirectory, "failed-header.json");
             string dataPath = Path.Combine(tempDirectory, "failed-data.json");
             var headerError = new IOException("header picker unavailable");
@@ -1479,7 +1479,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             const string md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
             ChartFile chart = ChartFileProjection.FromBmsFile(
                 BMSFile.FromSongTableRawValues(CreateSongTableRow(md5, @"C:\Library\drop-chart.bms")));
-            LibraryChartRow libraryRow = LibraryChartRow.FromChartFile(chart);
+            var libraryRow = LibraryChartRow.FromChartFile(chart);
             PlaylistReferenceDisplay? displayObservedDuringInvalidation = null;
             workspace.PlaylistReferenceSortInvalidationRequested += (_, _) =>
                 displayObservedDuringInvalidation = library.GetPlaylistReferenceDisplay(chart);
@@ -1798,7 +1798,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             int leaseAttemptCount = 0;
             int lr2SyncProbeCount = 0;
             int lr2SyncProbeLeaseUnavailableCount = 0;
-            var synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             synchronization.SynchronizationStartProbe = mutationCapability =>
@@ -1930,19 +1930,19 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             const string md5 = "ffffffffffffffffffffffffffffffff";
             ChartFile chart = ChartFileProjection.FromBmsFile(
                 BMSFile.FromSongTableRawValues(CreateSongTableRow(md5, Path.Combine(tempDirectory, "drop-chart.bms"))));
-            LibraryChartRow libraryRow = LibraryChartRow.FromChartFile(chart);
+            var libraryRow = LibraryChartRow.FromChartFile(chart);
             const string outputFailureMd5 = "11111111111111111111111111111111";
             ChartFile outputFailureChart = ChartFileProjection.FromBmsFile(
                 BMSFile.FromSongTableRawValues(CreateSongTableRow(
                     outputFailureMd5,
                     Path.Combine(tempDirectory, "drop-output-failure-chart.bms"))));
-            LibraryChartRow outputFailureLibraryRow = LibraryChartRow.FromChartFile(outputFailureChart);
+            var outputFailureLibraryRow = LibraryChartRow.FromChartFile(outputFailureChart);
             const string preparationFailureMd5 = "22222222222222222222222222222222";
             ChartFile preparationFailureChart = ChartFileProjection.FromBmsFile(
                 BMSFile.FromSongTableRawValues(CreateSongTableRow(
                     preparationFailureMd5,
                     Path.Combine(tempDirectory, "drop-preparation-failure-chart.bms"))));
-            LibraryChartRow preparationFailureLibraryRow = LibraryChartRow.FromChartFile(preparationFailureChart);
+            var preparationFailureLibraryRow = LibraryChartRow.FromChartFile(preparationFailureChart);
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Imported"));
             workspace.IsPlaylistDetailViewActive = true;
 
@@ -2172,7 +2172,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             var synchronizationStarted = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            var synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             synchronization.SynchronizationStartProbe = _ =>
@@ -2411,7 +2411,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
-        var playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
+        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
         var specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 
         Assert.IsTrue(workspace.CanAcceptDrop([playlistRow], table, PlaylistFolderNode.CreateFolder("Folder")));
@@ -2531,7 +2531,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var table = new BMSTable();
-        PlaylistFolderNode specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
+        var specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 
         await workspace.RenameFolderAsync(table, specialFolder, "Renamed");
         await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, specialFolder);

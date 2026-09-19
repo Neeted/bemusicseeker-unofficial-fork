@@ -104,7 +104,7 @@ internal static class Lr2FolderFileDiscoveryService
             .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))];
         List<RootFileEnumerationEntry> includedEntries = [.. rawEntries
             .Where(entry => builtinCustomFolderSettings?.ShouldIncludeCustomFolderFile(entry.Path, lr2RootPath) != false)];
-        Dictionary<string, RootFileEnumerationEntry> entriesByPath = includedEntries
+        var entriesByPath = includedEntries
             .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
             .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
@@ -137,7 +137,7 @@ internal static class Lr2FolderFileDiscoveryService
                 discoveryComplete: true);
         }
 
-        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedSurface.Lr2FolderScopeDirectories);
+        var scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedSurface.Lr2FolderScopeDirectories);
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (string path in baseCandidates?.Paths ?? [])
         {
@@ -181,7 +181,7 @@ internal static class Lr2FolderFileDiscoveryService
     {
         excludedCount = 0;
         HashSet<string> excludedFilePaths = CreateNormalizedPathSet(appManagedOutputFilePaths);
-        Lr2DirectoryScopeMatcher excludedDirectoryMatcher = Lr2DirectoryScopeMatcher.Create(appManagedOutputDirectories);
+        var excludedDirectoryMatcher = Lr2DirectoryScopeMatcher.Create(appManagedOutputDirectories);
         if (excludedFilePaths.Count == 0 && excludedDirectoryMatcher.IsEmpty)
         {
             Dictionary<string, RootFileEnumerationEntry> unchangedEntries = CreateEntrySurface(paths, entriesByPath);
@@ -244,7 +244,7 @@ internal static class Lr2FolderFileDiscoveryService
             return [.. (discoveryDirectories ?? [])];
         }
 
-        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedSurface.Lr2FolderScopeDirectories);
+        var scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedSurface.Lr2FolderScopeDirectories);
         return [.. (discoveryDirectories ?? [])
             .Where(directory => !scopeMatcher.ContainsDirectory(directory))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];

@@ -131,18 +131,18 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         TestableBmsFile selectedB = CreateFile("C:\\Pending\\Pkg1\\b.bms");
         TestableBmsFile partial = CreateFile("C:\\Pending\\Pkg2\\a.bms");
         TestableBmsFile partialUnselected = CreateFile("C:\\Pending\\Pkg2\\b.bms");
-        var pkg1 = ChartPackageTestExtensions.CreatePackage([selectedA, selectedB]);
+        ChartPackage pkg1 = ChartPackageTestExtensions.CreatePackage([selectedA, selectedB]);
         pkg1.path = "C:\\Pending\\Pkg1";
         pkg1.delete_parent = false;
-        var pkg2 = ChartPackageTestExtensions.CreatePackage([partial, partialUnselected]);
+        ChartPackage pkg2 = ChartPackageTestExtensions.CreatePackage([partial, partialUnselected]);
         pkg2.path = "C:\\Pending\\Pkg2";
         pkg2.delete_parent = false;
 
         TestableBmsFile singleA = CreateFile("C:\\Pending\\Singles\\a.bms");
         TestableBmsFile singleB = CreateFile("C:\\Pending\\Singles\\b.bms");
-        var singlePackageA = ChartPackageTestExtensions.CreatePackage([singleA]);
+        ChartPackage singlePackageA = ChartPackageTestExtensions.CreatePackage([singleA]);
         singlePackageA.path = singleA.path;
-        var singlePackageB = ChartPackageTestExtensions.CreatePackage([singleB]);
+        ChartPackage singlePackageB = ChartPackageTestExtensions.CreatePackage([singleB]);
         singlePackageB.path = singleB.path;
         singlePackageB.delete_parent = true;
 
@@ -188,7 +188,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, nestedDirectoryPath), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            var installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
+            ChartPackage installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
             installedPackage.path = nestedDirectoryPath;
             installedPackage.delete_parent = false;
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
@@ -239,7 +239,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex()
     {
-        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex));
+        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex));
         var service = new BmsLibraryLibraryFileOperationsService();
         string sourceRoot = Path.Combine(directories.SourceBaseDirectory, "Src");
         string nestedDirectoryPath = Path.Combine(sourceRoot, "Nested");
@@ -383,9 +383,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void InstallDestinationOverlaySnapshot_UsesDirectoryBoundary()
     {
-        var sourceFile = CreateFile("C:\\Charts\\source.bms");
-        var childFile = CreateFile("C:\\Charts\\child.bms");
-        var siblingFile = CreateFile("C:\\Charts\\sibling.bms");
+        TestableBmsFile sourceFile = CreateFile("C:\\Charts\\source.bms");
+        TestableBmsFile childFile = CreateFile("C:\\Charts\\child.bms");
+        TestableBmsFile siblingFile = CreateFile("C:\\Charts\\sibling.bms");
 
         InstallDestinationOverlayChartRefSnapshot snapshot = CreateInstallDestinationOverlaySnapshot([
             CreateLibraryChartRefWithInstallDestination(sourceFile, "C:\\Install\\Source"),
@@ -406,7 +406,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile libraryFile = CreateFile("C:\\Charts\\library.bms");
         TestableBmsFile pendingFile = CreateFile("C:\\Charts\\pending.bms");
-        var pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Install\\Source");
+        PackageChartEntry pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Install\\Source");
         var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
 
         LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
@@ -437,7 +437,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string collidingPath = Path.Combine(sourceRoot, "chart.bms");
             TestableBmsFile libraryFile = CreateFile(collidingPath);
             TestableBmsFile pendingFile = CreateFile(collidingPath);
-            var pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, sourceRoot);
+            PackageChartEntry pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, sourceRoot);
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
 
             LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
@@ -489,7 +489,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string stalePath = Path.Combine(folderPath, "stale.bms");
             File.WriteAllText(stalePath, "#PLAYER 1");
             TestableBmsFile libraryFile = CreateFile(stalePath);
-            LibraryChartRef selectedRef = LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(libraryFile));
+            var selectedRef = LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(libraryFile));
             libraryFile.path = null;
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(

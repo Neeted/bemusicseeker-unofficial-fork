@@ -36,10 +36,10 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { bmsRow, bmsonRow };
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 FrameworkElement placementTarget = new() { DataContext = bmsRow };
                 menu.PlacementTarget = placementTarget;
 
@@ -63,10 +63,10 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [TestMethod]
     public void CompiledChartContextMenuRoutesMutationAndResourceTerminalsWithExactTargets()
     {
-        var renameCompletion = NewCompletion<SelectedChartMutationResult>();
-        var deleteCompletion = NewCompletion<SelectedChartMutationResult>();
-        var rescanCompletion = NewCompletion<SelectedChartResourceHealthWorkflowResult>();
-        var audioCompletion = NewCompletion<SelectedChartAudioConversionResult>();
+        TaskCompletionSource<SelectedChartMutationResult> renameCompletion = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<SelectedChartMutationResult> deleteCompletion = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<SelectedChartResourceHealthWorkflowResult> rescanCompletion = NewCompletion<SelectedChartResourceHealthWorkflowResult>();
+        TaskCompletionSource<SelectedChartAudioConversionResult> audioCompletion = NewCompletion<SelectedChartAudioConversionResult>();
         SelectedInvalidExtensionRenameRequest? renameRequest = null;
         SelectedChartDeleteRequest? deleteRequest = null;
         SelectedChartEncodingRequest? encodingRequest = null;
@@ -122,11 +122,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
 
                 MenuItem rename = FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt");
@@ -195,8 +195,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [TestMethod]
     public void CompiledParseFailureContextMenuNormalizesRequestAndHandlesOnlyAfterAcceptance()
     {
-        var acceptance = NewCompletion<ChartInfoParseFailureRemovalAcceptance>();
-        var completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
+        TaskCompletionSource<ChartInfoParseFailureRemovalAcceptance> acceptance = NewCompletion<ChartInfoParseFailureRemovalAcceptance>();
+        TaskCompletionSource<ChartInfoParseFailureRemovalResult> completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
         ChartInfoParseFailureRemovalRequest? request = null;
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", @"C:\wave6e-parse\chart.bms");
         MainWindowChartInfoParseFailureRemovalTerminal parseTerminal = new(
@@ -210,11 +210,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.ChartInfoParseErrorFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
                 RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRemoveChartInfoParseFailure"));
 
@@ -240,8 +240,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [TestMethod]
     public void CompiledParseFailureContextMenuRejectsWithoutHandling()
     {
-        var acceptance = NewCompletion<ChartInfoParseFailureRemovalAcceptance>();
-        var completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
+        TaskCompletionSource<ChartInfoParseFailureRemovalAcceptance> acceptance = NewCompletion<ChartInfoParseFailureRemovalAcceptance>();
+        TaskCompletionSource<ChartInfoParseFailureRemovalResult> completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", @"C:\wave6e-parse-reject\chart.bms");
         MainWindowChartInfoParseFailureRemovalTerminal parseTerminal = new(
             _ => new ChartInfoParseFailureRemovalOperation(acceptance.Task, completion.Task));
@@ -250,11 +250,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.ChartInfoParseErrorFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
                 RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRemoveChartInfoParseFailure"));
 
@@ -296,11 +296,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
                 OpenContextMenu(menu);
 
@@ -320,7 +320,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [TestMethod]
     public void CompiledScoreViewerContextMenusDelegateNormalAndMissingSelectionWithHandledTiming()
     {
-        var completion = NewCompletion<ScoreViewerRegistrationResult>();
+        TaskCompletionSource<ScoreViewerRegistrationResult> completion = NewCompletion<ScoreViewerRegistrationResult>();
         var calls = new List<IReadOnlyList<ChartOperationTarget>>();
         MainWindowScoreViewerTerminal scoreViewer = new(
             _ => true,
@@ -338,8 +338,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
-                ContextMenu normalMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                var table = (CustomTableView)window.FindName("customTableView");
+                var normalMenu = (ContextMenu)window.FindResource("tableContextMenu");
                 table.ItemsSource = new List<object> { normalRow };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
@@ -362,7 +362,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 table.ItemsSource = new List<object> { missingRow };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
-                ContextMenu missingMenu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+                var missingMenu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
                 missingMenu.PlacementTarget = new FrameworkElement { DataContext = missingRow };
                 OpenContextMenu(missingMenu);
 
@@ -390,11 +390,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
 
                 OpenContextMenu(menu);
@@ -468,11 +468,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
                 OpenContextMenu(menu);
 
@@ -481,7 +481,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     .Single(item => item.Name == "tableContextMenuSeparatorExternalActions");
                 Assert.AreEqual(Visibility.Visible, externalActionsSeparator.Visibility);
 
-                var expected = new[]
+                (string, SelectedChartExternalActionKind)[] expected = new[]
                 {
                     ("tableContextMenuItemOpenExplorer", SelectedChartExternalActionKind.OpenExplorer),
                     ("tableContextMenuItemOpenBMSFile", SelectedChartExternalActionKind.OpenFile)
@@ -543,7 +543,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             (target, token) =>
             {
                 queryTokens.Add(token);
-                var completion = NewCompletion<RelatedDocumentQueryReceipt>();
+                TaskCompletionSource<RelatedDocumentQueryReceipt> completion = NewCompletion<RelatedDocumentQueryReceipt>();
                 queryCompletions.Add(completion);
                 return completion.Task;
             },
@@ -559,11 +559,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { row };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
 
                 OpenContextMenu(menu);
@@ -588,7 +588,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 document.Measure(new Size(400d, 200d));
                 document.Arrange(new Rect(0d, 0d, 400d, 200d));
                 document.UpdateLayout();
-                MenuItem? generated = document.ItemContainerGenerator.ContainerFromIndex(0) as MenuItem;
+                var generated = document.ItemContainerGenerator.ContainerFromIndex(0) as MenuItem;
                 if (generated == null)
                 {
                     IItemContainerGenerator generator = document.ItemContainerGenerator;
@@ -750,7 +750,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
     private static PlaylistDetailRow CreateMissingPlaylistRow(string md5)
     {
-        BMSTableEntry entry = BMSTableEntry.CreateHydratedPlaylistEntry(
+        var entry = BMSTableEntry.CreateHydratedPlaylistEntry(
             playlistId: 1,
             md5Value: md5,
             sha256Value: new string('b', 64),

@@ -380,7 +380,7 @@ internal sealed partial class LibraryMutationOwner
             FileDbMutationCommitResult applyResult;
             if (hasInstallChanges)
             {
-                ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(installedPackageCharts);
+                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(installedPackageCharts);
                 applyResult = owner.CommitInstalledSessionChanges(
                     installedTargets,
                     installPathsToDelete,

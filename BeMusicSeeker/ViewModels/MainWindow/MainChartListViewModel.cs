@@ -7,10 +7,10 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using Livet;
-using System.Windows;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -438,7 +438,7 @@ public sealed class MainChartListViewModel : ViewModel
     internal bool CommitOperationContextWithoutNotification(MainViewUpdateMode mode)
     {
         MainChartListOperationContext previous = CurrentOperationContext;
-        MainChartListOperationContext next = MainChartListOperationContext.FromMode(mode);
+        var next = MainChartListOperationContext.FromMode(mode);
         Volatile.Write(ref operationContext, next);
         return previous.OperationSection != next.OperationSection
             || previous.SourceScope != next.SourceScope;

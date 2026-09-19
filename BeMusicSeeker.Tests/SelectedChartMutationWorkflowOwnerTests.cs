@@ -35,7 +35,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var store = new RecordingStore { RemovalOutcome = outcome };
         var gate = new ChartFileOperationSynchronizer();
         var activity = new ChartMutationActivityOwner();
-        var dialogs = AcceptedMessageDialogs();
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
         bool releasedAtReport = false;
         dialogs.OnMessage = () =>
         {
@@ -43,11 +43,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             lease?.Dispose();
             if (reportThrows) throw new IOException("optional report failed");
         };
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
         ChartOperationTarget target = CreateTarget("deleted.bms", ChartOperationSourceScope.Library, false,
             ChartOperationCapabilities.RemoveFromLibrary);
 
-        var result = await owner.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
+        SelectedChartMutationResult result = await owner.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
 
         Assert.IsTrue(releasedAtReport);
         Assert.IsFalse(result.Succeeded);
@@ -68,7 +68,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         {
             PendingDeleteResult = new UiInteractionResult<bool>(UiInteractionStatus.CancelledByUser)
         };
-        var owner = CreateOwner(presentation, dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
         SelectedChartMutationResult result = await owner.DeleteAsync(
@@ -89,7 +89,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 UiInteractionStatus.Failed,
                 error: new IOException("pending dialog failed"))
         };
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
         SelectedChartMutationResult result = await owner.DeleteAsync(
@@ -105,7 +105,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         var store = new RecordingStore();
         var dialogs = new FakeUiDialogService();
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
         SelectedChartMutationResult result = await owner.DeleteAsync(
@@ -120,7 +120,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task DeleteAsync_WithoutEligibleTargetsDoesNotShowDialogOrMutate()
     {
         var store = new RecordingStore();
-        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget("library.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.None);
 
         SelectedChartMutationResult result = await owner.DeleteAsync(
@@ -140,7 +140,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         {
             PendingDeleteResult = new UiInteractionResult<bool>(UiInteractionStatus.Accepted, true)
         };
-        var owner = CreateOwner(presentation, dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
         SelectedChartMutationResult result = await owner.DeleteAsync(
@@ -169,7 +169,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
             ])
         };
-        var owner = CreateOwner(presentation, dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget libraryTarget = CreateTarget("library.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RemoveFromLibrary);
         ChartOperationTarget pendingTarget = CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
 
@@ -195,7 +195,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
             ])
         };
-        var owner = CreateOwner(presentation, dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget target = CreateTarget("library.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RemoveFromLibrary);
 
         SelectedChartMutationResult result = await owner.DeleteAsync(
@@ -213,8 +213,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         var store = new RecordingStore();
         var presentation = new RecordingPresentation();
-        var dialogs = AcceptedMessageDialogs();
-        var owner = CreateOwner(presentation, dialogs, store);
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store);
         ChartOperationTarget bChart = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
         ChartOperationTarget pChart = CreateTarget("beta.pms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
 
@@ -232,7 +232,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var events = new List<string>();
         var store = new TerminalRecordingStore(LibraryMutationSessionReceipt.Empty, events);
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget bChart = CreateTarget("pending.bme", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
         ChartOperationTarget pChart = CreateTarget("pending.pms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
 
@@ -262,14 +262,14 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var store = new TerminalRecordingStore(receipt);
         var gate = new ChartFileOperationSynchronizer();
         var activity = new ChartMutationActivityOwner();
-        var dialogs = AcceptedMessageDialogs();
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
         bool reportAfterRelease = false;
         dialogs.OnMessage = () =>
         {
             reportAfterRelease = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
             lease?.Dispose();
         };
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
         ChartOperationTarget bChart = CreateTarget(
             "alpha.bme",
             ChartOperationSourceScope.Library,
@@ -311,8 +311,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     new IOException("filesystem rename failed"))
             ]);
         var store = new TerminalRecordingStore(receipt);
-        var dialogs = AcceptedMessageDialogs();
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         ChartOperationTarget bChart = CreateTarget(
             "alpha.bme",
             ChartOperationSourceScope.Library,
@@ -341,7 +341,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task RenameInvalidExtensionsAsync_WithoutEligibleTargetsDoesNotShowDialogOrMutate()
     {
         var store = new RecordingStore();
-        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.None);
 
         SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
@@ -361,7 +361,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             ])
         };
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         ChartOperationTarget target = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
 
         SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
@@ -375,7 +375,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task RenameInvalidExtensionsAsync_DialogFailureReturnsFailureWithoutMutation()
     {
         var store = new RecordingStore();
-        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
 
         SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
@@ -390,7 +390,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task RenameInvalidExtensionsAsync_RejectsTargetsFromDifferentOperationSection()
     {
         var store = new RecordingStore();
-        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
         ChartOperationTarget pendingTarget = CreateTarget("pending.bme", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
 
         SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
@@ -405,7 +405,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task RenameInvalidExtensionsAsync_RejectsTargetWithPendingFlagOnly()
     {
         var store = new RecordingStore();
-        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
         ChartOperationTarget inconsistentTarget = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, true, ChartOperationCapabilities.RenameInvalidExtension);
 
         SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
@@ -421,7 +421,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         var store = new RecordingStore { Failure = new IOException("mutation failed") };
         var presentation = new RecordingPresentation();
-        var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget target = CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension);
 
         SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
@@ -439,7 +439,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
         SelectedChartMutationResult result = await owner.MoveAsync(
@@ -468,7 +468,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             failedTarget: new LibraryMutationSessionTarget(@"C:\Songs\Second", @"D:\Moved\Second"));
         var store = new TerminalRecordingStore(receipt);
         var presentation = new RecordingPresentation();
-        var dialogs = AcceptedMessageDialogs();
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
         var gate = new ChartFileOperationSynchronizer();
         var activity = new ChartMutationActivityOwner();
         bool reportAfterRelease = false;
@@ -478,7 +478,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             reportAfterRelease = gateReleased && !activity.IsActive && presentation.Events.Contains("library-refresh-end");
             lease?.Dispose();
         };
-        var owner = CreateOwner(presentation, dialogs, store, gate, activity);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store, gate, activity);
         if (observerThrows)
         {
             owner.WorkflowChanged += (_, change) =>
@@ -514,9 +514,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             folderReferenceMoveCount: 1,
             cleanupFailure: new IOException("cleanup failed"));
         var store = new TerminalRecordingStore(receipt);
-        var dialogs = AcceptedMessageDialogs();
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
         if (reporterThrows) dialogs.OnMessage = () => throw new IOException("report failed");
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
             [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
         Assert.IsTrue(result.Succeeded);
@@ -530,13 +530,13 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     [TestMethod]
     public async Task MoveAsync_NormalTerminalReceiptIsSilent()
     {
-        var dialogs = AcceptedMessageDialogs();
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
         var store = new TerminalRecordingStore(new LibraryMutationSessionReceipt(
             [new LibraryMutationSessionTarget(@"C:\Songs\First", @"D:\Moved\First")],
             durableCommit: true,
             catalogChartPathChangeCount: 1,
             folderReferenceMoveCount: 1));
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
             [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
         Assert.IsTrue(result.Succeeded);
@@ -553,7 +553,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             ])
         };
-        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
         SelectedChartMutationResult result = await owner.MoveAsync(
@@ -567,7 +567,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task MoveAsync_WithoutEligibleTargetsOrDestinationDoesNotShowDialogOrMutate()
     {
         var store = new RecordingStore();
-        var owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.None);
         ChartOperationTarget eligibleTarget = CreateTarget("beta.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
@@ -609,7 +609,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget(
             "alpha.bms",
             ChartOperationSourceScope.Library,
@@ -631,7 +631,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget(
             "alpha.bms",
             ChartOperationSourceScope.Library,
@@ -652,7 +652,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events) { Failure = new IOException("encoding failed") };
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget(
             "alpha.bms",
             ChartOperationSourceScope.Library,
@@ -673,7 +673,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         var store = new RecordingStore { Failure = new IOException("mutation failed") };
         var presentation = new RecordingPresentation();
-        var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
         SelectedChartMutationResult result = await owner.MoveAsync(
@@ -691,7 +691,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         var store = new RecordingStore();
         var presentation = new RecordingPresentation();
-        var owner = CreateOwner(presentation, new FakeUiDialogService(), store);
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, new FakeUiDialogService(), store);
         ChartOperationTarget target = CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary);
 
         SelectedChartMutationResult result = await owner.MoveAsync(

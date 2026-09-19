@@ -24,7 +24,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var presentation = new RecordingPresentation(events);
-        var owner = CreateOwner(
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             events,
             presentation,
             AcceptedDialogs(),
@@ -82,7 +82,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             resourceHealthIndexFullRebuilt: false,
             mutationReceipt);
         var store = new TerminalRecordingStore(events, mergeReceipt);
-        var owner = CreateOwner(
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             events,
             new RecordingPresentation(events),
             AcceptedDialogs(),
@@ -122,7 +122,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         var confirmation = new TaskCompletionSource<UiDialogResult>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var dialogs = new FakeUiDialogService { PendingConfirmation = confirmation };
-        var owner = CreateOwner(
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             [],
             new RecordingPresentation([]),
             dialogs,
@@ -154,7 +154,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     public async Task RunFolderMergeAsync_ReportsAfterReleaseAndPreservesFactsWhenReporterFails(bool reporterThrows, bool maintenanceFails)
     {
         var events = new List<string>();
-        var maintenanceFailure = maintenanceFails ? new IOException("maintenance failed") : null;
+        IOException? maintenanceFailure = maintenanceFails ? new IOException("maintenance failed") : null;
         var cleanupFailure = new IOException("source cleanup failed");
         var mutation = new LibraryMutationSessionReceipt(
             [new LibraryMutationSessionTarget(@"C:\Source", @"D:\Destination")],
@@ -177,7 +177,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             },
             MessageFailure = reporterThrows ? new IOException("report failed") : null
         };
-        var owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
         DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(@"C:\Source", @"D:\Destination",
             new DuplicateGroup([], [@"C:\Source", @"D:\Destination"]));
         Assert.AreEqual(!maintenanceFails, result.Succeeded);
@@ -198,7 +198,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     {
         string source = @"C:\Songs\Source";
         string destination = @"C:\Songs\Destination";
-        var owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
 
         Assert.ThrowsException<ArgumentException>(() => owner.RunFolderMergeAsync(
             source,
@@ -225,7 +225,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 new(missing.Path, LibraryChartRemovalState.NotExecuted)], true, true,
                 catalogFailure ? new IOException("required catalog finalization failure") : null);
             var store = new RecordingStore([]) { RemovalOutcome = outcome };
-            var dialogs = AcceptedDialogs();
+            FakeUiDialogService dialogs = AcceptedDialogs();
             var gate = new ChartFileOperationSynchronizer();
             var activity = new ChartMutationActivityOwner();
             bool releasedAtReport = false;
@@ -234,7 +234,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
                 lease?.Dispose();
             };
-            var owner = CreateOwner(
+            DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
                 [],
                 new RecordingPresentation([]),
                 dialogs,
@@ -270,8 +270,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     public async Task RunHashCleanupAsync_NoWorkDoesNotStartMutation()
     {
         var events = new List<string>();
-        var dialogs = AcceptedDialogs();
-        var owner = CreateOwner(
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             events,
             new RecordingPresentation(events),
             dialogs,
@@ -293,7 +293,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     public async Task RunHashCleanupAsync_RejectionDoesNotStartMutation()
     {
         var events = new List<string>();
-        var owner = CreateOwner(
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             events,
             new RecordingPresentation(events),
             new FakeUiDialogService
@@ -327,7 +327,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             EndActivityFailure = new InvalidOperationException("activity cleanup failed")
         };
-        var owner = CreateOwner(
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             events,
             presentation,
             dialogs,
@@ -363,7 +363,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [TestMethod]
     public void DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy()
     {
-        var owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
         var group = new DuplicateGroup([], [@"C:\A", @"C:\B", @"C:\C"]);
 
         CollectionAssert.AreEqual(
@@ -387,7 +387,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     public void OpenDuplicateFolderInExplorer_ValidatesBeforeOpeningWithoutFallback()
     {
         int openCount = 0;
-        var owner = CreateOwner(
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(
             [],
             new RecordingPresentation([]),
             AcceptedDialogs(),

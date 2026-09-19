@@ -130,13 +130,13 @@ public sealed class Lr2SongDbWriterTests
                 feature = 4 | 8,
                 notes = 4321
             };
-            Lr2ChartInfoSongProjection firstProjection =
+            var firstProjection =
                 Lr2ChartInfoSongProjection.Create(first.path, first.hash, chartInfo);
-            Lr2ChartInfoSongProjection secondProjection =
+            var secondProjection =
                 Lr2ChartInfoSongProjection.Create(second.path, second.hash.ToUpperInvariant(), chartInfo);
-            Lr2ChartInfoSongProjection missingProjection =
+            var missingProjection =
                 Lr2ChartInfoSongProjection.Create(@"D:\BMS\Pack\missing.bms", md5, chartInfo);
-            Lr2ChartInfoSongProjection caseOnlyPathMismatchProjection =
+            var caseOnlyPathMismatchProjection =
                 Lr2ChartInfoSongProjection.Create(first.path.ToUpperInvariant(), md5, chartInfo);
 
             Lr2ChartInfoSongProjectionWriteResult result = Lr2SongDbWriter.UpdateChartInfoSongProjections(
@@ -195,7 +195,7 @@ public sealed class Lr2SongDbWriterTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            Lr2ChartInfoSongProjection projection = Lr2ChartInfoSongProjection.Create(
+            var projection = Lr2ChartInfoSongProjection.Create(
                 @"D:\BMS\Pack\missing.bms",
                 md5,
                 new LR2SongDBExtended.chart_info { md5 = md5, level = 12 });

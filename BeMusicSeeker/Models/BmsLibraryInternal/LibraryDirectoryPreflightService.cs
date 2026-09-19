@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
@@ -57,8 +56,7 @@ internal enum LibraryDirectoryPreflightFailureCause
 /// <summary>
 /// 必須ディレクトリの検査に失敗したことを表します。
 /// </summary>
-[SuppressMessage("Roslynator", "RCS1194:Implement exception constructors",
-    Justification = "用途・パス・原因を必須とし、復旧案内に必要な情報を欠く例外の生成を防ぐため。")]
+/// <remarks>用途、パス、原因を保持し、復旧案内に必要な情報を欠く簡略コンストラクターは提供しません。</remarks>
 internal sealed class LibraryDirectoryPreflightException : IOException
 {
     /// <summary>
@@ -252,7 +250,7 @@ internal sealed class LibraryDirectoryPreflightService
         // output base 配下の生成対象を BMS root として別検査すると、まだ作成
         // されていない playlist child まで登録 root と誤認するため除外します。
         // output base 自体は下の output 検査で必ず検査します。
-        List<string> requiredBmsRoots = registeredRoots
+        var requiredBmsRoots = registeredRoots
             .Where(root => !outputBases.Any(outputBase =>
                 LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(
                     root,

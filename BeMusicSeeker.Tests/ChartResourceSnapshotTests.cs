@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -16,8 +17,8 @@ public sealed class ChartResourceSnapshotTests
     {
         var resources = new Ribbit.BMS.Resources();
         resources.AddFilePath("sound.wav");
-        var paths = resources.FilePaths;
-        var hashes = resources.FilePathsHashSet;
+        ImmutableHashSet<string> paths = resources.FilePaths;
+        ImmutableHashSet<uint> hashes = resources.FilePathsHashSet;
 
         resources.AddFilePath("image.png");
 
@@ -40,8 +41,8 @@ public sealed class ChartResourceSnapshotTests
             includeResourceReferences: true,
             includeScoreSnapshot: false);
 
-        ChartResourceSnapshot single = ChartResourceSnapshot.Create(chart);
-        ChartResourceSnapshot aggregate = ChartResourceSnapshot.CreateAggregate([chart]);
+        var single = ChartResourceSnapshot.Create(chart);
+        var aggregate = ChartResourceSnapshot.CreateAggregate([chart]);
 
         Assert.AreEqual(3, single.AudioReferenceCount);
         Assert.AreEqual(1, single.VisualReferenceCount);
@@ -100,14 +101,14 @@ public sealed class ChartResourceSnapshotTests
                 + "#BMPAA ..\\Base\\movie.mpg\r\n"
                 + "#00111:AA\r\n"
                 + "#00104:AA\r\n");
-            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
             ChartFile chart = ChartFileProjection.FromBmsFile(
                 file,
                 includeWarningSnapshot: false,
                 includeResourceReferences: true,
                 includeScoreSnapshot: false);
 
-            ChartResourceSnapshot snapshot = ChartResourceSnapshot.CreateAggregate([chart]);
+            var snapshot = ChartResourceSnapshot.CreateAggregate([chart]);
 
             Assert.AreEqual(0, snapshot.AudioReferenceCount);
             Assert.AreEqual(0, snapshot.MovieReferenceCount);
@@ -144,15 +145,15 @@ public sealed class ChartResourceSnapshotTests
                 + "#BMPAB movie\\op.mpg\r\n"
                 + "#00111:AA\r\n"
                 + "#00104:AB\r\n");
-            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
             ChartFile chart = ChartFileProjection.FromBmsFile(
                 file,
                 includeWarningSnapshot: false,
                 includeResourceReferences: true,
                 includeScoreSnapshot: false);
 
-            ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(chart);
-            ChartResourceSnapshot aggregate = ChartResourceSnapshot.CreateAggregate([chart]);
+            var snapshot = ChartResourceSnapshot.Create(chart);
+            var aggregate = ChartResourceSnapshot.CreateAggregate([chart]);
 
             Assert.AreEqual(1, snapshot.AudioReferenceCount);
             Assert.AreEqual(1, snapshot.VisualReferenceCount);
@@ -211,7 +212,7 @@ public sealed class ChartResourceSnapshotTests
             audioResourcePaths: ["projected.wav"],
             visualResourcePaths: []);
 
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(chart);
+        var snapshot = ChartResourceSnapshot.Create(chart);
 
         CollectionAssert.Contains(snapshot.AudioRelativePaths.ToArray(), "projected");
         CollectionAssert.DoesNotContain(snapshot.AudioRelativePaths.ToArray(), "owner");
@@ -245,7 +246,7 @@ public sealed class ChartResourceSnapshotTests
             file,
             null);
 
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(chart);
+        var snapshot = ChartResourceSnapshot.Create(chart);
 
         Assert.AreEqual(1, snapshot.AudioReferenceCount);
         Assert.AreEqual(@".\sound.wav", snapshot.AudioReferences.Single().RawPath);
@@ -259,12 +260,12 @@ public sealed class ChartResourceSnapshotTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_UsesPrecomputedDefinedResources()
     {
-        PackageChartEntry targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(
+        var targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(
             CreateBmsFile("C:\\Pending\\target.bms", ["target.wav"], []),
             includeWarningSnapshot: false,
             includeResourceReferences: true,
             includeScoreSnapshot: false));
-        ChartResourceSnapshot precomputedResources = ChartResourceSnapshot.CreateAggregate([
+        var precomputedResources = ChartResourceSnapshot.CreateAggregate([
             ChartFileProjection.FromBmsFile(
                 CreateBmsFile("C:\\Pending\\precomputed.bms", ["precomputed.wav"], []),
                 includeWarningSnapshot: false,

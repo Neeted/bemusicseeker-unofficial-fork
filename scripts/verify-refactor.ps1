@@ -1745,22 +1745,12 @@ function Assert-BuiltOutputs {
     Assert-ReleaseOutputLayout -ExecutablePath (Resolve-Path -LiteralPath $uiExecutable).Path
 }
 
-# 長いテストの前に静的診断を解消する。Quick の反復にはこの検査を追加しない。
-function Invoke-StaticVerification {
+# 長いテストの前にリポジトリの整形を確認する。Quick の反復にはこの検査を追加しない。
+function Invoke-RepositoryFormatVerification {
     param(
         [Parameter(Mandatory)]
         [string]$DiagnosticsRoot
     )
-
-    [void](Invoke-MonitoredVerificationPhase -Name 'tool-restore' -DiagnosticsRoot $DiagnosticsRoot -Action {
-        param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-        Invoke-VerificationPhaseCommand `
-            -Label 'Tool restore' `
-            -CommandPath 'dotnet' `
-            -Arguments @('tool', 'restore') `
-            -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
-            -DeadlinePolicy $deadlinePolicy
-    })
 
     [void](Invoke-MonitoredVerificationPhase -Name 'format' -DiagnosticsRoot $DiagnosticsRoot -Action {
         param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
@@ -1768,34 +1758,6 @@ function Invoke-StaticVerification {
             -Label 'dotnet format' `
             -CommandPath 'dotnet' `
             -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
-            -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
-            -DeadlinePolicy $deadlinePolicy
-    })
-
-    [void](Invoke-MonitoredVerificationPhase -Name 'analyzer' -DiagnosticsRoot $DiagnosticsRoot -Action {
-        param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-        $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-        $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
-        if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
-            throw "vswhere.exe was not found: $vswhere"
-        }
-        $vswhereResult = Invoke-VerificationPhaseCommand `
-            -Label 'Visual Studio MSBuild discovery' `
-            -CommandPath $vswhere `
-            -Arguments @('-version', '[17.0,18.0)', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', '-find', 'MSBuild\Current\Bin') `
-            -DiagnosticsDirectory (Join-Path $phaseDirectory 'vswhere') `
-            -DeadlinePolicy $deadlinePolicy
-        $msbuildPath = @(([string]$vswhereResult.StandardOutput -split "\r?\n") |
-            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-            Select-Object -First 1)[0]
-        $msbuildPath = ([string]$msbuildPath).Trim()
-        if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
-            throw 'Visual Studio 2022 MSBuild 17 was not found.'
-        }
-        Invoke-VerificationPhaseCommand `
-            -Label 'roslynator analyzer' `
-            -CommandPath 'dotnet' `
-            -Arguments @('roslynator', 'analyze', $solution, '--msbuild-path', $msbuildPath, '--properties', 'Configuration=Release', '--severity-level', 'warning', '--ignore-compiler-diagnostics', '--verbosity', 'normal') `
             -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
             -DeadlinePolicy $deadlinePolicy
     })
@@ -1826,7 +1788,7 @@ function Invoke-CanonicalFunctionalVerification {
         $restoreStopwatch.Stop()
 
         if ($Mode -in @('Functional', 'Full')) {
-            Invoke-StaticVerification -DiagnosticsRoot $DiagnosticsRoot
+            Invoke-RepositoryFormatVerification -DiagnosticsRoot $DiagnosticsRoot
         }
 
         $buildStopwatch = [System.Diagnostics.Stopwatch]::StartNew()

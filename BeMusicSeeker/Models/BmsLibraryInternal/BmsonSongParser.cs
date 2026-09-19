@@ -232,7 +232,7 @@ internal static class BmsonSongParser
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)
     {
         using (algorithm)
-        using (var stream = LongPathFileSystem.OpenRead(filePath))
+        using (FileStream stream = LongPathFileSystem.OpenRead(filePath))
         {
             byte[] hash = algorithm.ComputeHash(stream);
             var builder = new StringBuilder(hash.Length * 2);

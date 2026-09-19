@@ -127,7 +127,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     [TestMethod]
     public void StreamObserver_NaturalEndBetweenPositionAndStateReads_ReturnsSuccess()
     {
-        TimeSpan duration = TimeSpan.FromSeconds(2);
+        var duration = TimeSpan.FromSeconds(2);
         var boundary = new FakeSoundBoundary(elapsed => elapsed)
         {
             Duration = duration,
@@ -363,7 +363,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     [TestMethod]
     public void StreamObserver_ValidatedProgressThenPlateau_ReturnsFailureAndDisposesPlayer()
     {
-        TimeSpan plateauPosition = TimeSpan.FromSeconds(1.2);
+        var plateauPosition = TimeSpan.FromSeconds(1.2);
         var boundary = new FakeSoundBoundary(elapsed => elapsed <= plateauPosition
             ? elapsed
             : plateauPosition)

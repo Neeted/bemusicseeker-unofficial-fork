@@ -38,8 +38,8 @@ public sealed class ChartMutationActivityOwnerTests
         using var start = new ManualResetEventSlim();
         using var entered = new CountdownEvent(8);
         using var release = new ManualResetEventSlim();
-        IDisposable[] leases = new IDisposable[8];
-        Thread[] workers = new Thread[8];
+        var leases = new IDisposable[8];
+        var workers = new Thread[8];
 
         for (int index = 0; index < workers.Length; index++)
         {

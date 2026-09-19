@@ -20,7 +20,7 @@ public sealed class UiDialogCoordinatorWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var owner = CreateTestWindow("owner");
+            Window owner = CreateTestWindow("owner");
             windowTest.ShowAndWaitForContentRendered(owner);
             ProbeWindow? created = null;
 
@@ -50,9 +50,9 @@ public sealed class UiDialogCoordinatorWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var owner = CreateTestWindow("owner");
+            Window owner = CreateTestWindow("owner");
             windowTest.ShowAndWaitForContentRendered(owner);
-            var coordinator = CreateTestCoordinator(windowTest);
+            UiDialogCoordinator coordinator = CreateTestCoordinator(windowTest);
 
             UiWindowDialogResult<string> nullFactory = coordinator.ShowWindowAsync(
                 new UiWindowDialogRequest<ProbeWindow, string>(
@@ -92,7 +92,7 @@ public sealed class UiDialogCoordinatorWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var requestedOwner = CreateTestWindow("requested");
+            Window requestedOwner = CreateTestWindow("requested");
             windowTest.ShowAndWaitForContentRendered(requestedOwner);
             var resolver = new UiDialogOwnerResolver(() => Application.Current);
             ProbeWindow? created = null;
@@ -125,7 +125,7 @@ public sealed class UiDialogCoordinatorWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var owner = CreateTestWindow("owner");
+            Window owner = CreateTestWindow("owner");
             windowTest.ShowAndWaitForContentRendered(owner);
             var reports = new List<string>();
             var settings = new ProgressDialogSettings(

@@ -30,7 +30,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE hash update\r\n#BPM 120\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
@@ -122,8 +122,8 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 secondPath,
                 "#PLAYER 1\r\n#TITLE second before\r\n#BPM 120\r\n#00111:01\r\n",
                 System.Text.Encoding.ASCII);
-            BMSFile first = BMSFile.CreateBMSFileFromFile(firstPath);
-            BMSFile second = BMSFile.CreateBMSFileFromFile(secondPath);
+            var first = BMSFile.CreateBMSFileFromFile(firstPath);
+            var second = BMSFile.CreateBMSFileFromFile(secondPath);
             List<BMSFile> files = [first, second];
             for (int index = 0; index < backgroundCount; index++)
             {
@@ -333,7 +333,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             string staleSha256 = new string('b', 64);
-            var bmsFile = CreateFile(snapshot.Md5, chartPath, staleSha256);
+            TestableBmsFile bmsFile = CreateFile(snapshot.Md5, chartPath, staleSha256);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
@@ -397,7 +397,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 "#PLAYER 1\r\n#TITLE rollback\r\n#BPM 120\r\n#00111:01\r\n",
                 System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);

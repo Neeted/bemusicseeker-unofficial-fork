@@ -15,7 +15,7 @@ public sealed class ApplicationPathPolicyTests
         string root = Path.Combine(Path.GetTempPath(), nameof(ApplicationPathPolicyTests), Guid.NewGuid().ToString("N"));
         string executablePath = Path.Combine(root, "BeMusicSeeker.exe");
 
-        ApplicationPathSnapshot snapshot = ApplicationPathSnapshot.FromExecutablePath(executablePath);
+        var snapshot = ApplicationPathSnapshot.FromExecutablePath(executablePath);
 
         Assert.AreEqual(Path.GetFullPath(executablePath), snapshot.ExecutablePath);
         Assert.AreEqual(Path.GetFullPath(root), snapshot.BaseDirectory);
@@ -37,7 +37,7 @@ public sealed class ApplicationPathPolicyTests
     public void EverythingNativeUsesInjectedApplicationBaseDirectoryForBridgePath()
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(ApplicationPathPolicyTests), Guid.NewGuid().ToString("N"));
-        ApplicationPathSnapshot snapshot = ApplicationPathSnapshot.FromExecutablePath(
+        var snapshot = ApplicationPathSnapshot.FromExecutablePath(
             Path.Combine(root, "bin", "BeMusicSeeker.exe"));
 
         var native = new EverythingNative(snapshot);

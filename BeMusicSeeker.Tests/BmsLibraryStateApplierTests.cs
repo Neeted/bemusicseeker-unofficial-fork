@@ -8,10 +8,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using PackageStateMutationApplier = BeMusicSeeker.Models.BmsLibraryInternal.PackageLifecycleOwner.PackageStateMutationApplier;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.BmsLibraryStateApplierTestSupport;
+using PackageStateMutationApplier = BeMusicSeeker.Models.BmsLibraryInternal.PackageLifecycleOwner.PackageStateMutationApplier;
 
 namespace BeMusicSeeker.Tests;
 
@@ -204,10 +204,10 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var removedPackage = ChartPackageTestExtensions.CreatePackage([removedFile]);
+            ChartPackage removedPackage = ChartPackageTestExtensions.CreatePackage([removedFile]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
-            var keptPackage = ChartPackageTestExtensions.CreatePackage([keptFile]);
+            ChartPackage keptPackage = ChartPackageTestExtensions.CreatePackage([keptFile]);
             keptPackage.path = "C:\\Installed\\KeepPkg";
             keptPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -311,12 +311,12 @@ public sealed class BmsLibraryStateApplierTests
                 OwnedChartCollectionState.FromStorageRows([keptBms, removedBms], [keptBmson, removedBmson]),
                 initial.BmsRowsVersion, initial.BmsonRowsVersion));
             Assert.AreEqual(4, owned.Collection.CreatePathSnapshot().Count, "旧DBの別exact keyをloaded ownerで取り落とさない。");
-            ChartPackage keptPackage = ChartPackage.FromChartEntries(
+            var keptPackage = ChartPackage.FromChartEntries(
             [
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(keptBms)),
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptBmson))
             ]);
-            ChartPackage removedPackage = ChartPackage.FromChartEntries(
+            var removedPackage = ChartPackage.FromChartEntries(
             [
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(removedBms)),
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedBmson))
@@ -403,7 +403,7 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var removedPackage = ChartPackageTestExtensions.CreatePackage([canonicalFile]);
+            ChartPackage removedPackage = ChartPackageTestExtensions.CreatePackage([canonicalFile]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -443,7 +443,7 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\new.bms"
             };
             relocatedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var relocatedPackage = ChartPackageTestExtensions.CreatePackage([relocatedFile]);
+            ChartPackage relocatedPackage = ChartPackageTestExtensions.CreatePackage([relocatedFile]);
             relocatedPackage.path = "C:\\Installed\\RelocatedPkg";
             relocatedPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -494,7 +494,7 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\remove.bms"
             };
             removedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            PackageChartEntry unmatchedBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            var unmatchedBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = "C:\\Library\\keep.bmson",
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -631,9 +631,9 @@ public sealed class BmsLibraryStateApplierTests
                 folder = "C:\\Library",
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             };
-            PackageChartEntry removedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedSong));
-            PackageChartEntry keptEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptSong));
-            ChartPackage package = ChartPackage.FromChartEntries([removedEntry, keptEntry]);
+            var removedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedSong));
+            var keptEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptSong));
+            var package = ChartPackage.FromChartEntries([removedEntry, keptEntry]);
             package.path = "C:\\Installed\\MixedPkg";
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -733,7 +733,7 @@ public sealed class BmsLibraryStateApplierTests
                 }
 
                 ChartPackage bmsPackage = ChartPackageTestExtensions.CreatePackage(bmsFile);
-                ChartPackage bmsonPackage = ChartPackage.FromChartEntries(
+                var bmsonPackage = ChartPackage.FromChartEntries(
                 [
                     PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
                 ]);

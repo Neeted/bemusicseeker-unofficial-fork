@@ -17,7 +17,7 @@ public sealed class UpdaterDeploymentBoundaryTests
     public void ApplicationProjectUsesDedicatedUpdaterPublishBoundary()
     {
         string repositoryRoot = FindRepositoryRoot();
-        XDocument applicationProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
+        var applicationProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
         XElement projectRoot = applicationProject.Root
             ?? throw new AssertFailedException("Application project XML has no root element.");
 
@@ -42,7 +42,7 @@ public sealed class UpdaterDeploymentBoundaryTests
             StringComparison.OrdinalIgnoreCase)),
             "The unused System.Deployment reference must not remain in the application project.");
 
-        XDocument updaterProject = XDocument.Load(Path.Combine(
+        var updaterProject = XDocument.Load(Path.Combine(
             repositoryRoot,
             "BeMusicSeeker.Updater",
             "BeMusicSeeker.Updater.csproj"));
@@ -60,7 +60,7 @@ public sealed class UpdaterDeploymentBoundaryTests
             "Properties",
             "PublishProfiles",
             "WinX64SelfContainedSingleFile.pubxml");
-        XDocument updaterProfile = XDocument.Load(updaterProfilePath);
+        var updaterProfile = XDocument.Load(updaterProfilePath);
         AssertProfileValue(updaterProfile, "RuntimeIdentifier", "win-x64");
         AssertProfileValue(updaterProfile, "SelfContained", "true");
         AssertProfileValue(updaterProfile, "PublishReadyToRun", "false");
@@ -77,7 +77,7 @@ public sealed class UpdaterDeploymentBoundaryTests
             "Properties",
             "PublishProfiles",
             "WinX64SelfContained.pubxml");
-        XDocument selectedAppProfile = XDocument.Load(selectedAppProfilePath);
+        var selectedAppProfile = XDocument.Load(selectedAppProfilePath);
         AssertProfileValue(selectedAppProfile, "RuntimeIdentifier", "win-x64");
         AssertProfileValue(selectedAppProfile, "SelfContained", "true");
         AssertProfileValue(selectedAppProfile, "PublishSingleFile", "true");
@@ -271,7 +271,7 @@ public sealed class UpdaterDeploymentBoundaryTests
                 "x64/basswasapi.dll",
                 "OggVorbis.NET.dll"
             };
-            var forbiddenCases = forbiddenPaths
+            (string Path, bool IsDirectory, string MembershipPath, string FailurePath)[] forbiddenCases = forbiddenPaths
                 .Select(path => (
                     Path: path,
                     IsDirectory: path is "config" or "log",
@@ -369,9 +369,9 @@ public sealed class UpdaterDeploymentBoundaryTests
 
     private static async Task RunValidatorProcess(ProcessStartInfo startInfo, string operation)
     {
-        TimeSpan processTimeout = TimeSpan.FromSeconds(60);
-        TimeSpan streamTimeout = TimeSpan.FromSeconds(5);
-        TimeSpan cleanupTimeout = TimeSpan.FromSeconds(5);
+        var processTimeout = TimeSpan.FromSeconds(60);
+        var streamTimeout = TimeSpan.FromSeconds(5);
+        var cleanupTimeout = TimeSpan.FromSeconds(5);
         var process = new Process { StartInfo = startInfo };
         Task<string>? stdoutTask = null;
         Task<string>? stderrTask = null;

@@ -94,7 +94,7 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string viewsRoot = Path.Combine(root, "BeMusicSeeker", "Views");
-        List<string> offenders = Directory
+        var offenders = Directory
             .EnumerateFiles(viewsRoot, "*.cs", SearchOption.AllDirectories)
             .Where(path => File.ReadAllText(path).Contains("DispatcherMessageBox.Show("))
             .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
@@ -111,7 +111,7 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string viewModelsRoot = Path.Combine(root, "BeMusicSeeker", "ViewModels");
-        List<string> offenders = Directory
+        var offenders = Directory
             .EnumerateFiles(viewModelsRoot, "*.cs", SearchOption.AllDirectories)
             .Where(path => File.ReadAllText(path).Contains("DispatcherMessageBox.Show("))
             .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
@@ -143,7 +143,7 @@ public sealed class DialogRouteConsolidationTests
             nativeMessageBoxCalls.Count,
             "The compiled production call graph must contain exactly one System.Windows.MessageBox.Show call.\n"
                 + FormatCalls(nativeMessageBoxCalls));
-        foreach (var call in nativeMessageBoxCalls)
+        foreach ((MethodBase Caller, MethodBase Callee) call in nativeMessageBoxCalls)
         {
             Assert.AreEqual(
                 typeof(EmergencyDialog),
@@ -156,7 +156,7 @@ public sealed class DialogRouteConsolidationTests
             emergencyDialogCalls.Count > 0,
             "The compiled production call graph must contain an EmergencyDialog.Show call from App.\n"
                 + FormatCalls(emergencyDialogCalls));
-        foreach (var call in emergencyDialogCalls)
+        foreach ((MethodBase Caller, MethodBase Callee) call in emergencyDialogCalls)
         {
             Assert.AreEqual(
                 typeof(App),

@@ -741,7 +741,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
             directoryRowGenerationScopeDirectories);
         foreach (string target in metadataTargets ?? [])
         {
-            RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(target);
+            var entry = RootFileEnumerationEntry.FromDirectoryInfo(target);
             string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
             if (!string.IsNullOrWhiteSpace(key))
             {
@@ -1001,7 +1001,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
         private static void AppendDirectoryLine(StringBuilder builder, string kind, string directory)
         {
-            RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
+            var entry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
             string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path ?? directory);
             if (string.IsNullOrWhiteSpace(normalizedDirectory))
             {

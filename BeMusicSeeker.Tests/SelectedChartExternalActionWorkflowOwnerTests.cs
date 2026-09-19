@@ -348,7 +348,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     {
         var mutablePaths = new List<string> { @"C:\Songs\readme.txt" };
 
-        RelatedDocumentQueryReceipt receipt = RelatedDocumentQueryReceipt.Available(mutablePaths);
+        var receipt = RelatedDocumentQueryReceipt.Available(mutablePaths);
         mutablePaths[0] = @"C:\Songs\changed.txt";
 
         CollectionAssert.AreEqual(

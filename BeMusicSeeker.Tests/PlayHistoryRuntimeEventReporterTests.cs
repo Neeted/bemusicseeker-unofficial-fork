@@ -17,7 +17,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
     {
         var events = new List<PlayHistoryRuntimeEvent>();
         var reporter = new PlayHistoryRuntimeEventReporter(events.Add);
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.Create(
+        var period = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.Today,
             new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
@@ -106,7 +106,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
     {
         var events = new List<PlayHistoryRuntimeEvent>();
         var reporter = new PlayHistoryRuntimeEventReporter(events.Add);
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.All();
+        var period = PlayHistoryPeriodRequest.All();
         var read = new PlayHistoryReadStageMetrics(
             completed: true,
             provider: PlayHistoryProvider.Beatoraja,
@@ -183,8 +183,8 @@ public sealed class PlayHistoryRuntimeEventReporterTests
     {
         var events = new List<PlayHistoryRuntimeEvent>();
         var reporter = new PlayHistoryRuntimeEventReporter(events.Add);
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.All();
-        var request = CreateViewExecutionRequest(period, requestId: 42);
+        var period = PlayHistoryPeriodRequest.All();
+        PlayHistoryViewExecutionRequest request = CreateViewExecutionRequest(period, requestId: 42);
 
         reporter.ReportViewExecution(
             PlayHistoryViewExecutionResult.NoCurrentMatchingState(request, fromSortOnly: true),
@@ -211,7 +211,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
     {
         var events = new List<PlayHistoryRuntimeEvent>();
         var reporter = new PlayHistoryRuntimeEventReporter(events.Add);
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.All();
+        var period = PlayHistoryPeriodRequest.All();
 
         reporter.ReportStaleViewRequest(
             MainViewUpdateMode.PlayHistorySelected,
@@ -235,9 +235,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
     {
         var events = new List<PlayHistoryRuntimeEvent>();
         var reporter = new PlayHistoryRuntimeEventReporter(events.Add);
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Today);
+        var period = PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Today);
         PlayHistoryDisplayTargetItem displayTarget = PlayHistoryDisplayTargetItem.All;
-        var request = CreateViewExecutionRequest(period, requestId: 12, keywordFilter: "title");
+        PlayHistoryViewExecutionRequest request = CreateViewExecutionRequest(period, requestId: 12, keywordFilter: "title");
         var state = new PlayHistoryViewState(
             requestId: 12,
             periodRequest: period,
@@ -272,7 +272,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             Applied = true,
             MainRowsApply = new MainChartListRowsApplyResult(1, 2, 3, 4, columnSettingReuse: true)
         };
-        PlayHistorySortedRowsApplyResult applyResult = PlayHistorySortedRowsApplyResult.Applied(
+        var applyResult = PlayHistorySortedRowsApplyResult.Applied(
             sortSucceeded: true,
             sortProfile: "title",
             additionalSortMs: 5,
@@ -290,7 +290,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
                 }
             ],
             terminalCommit: terminalCommit);
-        PlayHistoryViewExecutionResult execution = PlayHistoryViewExecutionResult.Applied(
+        var execution = PlayHistoryViewExecutionResult.Applied(
             request,
             readResult: null,
             presentationOnlyResult: presentation,
@@ -332,8 +332,8 @@ public sealed class PlayHistoryRuntimeEventReporterTests
     {
         var events = new List<PlayHistoryRuntimeEvent>();
         var reporter = new PlayHistoryRuntimeEventReporter(events.Add);
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.All();
-        var request = CreateViewExecutionRequest(period, requestId: 12, keywordFilter: "title");
+        var period = PlayHistoryPeriodRequest.All();
+        PlayHistoryViewExecutionRequest request = CreateViewExecutionRequest(period, requestId: 12, keywordFilter: "title");
         var state = new PlayHistoryViewState(
             requestId: 12,
             periodRequest: period,
@@ -368,7 +368,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             Applied = true,
             MainRowsApply = new MainChartListRowsApplyResult(1, 1, 1, 1, columnSettingReuse: false)
         };
-        PlayHistorySortedRowsApplyResult validApplyResult = PlayHistorySortedRowsApplyResult.Applied(
+        var validApplyResult = PlayHistorySortedRowsApplyResult.Applied(
             sortSucceeded: true,
             sortProfile: "title",
             additionalSortMs: 0,
@@ -376,7 +376,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             diagnostics: [],
             terminalCommit: validTerminalCommit);
 
-        PlayHistoryViewExecutionResult missingApplyResult = PlayHistoryViewExecutionResult.Applied(
+        var missingApplyResult = PlayHistoryViewExecutionResult.Applied(
             request,
             readResult: null,
             presentationOnlyResult: presentation,
@@ -396,14 +396,14 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         StringAssert.Contains(applyException.Message, "execution.ApplyResult");
         Assert.AreEqual(0, events.Count);
 
-        PlayHistorySortedRowsApplyResult missingTerminalResult = PlayHistorySortedRowsApplyResult.Applied(
+        var missingTerminalResult = PlayHistorySortedRowsApplyResult.Applied(
             sortSucceeded: true,
             sortProfile: "title",
             additionalSortMs: 0,
             viewCount: 1,
             diagnostics: [],
             terminalCommit: null);
-        PlayHistoryViewExecutionResult missingTerminalExecution = PlayHistoryViewExecutionResult.Applied(
+        var missingTerminalExecution = PlayHistoryViewExecutionResult.Applied(
             request,
             readResult: null,
             presentationOnlyResult: presentation,
@@ -437,7 +437,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             keywordFilterApplied: true,
             keywordSourceCount: 1,
             keywordProjectedCount: 1);
-        PlayHistoryViewExecutionResult missingStateExecution = PlayHistoryViewExecutionResult.Applied(
+        var missingStateExecution = PlayHistoryViewExecutionResult.Applied(
             request,
             readResult: null,
             presentationOnlyResult: missingStatePresentation,

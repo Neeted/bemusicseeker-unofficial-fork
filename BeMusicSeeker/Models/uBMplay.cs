@@ -627,7 +627,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 flag = true;
             }
         }
-        ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
+        var launchRequest = ExternalPlayerProcessLaunchRequest.Create(
             ExePath,
             "-SP \"" + bmsFilePath + "\"",
             !RequireWindowHost().UsesLegacyWindowEmbedding

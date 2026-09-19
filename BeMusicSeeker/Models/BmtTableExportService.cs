@@ -1314,7 +1314,7 @@ internal static class BmtTableExportService
         string tempPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var fileStream = LongPathFileSystem.Open(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (FileStream fileStream = LongPathFileSystem.Open(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (var gzipStream = new GZipStream(fileStream, CompressionMode.Compress))
             using (var writer = new StreamWriter(gzipStream, new UTF8Encoding(false)))
             {

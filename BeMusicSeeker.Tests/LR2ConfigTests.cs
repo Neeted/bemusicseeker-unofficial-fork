@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -133,7 +134,7 @@ public sealed class LR2ConfigTests
                 byte[] bytes = File.ReadAllBytes(configPath);
                 string savedXml = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(bytes);
                 Assert.IsTrue(savedXml.Contains("日本語", StringComparison.Ordinal));
-                XDocument savedDocument = XDocument.Load(configPath);
+                var savedDocument = XDocument.Load(configPath);
                 Assert.IsTrue(string.Equals("utf-8", savedDocument.Declaration?.Encoding, StringComparison.OrdinalIgnoreCase));
                 Assert.AreEqual(
                     "0",
@@ -219,7 +220,7 @@ public sealed class LR2ConfigTests
             Directory.CreateDirectory(bmsRoot);
             string before = File.ReadAllText(configPath);
 
-            var directories = config.GetBMSSearchDirectoriesReadOnly();
+            List<string> directories = config.GetBMSSearchDirectoriesReadOnly();
 
             CollectionAssert.AreEqual(new[] { bmsRoot }, directories);
             Assert.AreEqual(before, File.ReadAllText(configPath));

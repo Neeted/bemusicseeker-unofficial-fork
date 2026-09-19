@@ -236,7 +236,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             ?? throw new ArgumentNullException(nameof(playlistRestoreUiApplyScheduler));
         this.playlistRestoreUiThreadCheck = playlistRestoreUiThreadCheck
             ?? throw new ArgumentNullException(nameof(playlistRestoreUiThreadCheck));
-        this.playlistUrlAcquisitionPresentationScheduler = playlistRestoreUiApplyScheduler;
+        playlistUrlAcquisitionPresentationScheduler = playlistRestoreUiApplyScheduler;
         PlaylistReferenceApplyWorkflow = new PlaylistReferenceApplyWorkflowOwner(
             playlistReferenceApplyScheduler,
             dispatchPresentation,
@@ -1565,7 +1565,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private static TaskCompletionSource<bool> CreateCompletedLifecycleCompletion()
     {
-        var completion = CreatePendingLifecycleCompletion();
+        TaskCompletionSource<bool> completion = CreatePendingLifecycleCompletion();
         completion.SetResult(true);
         return completion;
     }

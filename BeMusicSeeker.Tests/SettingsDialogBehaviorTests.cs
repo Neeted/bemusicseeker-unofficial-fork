@@ -31,7 +31,7 @@ public sealed class SettingsDialogBehaviorTests
     {
         using var directory = new TemporaryDirectory("failed-normal-save");
         string path = Path.Combine(directory.Path, "user.config");
-        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
         settings.OperationModeLR2DB = false;
         settings.BMSRootPath = directory.Path;
         settings.StandaloneBmsRootPaths = directory.Path;
@@ -84,7 +84,7 @@ public sealed class SettingsDialogBehaviorTests
             await harness.Dialog.ApplySettingsAsync();
             Assert.AreEqual(2, session.SaveCount);
             Assert.AreEqual(1, failures.Count);
-            var loaded = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(path);
             Assert.IsTrue(loaded.ScanBmsFilesOnStartup);
             Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), loaded.LR2bodyWindowPlacement);
         }
@@ -99,7 +99,7 @@ public sealed class SettingsDialogBehaviorTests
     {
         using var directory = new TemporaryDirectory("mode-subset");
         string path = Path.Combine(directory.Path, "user.config");
-        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
         settings.OperationModeLR2DB = false;
         settings.ScanBmsFilesOnStartup = false;
         settings.Save();
@@ -119,7 +119,7 @@ public sealed class SettingsDialogBehaviorTests
         else
         {
             session.SaveOperationModeForRestart(true, "history-selection");
-            var loaded = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(path);
             Assert.IsTrue(loaded.OperationModeLR2DB);
             Assert.AreEqual("history-selection", loaded.PlayHistorySelectedDisplayTargetIdentity);
             Assert.IsFalse(loaded.ScanBmsFilesOnStartup);
@@ -133,9 +133,9 @@ public sealed class SettingsDialogBehaviorTests
     public async Task Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollback()
     {
         using var directory = new TemporaryDirectory("partial-settings-save");
-        var (songDb, configPath, bmsRoot) = CreateValidLr2Layout(directory.Path);
+        (string? songDb, string? configPath, string? bmsRoot) = CreateValidLr2Layout(directory.Path);
         string path = Path.Combine(directory.Path, "user.config");
-        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
         settings.OperationModeLR2DB = true;
         settings.LR2RootPath = directory.Path;
         settings.LR2SongDBPath = songDb;
@@ -182,8 +182,8 @@ public sealed class SettingsDialogBehaviorTests
     [TestMethod]
     public void OperationModeSaveFailureKeepsActiveModeAndOtherDraftsWithoutShutdown()
     {
-        var persisted = CreateStandaloneSettings(@"C:\mode-persisted", @"C:\mode-persisted");
-        var draft = CreateStandaloneSettings(@"C:\mode-draft", @"C:\mode-draft");
+        Settings persisted = CreateStandaloneSettings(@"C:\mode-persisted", @"C:\mode-persisted");
+        Settings draft = CreateStandaloneSettings(@"C:\mode-draft", @"C:\mode-draft");
         var session = new RecordingSettingsEditSession(persisted, draft);
         var failures = new List<Exception>();
         using var harness = SettingsDialogHarness.Create(persisted, activeLibraryProfile: true, session: session, reportApplyFailure: failures.Add);
@@ -217,7 +217,7 @@ public sealed class SettingsDialogBehaviorTests
     {
         using var directory = new TemporaryDirectory("placement-normal-save");
         string path = Path.Combine(directory.Path, "user.config");
-        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
         settings.OperationModeLR2DB = false;
         settings.BMSRootPath = directory.Path;
         settings.StandaloneBmsRootPaths = directory.Path;
@@ -248,7 +248,7 @@ public sealed class SettingsDialogBehaviorTests
             installDirectory: @"C:\settings-behavior\invalid-table-list-draft");
         draft.TableListURL = null;
 
-        using SettingsDialogHarness harness = SettingsDialogHarness.Create(draft);
+        using var harness = SettingsDialogHarness.Create(draft);
 
         Uri actual = harness.Dialog.TableListURL;
 
@@ -269,7 +269,7 @@ public sealed class SettingsDialogBehaviorTests
             @"C:\settings-behavior\right-click-cancel",
             @"C:\settings-behavior\right-click-cancel");
         cancelSettings.RightClickActionsJson = originalJson;
-        using (SettingsDialogHarness cancelHarness = SettingsDialogHarness.Create(cancelSettings))
+        using (var cancelHarness = SettingsDialogHarness.Create(cancelSettings))
         {
             cancelHarness.Dialog.RightClickActionSettingsEditor.RestoreDefaults();
 
@@ -287,7 +287,7 @@ public sealed class SettingsDialogBehaviorTests
             @"C:\settings-behavior\right-click-save",
             @"C:\settings-behavior\right-click-save");
         saveSettings.RightClickActionsJson = originalJson;
-        using (SettingsDialogHarness saveHarness = SettingsDialogHarness.Create(saveSettings))
+        using (var saveHarness = SettingsDialogHarness.Create(saveSettings))
         {
             saveHarness.Dialog.RightClickActionSettingsEditor.RestoreDefaults();
 
@@ -307,7 +307,7 @@ public sealed class SettingsDialogBehaviorTests
             @"C:\settings-behavior\right-click-invalid-program",
             @"C:\settings-behavior\right-click-invalid-program");
         settings.RightClickActionsJson = originalJson;
-        using SettingsDialogHarness harness = SettingsDialogHarness.Create(settings);
+        using var harness = SettingsDialogHarness.Create(settings);
 
         harness.Dialog.RightClickActionSettingsEditor.ProgramActions[0].ArgumentTemplate = "--fixed";
         await harness.Dialog.SaveSettings();
@@ -326,7 +326,7 @@ public sealed class SettingsDialogBehaviorTests
     [TestMethod]
     public void SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest()
     {
-        using (SettingsDialogHarness inactiveHarness = SettingsDialogHarness.Create(
+        using (var inactiveHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
                 @"C:\settings-behavior\inactive-root",
                 @"C:\settings-behavior\inactive-root")))
@@ -341,7 +341,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(0, inactiveHarness.OperationModeRestart.RequestCount);
         }
 
-        using (SettingsDialogHarness acceptedHarness = SettingsDialogHarness.Create(
+        using (var acceptedHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
                 @"C:\settings-behavior\accepted-root",
                 @"C:\settings-behavior\accepted-root"),
@@ -359,7 +359,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsTrue(acceptedHarness.Session.Values.OperationModeLR2DB);
         }
 
-        using (SettingsDialogHarness rejectedHarness = SettingsDialogHarness.Create(
+        using (var rejectedHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
                 @"C:\settings-behavior\rejected-root",
                 @"C:\settings-behavior\rejected-root"),
@@ -376,7 +376,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(0, rejectedHarness.OperationModeRestart.RequestCount);
         }
 
-        using (SettingsDialogHarness failedRestartHarness = SettingsDialogHarness.Create(
+        using (var failedRestartHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
                 @"C:\settings-behavior\restart-failure-root",
                 @"C:\settings-behavior\restart-failure-root"),
@@ -406,7 +406,7 @@ public sealed class SettingsDialogBehaviorTests
         }
 
         var failedRequestHarnessReportedFailures = new List<Exception>();
-        using (SettingsDialogHarness failedRequestHarness = SettingsDialogHarness.Create(
+        using (var failedRequestHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
                 @"C:\settings-behavior\restart-request-failure-root",
                 @"C:\settings-behavior\restart-request-failure-root"),
@@ -442,7 +442,7 @@ public sealed class SettingsDialogBehaviorTests
         Directory.CreateDirectory(standaloneAddedRoot);
         try
         {
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(
+            using var harness = SettingsDialogHarness.Create(
                 CreateStandaloneSettings(standaloneRoot, standaloneRoot),
                 libraryAttached: true);
             var sequence = new List<string>();
@@ -491,7 +491,7 @@ public sealed class SettingsDialogBehaviorTests
             Settings settings = CreateLr2Settings(lr2Root, bmsRoot);
             settings.LR2SongDBPath = songDbPath;
             settings.LR2ConfigXmlPath = configPath;
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(settings, libraryAttached: true);
+            using var harness = SettingsDialogHarness.Create(settings, libraryAttached: true);
             var sequence = new List<string>();
             harness.AttachSequence(sequence);
             harness.SearchRoots.ApplyObserved = _ =>
@@ -538,7 +538,7 @@ public sealed class SettingsDialogBehaviorTests
         Directory.CreateDirectory(saveFailureAddedRoot);
         try
         {
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(
+            using var harness = SettingsDialogHarness.Create(
                 CreateStandaloneSettings(saveFailureRoot, saveFailureRoot),
                 libraryAttached: true);
             var sequence = new List<string>();
@@ -567,7 +567,7 @@ public sealed class SettingsDialogBehaviorTests
         Directory.CreateDirectory(applyFailureAddedRoot);
         try
         {
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(
+            using var harness = SettingsDialogHarness.Create(
                 CreateStandaloneSettings(applyFailureRoot, applyFailureRoot),
                 libraryAttached: true);
             var sequence = new List<string>();
@@ -600,7 +600,7 @@ public sealed class SettingsDialogBehaviorTests
             Directory.CreateDirectory(addedRoot);
             Settings settings = CreateLr2Settings(lr2SaveFailureRoot, bmsRoot);
             settings.LR2ConfigXmlPath = configPath;
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(settings, libraryAttached: true);
+            using var harness = SettingsDialogHarness.Create(settings, libraryAttached: true);
             var sequence = new List<string>();
             harness.AttachSequence(sequence);
             string configDirectory = Path.GetDirectoryName(configPath)!;
@@ -628,7 +628,7 @@ public sealed class SettingsDialogBehaviorTests
         try
         {
             (string songDbPath, string configPath, string bmsRoot) = CreateValidLr2Layout(root);
-            XDocument configDocument = XDocument.Load(configPath);
+            var configDocument = XDocument.Load(configPath);
             configDocument.Element("config")?.Element("system")?.Add(
                 new XElement("windowsize_x", "640"),
                 new XElement("windowsize_y", "480"),
@@ -665,12 +665,12 @@ public sealed class SettingsDialogBehaviorTests
                 new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerWindowHost(
                     new ExternalWindowHandle(new IntPtr(99))));
 
-            using SettingsDialogHarness preStartHarness = SettingsDialogHarness.Create(
+            using var preStartHarness = SettingsDialogHarness.Create(
                 CreateLr2Settings(root, bmsRoot),
                 libraryAttached: true);
             await preStartHarness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(preStartAddedRoot);
 
-            XDocument savedBeforePreview = XDocument.Load(configPath);
+            var savedBeforePreview = XDocument.Load(configPath);
             CollectionAssert.Contains(
                 savedBeforePreview.Element("config")?.Element("jukebox")?.Elements("path")
                     .Select(path => path.Value.TrimEnd('\\'))
@@ -679,7 +679,7 @@ public sealed class SettingsDialogBehaviorTests
 
             _ = player.PlayStart(chartPath, (EventHandler)null!);
 
-            XDocument savedAfterStart = XDocument.Load(configPath);
+            var savedAfterStart = XDocument.Load(configPath);
             CollectionAssert.Contains(
                 savedAfterStart.Element("config")?.Element("jukebox")?.Elements("path")
                     .Select(path => path.Value.TrimEnd('\\'))
@@ -691,7 +691,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsNotNull(harness);
             await harness!.Dialog.AddBmsSearchRootPathFromMainWindowPicker(addedRoot);
 
-            XDocument savedDocument = XDocument.Load(configPath);
+            var savedDocument = XDocument.Load(configPath);
             Assert.AreEqual("640", savedDocument.Element("config")?.Element("system")?.Element("windowsize_x")?.Value);
             Assert.AreEqual("480", savedDocument.Element("config")?.Element("system")?.Element("windowsize_y")?.Value);
             Assert.AreEqual("0", savedDocument.Element("config")?.Element("system")?.Element("screenmode")?.Value);
@@ -722,7 +722,7 @@ public sealed class SettingsDialogBehaviorTests
         Directory.CreateDirectory(addedRoot);
         try
         {
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(
+            using var harness = SettingsDialogHarness.Create(
                 CreateStandaloneSettings(root, root),
                 libraryAttached: true);
             var sequence = new List<string>();
@@ -756,7 +756,7 @@ public sealed class SettingsDialogBehaviorTests
         Directory.CreateDirectory(addedRoot);
         try
         {
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(
+            using var harness = SettingsDialogHarness.Create(
                 CreateStandaloneSettings(root, root),
                 libraryAttached: true);
             var sequence = new List<string>();
@@ -835,7 +835,7 @@ public sealed class SettingsDialogBehaviorTests
             values.LR2ConfigXmlPath = Path.Combine(values.LR2RootPath, "LR2files", "Config", "config.xml");
             values.UsePlayerLR2body = false;
 
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
             harness.Dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
             harness.Dialog.UsePlayerLR2body = true;
 
@@ -876,7 +876,7 @@ public sealed class SettingsDialogBehaviorTests
             values.LR2ConfigXmlPath = malformedConfigPath;
             values.UsePlayerLR2body = false;
 
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
             harness.Dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
             harness.Dialog.UsePlayerLR2body = true;
 
@@ -912,7 +912,7 @@ public sealed class SettingsDialogBehaviorTests
         values.LR2CustomFolderOutputBaseDirRootType = @"C:\settings-behavior\custom-root-output";
         values.BMSInstallDir = @"C:\settings-behavior\install";
 
-        using SettingsDialogHarness harness = SettingsDialogHarness.Create(values);
+        using var harness = SettingsDialogHarness.Create(values);
         SettingsDialogViewModel dialog = harness.Dialog;
         Settings sessionValues = harness.Session.Values;
 
@@ -1013,10 +1013,10 @@ public sealed class SettingsDialogBehaviorTests
         draft.TableListURL = new Uri("http://127.0.0.1:3/draft-table.json");
         draft.PlayHistorySelectedDisplayTargetIdentity = "current-identity";
 
-        using SettingsDialogHarness harness = SettingsDialogHarness.Create(
+        using var harness = SettingsDialogHarness.Create(
             persisted,
             session: new RecordingSettingsEditSession(persisted, draft));
-        SettingsSemanticSnapshot persistedSnapshot = SettingsSemanticSnapshot.Capture(harness.Session.Values);
+        var persistedSnapshot = SettingsSemanticSnapshot.Capture(harness.Session.Values);
         harness.Session.SetDraft(draft);
         harness.Session.ClearCalls();
         harness.RuntimeCalls.BeginCapture();
@@ -1076,7 +1076,7 @@ public sealed class SettingsDialogBehaviorTests
     [TestMethod]
     public async Task SettingDialogReloadDecision_UsesExplicitSettingDiffs()
     {
-        using (SettingsDialogHarness modeHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
+        using (var modeHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
             @"C:\settings-behavior\mode-root",
             @"C:\settings-behavior\mode-root")))
         {
@@ -1084,7 +1084,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(SettingsDialogViewModel.RestartMode.All, modeHarness.Dialog.IsNeedRestartForSaved());
         }
 
-        using (SettingsDialogHarness scoreHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
+        using (var scoreHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
             @"C:\settings-behavior\score-root",
             @"C:\settings-behavior\score-root")))
         {
@@ -1097,7 +1097,7 @@ public sealed class SettingsDialogBehaviorTests
         {
             string secondRoot = Path.Combine(standaloneRoot, "second-root");
             Directory.CreateDirectory(secondRoot);
-            using SettingsDialogHarness standaloneRootHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
+            using var standaloneRootHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
                 standaloneRoot,
                 standaloneRoot));
             standaloneRootHarness.Dialog.AddStandaloneBmsRootPaths([secondRoot]);
@@ -1115,7 +1115,7 @@ public sealed class SettingsDialogBehaviorTests
             Settings settings = CreateLr2Settings(lr2SongDbRoot, bmsRoot);
             settings.LR2SongDBPath = songDbPath;
             settings.LR2ConfigXmlPath = configPath;
-            using SettingsDialogHarness lr2SongDbHarness = SettingsDialogHarness.Create(settings);
+            using var lr2SongDbHarness = SettingsDialogHarness.Create(settings);
             lr2SongDbHarness.Session.Values.LR2SongDBPath = Path.Combine(lr2SongDbRoot, "alternate-song.db");
             Assert.AreEqual(SettingsDialogViewModel.RestartMode.All, lr2SongDbHarness.Dialog.IsNeedRestartForSaved());
         }
@@ -1133,7 +1133,7 @@ public sealed class SettingsDialogBehaviorTests
             Settings settings = CreateLr2Settings(lr2AddRoot, bmsRoot);
             settings.LR2SongDBPath = songDbPath;
             settings.LR2ConfigXmlPath = configPath;
-            using SettingsDialogHarness lr2AddHarness = SettingsDialogHarness.Create(settings);
+            using var lr2AddHarness = SettingsDialogHarness.Create(settings);
             lr2AddHarness.Dialog.AddBmsSearchRootPaths([addedRoot]);
 
             CollectionAssert.AreEqual(new[] { bmsRoot, addedRoot }, lr2AddHarness.Dialog.LR2ConfigBMSDirectories);
@@ -1156,7 +1156,7 @@ public sealed class SettingsDialogBehaviorTests
             Settings settings = CreateLr2Settings(lr2RemoveRoot, bmsRoot);
             settings.LR2SongDBPath = songDbPath;
             settings.LR2ConfigXmlPath = configPath;
-            using SettingsDialogHarness lr2RemoveHarness = SettingsDialogHarness.Create(settings);
+            using var lr2RemoveHarness = SettingsDialogHarness.Create(settings);
             lr2RemoveHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
             await lr2RemoveHarness.Dialog.RequestRemoveBmsSearchRootAsync(removedRoot);
 
@@ -1171,7 +1171,7 @@ public sealed class SettingsDialogBehaviorTests
             TryDeleteDirectory(lr2RemoveRoot);
         }
 
-        using (SettingsDialogHarness customOutputHarness = SettingsDialogHarness.Create(CreateLr2Settings(
+        using (var customOutputHarness = SettingsDialogHarness.Create(CreateLr2Settings(
             @"C:\settings-behavior\custom-root",
             @"C:\settings-behavior\custom-root\BMS")))
         {
@@ -1179,7 +1179,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(SettingsDialogViewModel.RestartMode.FolderOnly, customOutputHarness.Dialog.IsNeedRestartForSaved());
         }
 
-        using (SettingsDialogHarness resetHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
+        using (var resetHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
             @"C:\settings-behavior\reset-root",
             @"C:\settings-behavior\reset-root")))
         {
@@ -1192,7 +1192,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsFalse(resetHarness.Dialog.HasPendingSettingChanges());
         }
 
-        using (SettingsDialogHarness saveHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
+        using (var saveHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
             @"C:\settings-behavior\save-root",
             @"C:\settings-behavior\save-root")))
         {
@@ -1209,7 +1209,7 @@ public sealed class SettingsDialogBehaviorTests
         {
             Settings retrySettings = CreateStandaloneSettings(retryRoot, retryRoot);
             List<Exception> failures = [];
-            using SettingsDialogHarness retryHarness = SettingsDialogHarness.Create(
+            using var retryHarness = SettingsDialogHarness.Create(
                 retrySettings,
                 activeLibraryProfile: true,
                 reportApplyFailure: failures.Add);
@@ -1247,7 +1247,7 @@ public sealed class SettingsDialogBehaviorTests
         try
         {
             Settings standalone = CreateStandaloneSettings(standaloneRoot, installDirectory: string.Empty);
-            using (SettingsDialogHarness standaloneHarness = SettingsDialogHarness.Create(standalone))
+            using (var standaloneHarness = SettingsDialogHarness.Create(standalone))
             {
                 AssertInstallDestinationValidation(standaloneHarness.Dialog);
                 standaloneHarness.Session.Values.BMSInstallDir = standaloneRoot;
@@ -1270,7 +1270,7 @@ public sealed class SettingsDialogBehaviorTests
             linked.LR2ConfigXmlPath = configPath;
             linked.BMSInstallDir = string.Empty;
 
-            using SettingsDialogHarness linkedHarness = SettingsDialogHarness.Create(linked);
+            using var linkedHarness = SettingsDialogHarness.Create(linked);
             AssertInstallDestinationValidation(linkedHarness.Dialog);
             linkedHarness.Session.Values.BMSInstallDir = bmsRoot;
             Assert.IsTrue(linkedHarness.Dialog.CheckValidation(out string validError), validError);
@@ -1302,7 +1302,7 @@ public sealed class SettingsDialogBehaviorTests
         values.BeatorajaScoreDbPath = Path.Combine(playerDirectory, "score.db");
         values.UseBeatorajaScoreDb = true;
 
-        using SettingsDialogHarness harness = SettingsDialogHarness.Create(values);
+        using var harness = SettingsDialogHarness.Create(values);
 
         Assert.IsFalse(harness.Dialog.CheckValidation(out string error));
         StringAssert.Contains(error, Resources.Error_InvalidBeatorajaScoreDbPath);
@@ -1316,7 +1316,7 @@ public sealed class SettingsDialogBehaviorTests
         Settings values = CreateStandaloneSettings(fixture.Path, fixture.Path);
         values.StandaloneBmsRootPaths = string.Empty;
 
-        using SettingsDialogHarness harness = SettingsDialogHarness.Create(values);
+        using var harness = SettingsDialogHarness.Create(values);
         harness.Dialog.StandaloneBmsRootPathList.Clear();
 
         Assert.IsFalse(harness.Dialog.CheckValidation(out string error));
@@ -1346,7 +1346,7 @@ public sealed class SettingsDialogBehaviorTests
                 childRoot,
                 parentRoot.ToUpperInvariant());
 
-            using SettingsDialogHarness harness = SettingsDialogHarness.Create(values);
+            using var harness = SettingsDialogHarness.Create(values);
             harness.Dialog.AddBmsSearchRootPathFromPicker(nameof(SettingsDialogViewModel.BMSInstallDir), installRoot);
 
             CollectionAssert.AreEqual(

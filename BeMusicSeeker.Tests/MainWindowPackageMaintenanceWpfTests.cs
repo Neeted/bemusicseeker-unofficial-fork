@@ -47,7 +47,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 var chart = BMSFile.CreateBMSFileFromFile(sourceChart);
                 string dbPath = Path.Combine(root, "song.db");
                 string lr2Root = Path.Combine(root, "LR2");
-                var config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
+                LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
                 using (var db = new LR2SongDBExtended(dbPath))
                 {
                     db.CreateTable<LR2SongDB.song>();
@@ -74,7 +74,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 dialogs.OnMessage = () =>
                 {
                     activityInactive = !viewModel.ChartMutationActivity.IsActive;
-                    using var gate = library.TryBeginLibraryFileMutation("report-probe", showMessage: false);
+                    using LibraryFileMutationLease gate = library.TryBeginLibraryFileMutation("report-probe", showMessage: false);
                     leaseReleased = gate != null;
                 };
                 if (reporterThrows) dialogs.MessageFailure = new IOException("reporter-marker");
@@ -279,14 +279,14 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                ContextMenu installedMenu = (ContextMenu)window.FindResource("treeViewInstalledContextMenu");
-                ContextMenu pendingMenu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
+                var installedMenu = (ContextMenu)window.FindResource("treeViewInstalledContextMenu");
+                var pendingMenu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
                 RaiseMenuClick(installedMenu.Items.OfType<MenuItem>().Single());
                 RaiseMenuClick(pendingMenu.Items.OfType<MenuItem>().First());
 
                 ChartPackage pendingPackage = new() { path = @"C:\wave6e-pending-package" };
                 TreeViewItem pendingTarget = new() { DataContext = pendingPackage };
-                ContextMenu packageMenu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
+                var packageMenu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
                 packageMenu.PlacementTarget = pendingTarget;
                 MenuItem installMenu = packageMenu.Items.OfType<MenuItem>().Single(item => item.Items.Count == 5);
                 MenuItem[] installCommands = installMenu.Items.OfType<MenuItem>().ToArray();
@@ -301,7 +301,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
 
                 ChartPackage installedPackage = new() { path = @"C:\wave6e-installed-package" };
                 TreeViewItem installedTarget = new() { DataContext = installedPackage };
-                ContextMenu installedPackageMenu = (ContextMenu)window.FindResource("treeViewInstalledFolderContextMenu");
+                var installedPackageMenu = (ContextMenu)window.FindResource("treeViewInstalledFolderContextMenu");
                 installedPackageMenu.PlacementTarget = installedTarget;
                 RaiseMenuClick(installedPackageMenu.Items.OfType<MenuItem>().Last());
 
@@ -426,13 +426,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                ContextMenu libraryMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                var libraryMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
                 TreeViewItem libraryTarget = new() { Header = @"C:\wave6e-library" };
                 libraryMenu.PlacementTarget = libraryTarget;
                 MenuItem renameAll = libraryMenu.Items.OfType<MenuItem>().Last();
                 RaiseMenuClick(renameAll);
 
-                ContextMenu tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                var tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
                 MenuItem fullScanMenu = tableMenu.Items
                     .OfType<MenuItem>()
                     .First(item => item.Name == "tableContextMenuItemFullScanCheck");
@@ -479,11 +479,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     title = "bmson chart",
                     artist = "Artist"
                 };
-                LibraryChartRow bmsRow = LibraryChartRow.FromBmsFile(bmsFile);
-                LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(bmsonSong);
+                var bmsRow = LibraryChartRow.FromBmsFile(bmsFile);
+                var bmsonRow = LibraryChartRow.FromBmsonSong(bmsonSong);
                 var rows = new List<object> { bmsRow, bmsonRow };
 
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 Assert.IsNotNull(table);
                 table.ItemsSource = rows;
                 table.SelectRowsByPredicate(_ => true);
@@ -498,7 +498,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
                 Assert.AreEqual(ChartOperationSourceScope.Library, viewModel.MainChartList.CurrentOperationContext.SourceScope);
 
-                ContextMenu tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                var tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
                 tableMenu.PlacementTarget = new FrameworkElement { DataContext = bmsRow };
                 tableMenu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, tableMenu));
                 MenuItem rename = tableMenu.Items
@@ -546,7 +546,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             new Settings(),
             (_, window) =>
             {
-                ContextMenu pendingMenu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
+                var pendingMenu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
                 MenuItem advanced = pendingMenu.Items
                     .OfType<MenuItem>()
                     .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
@@ -579,8 +579,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var mergeCompletion = new TaskCompletionSource<DuplicateMaintenanceMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var keyboardMergeCompletion = new TaskCompletionSource<DuplicateMaintenanceMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleanupCompletion = new TaskCompletionSource<DuplicateMaintenanceMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var mergeInvocation = 0;
-        var shortcutProbe = 0;
+        int mergeInvocation = 0;
+        int shortcutProbe = 0;
         var duplicateTerminal = new MainWindowDuplicateMaintenanceTerminal(
             (source, destination, group) =>
             {
@@ -626,7 +626,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 var group = new DuplicateGroup(
                     [ChartFileProjection.FromBmsFile(sourceChart)],
                     [@"C:\wave6e-duplicate\source", @"C:\wave6e-duplicate\destination"]);
-                TreeViewItem duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+                var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
                 duplicateRoot.ItemsSource = new[] { group };
                 duplicateRoot.IsExpanded = true;
                 duplicateRoot.ApplyTemplate();
@@ -634,13 +634,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 duplicateRoot.Arrange(new Rect(0d, 0d, 900d, 700d));
                 duplicateRoot.UpdateLayout();
                 window.UpdateLayout();
-                TreeViewItem? groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                var groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(
                     groupItem,
                     $"duplicate group container was not generated (items={duplicateRoot.Items.Count}, status={duplicateRoot.ItemContainerGenerator.Status}, visibility={duplicateRoot.Visibility}, expanded={duplicateRoot.IsExpanded}, parent={duplicateRoot.Parent?.GetType().Name ?? "none"})");
                 groupItem!.IsExpanded = true;
                 groupItem!.UpdateLayout();
-                TreeViewItem? folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                var folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(folderItem, "duplicate folder container was not generated");
                 Assert.IsNotNull(groupItem!.ItemContainerStyle, "duplicate folder style was not loaded");
                 folderItem!.Style = groupItem!.ItemContainerStyle;
@@ -654,7 +654,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         (string)folderItem!.DataContext).Kind);
                 ContextMenu menu = folderItem!.ContextMenu;
                 menu.PlacementTarget = folderItem!;
-                MenuItem mergeMenu = (MenuItem)menu.Items
+                var mergeMenu = (MenuItem)menu.Items
                     .OfType<MenuItem>()
                     .Single(item => item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto");
                 menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
@@ -775,8 +775,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             hash = "cccccccccccccccccccccccccccccccc",
             title = "Pending chart"
         };
-        PackageChartEntry pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
-        LibraryChartRow pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
+        var pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
+        var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
         var pendingEstimationTerminal = new MainWindowPendingInstallEstimationTerminal(
             (kind, packages) => Task.CompletedTask,
             request =>
@@ -834,11 +834,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { pendingRow };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
-                ContextMenu tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                var tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
                 tableMenu.PlacementTarget = new FrameworkElement { DataContext = pendingRow };
 
                 MenuItem installGroup = tableMenu.Items
@@ -924,7 +924,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     hash = "dddddddddddddddddddddddddddddddd",
                     title = "Installed chart"
                 };
-                LibraryChartRow installedRow = LibraryChartRow.FromBmsFile(installedFile);
+                var installedRow = LibraryChartRow.FromBmsFile(installedFile);
                 table.ItemsSource = new List<object> { installedRow };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);

@@ -40,7 +40,7 @@ $manifest = Read-DistributionArtifactManifest -ManifestPath $env:BMS_TEST_MANIFE
 ");
 
         AssertPowerShellSuccess(result);
-        using JsonDocument document = JsonDocument.Parse(result.Output.Trim());
+        using var document = JsonDocument.Parse(result.Output.Trim());
         Assert.AreEqual("artifact-001", document.RootElement.GetProperty("artifactId").GetString());
         Assert.AreEqual("tests-full-run", document.RootElement.GetProperty("runId").GetString());
         Assert.AreEqual(fixture.CurrentAppRoot, document.RootElement.GetProperty("appRoot").GetString());
@@ -65,7 +65,7 @@ $artifact = Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(me
 ");
 
         AssertPowerShellSuccess(result);
-        using JsonDocument document = JsonDocument.Parse(result.Output.Trim());
+        using var document = JsonDocument.Parse(result.Output.Trim());
         Assert.AreEqual("2.1.6.0", document.RootElement.GetProperty("version").GetString());
         Assert.AreEqual(11260709, document.RootElement.GetProperty("size").GetInt64());
         Assert.AreEqual(
@@ -144,7 +144,7 @@ Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(missingMetadat
 
     private static string ReadMetadataArtifactPath(string metadataPath)
     {
-        using JsonDocument metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+        using var metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
         string relativePath = metadata.RootElement.GetProperty("artifactPath").GetString()!;
         return Path.GetFullPath(Path.Combine(FindRepositoryRoot(), relativePath));
     }
@@ -314,7 +314,7 @@ Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(missingMetadat
                 taskkillInfo.ArgumentList.Add(process.Id.ToString());
                 taskkillInfo.ArgumentList.Add("/T");
                 taskkillInfo.ArgumentList.Add("/F");
-                using Process? taskkill = Process.Start(taskkillInfo);
+                using var taskkill = Process.Start(taskkillInfo);
                 if (taskkill is null)
                 {
                     diagnostics.Add("taskkill.exe did not start.");

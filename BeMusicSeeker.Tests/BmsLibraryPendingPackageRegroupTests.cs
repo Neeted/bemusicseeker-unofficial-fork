@@ -69,14 +69,14 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonAdapterless");
             string chartPath = CreateBmsonFile(sourceDirectoryPath, "chart.bmson", "Adapterless", "Test");
             LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(chartPath);
-            ChartPackage pendingPackage = ChartPackage.FromChartEntries(
+            var pendingPackage = ChartPackage.FromChartEntries(
             [
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
             ]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline;
-            PackageChartEntry selectedChart = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            var selectedChart = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
 
             library.BMSFiles = [];
             SeedPendingPackages(library, songDbPath, pendingPackage);
@@ -130,12 +130,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 "#PLAYER 1\r\n#TITLE Already Installed\r\n#ARTIST Test\r\n");
             observedInstalledPath = installedPath;
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
-            BMSFile pendingInstalled = BMSFile.CreateBMSFileFromFile(pendingInstalledPath);
-            BMSFile pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
+            var pendingInstalled = BMSFile.CreateBMSFileFromFile(pendingInstalledPath);
+            var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalled, pendingMissing]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
-            ChartPackage emptyPackage = ChartPackage.FromChartEntries([]);
+            var emptyPackage = ChartPackage.FromChartEntries([]);
             emptyPackage.path = Path.Combine(sourceDirectoryPath, "Empty");
             emptyPackage.delete_parent = false;
             library.BMSFiles = [];
@@ -323,7 +323,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageBmsonRegroup");
             string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Regroup Bmson", "Bmson Artist");
             LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
-            ChartPackage adapterlessPackage = ChartPackage.FromChartEntries(
+            var adapterlessPackage = ChartPackage.FromChartEntries(
             [
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(
                     pendingSong,
@@ -365,13 +365,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageBmsonDuplicateRegroup");
             string pendingBmsonPath = CreateHealthyBmsonFile(sourceDirectoryPath, "pending.bmson", "Duplicate Bmson", "Bmson Artist");
             LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
-            PackageChartEntry firstEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
+            var firstEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
             string staleSnapshotPath = Path.Combine(sourceDirectoryPath, "pending-stale-snapshot.bmson");
-            PackageChartEntry secondEntry = PackageChartEntry.FromChart(WithChartPath(ChartFileProjection.FromBmsonSong(pendingSong), staleSnapshotPath));
-            ChartPackage firstPackage = ChartPackage.FromChartEntries([firstEntry]);
+            var secondEntry = PackageChartEntry.FromChart(WithChartPath(ChartFileProjection.FromBmsonSong(pendingSong), staleSnapshotPath));
+            var firstPackage = ChartPackage.FromChartEntries([firstEntry]);
             firstPackage.path = pendingBmsonPath;
             firstPackage.delete_parent = true;
-            ChartPackage secondPackage = ChartPackage.FromChartEntries([secondEntry]);
+            var secondPackage = ChartPackage.FromChartEntries([secondEntry]);
             secondPackage.path = staleSnapshotPath;
             secondPackage.delete_parent = true;
             string installedBmsonPath = CreateHealthyBmsonFile(destinationDirectoryPath, "installed.bmson", "Duplicate Bmson", "Bmson Artist");
@@ -642,7 +642,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -685,8 +685,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateADirectoryPath, "sound.wav"), "a");
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
-            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            var pendingPackage = ChartPackage.FromChartEntries([entry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -726,12 +726,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateADirectoryPath, "sound.wav"), "a");
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
-            PackageChartEntry firstEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(firstPendingBmsonPath)));
-            ChartPackage firstPackage = ChartPackage.FromChartEntries([firstEntry]);
+            var firstEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(firstPendingBmsonPath)));
+            var firstPackage = ChartPackage.FromChartEntries([firstEntry]);
             firstPackage.path = firstSourceDirectoryPath;
             firstPackage.delete_parent = false;
-            PackageChartEntry secondEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(secondPendingBmsonPath)));
-            ChartPackage secondPackage = ChartPackage.FromChartEntries([secondEntry]);
+            var secondEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(secondPendingBmsonPath)));
+            var secondPackage = ChartPackage.FromChartEntries([secondEntry]);
             secondPackage.path = secondSourceDirectoryPath;
             secondPackage.delete_parent = false;
             library.BMSFiles =
@@ -771,7 +771,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
             var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
             var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -814,7 +814,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 + "#00111:AA\r\n");
             string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Current Directory Resource Path\r\n#ARTIST Test\r\n");
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([BMSFile.CreateBMSFileFromFile(pendingFilePath)]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([BMSFile.CreateBMSFileFromFile(pendingFilePath)]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
 
@@ -851,7 +851,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 + "#00111:AA\r\n");
             string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Current Directory Resource Path\r\n#ARTIST Test\r\n");
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([BMSFile.CreateBMSFileFromFile(pendingFilePath)]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([BMSFile.CreateBMSFileFromFile(pendingFilePath)]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
 
@@ -887,7 +887,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
             var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
             var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -930,7 +930,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
             var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
             var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -977,7 +977,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
             var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
             var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -1029,7 +1029,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
                 var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
                 var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+                ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
                 pendingPackage.path = sourceDirectoryPath;
                 pendingPackage.delete_parent = false;
                 library.BMSFiles =
@@ -1084,7 +1084,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
                 var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
                 var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+                ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
                 pendingPackage.path = sourceDirectoryPath;
                 pendingPackage.delete_parent = false;
                 library.BMSFiles =
@@ -1133,7 +1133,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
                 var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
                 var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
-                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+                ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
                 pendingPackage.path = sourceDirectoryPath;
                 pendingPackage.delete_parent = false;
                 library.BMSFiles =
@@ -1175,7 +1175,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -1218,7 +1218,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
                 var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+                ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
                 pendingPackage.path = pendingFilePath;
                 pendingPackage.delete_parent = true;
                 library.BMSFiles =
@@ -1257,7 +1257,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "dst");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -1293,7 +1293,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string pendingFilePath = CreateBmsFileWithContents(sourceDirectoryPath, "pending.bms", "#PLAYER 1\r\n#TITLE Pending\r\n#ARTIST Test\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles = [];
@@ -1327,7 +1327,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             var pendingFileA = BMSFile.CreateBMSFileFromFile(pendingFileAPath);
             var pendingFileB = BMSFile.CreateBMSFileFromFile(pendingFileBPath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFileA, pendingFileB]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFileA, pendingFileB]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -1358,7 +1358,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonMergeResolved");
             string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Installed Bmson", "Bmson Artist");
             string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", "Bmson Artist");
-            PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            var pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
             var pendingPackage = ChartPackage.FromChartEntries([pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -1389,8 +1389,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonMergeAdapterless");
             string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Installed Bmson", "Bmson Artist");
             string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", "Bmson Artist");
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
-            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            var pendingPackage = ChartPackage.FromChartEntries([entry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles = [];
@@ -1423,7 +1423,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BmsonSongs = [sourceSong];
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(sourceDirectoryPath, destinationDirectoryPath));
 
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(sourceSong));
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(sourceSong));
             library.SearchCorrectInstallationDirectoryCharts([entry]);
 
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
@@ -1444,7 +1444,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Mixed Bmson", "Mixed Artist");
             string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Mixed Bmson", "Mixed Artist");
             var pendingBms = BMSFile.CreateBMSFileFromFile(pendingBmsPath);
-            PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            var pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
             var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBms)), pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -1485,7 +1485,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string installedBmsonPath = CreateBmsonFile(secondaryDestinationDirectoryPath, "installed.bmson", "Minority Bmson", "Mixed Artist");
             var pendingBmsA = BMSFile.CreateBMSFileFromFile(pendingBmsAPath);
             var pendingBmsB = BMSFile.CreateBMSFileFromFile(pendingBmsBPath);
-            PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            var pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
             var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBmsA)), PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBmsB)), pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -1525,7 +1525,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string installedBmsonPath = CreateBmsonFile(hashOnlyDestinationDirectoryPath, "installed.bmson", "Tie Bmson", "Mixed Artist");
             File.WriteAllText(Path.Combine(resourceDestinationDirectoryPath, "sound.wav"), "resource");
             var pendingBms = BMSFile.CreateBMSFileFromFile(pendingBmsPath);
-            PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            var pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
             var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBms)), pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -1569,14 +1569,14 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "01.wav"), "dst");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles = [BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "installed.bms"))];
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
-            PackageChartEntry pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
+            var pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
             library.SearchMergeDestinationForPendingCharts([pendingEntry]);
 
             Assert.AreEqual(candidateDirectoryPath, pendingEntry.Chart.InstallDestination);
@@ -1598,7 +1598,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string installedFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedFilePath)];
@@ -1628,8 +1628,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string nestedDestinationDirectoryPath = Path.Combine(destinationDirectoryPath, "Nested");
             string installedBmsonPath = CreateBmsonFile(nestedDestinationDirectoryPath, "installed.bmson", "Installed Bmson", "Installed Artist");
             LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
-            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
+            var pendingPackage = ChartPackage.FromChartEntries([entry]);
             pendingPackage.path = pendingDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles = [];
@@ -1664,7 +1664,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(destinationFilePath)
             ];
 
-            PackageChartEntry sourceEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceFile));
+            var sourceEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceFile));
             bool succeeded = library.SetPendingInstallDestination(sourceEntry, destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
@@ -1688,7 +1688,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string destinationBmsonPath = CreateBmsonFile(destinationDirectoryPath, "destination.bmson", "Destination Bmson", "Destination Artist");
             LR2SongDBExtended.bmson_song sourceSong = BmsonSongParser.Parse(sourceBmsonPath);
             LR2SongDBExtended.bmson_song destinationSong = BmsonSongParser.Parse(destinationBmsonPath);
-            PackageChartEntry sourceEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(sourceSong));
+            var sourceEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(sourceSong));
             library.BMSFiles = [];
             library.BmsonSongs = [sourceSong, destinationSong];
 
@@ -1744,7 +1744,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -1789,8 +1789,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
             LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
-            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
+            var pendingPackage = ChartPackage.FromChartEntries([entry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -1833,7 +1833,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -1877,7 +1877,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -1917,7 +1917,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "dst");
 
             var pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingFilePath;
             pendingPackage.delete_parent = true;
             library.BMSFiles =
@@ -2015,7 +2015,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     private static string[] LoadInstallPaths(string songDbPath)
     {
         // 全呼出し元はSeedPendingPackagesでinstall表を準備済みなので、SELECT専用read-only接続で観測する。
-        using var songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
         return [.. songDb.Query<InstallRowRecord>("SELECT path FROM install")
             .Select(row => row.path)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
@@ -2024,12 +2024,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     private static ChartPackage CreatePendingSingleFilePackage(string filePath, string installDestination = "")
     {
         var file = BMSFile.CreateBMSFileFromFile(filePath);
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
         if (!string.IsNullOrWhiteSpace(installDestination))
         {
             entry.SetInstallDestinationPathOnly(installDestination);
         }
-        ChartPackage package = ChartPackage.FromChartEntries([entry]);
+        var package = ChartPackage.FromChartEntries([entry]);
         package.path = filePath;
         package.delete_parent = true;
         return package;

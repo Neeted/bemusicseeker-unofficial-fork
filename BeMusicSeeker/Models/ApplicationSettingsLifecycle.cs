@@ -140,7 +140,7 @@ internal sealed class ApplicationSettingsLifecycle
         }
         string appearanceTheme = AppThemeService.NormalizeTheme(settingsStore.AppearanceTheme);
         settingsStore.AppearanceTheme = appearanceTheme;
-        CultureInfo culture = CultureInfo.GetCultureInfo(settingsStore.Language);
+        var culture = CultureInfo.GetCultureInfo(settingsStore.Language);
         Resources.Culture = culture;
         return new ApplicationSettingsInitializationResult(firstStartup, appearanceTheme, culture);
     }

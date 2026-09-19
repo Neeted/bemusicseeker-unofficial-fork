@@ -1,7 +1,7 @@
 using System;
-using System.ComponentModel;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using BeMusicSeeker.Models;
 using Livet;
 using Livet.EventListeners;

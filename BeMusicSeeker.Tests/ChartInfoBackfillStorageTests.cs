@@ -12,17 +12,16 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
-
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
@@ -121,7 +120,7 @@ public sealed class ChartInfoBackfillStorageTests
                 chartPath,
                 "#PLAYER 1\r\n#PLAYLEVEL 12\r\n#DIFFICULTY 4\r\n#BPM 135\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
             var file = new TestableBmsFile { path = chartPath };
             file.SetHash(digest.hash);
             var gateway = new BmsLibraryDbGateway(songDbPath);
@@ -285,7 +284,7 @@ public sealed class ChartInfoBackfillStorageTests
         {
             string chartPath = Path.Combine(tempRootPath, "missing-song-row.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
             var file = new TestableBmsFile { path = chartPath, level = 2, difficulty = 1 };
             file.SetHash(digest.hash);
             var gateway = new BmsLibraryDbGateway(songDbPath);
@@ -330,7 +329,7 @@ public sealed class ChartInfoBackfillStorageTests
         {
             string chartPath = Path.Combine(tempRootPath, "identity-mismatch.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
             gateway.UpsertChartInfos(
@@ -551,7 +550,7 @@ public sealed class ChartInfoBackfillStorageTests
         {
             string chartPath = Path.Combine(tempRootPath, "rollback.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
             var file = new TestableBmsFile { path = chartPath, level = 2 };
             file.SetHash(digest.hash);
             var gateway = new BmsLibraryDbGateway(songDbPath);
@@ -597,8 +596,8 @@ public sealed class ChartInfoBackfillStorageTests
             string secondPath = Path.Combine(tempRootPath, "second-chunk.bms");
             File.WriteAllText(firstPath, "#PLAYER 1\r\n#PLAYLEVEL 8\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             File.WriteAllText(secondPath, "#PLAYER 1\r\n#PLAYLEVEL 10\r\n#BPM 140\r\n#00111:01\r\n", Encoding.ASCII);
-            BMSFile firstDigest = BMSFile.CreateBMSFileFromFile(firstPath);
-            BMSFile secondDigest = BMSFile.CreateBMSFileFromFile(secondPath);
+            var firstDigest = BMSFile.CreateBMSFileFromFile(firstPath);
+            var secondDigest = BMSFile.CreateBMSFileFromFile(secondPath);
             var firstFile = new TestableBmsFile { path = firstPath, level = 2 };
             var secondFile = new TestableBmsFile { path = secondPath, level = 3 };
             firstFile.SetHash(firstDigest.hash);

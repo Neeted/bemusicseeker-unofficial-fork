@@ -117,7 +117,7 @@ internal sealed class ResourceHealthIndexSnapshot
         long ignoredOrdinal = 0;
         foreach (ChartFile target in targets ?? [])
         {
-            ResourceHealthChartIdentity identity = ResourceHealthChartIdentity.FromChartFile(target);
+            var identity = ResourceHealthChartIdentity.FromChartFile(target);
             if (!identity.IsValid || entries.ContainsKey(identity))
             {
                 continue;
@@ -176,7 +176,7 @@ internal sealed class ResourceHealthIndexSnapshot
         uniqueUpdatedTargets =
             [.. uniqueUpdatedTargets.Where(target =>
             {
-                ResourceHealthChartIdentity identity = ResourceHealthChartIdentity.FromChartFile(target);
+                var identity = ResourceHealthChartIdentity.FromChartFile(target);
                 return !removedIdentities.Contains(identity);
             })];
 
@@ -185,7 +185,7 @@ internal sealed class ResourceHealthIndexSnapshot
         ResourceHealthWarningSequence nextIgnoredTargets = ignoredTargetSequence;
         foreach (ChartFile removedTarget in uniqueRemovedTargets)
         {
-            ResourceHealthChartIdentity identity = ResourceHealthChartIdentity.FromChartFile(removedTarget);
+            var identity = ResourceHealthChartIdentity.FromChartFile(removedTarget);
             if (!TryGetEntry(nextEntries, identity, out ResourceHealthTargetEntry existingEntry))
             {
                 continue;
@@ -199,7 +199,7 @@ internal sealed class ResourceHealthIndexSnapshot
         }
         foreach (ChartFile updatedTarget in uniqueUpdatedTargets)
         {
-            ResourceHealthChartIdentity identity = ResourceHealthChartIdentity.FromChartFile(updatedTarget);
+            var identity = ResourceHealthChartIdentity.FromChartFile(updatedTarget);
             if (TryGetEntry(nextEntries, identity, out ResourceHealthTargetEntry existingEntry))
             {
                 RemoveFromWarningSequence(
@@ -246,7 +246,7 @@ internal sealed class ResourceHealthIndexSnapshot
         HashSet<ResourceHealthChartIdentity> identities = [];
         foreach (ChartFile target in targets ?? [])
         {
-            ResourceHealthChartIdentity identity = ResourceHealthChartIdentity.FromChartFile(target);
+            var identity = ResourceHealthChartIdentity.FromChartFile(target);
             if (identity.IsValid && identities.Add(identity))
             {
                 result.Add(target);

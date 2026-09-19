@@ -86,7 +86,7 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
     [TestMethod]
     public void IsCurrent_ReturnsFalseForSubsetTarget()
     {
-        ResourceMaintenanceTargetSet targetSet = ResourceMaintenanceTargetSet.ForSubset([]);
+        var targetSet = ResourceMaintenanceTargetSet.ForSubset([]);
 
         bool isCurrent = ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,

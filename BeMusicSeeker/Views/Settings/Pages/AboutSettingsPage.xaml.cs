@@ -27,7 +27,7 @@ public partial class AboutSettingsPage : UserControl
     {
         InitializeComponent();
 
-        Assembly entryAssembly = Assembly.GetEntryAssembly();
+        var entryAssembly = Assembly.GetEntryAssembly();
         assemblyVersion = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
         string informationalVersion = entryAssembly?
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?

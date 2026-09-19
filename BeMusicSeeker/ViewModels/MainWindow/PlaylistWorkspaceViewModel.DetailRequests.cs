@@ -1,6 +1,6 @@
 using System;
-using System.ComponentModel;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -483,7 +483,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " filterType=" + request.Identity.FilterType);
         if (Net10PerformanceLog.IsEnabled)
         {
-            PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+            var performanceInteraction = PerformanceInteraction.Existing(
                 "playlist_detail",
                 request.RequestVersion,
                 request.RequestVersion);
@@ -547,7 +547,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (Net10PerformanceLog.IsEnabled)
         {
-            PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+            var performanceInteraction = PerformanceInteraction.Existing(
                 "playlist_detail",
                 request.RequestVersion,
                 request.RequestVersion);
@@ -595,7 +595,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " viewCount=" + interaction.ViewCount);
         if (Net10PerformanceLog.IsEnabled)
         {
-            PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+            var performanceInteraction = PerformanceInteraction.Existing(
                 "playlist_detail",
                 interaction.RequestVersion,
                 interaction.RequestVersion);

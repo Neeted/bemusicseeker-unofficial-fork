@@ -1,21 +1,12 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
-using BeMusicSeeker.Views.Settings;
-using Livet;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -24,9 +15,18 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
+using Livet;
 using ManagedBass;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using SQLite;
@@ -1127,7 +1127,7 @@ public sealed class SettingDialogEditCompletionTests
         string root = CreateTemporaryRoot();
         try
         {
-            var settings = CreateValidStandaloneSettings(root);
+            Settings settings = CreateValidStandaloneSettings(root);
             settings.RegisterBeatorajaBmtUrls = false;
             var settingsSession = new CountingSettingsEditSession(settings);
             var scheduled = new List<string>();
@@ -1718,7 +1718,7 @@ public sealed class SettingDialogEditCompletionTests
                 {
                     DataContext = settingDialogViewModel
                 };
-                Button button = (Button)settingDialog.FindName("buttonOK")!;
+                var button = (Button)settingDialog.FindName("buttonOK")!;
                 using var closeRequestObserved = new ManualResetEventSlim();
                 DispatcherFrame? frame = null;
                 settingDialogViewModel.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
@@ -2163,7 +2163,7 @@ public sealed class SettingDialogEditCompletionTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var settingsSession = new CountingSettingsEditSession(settings);
             var dialogs = new RecordingRootDialogService();
-            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
 
             TestUiDispatcherHost.Invoke(() =>
@@ -2175,7 +2175,7 @@ public sealed class SettingDialogEditCompletionTests
                     _lr2ScoreDB: null,
                     startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
-                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, () => config);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, () => config);
                 var composition = new ApplicationComposition(
                     settingsEditSession: settingsSession,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -2261,7 +2261,7 @@ public sealed class SettingDialogEditCompletionTests
         string lr2Root = Path.Combine(root, "lr2");
         string outputBase = Path.Combine(root, "output-base");
         string rootOutputBase = Path.Combine(root, "root-output-base");
-        ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+        var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
             Path.Combine(root, "application", "BeMusicSeeker.exe"));
         try
         {
@@ -2410,7 +2410,7 @@ public sealed class SettingDialogEditCompletionTests
             var dialogs = new RecordingRootDialogService();
             var sequence = new List<string>();
             dialogs.MessageObserved = () => sequence.Add("warning");
-            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
             byte[] existingSongDbBytes = [0x41, 0x31, 0x2D, 0x44, 0x30, 0x38];
             if (existingSongDb)
@@ -2488,7 +2488,7 @@ public sealed class SettingDialogEditCompletionTests
             var dialogs = new RecordingRootDialogService();
             var sequence = new List<string>();
             dialogs.MessageObserved = () => sequence.Add("warning");
-            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
             MainWindowViewModel viewModel = new ApplicationComposition(
                 settingsEditSession: settingsSession,
@@ -2543,7 +2543,7 @@ public sealed class SettingDialogEditCompletionTests
             settings.ScanBmsFilesOnStartup = false;
             settings.SkipInitPlaylistLoad = true;
             var settingsSession = new CountingSettingsEditSession(settings);
-            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
             StandaloneLibraryDatabaseEnsureResult database =
                 StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
@@ -2569,7 +2569,7 @@ public sealed class SettingDialogEditCompletionTests
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
                     applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                     chartFileScanner: scanner);
-                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings);
                 var composition = new ApplicationComposition(
                     settingsEditSession: settingsSession,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -2683,7 +2683,7 @@ public sealed class SettingDialogEditCompletionTests
             settings.ScanBmsFilesOnStartup = false;
             settings.SkipInitPlaylistLoad = true;
             var settingsSession = new CountingSettingsEditSession(settings);
-            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
             StandaloneLibraryDatabaseEnsureResult database =
                 StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
@@ -2748,7 +2748,7 @@ public sealed class SettingDialogEditCompletionTests
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
                     applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                     chartFileScanner: scanner);
-                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings);
                 var composition = new ApplicationComposition(
                     settingsEditSession: settingsSession,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -3151,7 +3151,7 @@ public sealed class SettingDialogEditCompletionTests
             dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
 
-            Task first = Task.Run(() => dialog.ApplySettingsAsync());
+            var first = Task.Run(() => dialog.ApplySettingsAsync());
             settingsSession.SaveEntered.Wait();
             Assert.IsTrue(dialog.IsEditCompletionInProgress);
             Task second = dialog.ApplySettingsAsync();
@@ -4024,7 +4024,7 @@ public sealed class SettingDialogEditCompletionTests
             draft.AddBmsSearchRootPaths([addedRoot]);
             await draft.SaveSettings();
 
-            XDocument savedDocument = XDocument.Load(configPath);
+            var savedDocument = XDocument.Load(configPath);
             Assert.AreEqual("external", (string?)savedDocument.Root?.Element("sentinel")?.Attribute("source"));
             Assert.AreEqual("player2", (string?)savedDocument.Root?.Element("player")?.Element("id"));
             string[] savedRoots = savedDocument.Root?.Element("jukebox")?.Elements("path")

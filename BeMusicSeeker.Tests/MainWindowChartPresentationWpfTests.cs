@@ -67,7 +67,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (_, window) =>
                 {
-                    ContextMenu menu = (ContextMenu)window.FindResource("tableColumnHeaderContextMenu");
+                    var menu = (ContextMenu)window.FindResource("tableColumnHeaderContextMenu");
                     MenuItem reset = menu.Items.OfType<MenuItem>().Last();
 
                     reset.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, reset));
@@ -116,9 +116,9 @@ public sealed class MainWindowChartPresentationWpfTests
                         hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                         title = "Pending cell edit"
                     };
-                    PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
-                    LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
-                    CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                    var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+                    var row = LibraryChartRow.FromPackageChartEntry(entry);
+                    var table = (CustomTableView)window.FindName("customTableView");
                     table.Width = 900d;
                     table.Height = 220d;
                     table.HeaderHeight = 0d;
@@ -256,7 +256,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 editPropertyName: "Folder");
 
             {
-                var cancelled = CreateEditableTable(column, 220d, 70d);
+                CustomTableView cancelled = CreateEditableTable(column, 220d, 70d);
                 using (HwndSource cancelledSource = CreateHwndSource(cancelled, 220, 70))
                 {
                     MaterializeTable(cancelled, 220d, 70d);
@@ -291,7 +291,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 minWidth: 1,
                 editPropertyName: "Folder");
             {
-                var tooSmall = CreateEditableTable(tooSmallColumn, 220d, 70d);
+                CustomTableView tooSmall = CreateEditableTable(tooSmallColumn, 220d, 70d);
                 using (HwndSource tooSmallSource = CreateHwndSource(tooSmall, 220, 70))
                 {
                     MaterializeTable(tooSmall, 220d, 70d);
@@ -1683,7 +1683,7 @@ public sealed class MainWindowChartPresentationWpfTests
                             "/BeMusicSeeker;component/Themes/Light.xaml",
                             UriKind.RelativeOrAbsolute)
                     });
-                    Style simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
+                    var simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
                     host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
                     var implicitTextBox = new TextBox();
                     var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
@@ -1733,7 +1733,7 @@ public sealed class MainWindowChartPresentationWpfTests
     {
         BindingBase? bindingBase = BindingOperations.GetBindingBase(element, property);
         Assert.IsInstanceOfType(bindingBase, typeof(Binding), expectedPath);
-        Binding binding = (Binding)bindingBase!;
+        var binding = (Binding)bindingBase!;
         Assert.AreEqual(expectedPath, binding.Path?.Path);
         object? owner = binding.Source ?? (element as FrameworkElement)?.DataContext;
         Assert.AreSame(expectedOwner, owner);
@@ -1985,7 +1985,7 @@ public sealed class MainWindowChartPresentationWpfTests
 
     private static void RaiseRoutedKey(UIElement target, Key key, RoutedEvent routedEvent)
     {
-        PresentationSource? source = PresentationSource.FromVisual(target);
+        var source = PresentationSource.FromVisual(target);
         Assert.IsNotNull(source);
         target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
         {

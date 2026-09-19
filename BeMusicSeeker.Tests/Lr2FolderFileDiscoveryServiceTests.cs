@@ -14,7 +14,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void CreateBuiltinFolderSourceDirectories_IncludesPhysicalLr2CustomFolder()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string lr2Root = Path.Combine(scope.DirectoryPath, "LR2");
         string customFolder = Path.Combine(lr2Root, "LR2files", "CustomFolder");
         Directory.CreateDirectory(customFolder);
@@ -27,7 +27,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void CreateBuiltinFolderSourceDirectories_IgnoresMissingLr2CustomFolder()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string lr2Root = Path.Combine(scope.DirectoryPath, "LR2");
         Directory.CreateDirectory(lr2Root);
 
@@ -60,7 +60,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void CreateDiscoveryDirectories_IncludesExistingBuiltinSourceAndOutputScopes()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
         string normalOutput = Path.Combine(scope.DirectoryPath, "Output");
         string rootOutput = Path.Combine(scope.DirectoryPath, "RootOutput");
@@ -84,7 +84,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void CreateDiscoveryDirectoriesForEnumeration_ExcludesPreparedOutputScopes()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string outputBase = Path.Combine(scope.DirectoryPath, "Output");
         string outputBasePrefixSibling = Path.Combine(scope.DirectoryPath, "OutputOther");
@@ -95,7 +95,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
             new Dictionary<string, RootFileEnumerationEntry>(System.StringComparer.OrdinalIgnoreCase),
             discoveryComplete: true);
 
-        List<string> directories = Lr2FolderFileDiscoveryService.CreateDiscoveryDirectoriesForEnumeration(
+        var directories = Lr2FolderFileDiscoveryService.CreateDiscoveryDirectoriesForEnumeration(
             [rootDirectory, outputBase, outputBasePrefixSibling, rootOutputBase],
             preparedSurface).ToList();
 
@@ -108,7 +108,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void MergeCandidateSurface_ReplacesOnlyPreparedScopeCandidates()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string outputBase = Path.Combine(scope.DirectoryPath, "Output");
         string preparedDirectory = Path.Combine(outputBase, "Table");
         string preparedPrefixSibling = Path.Combine(outputBase, "TableOther");
@@ -149,7 +149,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void ExcludeAppManagedOutputCandidates_RemovesManagedOutputDirectoryFilesOnly()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
         string managedDirectory = Path.Combine(outputBase, "Table");
@@ -189,7 +189,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void ExcludeAppManagedOutputCandidates_IncludesEntryOnlyExternalCandidates()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
         string managedDirectory = Path.Combine(outputBase, "Table");
@@ -220,7 +220,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     [TestMethod]
     public void CreatePruneDirectories_AddsRelativeBuiltinScopeOnlyWhenBuiltinSourceExists()
     {
-        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        using var scope = TestDirectoryScope.Create();
         string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
         string builtinSource = Path.Combine(scope.DirectoryPath, "LR2", "LR2files", "CustomFolder");
 

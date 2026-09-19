@@ -37,10 +37,10 @@ public sealed class BmsLibraryOptionsSnapshotTests
         try
         {
             testSettings.PendingInstallEstimateMaxParallelPackages = 3;
-            BmsLibraryOptionsSnapshot first = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
+            var first = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
             testSettings.PendingInstallEstimateMaxParallelPackages = 5;
-            BmsLibraryOptionsSnapshot second = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
+            var second = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.AreEqual(3, first.PendingInstallEstimateMaxParallelPackages);
             Assert.AreEqual(5, second.PendingInstallEstimateMaxParallelPackages);
@@ -60,7 +60,7 @@ public sealed class BmsLibraryOptionsSnapshotTests
         {
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = raw;
 
-            BmsLibraryOptionsSnapshot snapshot = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
+            var snapshot = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.AreEqual(raw, snapshot.LR2CustomFolderAdditionalOutputBaseDirsSerialized);
         }

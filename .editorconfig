@@ -9,17 +9,15 @@ end_of_line = lf
 indent_size = 4
 trim_trailing_whitespace = true
 
-# Analyzer rollout policy:
-# - Keep broad analyzer/style severities conservative until existing warnings are triaged.
-# - Promote individual dotnet_diagnostic.<ID>.severity entries only after the current codebase is clean or intentionally documented.
-# - Prefer repository-wide .editorconfig decisions over local suppressions; use local suppressions only when the reason is specific to that code.
+# 名前空間と型の書き方をビルドで検査する。その他の品質診断は SDK の既定に従う。
+# this 修飾の規則はビルドで実行されないため、IDE の提案に留める。
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = false
 
-csharp_style_namespace_declarations = file_scoped:suggestion
-csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_for_built_in_types = false:suggestion
-csharp_style_var_elsewhere = false:suggestion
+csharp_style_namespace_declarations = file_scoped:error
+csharp_style_var_when_type_is_apparent = true:error
+csharp_style_var_for_built_in_types = false:error
+csharp_style_var_elsewhere = false:error
 
 dotnet_style_qualification_for_field = false:suggestion
 dotnet_style_qualification_for_property = false:suggestion

@@ -505,7 +505,7 @@ internal sealed class CatalogMaintenanceOwner
             {
                 requestVersion = hydrationRequestedVersion;
             }
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             if (isShutdownRequested())
             {
                 CompleteHydrationRequest(requestVersion, skipped: true);
@@ -562,12 +562,12 @@ internal sealed class CatalogMaintenanceOwner
             return CatalogMaintenanceHydrationReceipt.Empty;
         }
 
-        Stopwatch applyStopwatch = Stopwatch.StartNew();
+        var applyStopwatch = Stopwatch.StartNew();
         ResourceMaintenanceTargetSet fullTargetSet;
         using (enterStorageRowsWriteGuard())
         {
             OwnedChartStorageOwnerView ownerView = ownerViewProvider();
-            Stopwatch attachStopwatch = Stopwatch.StartNew();
+            var attachStopwatch = Stopwatch.StartNew();
             using (resourceHealthOwner.BeginInputMutation())
             {
                 AttachMaintenanceSnapshots(ownerView, result);
@@ -580,7 +580,7 @@ internal sealed class CatalogMaintenanceOwner
             result.MaintenanceApplyMs = applyStopwatch.ElapsedMilliseconds;
             if (result.StaleMaintenancePaths.Count > 0)
             {
-                Stopwatch cleanupStopwatch = Stopwatch.StartNew();
+                var cleanupStopwatch = Stopwatch.StartNew();
                 try
                 {
                     using (catalogMutationOwner.EnterMaintenanceWriteGuard())

@@ -18,9 +18,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [TestMethod]
     public void Receipt_IsTakenOnceWhenBmsRowsVersionMatches()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        var library = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
+        var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         string path = Path.Combine(scope.DirectoryPath, "committed.bms");
         var result = new SongTableFileCheckResult();
         result.CommittedLr2SongDbSyncBmsPaths.Add(path);
@@ -39,9 +39,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [TestMethod]
     public void Receipt_OwnedCollectionVersionMismatchDoesNotInvalidateMatchingBmsRows()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        var library = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
+        var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
         Lr2SongDbSyncInput ownedChangedInput = WithOwnedCollectionVersion(
             input,
@@ -67,9 +67,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [TestMethod]
     public void Receipt_BmsRowsVersionMismatchIsDiscardedWithoutReuse()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        var library = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
+        var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
             input.BmsRowsVersion + 1,
@@ -82,9 +82,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [TestMethod]
     public void Receipt_NullInputIsDiscardedWithoutReuse()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        var library = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
+        var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
             0,
             [Path.Combine(scope.DirectoryPath, "null-input.bms")]);
@@ -96,9 +96,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [TestMethod]
     public void Receipt_ManualQueueOriginDiscardsWithoutTaking()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        var library = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
+        var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
             0,
             [Path.Combine(scope.DirectoryPath, "manual.bms")]);
@@ -112,9 +112,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [TestMethod]
     public void Receipt_IsNotRestoredAfterDisposalOrNewOwner()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        var firstLibrary = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner firstOwner = (BMSLibrary.Lr2SynchronizationOwner)firstLibrary.Lr2Synchronization;
+        using var scope = TestDatabaseScope.Create();
+        TestBmsLibrary firstLibrary = CreateLr2Library(scope.SongDbPath);
+        var firstOwner = (BMSLibrary.Lr2SynchronizationOwner)firstLibrary.Lr2Synchronization;
         firstOwner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
             0,
             [Path.Combine(scope.DirectoryPath, "disposed.bms")]);
@@ -122,20 +122,20 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         firstOwner.DisposeCancellation();
 
         Assert.IsNull(firstOwner.CommittedPathReceipt);
-        var secondLibrary = CreateLr2Library(scope.SongDbPath);
-        BMSLibrary.Lr2SynchronizationOwner secondOwner = (BMSLibrary.Lr2SynchronizationOwner)secondLibrary.Lr2Synchronization;
+        TestBmsLibrary secondLibrary = CreateLr2Library(scope.SongDbPath);
+        var secondOwner = (BMSLibrary.Lr2SynchronizationOwner)secondLibrary.Lr2Synchronization;
         Assert.IsNull(secondOwner.CommittedPathReceipt);
     }
 
     [TestMethod]
     public void ReceiptEligibleSongRowsSkipReaderAndCurrentnessRead()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string skippedPath = Path.Combine(scope.DirectoryPath, "skipped.bms");
         string processedPath = Path.Combine(scope.DirectoryPath, "processed.bms");
         File.WriteAllText(processedPath, "#TITLE receipt processed\r\n");
         ChartFileSnapshot processedSnapshot = ChartFileContentReader.ReadSnapshot(processedPath);
-        var skippedFile = new TestableBmsFile
+        TestableBmsFile skippedFile = new TestableBmsFile
         {
             path = skippedPath,
             date = 123456
@@ -185,12 +185,12 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     [DataRow(10001)]
     public void ReceiptEligibleSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries(int rowCount)
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BMSFile[] songRows = [.. Enumerable.Range(0, rowCount).Select(index =>
         {
-            var file = new TestableBmsFile
+            TestableBmsFile file = new TestableBmsFile
             {
                 path = Path.Combine(scope.DirectoryPath, "committed-" + index + ".bms"),
                 tag = "user-tag",

@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using Ribbit.Windows;
 using Ribbit.Util.Extensions;
+using Ribbit.Windows;
 
 namespace BeMusicSeeker.Models.Utils;
 

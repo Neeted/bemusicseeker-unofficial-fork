@@ -366,7 +366,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
     public async Task ReservationCallbackOutsideOwnerLockAllowsResetAndCleansLateReceipt()
     {
         var harness = new Harness();
-        var progressLikeLock = new object();
+        object progressLikeLock = new object();
         harness.ReserveExternalLock = progressLikeLock;
         harness.GateNextReservation = true;
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
@@ -411,7 +411,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
     public async Task NewerScheduleCommitsWhileOlderReservationIsBlocked()
     {
         var harness = new Harness();
-        var progressLikeLock = new object();
+        object progressLikeLock = new object();
         harness.ReserveExternalLock = progressLikeLock;
         harness.GateNextReservation = true;
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
@@ -465,7 +465,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
             GateLeaseAcquisition = true,
             SchedulerGeneration = 0L
         };
-        var progressLikeLock = new object();
+        object progressLikeLock = new object();
         harness.ReserveExternalLock = progressLikeLock;
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
         var oldRequest = new StartupPostInitializationWarmupRequest("old", 36L, 0L);

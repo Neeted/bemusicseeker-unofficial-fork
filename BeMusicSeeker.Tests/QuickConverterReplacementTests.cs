@@ -1,8 +1,8 @@
 using System;
 using System.Globalization;
 using System.Windows;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BeMusicSeeker.Views;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 

@@ -1781,7 +1781,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 Folder_order = ["Batch Folder B"]
             };
 
-            var batchResult = await playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(
+            PlaylistExternalSyncOwner.RegisteredExternalTableBatchResult batchResult = await playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(
                 [batchTableA, batchTableB],
                 false,
                 "test_external_batch");
@@ -1993,7 +1993,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             using var releaseHeldWriter = new ManualResetEventSlim();
             var writerAcquired = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            Task heldFirstWriter = Task.Run(() =>
+            var heldFirstWriter = Task.Run(() =>
             {
                 using (first.ReaderWriterLock.GetWriterGuard())
                 {
@@ -2138,7 +2138,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 playlist.BmtOutput.QueueBeatorajaBmtExportAll("failure_contract");
             using (var held = new FileStream(failureKind == "delete" ? stalePath : manifestPath,
                 FileMode.Open, FileAccess.Read, failureKind == "read" ? FileShare.None : FileShare.ReadWrite))
-            using (var heldStale = failureKind == "delete-and-publish"
+            using (FileStream? heldStale = failureKind == "delete-and-publish"
                 ? new FileStream(stalePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
             {
                 Assert.IsNotNull(scheduled);

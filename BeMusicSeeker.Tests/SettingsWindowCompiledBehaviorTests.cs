@@ -62,8 +62,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Materialize(window);
                 Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
 
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 Type[] pageTypes =
                 {
                     typeof(GeneralSettingsPage),
@@ -123,16 +123,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 navigation.SelectedItem = window.FindName("navigationPlayback");
                 Materialize(window);
 
                 var page = (PlaybackSettingsPage)content.Content;
-                RadioButton internalPlayer = (RadioButton)page.FindName("radioButtonInternalPlayer");
-                RadioButton ubmplayPlayer = (RadioButton)page.FindName("radioButtonPlayuBMplay");
-                RadioButton bmiidxPlayer = (RadioButton)page.FindName("radioButtonPlayBMIIDXView");
-                RadioButton lr2Player = (RadioButton)page.FindName("radioButtonPlayLR2body");
+                var internalPlayer = (RadioButton)page.FindName("radioButtonInternalPlayer");
+                var ubmplayPlayer = (RadioButton)page.FindName("radioButtonPlayuBMplay");
+                var bmiidxPlayer = (RadioButton)page.FindName("radioButtonPlayBMIIDXView");
+                var lr2Player = (RadioButton)page.FindName("radioButtonPlayLR2body");
 
                 Assert.AreSame(owner.SettingDialog, page.DataContext);
                 Assert.AreSame(owner.SettingDialog, internalPlayer.DataContext);
@@ -175,16 +175,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 Materialize(window);
 
                 Assert.IsInstanceOfType<RightClickSettingsPage>(content.Content);
                 Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
                 var page = (RightClickSettingsPage)content.Content;
-                ListBox webActions = (ListBox)page.FindName("webActionsListBox");
-                ListBox programActions = (ListBox)page.FindName("programActionsListBox");
+                var webActions = (ListBox)page.FindName("webActionsListBox");
+                var programActions = (ListBox)page.FindName("programActionsListBox");
                 Assert.AreEqual(0, webActions.Items.Count);
                 Assert.AreEqual(0, programActions.Items.Count);
                 Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
@@ -220,8 +220,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 Materialize(window);
 
@@ -275,8 +275,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 try
                 {
                     Materialize(window);
-                    ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                    ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                    var navigation = (ListBox)window.FindName("settingsNavigation");
+                    var content = (ContentControl)window.FindName("settingsPageContent");
                     navigation.SelectedItem = window.FindName("navigationRightClick");
                     Materialize(window);
 
@@ -396,10 +396,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 };
                 Materialize(window);
 
-                FrameworkElement generalPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
-                CheckBox scoreDb = (CheckBox)generalPage.FindName("useBeatorajaScoreDbCheckBox");
-                ComboBox hashMode = (ComboBox)generalPage.FindName("beatorajaHashOutputModeComboBox");
-                SettingsField hashModeField = (SettingsField)generalPage.FindName("beatorajaHashOutputModeField");
+                var generalPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var scoreDb = (CheckBox)generalPage.FindName("useBeatorajaScoreDbCheckBox");
+                var hashMode = (ComboBox)generalPage.FindName("beatorajaHashOutputModeComboBox");
+                var hashModeField = (SettingsField)generalPage.FindName("beatorajaHashOutputModeField");
 
                 scoreDb.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
                 hashMode.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.UpdateTarget();
@@ -483,11 +483,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 Assert.IsInstanceOfType<GeneralSettingsPage>(content.Content);
                 Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
-                ComboBox language = (ComboBox)((FrameworkElement)content.Content).FindName("languageComboBox");
+                var language = (ComboBox)((FrameworkElement)content.Content).FindName("languageComboBox");
                 Assert.AreEqual(nameof(SettingsDialogViewModel.Languages),
                     GetBindingPath(language, ItemsControl.ItemsSourceProperty));
 
@@ -495,8 +495,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Materialize(window);
                 Assert.IsInstanceOfType<PlaylistSettingsPage>(content.Content);
                 Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
-                TextBox tableListUrl = (TextBox)((FrameworkElement)content.Content).FindName("tableListUrlTextBox");
-                CheckBox urlCompletion = (CheckBox)((FrameworkElement)content.Content).FindName("enablePlaylistUrlCompletionCheckBox");
+                var tableListUrl = (TextBox)((FrameworkElement)content.Content).FindName("tableListUrlTextBox");
+                var urlCompletion = (CheckBox)((FrameworkElement)content.Content).FindName("enablePlaylistUrlCompletionCheckBox");
                 Binding? tableListUrlBinding = BindingOperations.GetBinding(tableListUrl, TextBox.TextProperty);
                 Binding? urlCompletionBinding = BindingOperations.GetBinding(urlCompletion, ToggleButton.IsCheckedProperty);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.TableListURL), tableListUrlBinding?.Path?.Path);
@@ -570,8 +570,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     PlaybackPanel = owner.PlaybackPanel
                 };
                 Materialize(window);
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 navigation.SelectedItem = window.FindName("navigationAudio");
                 Materialize(window);
                 var page = (AudioSettingsPage)content.Content;
@@ -616,12 +616,12 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
                 navigation.SelectedItem = window.FindName("navigationPlaylist");
                 Materialize(window);
                 var page = (PlaylistSettingsPage)content.Content;
-                ListBox presetList = (ListBox)page.FindName("playHistoryPresetList");
+                var presetList = (ListBox)page.FindName("playHistoryPresetList");
                 SettingsListEditor presetEditor = FindLogicalDescendants<SettingsListEditor>(page).Single(editor =>
                     FindLogicalDescendants<ListBox>(editor).Any(list => ReferenceEquals(list, presetList)));
                 SettingsSection? presetSection = FindNearestSettingsSection(presetEditor);
@@ -678,13 +678,13 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     PlaybackPanel = owner.PlaybackPanel
                 };
                 Materialize(window);
-                FrameworkElement page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
-                ListBox roots = (ListBox)page.FindName("bmsSearchRootPathListBox");
+                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var roots = (ListBox)page.FindName("bmsSearchRootPathListBox");
                 Assert.AreEqual(2, roots.Items.Count);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.AvailableBMSDirectories),
                     roots.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path?.Path);
-                Button add = (Button)page.FindName("addBmsSearchRootButton");
-                Button remove = (Button)page.FindName("removeBmsSearchRootButton");
+                var add = (Button)page.FindName("addBmsSearchRootButton");
+                var remove = (Button)page.FindName("removeBmsSearchRootButton");
                 add.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
                 remove.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
                 Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
@@ -744,13 +744,13 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 };
                 Materialize(window);
 
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
 
                 navigation.SelectedIndex = 7;
                 Materialize(window);
                 var backupPage = (BackupSettingsPage)content.Content;
-                List<Button> backupButtons = FindLogicalDescendants<Button>(backupPage).ToList();
+                var backupButtons = FindLogicalDescendants<Button>(backupPage).ToList();
                 Assert.AreEqual(2, backupButtons.Count);
                 Button backupButton = backupButtons[0];
                 Button restoreButton = backupButtons[1];
@@ -774,10 +774,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 {
                     navigation.SelectedIndex = index;
                     Materialize(window);
-                    FrameworkElement page = (FrameworkElement)content.Content;
-                    Style pageDangerButtonStyle = (Style)page.FindResource("SettingsDangerButtonStyle");
-                    List<Button> pageButtons = FindLogicalDescendants<Button>(page).ToList();
-                    List<Button> pageDangerButtons = pageButtons
+                    var page = (FrameworkElement)content.Content;
+                    var pageDangerButtonStyle = (Style)page.FindResource("SettingsDangerButtonStyle");
+                    var pageButtons = FindLogicalDescendants<Button>(page).ToList();
+                    var pageDangerButtons = pageButtons
                         .Where(button => ReferenceEquals(button.Style, pageDangerButtonStyle))
                         .ToList();
                     dangerButtons.AddRange(pageDangerButtons);

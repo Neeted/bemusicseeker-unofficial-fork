@@ -107,7 +107,7 @@ internal sealed class CatalogStorageIndexedSequence<T>
         {
             return Empty(comparison, workObserver);
         }
-        ImmutableList<CatalogStorageSequenceEntry<T>> immutableEntries =
+        var immutableEntries =
             ImmutableList.CreateRange(entries);
         workObserver?.ObserveMaterialization(entries.Count);
         return new CatalogStorageIndexedSequence<T>(immutableEntries, comparison, workObserver);

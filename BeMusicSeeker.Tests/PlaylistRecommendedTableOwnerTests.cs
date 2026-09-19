@@ -522,7 +522,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 Assert.AreEqual(0, table.entries.Count);
                 Assert.AreEqual(6, postCount); // 既存契約の初回 + 最大5回を増減させない。
                 Assert.AreEqual(1, httpClient.GetUris.Count);
-                var receipt = session.TakeReceipt();
+                PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
                 Assert.AreEqual(1, receipt.Notifications.Count);
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, receipt.Notifications[0].Severity);
             }

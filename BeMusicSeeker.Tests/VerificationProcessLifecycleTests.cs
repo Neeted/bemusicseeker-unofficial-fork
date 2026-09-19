@@ -354,11 +354,11 @@ public sealed class VerificationProcessLifecycleTests
             Assert.IsTrue(run.Process.WaitForExit(30_000), "The expired residual probe did not terminate.");
             Assert.AreEqual(0, run.Process.ExitCode, "The expired residual probe failed.");
             Assert.IsTrue(File.Exists(run.ResultPath));
-            using JsonDocument result = JsonDocument.Parse(File.ReadAllText(run.ResultPath));
+            using var result = JsonDocument.Parse(File.ReadAllText(run.ResultPath));
             int[] residualIds = ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds"));
             Assert.IsTrue(residualIds.Length > 0, "The expired deadline must report a nonempty exact residual PID set.");
             LedgerEntry[] ledger = ReadLedger(run.LedgerPath);
-            var ledgerByPid = ledger.ToDictionary(entry => entry.ProcessId);
+            Dictionary<int, LedgerEntry> ledgerByPid = ledger.ToDictionary(entry => entry.ProcessId);
             var residualPidSet = new HashSet<int>();
             foreach (int residualId in residualIds)
             {
@@ -485,7 +485,7 @@ public sealed class VerificationProcessLifecycleTests
         var entries = new List<LedgerEntry>();
         foreach (string line in File.ReadLines(ledgerPath))
         {
-            using JsonDocument document = JsonDocument.Parse(line);
+            using var document = JsonDocument.Parse(line);
             entries.Add(new LedgerEntry(
                 document.RootElement.GetProperty("pid").GetInt32(),
                 document.RootElement.GetProperty("creationIdentity").GetInt64()));
@@ -653,7 +653,7 @@ public sealed class VerificationProcessLifecycleTests
     {
         try
         {
-            using Process process = Process.GetProcessById(entry.ProcessId);
+            using var process = Process.GetProcessById(entry.ProcessId);
             return !process.HasExited && process.StartTime.ToUniversalTime().Ticks == entry.CreationIdentity;
         }
         catch (ArgumentException)

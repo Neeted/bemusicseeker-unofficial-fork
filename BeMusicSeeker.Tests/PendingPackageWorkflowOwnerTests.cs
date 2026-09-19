@@ -52,10 +52,10 @@ public sealed class PendingPackageWorkflowOwnerTests
                 lease?.Dispose();
             }
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
-        var chart = CreateChart(installDestination: @"C:\Installed");
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
+        ChartFile chart = CreateChart(installDestination: @"C:\Installed");
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
-            [CreateTarget(chart, ChartOperationCapabilities.RepairInstalledLocation)], out var request));
+            [CreateTarget(chart, ChartOperationCapabilities.RepairInstalledLocation)], out RepairInstalledLocationRequest? request));
 
         await owner.FixInstalledLocationsAsync(request);
 
@@ -92,9 +92,9 @@ public sealed class PendingPackageWorkflowOwnerTests
             }
         };
         var dialogs = new FileDbReportRecordingDialogs { MessageFailure = new IOException("optional report failure") };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
-            [CreateTarget(CreateChart(installDestination: @"C:\Installed"), ChartOperationCapabilities.RepairInstalledLocation)], out var request));
+            [CreateTarget(CreateChart(installDestination: @"C:\Installed"), ChartOperationCapabilities.RepairInstalledLocation)], out RepairInstalledLocationRequest? request));
         await owner.FixInstalledLocationsAsync(request);
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
@@ -127,9 +127,9 @@ public sealed class PendingPackageWorkflowOwnerTests
                 lease?.Dispose();
             }
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
-            [CreateTarget(CreateChart(installDestination: @"C:\Installed"), ChartOperationCapabilities.RepairInstalledLocation)], out var request));
+            [CreateTarget(CreateChart(installDestination: @"C:\Installed"), ChartOperationCapabilities.RepairInstalledLocation)], out RepairInstalledLocationRequest? request));
 
         await owner.FixInstalledLocationsAsync(request);
 
@@ -158,7 +158,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE Pending repair terminal\r\n");
         try
         {
-            BMSFile chartOwner = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            var chartOwner = BMSFile.CreateBMSFileFromFile(sourceChartPath);
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -198,7 +198,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 lease?.Dispose();
             };
 
-            var owner = CreateOwner(
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
                 store,
@@ -235,7 +235,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public void CanOpenInstallDestination_RequiresPendingSectionAndEffectiveTargetCapability()
     {
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             () => null!,
             [],
             new RecordingStore([]),
@@ -294,8 +294,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         try
         {
             var openedDirectories = new List<string>();
-            var dialogs = AcceptedDialogs();
-            var owner = CreateOwner(
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => null!,
                 [],
                 new RecordingStore([]),
@@ -326,9 +326,9 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         int providerCallCount = 0;
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         var openedDirectories = new List<string>();
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             () =>
             {
                 providerCallCount++;
@@ -363,8 +363,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         try
         {
             var openedDirectories = new List<string>();
-            var dialogs = AcceptedDialogs();
-            var owner = CreateOwner(
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => null!,
                 [],
                 new RecordingStore([]),
@@ -404,7 +404,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         Directory.CreateDirectory(temporaryDirectory);
         try
         {
-            ChartPackage package = ChartPackage.FromChartEntries(
+            var package = ChartPackage.FromChartEntries(
             [
                 PackageChartEntry.FromChart(CreateChart()),
                 PackageChartEntry.FromChart(CreateChart(
@@ -412,8 +412,8 @@ public sealed class PendingPackageWorkflowOwnerTests
                     installDestination: temporaryDirectory))
             ]);
             var openedDirectories = new List<string>();
-            var dialogs = AcceptedDialogs();
-            var owner = CreateOwner(
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => null!,
                 [],
                 new RecordingStore([]),
@@ -442,14 +442,14 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task OpenInstallDestinationForPackageAsync_AllEntriesMissingShowsWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        ChartPackage package = ChartPackage.FromChartEntries(
+        var package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromChart(CreateChart()),
             PackageChartEntry.FromChart(CreateChart(path: @"C:\Charts\second.bms"))
         ]);
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         var openedDirectories = new List<string>();
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             () => null!,
             [],
             new RecordingStore([]),
@@ -473,10 +473,10 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var failure = new InvalidOperationException("dialog failed");
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         dialogs.MessageResult = UiDialogResult.Failed(failure);
         var openedDirectories = new List<string>();
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             () => null!,
             [],
             new RecordingStore([]),
@@ -504,7 +504,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             var openedDirectories = new List<string>();
             var selectedFiles = new List<string>();
-            var owner = CreateOwner(
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => null!,
                 [],
                 new RecordingStore([]),
@@ -545,7 +545,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             var openedDirectories = new List<string>();
             var selectedFiles = new List<string>();
-            var owner = CreateOwner(
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => null!,
                 [],
                 new RecordingStore([]),
@@ -580,7 +580,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         var openedDirectories = new List<string>();
         var selectedFiles = new List<string>();
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             () => null!,
             [],
             new RecordingStore([]),
@@ -614,7 +614,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             int directoryOpenCount = 0;
             int fileSelectCount = 0;
-            var owner = CreateOwner(
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => null!,
                 [],
                 new RecordingStore([]),
@@ -648,10 +648,10 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task SearchPendingAsync_AppliesMutationAndTerminalRefreshInOrder()
     {
         var events = new List<string>();
-        var chart = CreateChart();
+        ChartFile chart = CreateChart();
         var store = new RecordingStore(events) { ChangedCharts = [chart] };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
-        PendingInstallDestinationSearchRequest request =
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        var request =
             PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateTarget(chart)]);
 
         await owner.SearchPendingAsync(request);
@@ -680,8 +680,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
-        PendingInstallDestinationSearchRequest request =
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        var request =
             PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([CreateTarget(CreateChart())]);
 
         await owner.SearchPendingAsync(request);
@@ -697,8 +697,8 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var dialogs = AcceptedDialogs();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         var package = new ChartPackage();
 
         await owner.SearchPackagesAsync(PendingInstallDestinationSearchKind.MergeDestination, [package]);
@@ -726,8 +726,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         var store = new RecordingStore(events);
         var failure = new InvalidOperationException("dialog failed");
         var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
-        PendingInstallDestinationSearchRequest request =
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        var request =
             PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([CreateTarget(CreateChart())]);
 
         InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
@@ -742,9 +742,9 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task ClearPackagesAsync_WithoutAttachedLibraryStillClearsInMemoryState()
     {
         var events = new List<string>();
-        var chart = CreateChart();
+        ChartFile chart = CreateChart();
         var store = new RecordingStore(events) { ChangedCharts = [chart] };
-        var owner = CreateOwner(() => null!, events, store, AcceptedDialogs());
+        PendingPackageWorkflowOwner owner = CreateOwner(() => null!, events, store, AcceptedDialogs());
 
         await owner.ClearPackagesAsync([new ChartPackage()]);
 
@@ -766,9 +766,9 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task SearchCorrectAsync_ProjectsAndInvalidatesBeforeSuppressionEnds()
     {
         var events = new List<string>();
-        var chart = CreateChart();
+        ChartFile chart = CreateChart();
         var store = new RecordingStore(events) { ChangedCharts = [chart] };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
             [CreateTarget(chart, ChartOperationCapabilities.RepairInstalledLocation)],
             out RepairInstalledLocationRequest request));
@@ -793,9 +793,9 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task SetPendingAsync_RefreshesEditedRowAfterMutationBoundary()
     {
         var events = new List<string>();
-        var chart = CreateChart();
+        ChartFile chart = CreateChart();
         var store = new RecordingStore(events) { SetResult = chart };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
         Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(
             CreateTarget(chart),
             out PendingInstallDestinationEditRequest request));
@@ -823,7 +823,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         var events = new List<string>();
         var store = new RecordingStore(events) { Failure = new InvalidOperationException("clear failed") };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
         Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
             [CreateTarget(CreateChart())],
             out PendingInstallDestinationClearRequest request));
@@ -866,8 +866,8 @@ public sealed class PendingPackageWorkflowOwnerTests
             };
             var failure = new InvalidOperationException("activity end failed");
             var presentation = new RecordingPresentation(events) { EndActivityFailure = failure };
-            var dialogs = AcceptedDialogs();
-            var owner = CreateOwner(
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
                 store,
@@ -914,7 +914,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             var notificationFailure = new InvalidOperationException("dialog notification failed");
             var events = new List<string>();
             var dialogService = new RecordingLibraryDialogService();
-            var dialogs = AcceptedDialogs();
+            FakeUiDialogService dialogs = AcceptedDialogs();
             dialogs.MessageResult = UiDialogResult.Failed(notificationFailure);
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             using (var _ = new LR2SongDBExtended(songDbPath))
@@ -932,7 +932,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 EndRefreshSuppressionFailure = suppressionFailure,
                 EndActivityFailure = activityFailure
             };
-            var owner = CreateOwner(
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
                 store,
@@ -973,7 +973,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
         ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
-        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
         var store = new RecordingStore(events)
         {
             EmptyPendingSection = true
@@ -984,7 +984,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
         };
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1021,13 +1021,13 @@ public sealed class PendingPackageWorkflowOwnerTests
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
         ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
-        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
         var store = new RecordingStore(events);
         var dialogs = new FakeUiDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([package]);
 
@@ -1059,7 +1059,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1091,7 +1091,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.Failed(failure)
         };
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1126,7 +1126,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             EndRefreshSuppressionFailure = cleanupFailure
         };
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1171,7 +1171,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             StartRefreshSuppressionFailure = suppressionFailure
         };
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1195,8 +1195,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         var events = new List<string>();
         var failure = new InvalidOperationException("pending resolution failed");
         var store = new RecordingStore(events) { Failure = failure };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
-        PendingInstallPackageOperationRequest request =
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        var request =
             PendingInstallPackageOperationRequest.CreateForceInstall([CreateTarget(CreateChart())]);
 
         PendingPackageMutationResult result = await owner.InstallPendingAsync(request);
@@ -1212,10 +1212,10 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
-        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
         var store = new RecordingStore(events) { ResolvedPackages = [package] };
-        var owner = CreateOwner(CreateLibrary, events, store, new FakeUiDialogService());
-        PendingInstallPackageOperationRequest request =
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, new FakeUiDialogService());
+        var request =
             PendingInstallPackageOperationRequest.CreateForceInstall([CreateTarget(chart)]);
 
         PendingPackageMutationResult result = await owner.InstallPendingAsync(request);
@@ -1245,7 +1245,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var dialogs = new FakeUiDialogService();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
             [CreateTarget(CreateChart(), ChartOperationCapabilities.RepairInstalledLocation)],
             out RepairInstalledLocationRequest request));
@@ -1269,7 +1269,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             MessageResult = UiDialogResult.Failed(failure)
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
             [CreateTarget(CreateChart(), ChartOperationCapabilities.RepairInstalledLocation)],
             out RepairInstalledLocationRequest request));
@@ -1304,7 +1304,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         var dialogs = new FakeUiDialogService();
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         dialogs.EnqueueConfirmation(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes));
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1341,11 +1341,11 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
-        ChartPackage package = ChartPackage.FromChartEntries([
+        var package = ChartPackage.FromChartEntries([
             PackageChartEntry.FromChart(CreateChart())
         ]);
         var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [package] };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
 
         await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
 
@@ -1369,8 +1369,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var dialogs = AcceptedDialogs();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
 
@@ -1385,7 +1385,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
-        ChartPackage package = ChartPackage.FromChartEntries([
+        var package = ChartPackage.FromChartEntries([
             PackageChartEntry.FromChart(CreateChart())
         ]);
         var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [package] };
@@ -1393,7 +1393,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
 
@@ -1409,7 +1409,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         var store = new RecordingStore(events) { PendingBmsFormatCharts = [chart] };
         var presentation = new RecordingPresentation(events);
         var playback = new RecordingPlayback(events);
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1440,7 +1440,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
         ChartFile chart = CreateChart();
-        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
         var overwriteResult = new PendingInstalledOnlyResourceOverwriteResult
         {
             Requested = 1,
@@ -1452,10 +1452,10 @@ public sealed class PendingPackageWorkflowOwnerTests
             InstalledOnlyPendingPackages = [package],
             OverwriteResult = overwriteResult
         };
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         var presentation = new RecordingPresentation(events);
         var playback = new RecordingPlayback(events);
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
@@ -1518,7 +1518,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                     target, new FileDbMutationDestinationTypeConflictException(conflict), [conflict])]
                 : [],
             destinationTypeConflicts: conflictOnly ? [conflict] : []);
-        ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
         var store = new RecordingStore(events)
         {
             InstalledOnlyPendingPackages = [package],
@@ -1543,7 +1543,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 lease?.Dispose();
             }
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
 
         await owner.OverwriteInstalledOnlyPendingPackageResourcesAsync();
 
@@ -1569,11 +1569,11 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
-        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
-        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
         var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [first, second] };
-        var dialogs = AcceptedDialogs();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
 
@@ -1587,13 +1587,13 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
-        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
-        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
         var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [first, second] };
         var failure = new InvalidOperationException("progress failed");
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: failure);
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
             owner.DeleteInstalledOnlyPendingPackageSourcesAsync);
@@ -1606,16 +1606,16 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
-        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
-        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
         var store = new RecordingStore(events)
         {
             InstalledOnlyPendingPackages = [first, second],
             WaitForDeleteSourcesCancellation = true
         };
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.CancelledByUser);
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
 
@@ -1627,8 +1627,8 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
-        ChartPackage first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
-        ChartPackage second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
+        var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
+        var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
         var mutationFailure = new IOException("source deletion failed");
         var store = new RecordingStore(events)
         {
@@ -1636,9 +1636,9 @@ public sealed class PendingPackageWorkflowOwnerTests
             DeleteSourcesFailure = mutationFailure
         };
         var dialogFailure = new InvalidOperationException("progress failed");
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: dialogFailure);
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
             owner.DeleteInstalledOnlyPendingPackageSourcesAsync);
@@ -1664,7 +1664,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             var store = new RecordingStore(events);
             FakeUiDialogService dialogs = AcceptedDialogs();
             var gate = new ChartFileOperationSynchronizer();
-            var owner = CreateOwner(
+            PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
                 store,
@@ -1718,7 +1718,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             cleanupFailure: cleanup);
         var store = new RecordingStore(events) { TerminalReceipt = sessionReceipt };
         var gate = new ChartFileOperationSynchronizer();
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), chartFileOperations: gate);
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), chartFileOperations: gate);
         var scopeFailure = new IOException("pending-scope-marker");
         owner.WorkflowChanged += (_, args) =>
         {
@@ -1774,13 +1774,13 @@ public sealed class PendingPackageWorkflowOwnerTests
                 lease?.Dispose();
             }
         };
-        var owner = CreateOwner(
+        PendingPackageWorkflowOwner owner = CreateOwner(
             CreateLibrary,
             events,
             store,
             dialogs,
             chartFileOperations: gate);
-        ChartPackage package = ChartPackage.FromChartEntries([
+        var package = ChartPackage.FromChartEntries([
             PackageChartEntry.FromChart(CreateChart())
         ]);
 
@@ -1834,7 +1834,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             var mutationFailure = new IOException("pending install failure marker");
             var store = new RecordingStore(events) { Failure = failMutation ? mutationFailure : null };
             ChartFile chart = CreateChart(installDestination: Path.Combine(root, "Installed"));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
             var dialogs = new FakeUiDialogService
             {
                 ConfirmationHandler = _ =>
@@ -1843,7 +1843,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                     return confirmation.Task;
                 }
             };
-            var owner = CreateOwner(() => library, events, store, dialogs,
+            PendingPackageWorkflowOwner owner = CreateOwner(() => library, events, store, dialogs,
                 chartFileOperations: gate,
                 settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(true, false));
             int autoCalls = 0;
@@ -1918,13 +1918,13 @@ public sealed class PendingPackageWorkflowOwnerTests
             var gate = new ChartFileOperationSynchronizer();
             var events = new List<string>();
             ChartFile chart = CreateChart(installDestination: Path.Combine(root, "Installed"));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
             var store = new RecordingStore(events) { ResolvedPackages = [package] };
             var dialogs = new FakeUiDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(manual ? MessageBoxResult.OK : MessageBoxResult.Yes)
             };
-            var owner = CreateOwner(() => library, events, store, dialogs,
+            PendingPackageWorkflowOwner owner = CreateOwner(() => library, events, store, dialogs,
                 chartFileOperations: gate,
                 settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(true, false));
             PendingInstallPackageOperationRequest request = manual

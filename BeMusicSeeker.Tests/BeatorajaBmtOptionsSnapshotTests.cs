@@ -1,11 +1,11 @@
+using System;
+using System.IO;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System;
-using System.IO;
-using System.Threading.Tasks;
 
 namespace BeMusicSeeker.Tests;
 
@@ -31,7 +31,7 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
             testSettings.RegisterBeatorajaBmtUrls = true;
             testSettings.BeatorajaBmtHashOutputMode = "FillMissingMd5Sha256";
 
-            BeatorajaBmtOptionsSnapshot snapshot = BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings);
+            var snapshot = BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.EnableBeatorajaBmtOutput);
             Assert.IsTrue(snapshot.KeepBeatorajaBmtFilesWhenOutputDisabled);

@@ -12,10 +12,10 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -151,7 +151,7 @@ internal sealed class BmsLibraryMaintenanceService
             return null;
         }
 
-        ChartResourceSnapshot resources = ChartResourceSnapshot.Create(chart);
+        var resources = ChartResourceSnapshot.Create(chart);
         var maintenanceInfo = new BMSFileMaintenanceInfo
         {
             path = chart.Path,
@@ -749,7 +749,7 @@ internal sealed class BmsLibraryMaintenanceService
     public MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)
     {
         BMSFile[] fileSnapshot = [.. EnumerateBmsChartFiles(bmsFiles)];
-        MaintenanceMutationSnapshot mutationSnapshot = MaintenanceMutationSnapshot.CaptureBmsFiles(fileSnapshot);
+        var mutationSnapshot = MaintenanceMutationSnapshot.CaptureBmsFiles(fileSnapshot);
         try
         {
             MaintenanceEncodingUpdateResult result;
@@ -938,7 +938,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
 
         ChartFile[] chartSnapshot = [.. (charts ?? []).Where(chart => chart != null)];
-        MaintenanceMutationSnapshot mutationSnapshot = MaintenanceMutationSnapshot.Capture(chartSnapshot);
+        var mutationSnapshot = MaintenanceMutationSnapshot.Capture(chartSnapshot);
         var pendingWrite = new MaintenanceWriteAccumulator();
         MaintenanceMutationSnapshot preparedSnapshot = null;
         MaintenanceWorkflowProgress completedProgress = null;
@@ -1407,7 +1407,7 @@ internal sealed class BmsLibraryMaintenanceService
             }))];
         Task evaluatorCompletionTask = Task.WhenAll(evaluatorTasks).ContinueWith(_ => computedQueue.CompleteAdding());
 
-        Task writerTask = Task.Run(delegate
+        var writerTask = Task.Run(delegate
         {
             var chunk = new List<MaintenanceWorkflowComputedItem>(chunkSize);
             try
@@ -1624,7 +1624,7 @@ internal sealed class BmsLibraryMaintenanceService
         BMSFileMaintenanceInfo beforeInfo = CloneMaintenanceInfo(file.TryGetMaintenanceInfoWithoutCreating());
         if (snapshot != null && (!componentReferencesAlreadyApplied || !HasLoadedResourceReferenceCollections(file)))
         {
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             file.ApplyComponentFilesFromParsedSnapshot(parsed);
         }
 

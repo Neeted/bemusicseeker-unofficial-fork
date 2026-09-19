@@ -620,7 +620,7 @@ internal sealed class BmsLibraryDbGateway(
                 EnsureMaintenanceSchema(songDb);
             }
 
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             result.FolderDbTargetRows = ReplaceFolderRecords(songDb, folderRows);
             stopwatch.Stop();
             result.FolderDbMs = stopwatch.ElapsedMilliseconds;
@@ -1787,7 +1787,7 @@ internal sealed class BmsLibraryDbGateway(
         }
 
         int replaced = 0;
-        Dictionary<string, CatalogFolderPathReplacement> changesByOldPath = rows.ToDictionary(
+        var changesByOldPath = rows.ToDictionary(
             change => NormalizeFolderRecordPath(change.OldFolderPath),
             change => change,
             StringComparer.Ordinal);
@@ -2317,7 +2317,7 @@ internal sealed class BmsLibraryDbGateway(
         const int chunkSize = 30;
         for (int offset = 0; offset < rows.Count; offset += chunkSize)
         {
-            List<BMSFileMaintenanceInfo> chunk = rows.Skip(offset).Take(chunkSize).ToList();
+            var chunk = rows.Skip(offset).Take(chunkSize).ToList();
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);

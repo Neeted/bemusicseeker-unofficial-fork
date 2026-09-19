@@ -184,7 +184,7 @@ internal sealed class PlayHistoryReadCache
         CancellationToken cancellationToken,
         out bool cacheHit)
     {
-        var read = ReadLr2(
+        Lr2PlayHistoryReadResult read = ReadLr2(
             new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = request?.ScoreDbPath,
@@ -223,7 +223,7 @@ internal sealed class PlayHistoryReadCache
             }
         }
 
-        var read = ReadBeatoraja(
+        BeatorajaPlayHistoryReadResult read = ReadBeatoraja(
             new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = resolved.ScoreDbPath,

@@ -1013,7 +1013,7 @@ public sealed class LibraryChartRowSortEngineTests
                 totalnotes = 100
             };
         }
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromBmsFile(file);
         if (chartInfo != null)
         {
             row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));

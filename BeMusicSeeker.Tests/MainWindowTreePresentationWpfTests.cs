@@ -39,8 +39,8 @@ public sealed class MainWindowTreePresentationWpfTests
             new Settings(),
             (_, window) =>
             {
-                ContextMenu normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
-                ContextMenu rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
+                var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                var rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
 
                 RaiseMenuClick(normalMenu.Items.OfType<MenuItem>().Take(2).ToArray()[0]);
                 RaiseMenuClick(normalMenu.Items.OfType<MenuItem>().Take(2).ToArray()[1]);
@@ -72,7 +72,7 @@ public sealed class MainWindowTreePresentationWpfTests
                 createdViewModel = viewModel;
                 RegularChartTreeNavigationPresentationRequestedEventArgs? request = null;
                 viewModel.RegularChartList.TreeNavigationPresentationRequested += (_, value) => request = value;
-                TreeViewItem libraryRoot = (TreeViewItem)FindElementWithBinding(
+                var libraryRoot = (TreeViewItem)FindElementWithBinding(
                     window,
                     HeaderedItemsControl.HeaderProperty,
                     "Resources.Library")!;
@@ -121,7 +121,7 @@ public sealed class MainWindowTreePresentationWpfTests
 
                 foreach ((string bindingPath, MainViewUpdateMode mode) in routes)
                 {
-                    TreeViewItem item = (TreeViewItem)FindElementWithBinding(
+                    var item = (TreeViewItem)FindElementWithBinding(
                         window,
                         HeaderedItemsControl.HeaderProperty,
                         bindingPath)!;
@@ -197,7 +197,7 @@ public sealed class MainWindowTreePresentationWpfTests
             new Settings(),
             (_, window) =>
             {
-                ContextMenu menu = (ContextMenu)window.FindResource("treeViewZeroNoteContextMenu");
+                var menu = (ContextMenu)window.FindResource("treeViewZeroNoteContextMenu");
                 RaiseMenuClick(menu.Items.OfType<MenuItem>().Single());
                 Assert.AreEqual(1, calls);
             },
@@ -220,7 +220,7 @@ public sealed class MainWindowTreePresentationWpfTests
             new Settings(),
             (_, window) =>
             {
-                ContextMenu menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
                 menu.PlacementTarget = new TreeViewItem { Header = @"C:\\wave6e-root" };
                 MenuItem unregister = menu.Items
                     .OfType<MenuItem>()
@@ -267,7 +267,7 @@ public sealed class MainWindowTreePresentationWpfTests
             new Settings(),
             (_, window) =>
             {
-                ContextMenu menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
                 MenuItem[] reloadCommands = menu.Items.OfType<MenuItem>().Take(2).ToArray();
                 RaiseMenuClick(reloadCommands[0]);
                 RaiseMenuClick(reloadCommands[1]);
@@ -327,7 +327,7 @@ public sealed class MainWindowTreePresentationWpfTests
             new Settings(),
             (_, window) =>
             {
-                ContextMenu contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                var contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
                 MenuItem[] commands = contextMenu.Items.OfType<MenuItem>().Take(2).ToArray();
 
                 Assert.AreEqual(2, commands.Length);

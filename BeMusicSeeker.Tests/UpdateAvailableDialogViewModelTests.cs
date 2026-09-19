@@ -11,7 +11,7 @@ public sealed class UpdateAvailableDialogViewModelTests
     [TestMethod]
     public void Constructor_SelectsAppPackageEvenWhenMetadataAssetComesFirst()
     {
-        UpdateCheckResult result = UpdateCheckResult.Available(
+        var result = UpdateCheckResult.Available(
             new Version(2, 2, 0, 0),
             "2.1.0.0",
             "2.2.0.0",
@@ -50,7 +50,7 @@ public sealed class UpdateAvailableDialogViewModelTests
     [TestMethod]
     public void StartupProgressFromProgressHubBlocksAndUnblocksApply()
     {
-        UpdateCheckResult result = UpdateCheckResult.Available(
+        var result = UpdateCheckResult.Available(
             new Version(2, 2, 0, 0),
             "2.1.0.0",
             "2.2.0.0",
@@ -79,7 +79,7 @@ public sealed class UpdateAvailableDialogViewModelTests
     [TestMethod]
     public void DisposeStopsListeningToProgressHub()
     {
-        UpdateCheckResult result = UpdateCheckResult.NoUpdate("1.0.0.0");
+        var result = UpdateCheckResult.NoUpdate("1.0.0.0");
         var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
         int notifications = 0;

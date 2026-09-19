@@ -115,7 +115,7 @@ internal sealed partial class PackageLifecycleOwner
                 return result;
             }
 
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             foreach (LibraryInstallDestinationChange installDestinationChange in facts.InstallDestinationChanges)
             {
                 if (installDestinationChange?.Entry != null)

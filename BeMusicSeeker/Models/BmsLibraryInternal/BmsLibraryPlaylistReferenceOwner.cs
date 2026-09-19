@@ -445,7 +445,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
         long baseRevision,
         IEnumerable<PlaylistReferenceTableSnapshot> tables)
     {
-        PlaylistReferenceIndex preparedIndex = PlaylistReferenceIndex.FromSnapshots(
+        var preparedIndex = PlaylistReferenceIndex.FromSnapshots(
             (tables ?? [])
                 .Where(snapshot => snapshot?.Table != null)
                 .GroupBy(snapshot => snapshot.Table)
@@ -548,7 +548,7 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
     {
         lock (syncRoot)
         {
-            PlaylistReferenceIndex nextIndex = PlaylistReferenceIndex.FromSnapshots(tables);
+            var nextIndex = PlaylistReferenceIndex.FromSnapshots(tables);
             index = nextIndex;
             indexRevision++;
         }

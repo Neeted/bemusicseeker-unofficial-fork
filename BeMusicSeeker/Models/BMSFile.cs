@@ -1822,7 +1822,7 @@ public class BMSFile : LR2SongDB.song
     {
         var mD = MD5.Create();
         byte[] array;
-        using (var inputStream = LongPathFileSystem.OpenRead(filePath))
+        using (FileStream inputStream = LongPathFileSystem.OpenRead(filePath))
         {
             array = mD.ComputeHash(inputStream);
         }
@@ -1839,7 +1839,7 @@ public class BMSFile : LR2SongDB.song
     {
         using var sHA = SHA256.Create();
         byte[] hash;
-        using (var inputStream = LongPathFileSystem.OpenRead(filePath))
+        using (FileStream inputStream = LongPathFileSystem.OpenRead(filePath))
         {
             hash = sHA.ComputeHash(inputStream);
         }
@@ -2621,9 +2621,9 @@ public class BMSFile : LR2SongDB.song
 
     private static IEnumerable<string> ReadFileLines(string filePath, string codepageName)
     {
-        Encoding encoding = Encoding.GetEncoding(codepageName);
+        var encoding = Encoding.GetEncoding(codepageName);
         bool detectEncodingFromByteOrderMarks = !IsShiftJisEncodingName(codepageName);
-        using var stream = LongPathFileSystem.OpenRead(filePath);
+        using FileStream stream = LongPathFileSystem.OpenRead(filePath);
         using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks);
         string line;
         while ((line = reader.ReadLine()) != null)

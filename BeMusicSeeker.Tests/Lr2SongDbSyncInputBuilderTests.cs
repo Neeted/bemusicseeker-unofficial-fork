@@ -27,7 +27,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
     [TestMethod]
     public void CreateNoScanInput_EnumeratesThenExcludesManagedScopeAndOverlaysPreparedFile()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "Library");
         string outputBaseDirectory = Path.Combine(scope.DirectoryPath, "Output");
         string managedDirectory = Path.Combine(outputBaseDirectory, "Managed");

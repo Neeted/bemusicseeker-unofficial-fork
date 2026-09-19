@@ -130,7 +130,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
     public void Enqueue_PreservesPerformanceInteractionForProcessor()
     {
         var completed = new ManualResetEventSlim(initialState: false);
-        PerformanceInteraction expected = PerformanceInteraction.Existing(
+        var expected = PerformanceInteraction.Existing(
             "install_estimation",
             interactionId: 73,
             generation: 9);

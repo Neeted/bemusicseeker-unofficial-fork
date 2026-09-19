@@ -130,7 +130,7 @@ public sealed class Lr2CompatibilityGoldenTests
         BMSFile file = CreateBmsFileWithResource(
             @"D:\BMS\Pack\Song\chart.bms",
             new ChartResourceReference(ChartResourceKind.Audio, "4.org1_1.wav", "4.org1_1.wav"));
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(CreateChart(file));
+        var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
@@ -152,7 +152,7 @@ public sealed class Lr2CompatibilityGoldenTests
                 parentTraversalPath,
                 ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
         ];
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(CreateChart(file));
+        var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
@@ -192,7 +192,7 @@ public sealed class Lr2CompatibilityGoldenTests
                 parentTraversalPath,
                 ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
         ];
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(CreateChart(file));
+        var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
@@ -206,7 +206,7 @@ public sealed class Lr2CompatibilityGoldenTests
         BMSFile file = CreateBmsFileWithResource(
             @"D:\BMS\Pack\Song\chart.bms",
             new ChartResourceReference(ChartResourceKind.Audio, @"sound\😀.wav", @"sound\😀.wav"));
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(CreateChart(file));
+        var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
@@ -226,8 +226,8 @@ public sealed class Lr2CompatibilityGoldenTests
             "0123456789abcdef0123456789abcdef",
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
-        BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
-        ChartResourceSnapshot resources = ChartResourceSnapshot.Create(CreateChart(file));
+        var file = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+        var resources = ChartResourceSnapshot.Create(CreateChart(file));
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, resources);
 
@@ -241,7 +241,7 @@ public sealed class Lr2CompatibilityGoldenTests
     public void EvaluatorUsesAllRawResourceReferencesEvenWhenLookupKeyIsDuplicate()
     {
         string longRawPath = string.Concat(Enumerable.Repeat(@".\", 130)) + "sound.wav";
-        BMSFile file = new BMSFile
+        var file = new BMSFile
         {
             path = @"D:\BMS\Pack\Song\chart.bms",
             WAVfiles = ["sound.wav"],
@@ -252,7 +252,7 @@ public sealed class Lr2CompatibilityGoldenTests
                 new ChartResourceReference(ChartResourceKind.Audio, longRawPath, "sound.wav")
             ]
         };
-        ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(CreateChart(file));
+        var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 

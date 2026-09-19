@@ -17,7 +17,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     [TestMethod]
     public void BuildProjection_ContainsEverySourceAndRequiredParentRows()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "Root");
         string normal = Path.Combine(root, "Normal");
         string info = Path.Combine(root, "Info");
@@ -56,7 +56,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
             generatedAtUtc: rootTime.AddHours(1));
 
         Lr2FolderTableProjection projection = Lr2FolderTableReconciliationService.BuildProjection(request);
-        Dictionary<string, LR2SongDB.folder> rows = projection.Rows.ToDictionary(row => row.path, StringComparer.OrdinalIgnoreCase);
+        var rows = projection.Rows.ToDictionary(row => row.path, StringComparer.OrdinalIgnoreCase);
 
         Assert.IsTrue(rows.ContainsKey(ToFolderPath(root)));
         Assert.IsTrue(rows.ContainsKey(ToFolderPath(normal)));
@@ -79,7 +79,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     [TestMethod]
     public void BuildProjection_PriorityAndEqualDeduplicationAreOrderIndependentAndConflictsFail()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "PriorityRoot");
         string info = Path.Combine(root, "Info");
         Directory.CreateDirectory(info);
@@ -160,7 +160,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     [TestMethod]
     public void Reconcile_IncompleteOrLatePreparationFailureLeavesExistingRowsUnchanged()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         string stalePath = ToFolderPath(Path.Combine(scope.DirectoryPath, "stale"));
@@ -203,7 +203,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     [TestMethod]
     public void Reconcile_PreservesZeroAndNegativeDatesAndDeletesUnexpectedRows()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "DateRoot");
         Directory.CreateDirectory(root);
         string folderPath = Path.Combine(root, "date.lr2folder");
@@ -245,7 +245,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     [TestMethod]
     public void Reconcile_PreservesExistingFolderAddDateAcrossWholeTableApply()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "AddDateRoot");
         Directory.CreateDirectory(root);
         DateTime rootTime = new(2026, 6, 8, 5, 0, 0, DateTimeKind.Utc);

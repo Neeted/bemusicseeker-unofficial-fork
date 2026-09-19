@@ -124,7 +124,7 @@ public static class NLogWrapper
         }
         LogLevel effectiveMinimumFileLogLevel = minimumFileLogLevel ?? LogLevel.Info;
         string logDirectoryPath = Path.Combine(applicationBaseDirectory, LogDirectoryName);
-        var applicationFileTarget = CreateRollingFileTarget(
+        FileTarget applicationFileTarget = CreateRollingFileTarget(
             "ApplicationFileTarget",
             Path.Combine(logDirectoryPath, ApplicationLogFileName),
             Path.Combine(logDirectoryPath, ArchiveDirectoryName, ApplicationLogFileName));
@@ -154,7 +154,7 @@ public static class NLogWrapper
 
     private static void AddInstallPerformanceFileTarget(string logDirectoryPath)
     {
-        var target = CreateRollingFileTarget(
+        FileTarget target = CreateRollingFileTarget(
             "InstallPerformanceFileTarget",
             Path.Combine(logDirectoryPath, InstallPerformanceLogFileName),
             Path.Combine(logDirectoryPath, ArchiveDirectoryName, InstallPerformanceLogFileName));

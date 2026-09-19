@@ -6,6 +6,7 @@ using System.Linq;
 using BeMusicSeeker.Models;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.BMS;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -105,7 +106,7 @@ public sealed class AudioContractsTests
         Assert.AreEqual(
             "WASAPI (" + BeMusicSeeker.Properties.Resources.Shared + ")",
             AudioDriverDisplayNames.Get(AudioDriver.DirectSound));
-        var legacyDisplayName = AudioDriverDisplayNames.Get(AudioDriver.DirectSound);
+        string legacyDisplayName = AudioDriverDisplayNames.Get(AudioDriver.DirectSound);
         Assert.IsFalse(legacyDisplayName.Contains("BASS", System.StringComparison.Ordinal));
         Assert.IsFalse(legacyDisplayName.Contains("DirectSound", System.StringComparison.Ordinal));
     }
@@ -138,11 +139,11 @@ public sealed class AudioContractsTests
     public void SettingsAudioGateway_PreservesKnownAndUnknownPersistedValues()
     {
         BeMusicSeeker.Properties.Settings settings = testSettings;
-        var originalDriver = settings.PlayerDriver;
+        BassAudioPlayer.DeviceDriver originalDriver = settings.PlayerDriver;
         string originalDevice = settings.PlayerDevice;
         string originalDeviceName = settings.PlayerDeviceName;
-        var originalNormalization = settings.EncoderNormalization;
-        var originalEncoder = settings.Encoder;
+        BMSAutoPlayWriter.Normalization originalNormalization = settings.EncoderNormalization;
+        EncoderType originalEncoder = settings.Encoder;
         try
         {
             settings.PlayerDriver = Ribbit.Media.BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
@@ -193,7 +194,7 @@ public sealed class AudioContractsTests
     public void SettingsAudioGateway_CapturesEncodingSettingsWithoutBmsTypes()
     {
         BeMusicSeeker.Properties.Settings settings = testSettings;
-        var originalNormalization = settings.EncoderNormalization;
+        BMSAutoPlayWriter.Normalization originalNormalization = settings.EncoderNormalization;
         try
         {
             settings.EncoderNormalization = Ribbit.BMS.BMSAutoPlayWriter.Normalization.RMS_VALUE;

@@ -71,7 +71,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             File.WriteAllText(secondHeaderPath, "{\"name\":\"SecondImport\",\"symbol\":\"S\",\"output_dir\":\"SecondImport\",\"data_url\":\"./second-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Second song\",\"artist\":\"Artist\",\"level\":\"2\"}]");
 
-            TestBmsPlaylist playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -374,7 +374,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
 
-            TestBmsPlaylist playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -668,7 +668,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             File.WriteAllText(secondHeaderPath, "{\"name\":\"WalkureImport\",\"symbol\":\"W\",\"output_dir\":\"WalkureImport\",\"data_url\":\"./walkure-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"dddddddddddddddddddddddddddddddd\",\"title\":\"Walkure song\",\"artist\":\"Artist\",\"level\":\"4\"}]");
 
-            TestBmsPlaylist playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -742,7 +742,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var cancellationObserved = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var staleCatalog = new[]
+        BMSTableSimple[] staleCatalog = new[]
         {
             new BMSTableSimple
             {

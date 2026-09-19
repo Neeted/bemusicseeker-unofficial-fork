@@ -45,7 +45,7 @@ public sealed class NativeWindowThemeContractTests
 
         foreach (string path in EnumerateProductionXaml(repositoryRoot))
         {
-            XDocument document = XDocument.Load(path, LoadOptions.SetLineInfo);
+            var document = XDocument.Load(path, LoadOptions.SetLineInfo);
             XElement root = document.Root!;
             string? className = (string?)root.Attribute(xamlNamespace + "Class");
             if (className == null)
@@ -87,7 +87,7 @@ public sealed class NativeWindowThemeContractTests
     public void ProductionIl_DoesNotConstructRawSystemWindow()
     {
         Assembly productionAssembly = typeof(ThemedWindow).Assembly;
-        List<string> offenders = productionAssembly
+        var offenders = productionAssembly
             .GetTypes()
             .SelectMany(GetDeclaredMethods)
             .Where(ConstructsRawWindow)
@@ -115,9 +115,9 @@ public sealed class NativeWindowThemeContractTests
         foreach (string themeName in new[] { "Light.xaml", "Dark.xaml" })
         {
             string path = Path.Combine(repositoryRoot, "Themes", themeName);
-            XDocument document = XDocument.Load(path);
+            var document = XDocument.Load(path);
             XNamespace xamlNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
-            HashSet<string> keys = document
+            var keys = document
                 .Descendants()
                 .Select(element => (string?)element.Attribute(xamlNamespace + "Key"))
                 .Where(key => key != null)
@@ -209,7 +209,7 @@ public sealed class NativeWindowThemeContractTests
 
     private static string FindRepositoryRoot()
     {
-        DirectoryInfo? directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory != null)
         {
             if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))

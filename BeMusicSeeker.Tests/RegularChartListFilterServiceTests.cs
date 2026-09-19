@@ -1,6 +1,6 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
@@ -20,7 +20,7 @@ public sealed class RegularChartListFilterServiceTests
             CreateRow("beta.bms", "Beta Song", 5)
         ];
 
-        List<LibraryChartRow> filtered = RegularChartListFilterService
+        var filtered = RegularChartListFilterService
             .ApplyKeywordFilter(rows, "title:alpha")
             .ToList();
 
@@ -36,7 +36,7 @@ public sealed class RegularChartListFilterServiceTests
         LibraryChartRow sevenKeys = CreateRow("seven.bms", "Seven", 7);
         List<LibraryChartRow> rows = [unknown, fiveKeys, sevenKeys];
 
-        List<LibraryChartRow> filtered = RegularChartListFilterService
+        var filtered = RegularChartListFilterService
             .ApplyModeFilter(rows, ChartModeFilter._7KEYS)
             .ToList();
 

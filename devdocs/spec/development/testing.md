@@ -29,9 +29,13 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 | `Functional` | 通常の最終統合。同じ最終版に対して一回を原則とする。 |
 | `Full` | 配布・更新・リリースに関わる検証。共通の `Functional` の後に配布物の受入を行う。 |
 
-`Quick` はフィルターの有無によらず事前の整形・解析検査を省きます。`Functional` / `Full` はロックファイルに従う復元の後、ツール復元、空白整形の検査、Roslynator解析、ビルド、出力検査、実テストの順に進みます。自動修正はしません。
+`Quick` はフィルターの有無によらず独立した整形検査を省き、通常のビルドで SDK 標準解析を実行します。`Functional` / `Full` はロックファイルに従う復元の後、空白整形の検査、SDK 標準解析を含む通常のビルド、出力検査、実テストの順に進みます。自動修正はしません。
 
 整形検査はプロジェクトを評価せず、ルートを `dotnet format whitespace --folder` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。
+
+SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK の `version` と `rollForward` の選択に従います。[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、テスト `BeMusicSeeker.Tests` にだけ `EnforceCodeStyleInBuild=true` を適用します。補助ツールのプロジェクトにはこのビルド時スタイル検査を追加せず、SDK の既定解析を従来どおり実行します。
+
+書き方は [`.editorconfig`](../../../.editorconfig) を正本とし、ファイルスコープ名前空間の `IDE0161`、型が明白な場合に `var` を使う `IDE0007`、組込み型と型が明白でない場合に明示型を使う `IDE0008` をビルドエラーとして扱います。不要な `this` 修飾を除く `IDE0003` は SDK のビルドでは実行されないため、IDE の提案に留めます。その他の SDK 品質診断は既定の重大度を維持し、全警告を一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードはテストプロジェクトのコンパイル対象として検査します。
 
 ### 実行期限と失敗分類
 
@@ -121,8 +125,7 @@ SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow
 
 | 段階 | 制限時間 |
 | --- | ---: |
-| ツール復元、整形検査 | 各120秒 |
-| 解析 | 180秒 |
+| 整形検査 | 120秒 |
 | ツールの基本確認 | 60秒 |
 | 公開旧版のキャッシュ準備 | 180秒 |
 | 現在版の配布物作成 | 180秒 |

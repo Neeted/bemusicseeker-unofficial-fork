@@ -7,14 +7,14 @@ using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Tests;
 
@@ -166,7 +166,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             title = "bmson duplicate",
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
-        OwnedChartCollectionState ownedCharts = OwnedChartCollectionState.FromStorageRows([duplicateBms, uniqueSibling, unrelated], [duplicateBmson]);
+        var ownedCharts = OwnedChartCollectionState.FromStorageRows([duplicateBms, uniqueSibling, unrelated], [duplicateBmson]);
 
         OwnedDuplicateChartRowSnapshot duplicateSnapshot = ownedCharts.CreateDuplicateChartRowSnapshot();
         IReadOnlyList<DuplicateChartRow> snapshotRows = duplicateSnapshot.Rows;
@@ -757,8 +757,8 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(destinationBmsPath, bmsContent);
             File.WriteAllText(sourceBmsonPath, bmsonContent);
 
-            BMSFile sourceBms = BMSFile.CreateBMSFileFromFile(sourceBmsPath);
-            BMSFile destinationBms = BMSFile.CreateBMSFileFromFile(destinationBmsPath);
+            var sourceBms = BMSFile.CreateBMSFileFromFile(sourceBmsPath);
+            var destinationBms = BMSFile.CreateBMSFileFromFile(destinationBmsPath);
             LR2SongDBExtended.bmson_song sourceBmson = BmsonSongParser.Parse(sourceBmsonPath);
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
@@ -861,7 +861,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     }
                     else
                     {
-                        BMSFile row = BMSFile.CreateBMSFileFromFile(path);
+                        var row = BMSFile.CreateBMSFileFromFile(path);
                         row.path = path;
                         setup.InsertOrReplace(row, typeof(LR2SongDB.song));
                     }
@@ -1161,7 +1161,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Encoding.ASCII);
             try
             {
-                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+                var sourceFile = BMSFile.CreateBMSFileFromFile(sourceChartPath);
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
                 var library = new TestBmsLibrary(
                     songDbPath,
@@ -1355,7 +1355,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(srcChartPath, "#PLAYER 1\r\n#TITLE merge target\r\n#ARTIST artist\r\n#00111:01\r\n", Encoding.ASCII);
             try
             {
-                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(srcChartPath);
+                var sourceFile = BMSFile.CreateBMSFileFromFile(srcChartPath);
                 var existingRow = new TestableBmsFile
                 {
                     path = srcChartPath,
@@ -1430,8 +1430,8 @@ public sealed class BmsLibraryDuplicateServiceTests
             byte[] collisionBytes = File.ReadAllBytes(collisionPath);
             try
             {
-                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(srcChartPath);
-                BMSFile existingFile = BMSFile.CreateBMSFileFromFile(collisionPath);
+                var sourceFile = BMSFile.CreateBMSFileFromFile(srcChartPath);
+                var existingFile = BMSFile.CreateBMSFileFromFile(collisionPath);
                 existingFile.favorite = 7;
                 existingFile.adddate = 12345;
                 existingFile.tag = "existing-user-tag";
@@ -1525,7 +1525,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             byte[] sourceBundledFileBytes = File.ReadAllBytes(sourceBundledFilePath);
             try
             {
-                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+                var sourceFile = BMSFile.CreateBMSFileFromFile(sourceChartPath);
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.InsertOrReplace(sourceFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
@@ -1712,7 +1712,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.IsTrue(Directory.Exists(destination));
             Assert.AreEqual(files.Count, library.BMSFiles.Count);
             // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
-            using (var coldVerifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended coldVerifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(files.Count, coldVerifyDb.Table<LR2SongDB.song>().Count());
             }
@@ -1897,7 +1897,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(File.Exists(destinationUniquePath));
 
                 // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
-                using (var verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     string[] dbPaths = verifyDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                     Assert.IsFalse(dbPaths.Contains(sourceDuplicatePath, StringComparer.OrdinalIgnoreCase));
@@ -2005,7 +2005,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
     private static TestableBmsFile CreateParsedFile(string path)
     {
-        BMSFile parsed = BMSFile.CreateBMSFileFromFile(path);
+        var parsed = BMSFile.CreateBMSFileFromFile(path);
         return CreateFile(parsed.hash, path, parsed.sha256);
     }
 

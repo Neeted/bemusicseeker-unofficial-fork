@@ -255,14 +255,14 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     Visibility.Visible,
                     FindStatusBarItem(statusBar, "styleLr2SongDbSyncRetryStatusBarItem").Visibility);
 
-                Style backgroundItemStyle = (Style)statusBar.Resources[
+                var backgroundItemStyle = (Style)statusBar.Resources[
                     "styleStartupBackgroundInitializationStatusBarItem"];
                 StatusBarItem backgroundItem = statusBar.Items
                     .OfType<StatusBarItem>()
                     .Where(item => ReferenceEquals(item.Style, backgroundItemStyle))
                     .Single(item => item.Content is ProgressBar);
                 Assert.IsInstanceOfType(backgroundItem.Content, typeof(ProgressBar));
-                ProgressBar backgroundProgress = (ProgressBar)backgroundItem.Content;
+                var backgroundProgress = (ProgressBar)backgroundItem.Content;
                 Assert.IsTrue(backgroundProgress.IsIndeterminate);
                 // The indeterminate animation can starve ApplicationIdle while this test drives
                 // the precedence transitions. Keep the compiled-content contract assertion,
@@ -321,7 +321,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
     {
         bool playlistUrlDownloadIsRunning = true;
         var calls = new List<string>();
-        MainWindowProgressStatusBarTerminals terminals = MainWindowProgressStatusBarTerminals.CreateCore(
+        var terminals = MainWindowProgressStatusBarTerminals.CreateCore(
             () => playlistUrlDownloadIsRunning,
             () => calls.Add("playlist-cancel"),
             () => calls.Add("package-cancel"),
@@ -372,7 +372,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     ownedPlaylistStore.SongDbPath),
                 library,
                 ownedPlaylistStore.Store));
-        MainWindowProgressStatusBarTerminals terminals = MainWindowProgressStatusBarTerminals.Create(viewModel);
+        var terminals = MainWindowProgressStatusBarTerminals.Create(viewModel);
         int packageCancelRequests = 0;
         int maintenanceCancelRequests = 0;
         int lr2RetryRequests = 0;
@@ -597,7 +597,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
 
     private static StatusBarItem FindStatusBarItem(StatusBar statusBar, string styleKey)
     {
-        Style style = (Style)statusBar.Resources[styleKey];
+        var style = (Style)statusBar.Resources[styleKey];
         return statusBar.Items
             .OfType<StatusBarItem>()
             .First(item => ReferenceEquals(item.Style, style));

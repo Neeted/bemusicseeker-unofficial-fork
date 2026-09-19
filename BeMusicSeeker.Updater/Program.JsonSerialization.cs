@@ -1,15 +1,14 @@
 using System.Text.Json.Serialization;
 
-namespace BeMusicSeeker.Updater
+namespace BeMusicSeeker.Updater;
+
+internal static partial class Program
 {
-    internal static partial class Program
+    [JsonSourceGenerationOptions(
+        WriteIndented = false,
+        GenerationMode = JsonSourceGenerationMode.Metadata)]
+    [JsonSerializable(typeof(TransactionJournalRecord))]
+    private sealed partial class UpdaterJsonSerializerContext : JsonSerializerContext
     {
-        [JsonSourceGenerationOptions(
-            WriteIndented = false,
-            GenerationMode = JsonSourceGenerationMode.Metadata)]
-        [JsonSerializable(typeof(TransactionJournalRecord))]
-        private sealed partial class UpdaterJsonSerializerContext : JsonSerializerContext
-        {
-        }
     }
 }

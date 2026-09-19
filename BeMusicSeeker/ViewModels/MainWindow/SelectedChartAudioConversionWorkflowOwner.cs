@@ -9,14 +9,14 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 using Ribbit.Util.Extensions;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using ModelBmsFile = BeMusicSeeker.Models.BMSFile;
 using RibbitBmsAutoPlayWriter = Ribbit.BMS.BMSAutoPlayWriter;
 
@@ -307,7 +307,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     Interlocked.Increment(ref failedCount);
                 }
             };
-            Task conversionTask = Task.Run(
+            var conversionTask = Task.Run(
                 () => executor.Execute(
                     bmsFiles,
                     folderResult.FolderPath,
@@ -371,7 +371,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
             bool cancelled = operationCancellation.IsCancellationRequested
                 || progressResult.Status == UiDialogStatus.CancelledByUser;
-            SelectedChartAudioConversionResult result = SelectedChartAudioConversionResult.Create(
+            var result = SelectedChartAudioConversionResult.Create(
                 cancelled ? SelectedChartAudioConversionStatus.Cancelled : SelectedChartAudioConversionStatus.Completed,
                 bmsFiles.Count,
                 Volatile.Read(ref completedCount),

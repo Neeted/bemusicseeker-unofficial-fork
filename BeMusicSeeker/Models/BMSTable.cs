@@ -1474,7 +1474,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         _Courses = [];
         try
         {
-            var header = ParseJson(headerJson) as JObject ?? throw new FormatException("playlist header must be an object.");
+            JObject header = ParseJson(headerJson) as JObject ?? throw new FormatException("playlist header must be an object.");
             if (header["course"] == null)
             {
                 return;
@@ -1507,7 +1507,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             DateParseHandling = DateParseHandling.None
         };
-        JToken token = JToken.ReadFrom(reader, PlaylistJsonLoadSettings);
+        var token = JToken.ReadFrom(reader, PlaylistJsonLoadSettings);
         if (reader.Read())
         {
             throw new JsonReaderException("JSON document contains trailing content.");
@@ -1577,7 +1577,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     {
         try
         {
-            var header = ParseJson(headerJson ?? string.Empty) as JObject ?? throw new FormatException("playlist header must be an object.");
+            JObject header = ParseJson(headerJson ?? string.Empty) as JObject ?? throw new FormatException("playlist header must be an object.");
             string compatPrefix = header.TryGetValue("compat_prefix", out JToken compatPrefixToken) && compatPrefixToken.Type != JTokenType.Null
                 ? compatPrefixToken.ToString()
                 : string.Empty;

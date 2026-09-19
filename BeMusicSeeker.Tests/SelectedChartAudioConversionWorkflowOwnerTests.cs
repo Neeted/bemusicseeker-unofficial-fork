@@ -172,7 +172,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             var executor = new RecordingExecutor(events);
             var playback = new RecordingPlayback(events);
-            var owner = CreateOwner(dialogs, playback, executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
 
             SelectedChartAudioConversionResult result = await owner.RunAsync(
                 new SelectedChartAudioConversionRequest([
@@ -216,7 +216,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             var playback = new RecordingPlayback(events);
             var fallbackValues = new List<EncoderType>();
-            var owner = CreateOwner(dialogs, playback, executor, events, fallbackValues);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events, fallbackValues);
 
             SelectedChartAudioConversionResult result = await owner.RunAsync(
                 new SelectedChartAudioConversionRequest([
@@ -263,7 +263,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 ExecuteAction = (_, _, _, _, _) => throw workerFailure
             };
-            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
 
             InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
@@ -308,7 +308,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 ExecuteAction = (_, _, _, _, report) => report(true)
             };
-            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
             var request = new SelectedChartAudioConversionRequest([
                 CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
             ]);
@@ -378,7 +378,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                     releaseWorker.Wait();
                 }
             };
-            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
             var request = new SelectedChartAudioConversionRequest([
                 CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
             ]);
@@ -438,7 +438,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 ExecuteAction = (_, _, _, _, report) => report(true)
             };
-            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
 
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
@@ -485,7 +485,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                     cancellationToken.WaitHandle.WaitOne();
                 }
             };
-            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
 
             InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
@@ -543,7 +543,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                     releaseWorker.Wait();
                 }
             };
-            var owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
             var request = new SelectedChartAudioConversionRequest([
                 CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
             ]);

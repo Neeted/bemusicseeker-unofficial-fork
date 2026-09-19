@@ -63,7 +63,7 @@ internal sealed class PrimaryHashLookupSnapshot : IPrimaryHashLookup
             return new PrimaryHashLookupSnapshot(immutableSource);
         }
 
-        ImmutableDictionary<string, int>.Builder builder = EmptyCounts.ToBuilder();
+        var builder = EmptyCounts.ToBuilder();
         foreach (KeyValuePair<string, int> item in source ?? new Dictionary<string, int>())
         {
             if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > 0)

@@ -1,6 +1,6 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -34,7 +34,7 @@ public sealed class PlayHistoryReadModelTests
             Message = "installed"
         };
 
-        Lr2PlayHistorySchemaStatusSnapshot snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
+        var snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
         result.Status = Lr2PlayHistorySchemaStatus.Repairable;
         result.ScoreDbPath = "other.db";
         result.Message = "changed";
@@ -48,7 +48,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void PlayHistoryPeriodRequest_AllHasNoEpochBounds()
     {
-        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+        var request = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.All,
             new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
@@ -71,8 +71,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void PlayHistoryPeriodRequest_UsesProvidedLocalTimeZoneForDayBoundary()
     {
-        TimeZoneInfo utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
-        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+        var utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
+        var request = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.Today,
             new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
             utcPlusNine);
@@ -84,7 +84,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void PlayHistoryPeriodRequest_DiagnosticsIncludesUnfinalizedWithoutDateBounds()
     {
-        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+        var request = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.Diagnostics,
             new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
@@ -104,11 +104,11 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void PlayHistoryPeriodRequest_ArchiveRangesUseLocalBoundaries()
     {
-        TimeZoneInfo utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
+        var utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
 
-        PlayHistoryPeriodRequest year = PlayHistoryPeriodRequest.CreateYear(2026, utcPlusNine);
-        PlayHistoryPeriodRequest month = PlayHistoryPeriodRequest.CreateMonth(2026, 12, utcPlusNine);
-        PlayHistoryPeriodRequest day = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, utcPlusNine);
+        var year = PlayHistoryPeriodRequest.CreateYear(2026, utcPlusNine);
+        var month = PlayHistoryPeriodRequest.CreateMonth(2026, 12, utcPlusNine);
+        var day = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, utcPlusNine);
 
         Assert.AreEqual(PlayHistoryPeriodKind.Year, year.Kind);
         Assert.AreEqual("2026", year.Label);
@@ -151,7 +151,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void PlayHistoryPeriodTreeItem_BuildArchiveTreeUsesProvidedTimeZone()
     {
-        TimeZoneInfo utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
+        var utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
         IReadOnlyList<PlayHistoryPeriodTreeItem> tree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
             [
                 UtcEpoch(2026, 1, 1, 14),
@@ -1188,7 +1188,7 @@ public sealed class PlayHistoryReadModelTests
     {
         PlayHistoryRow row = CreateProjectedRow(HashA);
         BMSTable table = CreateTargetTable(HashA, "Alpha");
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+        var index = PlayHistoryDisplayTargetIndex.Create(
             PlayHistoryDisplayTargetItem.FromPlaylist(table),
             [table],
             _ => { });
@@ -1206,7 +1206,7 @@ public sealed class PlayHistoryReadModelTests
         PlayHistoryRow matchingRow = CreateProjectedRow(HashA);
         PlayHistoryRow otherRow = CreateProjectedRow(HashB);
         BMSTable table = CreateTargetTable(HashA, "Alpha");
-        PlayHistoryDisplayTargetItem target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
+        var target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
         {
             Name = "SAT Alpha",
             Targets =
@@ -1217,7 +1217,7 @@ public sealed class PlayHistoryReadModelTests
                 }
             ]
         });
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(target, [table], _ => { });
+        var index = PlayHistoryDisplayTargetIndex.Create(target, [table], _ => { });
 
         bool matched = index.TryApply(matchingRow, out PlayHistoryRow displayRow);
         bool otherMatched = index.TryApply(otherRow, out _);
@@ -1233,7 +1233,7 @@ public sealed class PlayHistoryReadModelTests
         PlayHistoryRow matchingRow = CreateProjectedRow(HashA, initialFolderLabels: "Original");
         PlayHistoryRow otherRow = CreateProjectedRow(HashB, initialFolderLabels: "Original");
         BMSTable table = CreateTargetTable(HashA, "Alpha");
-        PlayHistoryDisplayTargetItem target = PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly(new PlayHistoryDisplayTargetSet
+        var target = PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly(new PlayHistoryDisplayTargetSet
         {
             Name = "SAT Alpha",
             Targets =
@@ -1244,7 +1244,7 @@ public sealed class PlayHistoryReadModelTests
                 }
             ]
         });
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(target, [table], _ => { });
+        var index = PlayHistoryDisplayTargetIndex.Create(target, [table], _ => { });
 
         bool matched = index.TryApply(matchingRow, out PlayHistoryRow displayRow);
         bool otherMatched = index.TryApply(otherRow, out PlayHistoryRow otherDisplayRow);
@@ -1269,7 +1269,7 @@ public sealed class PlayHistoryReadModelTests
         sameNameDifferentIdTable.name = idMatchedTable.name;
         sameNameDifferentIdTable.symbol = idMatchedTable.symbol;
         sameNameDifferentIdTable.org_symbol = idMatchedTable.org_symbol;
-        PlayHistoryDisplayTargetItem target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
+        var target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
         {
             Name = "SAT Alpha",
             Targets =
@@ -1280,7 +1280,7 @@ public sealed class PlayHistoryReadModelTests
                 }
             ]
         });
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(target, [idMatchedTable, sameNameDifferentIdTable], _ => { });
+        var index = PlayHistoryDisplayTargetIndex.Create(target, [idMatchedTable, sameNameDifferentIdTable], _ => { });
 
         bool idMatched = index.TryApply(idMatchRow, out PlayHistoryRow displayRow);
         bool sameNameMatched = index.TryApply(nameOnlyRow, out _);
@@ -1416,7 +1416,7 @@ public sealed class PlayHistoryReadModelTests
             displayTargetRevision: owner.DisplayTargetRevision);
         owner.PresentationState.CurrentView = state;
 
-        PlayHistoryDisplayTargetItem latestTarget = PlayHistoryDisplayTargetItem.FromPlaylist(CreateTargetTable(HashA, "Latest"));
+        var latestTarget = PlayHistoryDisplayTargetItem.FromPlaylist(CreateTargetTable(HashA, "Latest"));
         long latestDisplayRevision = owner.AdvanceDisplayTargetRevision(latestTarget.Identity);
         PlayHistoryPresentationFreshnessResult displayStale = owner.EvaluateTerminalPresentationFreshness(
             state,
@@ -1466,7 +1466,7 @@ public sealed class PlayHistoryReadModelTests
     {
         PlayHistoryRow row = CreateProjectedRow(HashA, ShaA, initialFolderLabels: "SAT");
         BMSTable table = CreateTargetTable(HashB, "Alpha", ShaA);
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+        var index = PlayHistoryDisplayTargetIndex.Create(
             PlayHistoryDisplayTargetItem.FromPlaylist(table),
             [table],
             _ => { });
@@ -1481,7 +1481,7 @@ public sealed class PlayHistoryReadModelTests
     {
         PlayHistoryRow row = CreateProjectedRow(HashA, initialFolderLabels: "SAT");
         BMSTable table = CreateTargetTable(HashA, string.Empty);
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+        var index = PlayHistoryDisplayTargetIndex.Create(
             PlayHistoryDisplayTargetItem.FromPlaylist(table),
             [table],
             _ => { });
@@ -1583,7 +1583,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(row.BestClearUpdated);
         Assert.AreEqual("FC -> PA", row.BestClear);
 
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("all", projected.Rows);
         Assert.AreEqual(1, summary.NewPerfectCount);
     }
 
@@ -1601,7 +1601,7 @@ public sealed class PlayHistoryReadModelTests
                 Lr2PlayHistorySchemaStatus.Installed),
             CreateProjectionIndex());
 
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
 
         Assert.AreEqual("today", summary.Label);
         Assert.AreEqual(2, summary.RowCount);
@@ -1617,11 +1617,11 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void SummaryTextIncludesDiagnosticDetailWhenPresent()
     {
-        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+        var request = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.All,
             new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", []);
+        var summary = PlayHistoryPeriodSummary.FromRows("all", []);
 
         string text = PlayHistoryPresentationState.FormatGridSummaryText(
             request,
@@ -1656,7 +1656,7 @@ public sealed class PlayHistoryReadModelTests
                 [],
                 Lr2PlayHistorySchemaStatus.Installed),
             CreateProjectionIndex());
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
 
         IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
 
@@ -1695,7 +1695,7 @@ public sealed class PlayHistoryReadModelTests
     public void PresentationOwnerMapsSelectedSummaryFiltersAndDiagnosticPriority()
     {
         var selectedKeys = new HashSet<string>(StringComparer.Ordinal) { "score", "fc" };
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", []);
+        var summary = PlayHistoryPeriodSummary.FromRows("all", []);
 
         IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(
             summary,
@@ -1720,8 +1720,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public async Task SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        PlayHistoryPeriodTreeItem[] archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
         viewModel.PlayHistory.PresentationState.SetArchivePeriodTree(archive);
         viewModel.PlayHistory.PresentationState.SetSummaryCards(new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
         viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
@@ -1788,7 +1788,7 @@ public sealed class PlayHistoryReadModelTests
             ],
             [],
             Lr2PlayHistorySchemaStatus.Installed);
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+        var summary = PlayHistoryPeriodSummary.FromRows(
             "today",
             PlayHistoryRow.ProjectBeatorajaRows(readResult, CreateProjectionIndex()).Rows);
 
@@ -1803,7 +1803,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void SummaryCardsShowDashWhenSnapshotValuesAreUnavailable()
     {
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+        var summary = PlayHistoryPeriodSummary.FromRows(
             "summary",
             [],
             new PlayHistoryPeriodSummaryOverride(null, null, null));
@@ -1882,7 +1882,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("assist-to-easy", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("assist-to-easy", projected.Rows);
 
         Assert.AreEqual(ClearType.INVALID, row.OldBestClear);
         Assert.AreEqual(ClearType.EASY, row.NewBestClear);
@@ -1917,7 +1917,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("assist-update", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("assist-update", projected.Rows);
         PlayHistorySummaryCard assistCard = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2).Single(card => card.Label == "ASSIST");
 
         Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
@@ -1960,7 +1960,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("force-easy", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("force-easy", projected.Rows);
 
         Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
         Assert.AreEqual(ClearType.INVALID, row.NewBestClear);
@@ -2010,7 +2010,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("same-easy", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("same-easy", projected.Rows);
 
         Assert.AreEqual(ClearType.EASY, row.OldBestClear);
         Assert.AreEqual(ClearType.EASY, row.NewBestClear);
@@ -2032,7 +2032,7 @@ public sealed class PlayHistoryReadModelTests
                 Lr2PlayHistorySchemaStatus.Installed),
             CreateProjectionIndex());
 
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("failed", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("failed", projected.Rows);
 
         Assert.AreEqual(1, summary.ClearUpdateCount);
         Assert.AreEqual(0, summary.NewClearCount);
@@ -2051,7 +2051,7 @@ public sealed class PlayHistoryReadModelTests
                 Lr2PlayHistorySchemaStatus.Installed),
             PlayHistoryProjectionIndex.Empty);
 
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("diagnostic", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows("diagnostic", projected.Rows);
 
         Assert.AreEqual(1, summary.RowCount);
         Assert.AreEqual(1L, summary.FinalizedCount);
@@ -2097,8 +2097,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public async Task MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var regularSortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         regularOwner.SortChanged += (_, request) => regularSortChanged.TrySetResult(request);
@@ -2146,8 +2146,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public async Task MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var playHistorySortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         viewModel.PlayHistory.SortChanged += (_, request) => playHistorySortChanged.TrySetResult(request);
@@ -2203,8 +2203,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void MainChartListSortRequest_RejectsStaleAndAbaOwnerRevisions()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var regularRequests = new List<MainChartListSortRequestedEventArgs>();
         var playHistoryRequests = new List<MainChartListSortRequestedEventArgs>();
         regularOwner.SortChanged += (_, request) => regularRequests.Add(request);
@@ -2238,8 +2238,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void RegularSortMutation_CancelsTheInFlightRowRequestBeforeRefreshRuns()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var owner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        RegularChartListOwner owner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         Assert.IsTrue(owner.TryBeginRequest(out RegularChartListRequestLease lease));
 
         owner.QueueSort(new MainChartListSortRequestedEventArgs(
@@ -2346,8 +2346,8 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void SortRefreshQueues_StartEvenWhenSortChangedSubscriberFails()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         using var regularRefreshed = new ManualResetEventSlim();
         regularOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected regular notification failure");
         regularOwner.SortRefreshRequested += (_, _) => regularRefreshed.Set();
@@ -2427,7 +2427,7 @@ public sealed class PlayHistoryReadModelTests
             });
             PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, CreateProjectionIndex());
             PlayHistoryRow row = projected.Rows.Single();
-            PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("beatoraja", projected.Rows);
+            var summary = PlayHistoryPeriodSummary.FromRows("beatoraja", projected.Rows);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, read.SchemaStatus);
             Assert.IsFalse(read.HasErrors);
@@ -2461,7 +2461,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(0L, summary.JudgeCount);
             Assert.IsTrue(GridKeywordSearchQuery.Parse("title:resolved artist:artist folder:SAT playlist:Satellite md5:" + HashA.Substring(0, 8) + " hash:" + ShaA.Substring(0, 12) + " sha256:" + ShaA.Substring(0, 12) + " source:beatoraja kind:score clear:CLEAR").MatchesPlayHistoryRow(row));
             BMSTable targetTable = CreateTargetTable(HashA, "FolderA");
-            PlayHistoryDisplayTargetIndex targetIndex = PlayHistoryDisplayTargetIndex.Create(
+            var targetIndex = PlayHistoryDisplayTargetIndex.Create(
                 PlayHistoryDisplayTargetItem.FromPlaylist(targetTable),
                 [targetTable],
                 null);
@@ -2495,13 +2495,13 @@ public sealed class PlayHistoryReadModelTests
             {
                 ScoreDbPath = scoreDbPath
             });
-            PlayHistoryPeriodRequest day2Request = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
+            var day2Request = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
             PlayHistoryPeriodSummaryOverride day2SummaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(day2Request, read);
             PlayHistoryPeriodSummaryOverride allSummaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
                 PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.All, new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc),
                 read);
             PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, PlayHistoryProjectionIndex.Empty);
-            PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+            var summary = PlayHistoryPeriodSummary.FromRows(
                 "beatoraja",
                 [],
                 day2SummaryOverride);
@@ -2920,7 +2920,7 @@ public sealed class PlayHistoryReadModelTests
 
     private static PlayHistoryProjectionIndex CreateProjectionIndex()
     {
-        BMSFile file = BMSFile.FromSongTableRawValues(
+        var file = BMSFile.FromSongTableRawValues(
         [
             HashA,
             "Resolved Title",
@@ -2953,7 +2953,7 @@ public sealed class PlayHistoryReadModelTests
             ""
         ]);
         file.ApplySnapshotDigest(HashA, ShaA);
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
         var table = new BMSTable
         {
             name = "Satellite",
@@ -2969,7 +2969,7 @@ public sealed class PlayHistoryReadModelTests
 
     private static void AssertPeriodRange(PlayHistoryPeriodKind kind, long expectedFromInclusive, long expectedToExclusive)
     {
-        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+        var request = PlayHistoryPeriodRequest.Create(
             kind,
             new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
@@ -3493,7 +3493,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void MainViewSelectionKeepsExistingChartOperationContextWhenDeactivationRaises()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         PlayHistoryWorkflowOwner playHistory = viewModel.PlayHistory;
         viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
         playHistory.BeginRequest(
@@ -3702,7 +3702,7 @@ public sealed class PlayHistoryReadModelTests
     {
         var owner = new PlayHistoryWorkflowOwner();
         owner.ConfigureViewExecution(CreateViewExecutionDependencies());
-        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.Create(
+        var period = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.Today,
             new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
@@ -3853,7 +3853,7 @@ public sealed class PlayHistoryReadModelTests
             owner.DisplayTargetRevision);
         owner.PresentationState.CurrentView = state;
 
-        PlayHistoryDisplayTargetItem latestTarget = PlayHistoryDisplayTargetItem.FromTargetSet(
+        var latestTarget = PlayHistoryDisplayTargetItem.FromTargetSet(
             new PlayHistoryDisplayTargetSet { Name = "latest-target" });
         owner.AdvanceDisplayTargetRevision(latestTarget.Identity);
         using var refreshed = new ManualResetEventSlim();

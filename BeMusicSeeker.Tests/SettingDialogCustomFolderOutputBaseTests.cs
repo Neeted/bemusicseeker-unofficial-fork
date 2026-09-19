@@ -33,7 +33,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         bool previousShowDuplicateFileCheckConfirmMsg = testSettings.ShowDuplicateFileCheckConfirmMsg;
         try
         {
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
@@ -81,7 +81,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
         try
         {
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
@@ -113,7 +113,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             {
             }
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             BMSTable tableA = CreatePresetTable(101, "Satellite", "SAT");
             BMSTable tableB = CreatePresetTable(202, "Satellite", "SAT");
@@ -356,7 +356,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 }
             ]);
             testSettings.PlayHistoryDisplayTargetSetsJson = savedJson;
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             dialog.AddPlayHistoryFolderDisplayPreset();
@@ -386,7 +386,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         {
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
 
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
@@ -417,7 +417,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         {
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
 
             Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
 
@@ -444,7 +444,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         {
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
 
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
@@ -478,7 +478,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         {
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
 
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
@@ -511,7 +511,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         {
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
@@ -541,7 +541,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         {
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved", playlistId: 101)
@@ -1395,7 +1395,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            CustomFolderOutputSettingsSnapshot startupSettings =
+            var startupSettings =
                 CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
             testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempRootPath, "ChangedNormalOutput");
             testSettings.LR2CustomFolderOutputBaseDirRootType = changedRootOutputBase;
@@ -1427,7 +1427,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         testSettings.OperationModeLR2DB = true;
         testSettings.LR2ConfigXmlPath = Path.Combine(config.LR2RootPath, "LR2files", "Config", "config.xml");
         config.Save();
-        var viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
         // The test factory intentionally does not run startup initialization. Keep the
         // in-memory LR2 configuration that owns the prepared fixture available to the
         // workspace's typed custom-folder output port.
@@ -1464,7 +1464,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     private void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)
     {
-        var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
         playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
         SetViewModelField(viewModel, "tables", playlist);
         viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);

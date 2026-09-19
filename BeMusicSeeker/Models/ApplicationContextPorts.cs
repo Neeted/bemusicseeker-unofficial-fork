@@ -85,7 +85,7 @@ internal sealed class WpfUiScheduler : IUiScheduler
 
     internal WpfUiScheduler(Func<Dispatcher> dispatcherProvider)
     {
-        this.dispatcher = (dispatcherProvider
+        dispatcher = (dispatcherProvider
             ?? throw new ArgumentNullException(nameof(dispatcherProvider)))();
     }
 

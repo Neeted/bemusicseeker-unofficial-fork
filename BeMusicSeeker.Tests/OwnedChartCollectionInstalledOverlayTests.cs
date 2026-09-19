@@ -27,7 +27,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             Directory.CreateDirectory(rootPath);
             string chartPath = Path.Combine(rootPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
                 SearchTargets = [rootPath]
@@ -46,8 +46,8 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
@@ -69,9 +69,9 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var firstBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
-            var secondBmsFile = CreateFile(firstBmsFile.hash, Path.Combine("C:\\Installed", "Second", "chart.bms"));
-            var otherBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
+            TestableBmsFile firstBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
+            TestableBmsFile secondBmsFile = CreateFile(firstBmsFile.hash, Path.Combine("C:\\Installed", "Second", "chart.bms"));
+            TestableBmsFile otherBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [firstBmsFile, secondBmsFile, otherBmsFile],
@@ -112,8 +112,8 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             string keptPath = Path.Combine(keptDirectoryPath, "chart.bms");
             File.WriteAllText(removedPath, "#PLAYER 1");
             File.WriteAllText(keptPath, "#PLAYER 1");
-            var removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", removedPath);
-            var keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", keptPath);
+            TestableBmsFile removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", removedPath);
+            TestableBmsFile keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", keptPath);
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BMSFiles = [removedBmsFile, keptBmsFile],
@@ -146,8 +146,8 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             Directory.CreateDirectory(chartDirectory);
             string sharedPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(sharedPath, "#PLAYER 1");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
-            var duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
+            TestableBmsFile duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BMSFiles = [bmsFile, duplicateOwner],
@@ -175,8 +175,8 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             Directory.CreateDirectory(chartDirectory);
             string sharedPath = Path.Combine(chartDirectory, "chart.bmson");
             File.WriteAllText(sharedPath, "{}");
-            var bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            LR2SongDBExtended.bmson_song duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BMSFiles = [],
@@ -201,8 +201,8 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.Combine("C:\\Installed", "Warmup");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(root, "Bms", "chart.bms"));
-            var bmsonSong = CreateBmsonSong(Path.Combine(root, "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(root, "Bms", "chart.bms"));
+            LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(Path.Combine(root, "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],
@@ -227,8 +227,8 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PrimaryWarmup", "Bms", "chart.bms"));
-            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "PrimaryWarmup", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PrimaryWarmup", "Bms", "chart.bms"));
+            LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "PrimaryWarmup", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [bmsFile],

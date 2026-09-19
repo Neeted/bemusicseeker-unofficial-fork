@@ -333,7 +333,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void SetWarning(ChartWarningKind kind, string message)
     {
-        ChartWarning warning = ChartWarning.Create(kind, message);
+        var warning = ChartWarning.Create(kind, message);
         pendingWarnings[warning.Kind] = warning;
         projectedWarningCategories.Add(warning.Category);
         RaiseChartChanged();

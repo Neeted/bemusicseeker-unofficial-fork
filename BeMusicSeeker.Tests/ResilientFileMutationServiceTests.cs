@@ -140,7 +140,7 @@ public sealed class ResilientFileMutationServiceTests
             WriteAllText(sourceFilePath, "source");
             WriteAllText(destinationFilePath, "destination");
 
-            using var lockedFileStream = LongPathFileSystem.Open(sourceFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            using FileStream lockedFileStream = LongPathFileSystem.Open(sourceFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
             Assert.ThrowsException<IOException>(() =>
                 LongPathFileSystem.MoveFile(sourceFilePath, destinationFilePath, overwrite: true));
@@ -157,7 +157,7 @@ public sealed class ResilientFileMutationServiceTests
     [TestMethod]
     public void MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource()
     {
-        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource));
+        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource));
         string sourceFilePath = Path.Combine(directories.SourceBaseDirectory, "source.bms");
         string destinationFilePath = Path.Combine(directories.DestinationBaseDirectory, "destination.bms");
         WriteAllText(sourceFilePath, "source");
@@ -211,7 +211,7 @@ public sealed class ResilientFileMutationServiceTests
     [TestMethod]
     public void MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource()
     {
-        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource));
+        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource));
         string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
         string sourceChildDirectoryPath = Path.Combine(sourceDirectoryPath, "child");
         string destinationDirectoryPath = BuildLongDirectoryPath(directories.DestinationBaseDirectory, "destination");
@@ -232,7 +232,7 @@ public sealed class ResilientFileMutationServiceTests
     [TestMethod]
     public void MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging()
     {
-        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging));
+        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging));
         string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
         string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "destination");
         string sourceChildDirectoryPath = Path.Combine(sourceDirectoryPath, "child");
@@ -266,7 +266,7 @@ public sealed class ResilientFileMutationServiceTests
     [TestMethod]
     public void MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides()
     {
-        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides));
+        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides));
         string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
         string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "destination");
         LongPathFileSystem.CreateDirectory(sourceDirectoryPath);
@@ -587,8 +587,8 @@ public sealed class ResilientFileMutationServiceTests
             LongPathFileSystem.CreateDirectory(secondDestinationPath);
             string sentinelPath = Path.Combine(secondDestinationPath, "sentinel.txt");
             WriteAllText(sentinelPath, "sentinel");
-            var firstPath = CreateMutationPathPlanForTest(firstSourcePath, firstDestinationPath, isDirectory: false);
-            var secondPath = CreateMutationPathPlanForTest(secondSourcePath, secondDestinationPath, isDirectory: false);
+            FileDbMutationPathPlan firstPath = CreateMutationPathPlanForTest(firstSourcePath, firstDestinationPath, isDirectory: false);
+            FileDbMutationPathPlan secondPath = CreateMutationPathPlanForTest(secondSourcePath, secondDestinationPath, isDirectory: false);
             var plan = new FileDbMutationPlan(
                 Guid.NewGuid(),
                 [firstPath, secondPath],
@@ -1146,14 +1146,14 @@ public sealed class ResilientFileMutationServiceTests
 
     private static void WriteAllText(string path, string contents)
     {
-        using var stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         writer.Write(contents);
     }
 
     private static string ReadAllText(string path)
     {
-        using var stream = LongPathFileSystem.OpenRead(path);
+        using FileStream stream = LongPathFileSystem.OpenRead(path);
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         return reader.ReadToEnd();
     }

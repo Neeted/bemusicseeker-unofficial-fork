@@ -191,7 +191,7 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
         IEnumerable<string> preparedScopeDirectories,
         out IReadOnlyDictionary<string, RootFileEnumerationEntry> mergedEntries)
     {
-        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
+        var scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (RootFileEnumerationEntry entry in CreateNormalizedFileEntries(basePaths, baseEntries))
         {
@@ -216,7 +216,7 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
         IEnumerable<string> preparedScopeDirectories)
     {
         IReadOnlyList<string> preparedDirectoryTargets = NormalizeLr2DirectoryMetadataTargets(preparedDirectories);
-        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
+        var scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
         if (scopeMatcher.IsEmpty && preparedDirectoryTargets.Count == 0)
         {
             return TryUseNormalizedDirectoryList(baseDirectories, out IReadOnlyList<string> normalizedBaseDirectories)

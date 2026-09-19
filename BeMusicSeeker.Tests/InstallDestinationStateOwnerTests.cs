@@ -14,8 +14,8 @@ public sealed class InstallDestinationStateOwnerTests
     public void ReattachFileScanResidualInstallDestinationCharts_UsesExactPathWhenAliasHashMatches()
     {
         string path = "C:\\Library\\Chart.bms";
-        var pathCandidate = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var hashCandidate = CreateBms(path.ToLowerInvariant(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile pathCandidate = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile hashCandidate = CreateBms(path.ToLowerInvariant(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         storageRowsOwner.ReplaceBmsRows([pathCandidate, hashCandidate]);
         var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
@@ -36,8 +36,8 @@ public sealed class InstallDestinationStateOwnerTests
     public void ReattachFileScanResidualInstallDestinationCharts_RejectsAmbiguousPathAndCrossKindLeakage()
     {
         string path = "C:\\Library\\Chart.bms";
-        var first = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var second = CreateBms(path, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile first = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile second = CreateBms(path, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         var bmson = new LR2SongDBExtended.bmson_song
         {
             path = path,
@@ -82,7 +82,7 @@ public sealed class InstallDestinationStateOwnerTests
     {
         string path = "C:\\Library\\Chart.bms";
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        var storageOwner = CreateBms(path, hash);
+        TestableBmsFile storageOwner = CreateBms(path, hash);
         var storageRowsOwner = new CatalogStorageRowsOwner();
         storageRowsOwner.ReplaceBmsRows([storageOwner]);
         var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
@@ -110,8 +110,8 @@ public sealed class InstallDestinationStateOwnerTests
     public void CreateOverlaySnapshot_PreservesCaseOnlyRowsWithSameHash()
     {
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        var first = CreateBms("C:\\Library\\Chart.bms", hash);
-        var second = CreateBms("C:\\Library\\chart.bms", hash);
+        TestableBmsFile first = CreateBms("C:\\Library\\Chart.bms", hash);
+        TestableBmsFile second = CreateBms("C:\\Library\\chart.bms", hash);
         var storageRowsOwner = new CatalogStorageRowsOwner();
         storageRowsOwner.ReplaceBmsRows([first, second]);
         var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
@@ -159,7 +159,7 @@ public sealed class InstallDestinationStateOwnerTests
         string installDestination,
         string installDestinationTitle)
     {
-        var source = CreateBms(path, md5);
+        TestableBmsFile source = CreateBms(path, md5);
         ChartFile chart = ChartFileProjection.WithPackageState(
             ChartFileProjection.FromBmsFile(source, includeWarningSnapshot: false, includeResourceReferences: false),
             installDestination,

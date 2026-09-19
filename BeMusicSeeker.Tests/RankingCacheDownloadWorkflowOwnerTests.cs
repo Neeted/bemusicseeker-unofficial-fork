@@ -20,7 +20,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
     {
         var runtime = new RecordingRuntime();
         var dialogs = new RecordingDialogService(runtime.Events);
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         owner.Request([Target(" "), Target(""), Target("\t")]);
 
@@ -35,7 +35,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
     {
         var runtime = new RecordingRuntime();
         var dialogs = new RecordingDialogService(runtime.Events);
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         owner.Request([Target("A"), Target("a"), Target("B"), Target("")]);
 
@@ -53,7 +53,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
             DownloadedFailures = [CacheInfo("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 2048)]
         };
         var dialogs = new RecordingDialogService(runtime.Events);
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Target("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), Target("cccccccccccccccccccccccccccccccc")]);
 
@@ -76,7 +76,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
 
@@ -92,7 +92,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
             QueryFailure = new InvalidOperationException("score source unavailable")
         };
         var dialogs = new RecordingDialogService(runtime.Events);
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
 
@@ -108,7 +108,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
             QueryFailure = new IOExceptionForTest("network failure")
         };
         var dialogs = new RecordingDialogService(runtime.Events);
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         owner.Request([Target("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]);
 
@@ -127,7 +127,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog unavailable"))
         };
-        var owner = CreateOwner(runtime, dialogs);
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, dialogs);
 
         try
         {
@@ -171,7 +171,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
     public void RankingAvailability_UsesTargetCapabilityAndCurrentLr2Id()
     {
         var runtime = new RecordingRuntime { CurrentLr2Id = 1234 };
-        var owner = CreateOwner(runtime, new RecordingDialogService(runtime.Events));
+        RankingCacheDownloadWorkflowOwner owner = CreateOwner(runtime, new RecordingDialogService(runtime.Events));
         ChartOperationTarget rankingTarget = CreateTarget(
             ChartOperationCapabilities.UpdateRanking | ChartOperationCapabilities.UseLr2Ir,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -214,7 +214,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
 
     private static ChartOperationTarget CreateTarget(ChartOperationCapabilities capabilities, string md5)
     {
-        ChartFile chart = new ChartFile(
+        var chart = new ChartFile(
             ChartFileKind.Bms,
             "C:\\charts\\target.bms",
             md5,

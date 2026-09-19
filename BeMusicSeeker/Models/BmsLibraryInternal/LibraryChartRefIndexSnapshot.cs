@@ -472,7 +472,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
     private void AddChart(ChartFile chart, string pathOverride = null)
     {
-        LibraryChartRef chartRef = LibraryChartRef.FromStorageOwnerChartFile(chart, pathOverride);
+        var chartRef = LibraryChartRef.FromStorageOwnerChartFile(chart, pathOverride);
         AddChartRef(chartRef);
     }
 

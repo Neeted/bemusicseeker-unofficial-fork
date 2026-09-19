@@ -115,7 +115,7 @@ public sealed class PlaylistSummaryBulkEditTests
     [TestMethod]
     public void PlaylistSummaryBulkEditDialogViewModel_AllowsLastPlaySortFolderRegardlessOfSchemaStatus()
     {
-        var owner = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         var dialog = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(
             owner.PlaylistWorkspace,
             []);
@@ -256,7 +256,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 };
                 windowTest.ShowAndWaitForContentRendered(view);
 
-                Dictionary<string, CheckBox> checkBoxes = FindDescendants<CheckBox>(view)
+                var checkBoxes = FindDescendants<CheckBox>(view)
                     .Select(checkBox =>
                     {
                         string? parameter = checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)
@@ -584,16 +584,16 @@ public sealed class PlaylistSummaryBulkEditTests
                     customFolderTypes,
                     outputCheckBoxes.Select(checkBox =>
                     {
-                        Binding binding = (Binding)BindingOperations.GetBindingBase(
+                        var binding = (Binding)BindingOperations.GetBindingBase(
                             checkBox,
                             ToggleButton.IsCheckedProperty)!;
                         return (string)binding.ConverterParameter;
                     }).ToArray());
                 foreach (CheckBox checkBox in outputCheckBoxes)
                 {
-                    Binding binding = (Binding)BindingOperations.GetBindingBase(checkBox, ToggleButton.IsCheckedProperty)!;
+                    var binding = (Binding)BindingOperations.GetBindingBase(checkBox, ToggleButton.IsCheckedProperty)!;
                     AssertEffectiveTwoWayBinding(checkBox, binding.ConverterParameter as string ?? "custom folder output");
-                    Binding? tooltipBinding = BindingOperations.GetBindingBase(
+                    var tooltipBinding = BindingOperations.GetBindingBase(
                         checkBox,
                         ToolTipService.ToolTipProperty) as Binding;
                     Assert.IsNotNull(tooltipBinding);
@@ -693,12 +693,12 @@ public sealed class PlaylistSummaryBulkEditTests
                 windowTest.ShowAndWaitForContentRendered(view);
                 view.UpdateLayout();
 
-                var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")
+                ScrollViewer bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")
                     ?? throw new AssertFailedException("Playlist property body viewport was not materialized.");
                 FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
                     ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
                 var navigationList = (ListBox)navigation;
-                var contentHost = (ContentControl)view.FindName("propertyContent")
+                ContentControl contentHost = (ContentControl)view.FindName("propertyContent")
                     ?? throw new AssertFailedException("Playlist property content host was not materialized.");
                 TextBlock updateDate = FindBoundElement<TextBlock>(
                     view,
@@ -835,7 +835,7 @@ public sealed class PlaylistSummaryBulkEditTests
                     view,
                     Selector.SelectedItemProperty,
                     nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
-                var folderOrder = FindBoundElement<ListBox>(
+                ListBox folderOrder = FindBoundElement<ListBox>(
                     view,
                     ItemsControl.ItemsSourceProperty,
                     nameof(PlaylistPropertyPresentationFixture.folder_order));
@@ -1026,7 +1026,7 @@ public sealed class PlaylistSummaryBulkEditTests
             };
             windowTest.ShowAndWaitForContentRendered(view);
 
-            Dictionary<string, CheckBox> checkBoxes = FindDescendants<CheckBox>(view)
+            var checkBoxes = FindDescendants<CheckBox>(view)
                 .Select(checkBox =>
                 {
                     string? path = checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)
@@ -1089,7 +1089,7 @@ public sealed class PlaylistSummaryBulkEditTests
             TestUiDispatcherHost.Drain();
             var page = (PlaylistSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
 
-            Dictionary<string, CheckBox> checkBoxes = FindDescendants<CheckBox>(page)
+            var checkBoxes = FindDescendants<CheckBox>(page)
                 .Select(checkBox =>
                 {
                     string? path = checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)

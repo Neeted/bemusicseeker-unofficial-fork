@@ -8,6 +8,9 @@ using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using ManagedBass;
+using ManagedBass.Enc;
+using ManagedBass.Mix;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
@@ -15,9 +18,6 @@ using NLog.Targets;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using ManagedBass;
-using ManagedBass.Enc;
-using ManagedBass.Mix;
 using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
 
 namespace BeMusicSeeker.Tests;
@@ -633,7 +633,7 @@ public sealed class BassNativeRuntimeTests
     {
         BassAudioRuntime.Initialize();
         BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-        Task shutdown = Task.Run(BassAudioRuntime.Shutdown);
+        var shutdown = Task.Run(BassAudioRuntime.Shutdown);
 
         try
         {

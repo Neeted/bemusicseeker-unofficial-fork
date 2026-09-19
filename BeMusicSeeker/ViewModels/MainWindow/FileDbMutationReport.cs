@@ -68,7 +68,7 @@ internal static class FileDbMutationReport
         if (destinationTypeConflicts.Count > 0)
         {
             bool hasNonConflictFailure = hasError;
-            var conflictDetails = session.ItemFailures
+            (LibraryMutationSessionItemFailure Item, FileDbMutationDestinationTypeConflict Conflict)[] conflictDetails = session.ItemFailures
                 .SelectMany(item => item.DestinationTypeConflicts
                     .Select(conflict => (Item: item, Conflict: conflict)))
                 .GroupBy(item => string.Join("\u001f",
@@ -142,7 +142,7 @@ internal static class FileDbMutationReport
                     conflictLines.Add(Localized(nameof(Resources.FileDbMutationReport_CandidatePaths)));
                     conflictLines.AddRange(recoveryPaths);
                 }
-                var conflictErrors = new[]
+                IEnumerable<Exception> conflictErrors = new[]
                 {
                     failure,
                     session.PhysicalFailure,
@@ -223,7 +223,7 @@ internal static class FileDbMutationReport
                 + Environment.NewLine + string.Join(Environment.NewLine, paths);
         }
 
-        var errors = new[]
+        IEnumerable<Exception> errors = new[]
         {
             failure,
             session.PhysicalFailure,

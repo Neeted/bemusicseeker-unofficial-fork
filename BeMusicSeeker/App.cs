@@ -10,10 +10,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
@@ -121,7 +121,7 @@ public partial class App : System.Windows.Application
         await new ApplicationStartupCompositionOwner(
             createViewModel: () =>
             {
-                ApplicationComposition composition = new ApplicationComposition(
+                var composition = new ApplicationComposition(
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
                     applicationLifetime: new AppApplicationLifetime(this),
                     cultureCatalog: new AppCultureCatalog(this),

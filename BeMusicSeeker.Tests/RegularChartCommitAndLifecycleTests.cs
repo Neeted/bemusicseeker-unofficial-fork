@@ -1,8 +1,8 @@
 using System;
-using System.Collections.ObjectModel;
-using System.Collections.Concurrent;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -279,7 +279,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             Summary = MainChartListSummaryUpdate.NormalRows(build.Sort.RowsView),
             Stopwatch = stopwatch
         };
-        RegularChartListPresentationResult presentation = RegularChartListPresentationResult.ForMaterialized(
+        var presentation = RegularChartListPresentationResult.ForMaterialized(
             build,
             request,
             new MainChartListColumnSelection(
@@ -762,7 +762,7 @@ public sealed class RegularChartCommitAndLifecycleTests
     public async Task StopAsync_CancelsAndDrainsVirtualSummaryWithoutWaitingForUi()
     {
         var table = new MainChartListViewModel();
-        var owner = CreateOwner(table, CreateWorkspaceForOwner());
+        RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         var sourceRows = new BlockingIndexedSourceRows(
             CreateSourceRow("Folder A", "a.bms"),
             CreateSourceRow("Folder B", "b.bms"));
@@ -1699,8 +1699,8 @@ public sealed class RegularChartCommitAndLifecycleTests
                 action => action(),
                 _ => { },
                 new SettingsMainChartColumnSettingsStore(() => Settings.Default));
-            var workspace = CreateWorkspaceForOwner();
-            var owner = CreateOwner(table, workspace);
+            PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+            RegularChartListOwner owner = CreateOwner(table, workspace);
             var notifications = new List<string>();
             table.PropertyChanged += (_, e) => notifications.Add("table:" + e.PropertyName!);
             workspace.PropertyChanged += (_, e) => notifications.Add("workspace:" + e.PropertyName!);
@@ -1739,8 +1739,8 @@ public sealed class RegularChartCommitAndLifecycleTests
     public void ResetCurrentColumnPresentation_WithoutInitializationFailsWithoutMutation()
     {
         var table = new MainChartListViewModel(action => action());
-        var workspace = CreateWorkspaceForOwner();
-        var owner = CreateOwner(table, workspace);
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+        RegularChartListOwner owner = CreateOwner(table, workspace);
         CustomTableColumnSettings columnsBefore = table.ColumnsSettings;
         PlaylistSummaryColumnSettings summaryBefore = workspace.PlaylistSummaryColumnsSettings;
         Visibility visibilityBefore = workspace.ColumnSettingsVisibilityForPlaylist;

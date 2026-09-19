@@ -19,7 +19,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var owner = CreateOwner(() => null!, events, store, AcceptedDialogs());
+        PackageCatalogWorkflowOwner owner = CreateOwner(() => null!, events, store, AcceptedDialogs());
 
         PackageCatalogMutationResult result = await owner.ClearAllAsync(PackageCatalogSection.Pending);
 
@@ -38,8 +38,8 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var section = (PackageCatalogSection)sectionValue;
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var dialogs = AcceptedDialogs();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PackageCatalogMutationResult result = await owner.ClearAllAsync(section);
 
@@ -61,7 +61,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PackageCatalogMutationResult result = await owner.ClearAllAsync(PackageCatalogSection.Installed);
 
@@ -79,7 +79,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var store = new RecordingStore(events);
         var failure = new InvalidOperationException("dialog failed");
         var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PackageCatalogMutationResult result = await owner.ClearAllAsync(PackageCatalogSection.Pending);
 
@@ -97,8 +97,8 @@ public sealed class PackageCatalogWorkflowOwnerTests
         TestResourceInitializer.EnsureJapaneseResources();
         var events = new List<string>();
         var store = new RecordingStore(events);
-        var dialogs = AcceptedDialogs();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         var package = new ChartPackage { path = @"C:\Pending\package" };
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
@@ -130,7 +130,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         {
             EmptySection = PackageCatalogSection.Pending
         };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Pending,
@@ -146,7 +146,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var events = new List<string>();
         var store = new RecordingStore(events);
         var dialogs = new FakeUiDialogService();
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         var package = new ChartPackage();
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
@@ -169,7 +169,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Pending,
@@ -189,7 +189,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var store = new RecordingStore(events);
         var failure = new InvalidOperationException("dialog failed");
         var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Pending,
@@ -209,10 +209,10 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var events = new List<string>();
         var expectedPackage = new ChartPackage();
         var store = new RecordingStore(events) { ResolvedPackages = [expectedPackage] };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
         ChartOperationTarget target = CreateTarget();
 
-        PackageCatalogRemovalRequest request = PackageCatalogRemovalRequest.CreatePending([target]);
+        var request = PackageCatalogRemovalRequest.CreatePending([target]);
         PackageCatalogMutationResult result = await owner.RemoveSelectionAsync(
             request);
 
@@ -242,7 +242,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var store = new RecordingStore(events);
         var failure = new InvalidOperationException("dialog failed");
         var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
-        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
         PackageCatalogMutationResult result = await owner.RemoveSelectionAsync(
             PackageCatalogRemovalRequest.CreatePending([CreateTarget()]));
@@ -267,7 +267,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             EmptySection = PackageCatalogSection.Installed
         };
         var phaseObserver = new RecordingPhaseObserver(events) { EndActivityFailure = cleanupFailure };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), phaseObserver);
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), phaseObserver);
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Installed,
@@ -296,7 +296,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             Failure = mutationFailure,
             EmptySectionFailure = emptySectionFailure
         };
-        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
             PackageCatalogSection.Installed,
@@ -318,7 +318,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         var store = new RecordingStore(events);
         var phaseObserver = new RecordingPhaseObserver(events);
         ChartMutationActivityOwner activity = new();
-        var dialogs = AcceptedDialogs();
+        FakeUiDialogService dialogs = AcceptedDialogs();
         var owner = new PackageCatalogWorkflowOwner(
             CreateLibrary,
             synchronizer,

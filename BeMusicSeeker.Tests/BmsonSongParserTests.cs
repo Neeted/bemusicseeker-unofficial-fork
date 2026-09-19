@@ -89,7 +89,7 @@ public sealed class BmsonSongParserTests
                 + "}");
 
             Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
-            ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(parsed);
+            var snapshot = ChartResourceSnapshot.Create(parsed);
 
             CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, parsed.wav_files.ToArray());
             CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, parsed.bga_files.ToArray());
@@ -129,7 +129,7 @@ public sealed class BmsonSongParserTests
                 + "}");
 
             Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
-            ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(parsed);
+            var snapshot = ChartResourceSnapshot.Create(parsed);
 
             Assert.AreEqual(0, parsed.wav_files.Count);
             Assert.AreEqual(0, parsed.bga_files.Count);

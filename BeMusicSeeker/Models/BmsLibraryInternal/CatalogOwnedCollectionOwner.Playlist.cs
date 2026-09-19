@@ -527,7 +527,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
                             return false;
                         }
                         PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_entry_visited");
-                        PlaylistLibraryResolveChartFact fact = PlaylistLibraryResolveChartFact.FromChart(
+                        var fact = PlaylistLibraryResolveChartFact.FromChart(
                             chartRef,
                             stableOrder);
                         if (fact == null)

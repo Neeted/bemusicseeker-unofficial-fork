@@ -21,7 +21,7 @@ public sealed class OwnedChartCollectionProjectionTests
     public void FromStorageRows_BuildsBmsAndBmsonOwnedChartSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
             path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
@@ -52,14 +52,14 @@ public sealed class OwnedChartCollectionProjectionTests
     public void FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
-        var duplicateBms = CreateFile("22222222222222222222222222222222", pathfulBms.path, new string('2', 64));
-        var pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        var pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
-        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
-        var duplicateBmson = CreateBmsonSong(pathfulBms.path.ToUpperInvariant(), "33333333333333333333333333333333");
+        TestableBmsFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        TestableBmsFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
+        TestableBmsFile duplicateBms = CreateFile("22222222222222222222222222222222", pathfulBms.path, new string('2', 64));
+        LR2SongDBExtended.bmson_song pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        LR2SongDBExtended.bmson_song md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
+        LR2SongDBExtended.bmson_song duplicateBmson = CreateBmsonSong(pathfulBms.path.ToUpperInvariant(), "33333333333333333333333333333333");
 
         List<ChartFile> snapshot = OwnedChartCollectionState
             .FromStorageRows([pathfulBms, pathlessBms, md5lessBms, duplicateBms], [pathfulBmson, pathlessBmson, md5lessBmson, duplicateBmson], out OwnedChartStorageRowFilterSummary filterSummary)
@@ -86,10 +86,10 @@ public sealed class OwnedChartCollectionProjectionTests
     public void ChartFileProjection_FromStorageRowsRequirePathFiltersBmsAndBmsonRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        var pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        var pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        TestableBmsFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        LR2SongDBExtended.bmson_song pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
 
         List<ChartFile> requirePath = ChartFileProjection.FromStorageRows(
             [pathfulBms, pathlessBms],
@@ -114,14 +114,14 @@ public sealed class OwnedChartCollectionProjectionTests
     public void ChartStorageTargetSet_FromRowsRejectsInvalidBmsAndBmsonRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
-        var pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        var pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
-        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
+        TestableBmsFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        TestableBmsFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
+        LR2SongDBExtended.bmson_song pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        LR2SongDBExtended.bmson_song md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
-        ChartStorageTargetSet targets = ChartStorageTargetSet.FromRows(
+        var targets = ChartStorageTargetSet.FromRows(
             [pathfulBms],
             [pathfulBmson]);
 
@@ -138,7 +138,7 @@ public sealed class OwnedChartCollectionProjectionTests
     public void CreateSnapshot_MatchesDirectStorageRowProjection()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
             path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
@@ -164,8 +164,8 @@ public sealed class OwnedChartCollectionProjectionTests
     public void CreateSnapshot_ReprojectsCurrentStorageOwnerValues()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"), new string('b', 64));
-        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"), new string('b', 64));
+        var state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
         string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
         bmsFile.path = newPath;
         bmsFile.SetHash("cccccccccccccccccccccccccccccccc");
@@ -186,11 +186,11 @@ public sealed class OwnedChartCollectionProjectionTests
     public void CreateStorageOwnerView_ReturnsOwnersAndOwnerPathLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
-        var pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
-        var pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
-        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [bmsonSong, pathlessBmson]);
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        TestableBmsFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
+        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
+        var state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [bmsonSong, pathlessBmson]);
 
         OwnedChartStorageOwnerView view = state.CreateStorageOwnerView();
 
@@ -208,12 +208,12 @@ public sealed class OwnedChartCollectionProjectionTests
     public void CreateNormalLibrarySourceStorageOwnerView_SortsBmsonRowsAndExcludesPathlessRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
-        var pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
-        var pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
-        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [lateBmson, pathlessBmson, earlyBmson]);
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        LR2SongDBExtended.bmson_song lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        LR2SongDBExtended.bmson_song earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
+        TestableBmsFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
+        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
+        var state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [lateBmson, pathlessBmson, earlyBmson]);
 
         OwnedChartStorageOwnerView view = state.CreateNormalLibrarySourceStorageOwnerView();
 
@@ -230,14 +230,14 @@ public sealed class OwnedChartCollectionProjectionTests
     public void CreateFileScanRemovedStorageOwnerIdentityCharts_UsesOwnedCurrentOwners()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-        var deletedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "deleted.bms"));
-        var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty);
+        TestableBmsFile keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+        TestableBmsFile deletedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "deleted.bms"));
+        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty);
         string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
-        var oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
-        var newBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        var pathlessBmson = CreateBmsonSong(string.Empty, "ffffffffffffffffffffffffffffffff");
-        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows(
+        LR2SongDBExtended.bmson_song oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
+        LR2SongDBExtended.bmson_song newBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(string.Empty, "ffffffffffffffffffffffffffffffff");
+        var state = OwnedChartCollectionState.FromStorageRows(
             [keptBms, deletedBms, pathlessBms],
             [oldBmson, pathlessBmson]);
 

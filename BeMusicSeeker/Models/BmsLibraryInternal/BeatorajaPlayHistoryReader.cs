@@ -22,7 +22,7 @@ internal sealed class BeatorajaPlayHistoryReader
     {
         request = ResolveRequestPaths(request);
         cancellationToken.ThrowIfCancellationRequested();
-        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Beatoraja(request.ScoreLogDbPath);
+        var sourceProfile = PlayHistorySourceProfile.Beatoraja(request.ScoreLogDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
         IReadOnlyList<BeatorajaPlayerAggregateSnapshot> playerSnapshots = LoadPlayerAggregateSnapshots(request, diagnostics, cancellationToken, out bool playerSnapshotsAvailable);
         try
@@ -89,7 +89,7 @@ internal sealed class BeatorajaPlayHistoryReader
             ScoreLogDbPath = request?.ScoreLogDbPath
         });
         cancellationToken.ThrowIfCancellationRequested();
-        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Beatoraja(resolved.ScoreLogDbPath);
+        var sourceProfile = PlayHistorySourceProfile.Beatoraja(resolved.ScoreLogDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
         if (!EnsureScoreLogExists(resolved.ScoreLogDbPath, diagnostics))
         {

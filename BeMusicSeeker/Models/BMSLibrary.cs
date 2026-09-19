@@ -1,37 +1,37 @@
 using System;
 using System.Collections;
-using System.ComponentModel;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.ExceptionServices;
 using System.Security;
 using System.Security.Cryptography;
-using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Diagnostics;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
-using NLog;
 using Newtonsoft.Json.Linq;
+using NLog;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
+using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Models;
 
@@ -1372,7 +1372,7 @@ public partial class BMSLibrary : ObservableObject
         Action<string, string> stageMarker = null)
     {
         stageMarker?.Invoke("model_reader_wait_start", null);
-        Stopwatch readerWaitStopwatch = Stopwatch.StartNew();
+        var readerWaitStopwatch = Stopwatch.StartNew();
         List<string> snapshot;
         using (rwlockBMSFiles.GetReaderGuard())
         {
@@ -5659,7 +5659,7 @@ public partial class BMSLibrary : ObservableObject
             return;
         }
         long generation = Interlocked.Increment(ref postInitializeGcGeneration);
-        PerformanceInteraction performanceInteraction =
+        var performanceInteraction =
             PerformanceInteraction.Existing("post_initialize_gc", generation, generation);
         if (Net10PerformanceLog.IsEnabled)
         {
@@ -5854,7 +5854,7 @@ public partial class BMSLibrary : ObservableObject
             LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " storage_rows_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
             if (Net10PerformanceLog.IsEnabled)
             {
-                PerformanceInteraction songTableInteraction =
+                var songTableInteraction =
                     PerformanceInteraction.Start("song_table", fileScanGeneration);
                 Net10PerformanceLog.Write(
                     songTableInteraction,
@@ -6031,7 +6031,7 @@ public partial class BMSLibrary : ObservableObject
         ResetEverythingFallbackWarningQueue();
         long fileScanGeneration = 0L;
         var stopwatch = Stopwatch.StartNew();
-        PerformanceInteraction performanceInteraction =
+        var performanceInteraction =
             PerformanceInteraction.Start("managed_file_diff");
         List<Action> postLeaseEffects = [];
         try
@@ -8342,7 +8342,7 @@ public partial class BMSLibrary : ObservableObject
             }
 
             CatalogStorageRowsSnapshot storageRows = catalogStorageRowsOwner.CaptureSnapshot();
-            OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
+            var rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
                 storageRows.BmsRows,
                 storageRows.BmsonRows,
                 cancellationToken,
@@ -10262,7 +10262,7 @@ public partial class BMSLibrary : ObservableObject
 
     public void AddReferenceBMSTablesIncremental(IEnumerable<BMSTable> tables)
     {
-        List<PlaylistReferenceTableSnapshot> tableSnapshots = SnapshotPlaylistReferenceTables(tables)
+        var tableSnapshots = SnapshotPlaylistReferenceTables(tables)
             .GroupBy(snapshot => snapshot.Table)
             .Select(group => group.First())
             .ToList();

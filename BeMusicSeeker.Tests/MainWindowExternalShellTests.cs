@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -53,7 +53,7 @@ public sealed class MainWindowExternalShellTests
                 {
                     window = new MainWindow(viewModel);
 
-                    ContextMenu contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                    var contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
                     MenuItem openExplorer = contextMenu.Items
                         .OfType<MenuItem>()
                         .Single(item => Equals(item.Header, Resources.Open_folder_explorer));
@@ -170,7 +170,7 @@ public sealed class MainWindowExternalShellTests
                         Assert.IsTrue(viewModel.IsLibraryOperationInProgress);
                         Assert.AreEqual(1, operationNotifications.Count);
 
-                        ContextMenu tableContextMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                        var tableContextMenu = (ContextMenu)window.FindResource("tableContextMenu");
                         MenuItem autoRenameMenuItem = tableContextMenu.Items
                             .OfType<MenuItem>()
                             .Single(item => item.Name == "tableContextMenuItemAutoRenameFolder");

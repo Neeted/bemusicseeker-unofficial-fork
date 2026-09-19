@@ -1,5 +1,4 @@
 using System;
-using BeMusicSeeker.Views.Dialogs;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -17,6 +16,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
 using Ribbit.Util;
 
@@ -791,7 +791,7 @@ internal sealed class RegularChartListOwner : IDisposable
         CancelAndDispose(previous);
         if (Net10PerformanceLog.IsEnabled)
         {
-            PerformanceInteraction performanceInteraction =
+            var performanceInteraction =
                 PerformanceInteraction.Existing("normal_library", lease.RequestId);
             Net10PerformanceLog.Write(
                 performanceInteraction,
@@ -852,7 +852,7 @@ internal sealed class RegularChartListOwner : IDisposable
         Cancel(prewarmCancellation);
         if (Net10PerformanceLog.IsEnabled)
         {
-            PerformanceInteraction performanceInteraction =
+            var performanceInteraction =
                 PerformanceInteraction.Existing("normal_library", lease.RequestId);
             Net10PerformanceLog.Write(
                 performanceInteraction,
@@ -891,7 +891,7 @@ internal sealed class RegularChartListOwner : IDisposable
         CancellationTokenSource previousRequest;
         lock (syncRoot)
         {
-            ChartListSortSpecification next = ChartListSortSpecification.Create(
+            var next = ChartListSortSpecification.Create(
                 request.ColumnName,
                 request.Direction,
                 hasValue: true);
@@ -1181,7 +1181,7 @@ internal sealed class RegularChartListOwner : IDisposable
         string details = string.Join(
             Environment.NewLine,
             operationFailures.Select(exception => FileDbMutationReport.Limit(exception.Message, 400)));
-        UiMessageRequest request = UiMessageRequest.CreateError(
+        var request = UiMessageRequest.CreateError(
             BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + details,
             BeMusicSeeker.Properties.Resources.Error);
         try
@@ -3140,7 +3140,7 @@ internal sealed class RegularChartListOwner : IDisposable
         request.DetailSourceRetirement = detailSourceRetirement;
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
-        PerformanceInteraction performanceInteraction =
+        var performanceInteraction =
             PerformanceInteraction.Existing("normal_library", lease.RequestId);
         if (Net10PerformanceLog.IsEnabled)
         {

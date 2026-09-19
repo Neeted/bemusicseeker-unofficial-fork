@@ -38,7 +38,7 @@ internal sealed class AutoRenameBatchCoordinator
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         long operationId = Stopwatch.GetTimestamp();
-        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        var totalStopwatch = Stopwatch.StartNew();
         List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
         int appliedPlanCount = 0;
         List<AutoRenameBatchDiagnostic> diagnostics = [];
@@ -58,7 +58,7 @@ internal sealed class AutoRenameBatchCoordinator
             progressProcessed,
             string.Empty,
             diagnostics);
-        Stopwatch moveLoopStopwatch = Stopwatch.StartNew();
+        var moveLoopStopwatch = Stopwatch.StartNew();
         ExceptionDispatchInfo primaryFailure = null;
         LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             mutationCapability,
@@ -122,7 +122,7 @@ internal sealed class AutoRenameBatchCoordinator
                 }
                 metrics.ActionablePlanCount++;
 
-                Stopwatch buildDeltaStopwatch = Stopwatch.StartNew();
+                var buildDeltaStopwatch = Stopwatch.StartNew();
                 LibraryFolderMoveFacts mutationFacts = null;
                 host.RunWithFolderMoveSnapshotLocks(() =>
                 {
@@ -135,7 +135,7 @@ internal sealed class AutoRenameBatchCoordinator
                 buildDeltaStopwatch.Stop();
                 metrics.BuildDeltaMs += buildDeltaStopwatch.ElapsedMilliseconds;
 
-                Stopwatch moveStopwatch = Stopwatch.StartNew();
+                var moveStopwatch = Stopwatch.StartNew();
                 try
                 {
                     host.MoveFolderPhysical(sourceDirectory, destinationDirectory);
@@ -146,7 +146,7 @@ internal sealed class AutoRenameBatchCoordinator
                     metrics.MoveFileMs += moveStopwatch.ElapsedMilliseconds;
                 }
 
-                Stopwatch appendDeltaStopwatch = Stopwatch.StartNew();
+                var appendDeltaStopwatch = Stopwatch.StartNew();
                 session.AppendFolderMove(sourceDirectory, destinationDirectory, mutationFacts);
                 appendDeltaStopwatch.Stop();
                 metrics.AppendDeltaMs += appendDeltaStopwatch.ElapsedMilliseconds;
@@ -199,7 +199,7 @@ internal sealed class AutoRenameBatchCoordinator
         moveLoopStopwatch.Stop();
         metrics.MoveLoopMs = moveLoopStopwatch.ElapsedMilliseconds;
 
-        Stopwatch sessionCommitStopwatch = Stopwatch.StartNew();
+        var sessionCommitStopwatch = Stopwatch.StartNew();
         LibraryMutationSessionReceipt sessionReceipt = session.Commit();
         sessionCommitStopwatch.Stop();
         metrics.SessionCommitMs = sessionCommitStopwatch.ElapsedMilliseconds;

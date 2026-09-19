@@ -368,7 +368,7 @@ internal static class Lr2SongDbWriter
         const int chunkSize = 80;
         for (int offset = 0; offset < projections.Count; offset += chunkSize)
         {
-            List<Lr2ChartInfoSongProjection> chunk = projections.Skip(offset).Take(chunkSize).ToList();
+            var chunk = projections.Skip(offset).Take(chunkSize).ToList();
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);
@@ -505,7 +505,7 @@ internal static class Lr2SongDbWriter
         const int chunkSize = 30;
         for (int offset = 0; offset < songs.Count; offset += chunkSize)
         {
-            List<BMSFile> chunk = songs.Skip(offset).Take(chunkSize).ToList();
+            var chunk = songs.Skip(offset).Take(chunkSize).ToList();
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);
@@ -575,7 +575,7 @@ internal static class Lr2SongDbWriter
         const int chunkSize = 30;
         for (int offset = 0; offset < songs.Count; offset += chunkSize)
         {
-            List<BMSFile> chunk = songs.Skip(offset).Take(chunkSize).ToList();
+            var chunk = songs.Skip(offset).Take(chunkSize).ToList();
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);
@@ -693,7 +693,7 @@ internal static class Lr2SongDbWriter
         const int chunkSize = 35;
         for (int offset = 0; offset < songs.Count; offset += chunkSize)
         {
-            List<BMSFile> chunk = songs.Skip(offset).Take(chunkSize).ToList();
+            var chunk = songs.Skip(offset).Take(chunkSize).ToList();
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", 26)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * 26);
@@ -889,7 +889,7 @@ internal static class Lr2SongDbWriter
         List<KeyValuePair<string, string>> digests = [.. digestsByMd5];
         for (int offset = 0; offset < digests.Count; offset += chunkSize)
         {
-            List<KeyValuePair<string, string>> chunk = digests.Skip(offset).Take(chunkSize).ToList();
+            var chunk = digests.Skip(offset).Take(chunkSize).ToList();
             string placeholders = string.Join(",", chunk.Select(_ => "(?, ?)"));
             var args = new List<object>(chunk.Count * 2);
             foreach (KeyValuePair<string, string> digest in chunk)
@@ -944,7 +944,7 @@ internal static class Lr2SongDbWriter
         const int chunkSize = 500;
         for (int offset = 0; offset < hashes.Count; offset += chunkSize)
         {
-            List<string> chunk = hashes.Skip(offset).Take(chunkSize).ToList();
+            var chunk = hashes.Skip(offset).Take(chunkSize).ToList();
             string placeholders = string.Join(",", chunk.Select(_ => "(?)"));
             songDb.Execute(
                 "INSERT OR IGNORE INTO temp." + tableName + " (md5) VALUES " + placeholders + ";",
@@ -1042,7 +1042,7 @@ internal static class Lr2SongDbWriter
 
     private static GeneratedSongRow FindSongByPath(LR2SongDBExtended songDb, string path)
     {
-        var existingRows = songDb.Query<GeneratedSongRow>(
+        List<GeneratedSongRow> existingRows = songDb.Query<GeneratedSongRow>(
             "SELECT "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " AS path, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " AS hash, "
@@ -1091,7 +1091,7 @@ internal static class Lr2SongDbWriter
         const int chunkSize = 500;
         for (int offset = 0; offset < normalizedPaths.Count; offset += chunkSize)
         {
-            List<string> chunk = normalizedPaths.Skip(offset).Take(chunkSize).ToList();
+            var chunk = normalizedPaths.Skip(offset).Take(chunkSize).ToList();
             string placeholders = string.Join(",", chunk.Select(_ => "?"));
             string sql = "SELECT "
                 + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " AS path, "

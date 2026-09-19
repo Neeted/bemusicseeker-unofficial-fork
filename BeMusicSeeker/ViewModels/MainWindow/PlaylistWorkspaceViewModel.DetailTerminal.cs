@@ -124,7 +124,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             request.ColumnSettingMode,
             request.CurrentTreeMode);
         PlaylistDetailTerminalCommitResult commit;
-        PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+        var performanceInteraction = PerformanceInteraction.Existing(
             "playlist_detail",
             request.BuildRequest.RequestVersion,
             request.BuildRequest.RequestVersion);

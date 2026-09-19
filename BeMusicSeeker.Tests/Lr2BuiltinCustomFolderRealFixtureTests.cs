@@ -19,7 +19,7 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
     [TestMethod]
     public void RealBuiltinCustomFolderFixture_ProjectsKnownLr2FolderRows()
     {
-        using FixtureScope scope = FixtureScope.Create();
+        using var scope = FixtureScope.Create();
         IReadOnlyList<string> lr2FolderFiles = scope.GetLr2FolderFiles();
         Assert.AreEqual(91, lr2FolderFiles.Count);
 
@@ -71,7 +71,7 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
     [TestMethod]
     public void RealBuiltinCustomFolderFixture_SyncsCategoryRowsFromFolderInfoAndDirectoryMtime()
     {
-        using FixtureScope scope = FixtureScope.Create();
+        using var scope = FixtureScope.Create();
         IReadOnlyList<string> lr2FolderFiles = scope.GetLr2FolderFiles();
         IReadOnlyList<string> folderInfoFiles = scope.GetFolderInfoFiles();
         IReadOnlyList<string> directories = scope.GetDirectories();
@@ -101,7 +101,7 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
         });
 
         Assert.AreEqual(98, syncResult.UpsertedCount);
-        List<LR2SongDB.folder> rows = songDb.Table<LR2SongDB.folder>().ToList();
+        var rows = songDb.Table<LR2SongDB.folder>().ToList();
         Assert.AreEqual(98, rows.Count);
 
         LR2SongDB.folder randomCategory = rows.Single(row => row.path == @"LR2files\CustomFolder\RANDOM\");
@@ -274,7 +274,7 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
                 string[] parts = line.Split('\t');
                 Assert.AreEqual(3, parts.Length, "Invalid manifest line: " + line);
                 string relativePath = NormalizeManifestRelativePath(parts[1]);
-                DateTime timestamp = DateTime.ParseExact(
+                var timestamp = DateTime.ParseExact(
                     parts[2],
                     "yyyy-MM-ddTHH:mm:ssZ",
                     CultureInfo.InvariantCulture,

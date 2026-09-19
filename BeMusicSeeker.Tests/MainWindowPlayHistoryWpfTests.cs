@@ -39,10 +39,10 @@ public sealed class MainWindowPlayHistoryWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                    using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDropdown");
-                    Border toolbar = (Border)window.FindName("mainTableToolbar");
+                    using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDropdown");
+                    var toolbar = (Border)window.FindName("mainTableToolbar");
                     ComboBox combo = FindVisualChildren<ComboBox>(toolbar).Single();
-                    Border dropdownContainer = (Border)combo.Parent;
+                    var dropdownContainer = (Border)combo.Parent;
 
                     VisibilityObservation startupCollapsed = ObserveVisibility(
                         dropdownContainer,
@@ -237,8 +237,8 @@ public sealed class MainWindowPlayHistoryWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                    using var visualHost = CreateVisualHost(window, "MainWindowPlayHistorySummary");
-                    Border summaryBar = (Border)window.FindName("playHistorySummaryBar");
+                    using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistorySummary");
+                    var summaryBar = (Border)window.FindName("playHistorySummaryBar");
 
                     VisibilityObservation startupCollapsed = ObserveVisibility(
                         summaryBar,
@@ -353,12 +353,12 @@ public sealed class MainWindowPlayHistoryWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryContext");
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryContext");
+                var table = (CustomTableView)window.FindName("customTableView");
                 Assert.AreEqual(viewModel.MainChartList.RowDragKind, table.RowDragKind);
 
                 PlayHistoryRow resolved = CreateResolvedPlayHistoryRow();
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 // The XAML resource is deliberately non-shared; make this observation use the same instance as the route.
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 Assert.AreSame(playHistoryMenu, window.FindResource("playHistoryContextMenu"));
@@ -372,7 +372,7 @@ public sealed class MainWindowPlayHistoryWpfTests
 
                 Assert.AreEqual(1, contextRequests);
                 Assert.IsInstanceOfType(playHistoryMenu.Tag, typeof(CustomTableContextMenuContext));
-                CustomTableContextMenuContext resolvedContext =
+                var resolvedContext =
                     (CustomTableContextMenuContext)playHistoryMenu.Tag;
                 Assert.AreSame(resolved, resolvedContext.Row);
                 Assert.AreSame(table, playHistoryMenu.PlacementTarget);
@@ -405,11 +405,11 @@ public sealed class MainWindowPlayHistoryWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRange");
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRange");
+                var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow first = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1000);
                 PlayHistoryRow second = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1001);
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 table.ItemsSource = new List<object> { first, second };
                 table.SelectRowsByPredicate(_ => true);
@@ -442,11 +442,11 @@ public sealed class MainWindowPlayHistoryWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangePrimary");
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangePrimary");
+                var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow primary = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1000);
                 PlayHistoryRow secondary = CreateResolvedPlayHistoryRow(playedAt: 1001);
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 table.ItemsSource = new List<object> { primary, secondary };
                 table.SelectRowsByPredicate(
@@ -480,8 +480,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             settings,
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangeSnapshot");
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangeSnapshot");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 var menuClosed = new TaskCompletionSource<bool>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
@@ -489,7 +489,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 playHistoryMenu.Closed += menuClosedHandler;
                 try
                 {
-                    CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                    var table = (CustomTableView)window.FindName("customTableView");
                     PlayHistoryRow first = CreateResolvedPlayHistoryRow(playedAt: 1000);
                     PlayHistoryRow second = CreateResolvedPlayHistoryRow(playedAt: 1001);
                     PlayHistoryRow intermediate = CreateResolvedPlayHistoryRow(playedAt: 1002);
@@ -524,7 +524,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     string expectedClause = $"date:\"{start}..{end}\"";
 
                     table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
-                    KeywordSearchEditor keywordSearchEditor = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
+                    var keywordSearchEditor = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
                     Assert.IsNotNull(keywordSearchEditor);
                     Assert.AreNotSame(keywordSearchEditor, Keyboard.FocusedElement);
                     bool keywordSearchEditorReceivedFocus = false;
@@ -582,10 +582,10 @@ public sealed class MainWindowPlayHistoryWpfTests
             settings,
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryBmsonMd5Action");
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryBmsonMd5Action");
+                var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow resolved = CreateResolvedBmsonPlayHistoryRow();
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 table.ItemsSource = new List<object> { resolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
@@ -632,10 +632,10 @@ public sealed class MainWindowPlayHistoryWpfTests
             settings,
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryUnresolvedBeatorajaWebAction");
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryUnresolvedBeatorajaWebAction");
+                var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow unresolved = CreateUnresolvedBeatorajaPlayHistoryRow();
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 table.ItemsSource = new List<object> { unresolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, unresolved));
@@ -671,11 +671,11 @@ public sealed class MainWindowPlayHistoryWpfTests
             settings,
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryConfiguredActions");
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryConfiguredActions");
+                var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow resolved = CreateResolvedPlayHistoryRow(
                     typeof(MainWindow).Assembly.Location);
-                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 table.ItemsSource = new List<object> { resolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
@@ -776,7 +776,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     {
         const string hash = "cccccccccccccccccccccccccccccccc";
         string sha256 = new string('d', 64);
-        BMSFile file = BMSFile.FromSongTableRawValues(
+        var file = BMSFile.FromSongTableRawValues(
         [
             hash,
             "Resolved Play History",
@@ -810,9 +810,9 @@ public sealed class MainWindowPlayHistoryWpfTests
             ""
         ]);
         file.ApplySnapshotDigest(hash, sha256);
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
             [LibraryChartRef.FromBmsFile(file)]);
-        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(
+        var projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
@@ -850,9 +850,9 @@ public sealed class MainWindowPlayHistoryWpfTests
             md5 = md5,
             sha256 = sha256
         };
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
             [LibraryChartRef.FromBmsonSong(song)]);
-        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(resolveIndex);
+        var projectionIndex = PlayHistoryProjectionIndex.Create(resolveIndex);
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(
             new BeatorajaPlayHistoryReadResult(
                 PlayHistorySourceProfile.Beatoraja("score.db"),

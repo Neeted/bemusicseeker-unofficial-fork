@@ -25,7 +25,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         DateTime selectedDate = new(2026, 8, 28);
         DateTime cutoff = selectedDate.AddDays(1);
         PlaylistLampScoreSnapshot current = CurrentLr2(hash, ClearType.EASY, 160, 100);
-        var changes = new[]
+        PlaylistLampHistoricalScoreChange[] changes = new[]
         {
             Change(ActiveScoreSource.Lr2, hash, 10, selectedDate.AddHours(12), 4, 8, 100, 100),
             Change(ActiveScoreSource.Lr2, hash, 11, cutoff, 3, 0, 120, 100),
@@ -51,7 +51,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
     {
         const string hash = "chart-b";
         DateTime selectedDate = new(2026, 8, 28);
-        PlaylistLampScore currentScore = PlaylistLampScore.FromExScore(
+        var currentScore = PlaylistLampScore.FromExScore(
             hash,
             null,
             ClearType.HARD,
@@ -696,7 +696,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         int? oldTotalNotes,
         long? oldPlayCount = 1)
     {
-        DateTime unspecified = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
+        var unspecified = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
         DateTime utc = TimeZoneInfo.ConvertTimeToUtc(unspecified, TimeZoneInfo.Local);
         long unixSeconds = new DateTimeOffset(utc).ToUnixTimeSeconds();
         return new PlaylistLampHistoricalScoreChange(

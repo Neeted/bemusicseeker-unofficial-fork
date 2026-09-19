@@ -338,7 +338,7 @@ public sealed class BackupTests
     {
         WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
         {
-            Backup.Target targets = (Backup.Target)rawTargets;
+            var targets = (Backup.Target)rawTargets;
             Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
                 root,
                 TimeSpan.Zero,

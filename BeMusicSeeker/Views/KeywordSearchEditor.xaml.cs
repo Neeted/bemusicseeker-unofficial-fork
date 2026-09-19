@@ -344,7 +344,7 @@ public partial class KeywordSearchEditor : UserControl
             return;
         }
 
-        DependencyObject originalSource = e.OriginalSource as DependencyObject;
+        var originalSource = e.OriginalSource as DependencyObject;
         if (e.Key == Key.Tab && IsActionButton(originalSource))
         {
             CycleActionButtons((Button)originalSource, IsShiftPressed(e));

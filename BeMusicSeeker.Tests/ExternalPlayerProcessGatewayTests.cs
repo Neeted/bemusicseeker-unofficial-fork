@@ -52,7 +52,7 @@ public sealed class ExternalPlayerProcessGatewayTests
     [TestMethod]
     public void DiscoveryRequestNormalizesAndCopiesProcessNames()
     {
-        ExternalPlayerProcessDiscoveryRequest request = ExternalPlayerProcessDiscoveryRequest.Create(
+        var request = ExternalPlayerProcessDiscoveryRequest.Create(
             " LR2body ",
             "LRHbody",
             "lr2body");
@@ -73,7 +73,7 @@ public sealed class ExternalPlayerProcessGatewayTests
     [TestMethod]
     public void LaunchRequestPreservesExecutableArgumentsAndWindowStyle()
     {
-        ExternalPlayerProcessLaunchRequest request = ExternalPlayerProcessLaunchRequest.Create(
+        var request = ExternalPlayerProcessLaunchRequest.Create(
             @"C:\Players\LR2body.exe",
             @"-A -NS ""C:\Songs\alpha.bms""",
             ProcessWindowStyle.Hidden);
@@ -344,7 +344,7 @@ public sealed class ExternalPlayerProcessGatewayTests
                 () => player.PlayStart(chartPath, (EventHandler)null!));
             CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
             CollectionAssert.DoesNotContain(windowHost.Operations, "ApplyWindowPlacement");
-            XDocument restoredDocument = XDocument.Load(configPath);
+            var restoredDocument = XDocument.Load(configPath);
             Assert.AreEqual("1", ReadLr2Value(restoredDocument, "system", "screenmode"));
             Assert.AreEqual("100", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
         });
@@ -364,7 +364,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
             gateway.Session.BeforeStart = () =>
             {
-                XDocument temporaryDocument = XDocument.Load(configPath);
+                var temporaryDocument = XDocument.Load(configPath);
                 Assert.AreEqual("800", ReadLr2Value(temporaryDocument, "system", "windowsize_x"));
                 Assert.AreEqual("600", ReadLr2Value(temporaryDocument, "system", "windowsize_y"));
                 Assert.AreEqual("1", ReadLr2Value(temporaryDocument, "system", "screenmode"));
@@ -393,7 +393,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             Assert.AreEqual("0", ReadLr2Value(playerConfig, "system", "screenmode"));
             Assert.AreEqual("23", ReadLr2Value(playerConfig, "sound", "volumemaster"));
             Assert.IsNull(playerConfig.Element("config")?.Element("sound")?.Element("volumeflag"));
-            XDocument restoredDocument = XDocument.Load(configPath);
+            var restoredDocument = XDocument.Load(configPath);
             Assert.AreEqual("保存済み", ReadLr2Value(restoredDocument, "system", "customfolder"));
             Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
             Assert.AreEqual("480", ReadLr2Value(restoredDocument, "system", "windowsize_y"));
@@ -404,7 +404,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             gateway.Session.KeepRunning = false;
             gateway.Session.RaiseExited();
 
-            XDocument exitDocument = XDocument.Load(configPath);
+            var exitDocument = XDocument.Load(configPath);
             Assert.AreEqual("640", ReadLr2Value(exitDocument, "system", "windowsize_x"));
             Assert.AreEqual("480", ReadLr2Value(exitDocument, "system", "windowsize_y"));
             Assert.AreEqual("0", ReadLr2Value(exitDocument, "system", "screenmode"));
@@ -446,14 +446,14 @@ public sealed class ExternalPlayerProcessGatewayTests
             Assert.IsNotNull(settingsDraft);
             LR2Config completedSettingsDraft = settingsDraft!;
             Assert.IsTrue(completedSettingsDraft.RemoveBMSSearchDirectoriesAndSave([Path.Combine(root, "RootA")]));
-            XDocument savedAfterRootEdit = XDocument.Load(configPath);
+            var savedAfterRootEdit = XDocument.Load(configPath);
             Assert.IsNull(savedAfterRootEdit.Element("config")?.Element("jukebox")?.Element("path"));
             Assert.AreEqual("640", ReadLr2Value(savedAfterRootEdit, "system", "windowsize_x"));
             Assert.AreEqual("23", ReadLr2Value(savedAfterRootEdit, "sound", "volumemaster"));
 
             gateway.Session.KeepRunning = false;
             gateway.Session.RaiseExited();
-            XDocument savedAfterExit = XDocument.Load(configPath);
+            var savedAfterExit = XDocument.Load(configPath);
             Assert.IsNull(savedAfterExit.Element("config")?.Element("jukebox")?.Element("path"));
             Assert.AreEqual("640", ReadLr2Value(savedAfterExit, "system", "windowsize_x"));
             Assert.AreEqual("23", ReadLr2Value(savedAfterExit, "sound", "volumemaster"));
@@ -489,7 +489,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             Assert.AreEqual(0, gateway.Session.HasExitedReadCount);
             Assert.AreEqual(0, gateway.Session.CloseMainWindowCount);
             Assert.AreEqual(0, gateway.Session.KillCount);
-            XDocument restoredDocument = XDocument.Load(configPath);
+            var restoredDocument = XDocument.Load(configPath);
             Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
             Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
             Assert.AreEqual("0", ReadLr2Value(restoredDocument, "sound", "volumeflag"));
@@ -530,7 +530,7 @@ public sealed class ExternalPlayerProcessGatewayTests
                 () => player.PlayStart(chartPath, (EventHandler)null!));
 
             StringAssert.Contains(failure.Message, configPath);
-            AggregateException? aggregate = failure.InnerException as AggregateException;
+            var aggregate = failure.InnerException as AggregateException;
             Assert.IsNotNull(aggregate);
             Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
             Assert.IsInstanceOfType<TimeoutException>(aggregate.InnerExceptions[0]);
@@ -538,7 +538,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             Assert.IsTrue(gateway.Session.Started);
             Assert.IsTrue(gateway.Session.KillCount > 0);
             Assert.IsTrue(gateway.Session.HasExitedReadCount > 0);
-            XDocument restoredDocument = XDocument.Load(configPath);
+            var restoredDocument = XDocument.Load(configPath);
             Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
             Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
 
@@ -585,7 +585,7 @@ public sealed class ExternalPlayerProcessGatewayTests
                     () => player.PlayStart(chartPath, (EventHandler)null!));
 
                 StringAssert.Contains(failure.Message, configPath);
-                AggregateException? aggregate = failure.InnerException as AggregateException;
+                var aggregate = failure.InnerException as AggregateException;
                 Assert.IsNotNull(aggregate);
                 Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
                 Assert.IsInstanceOfType<InvalidOperationException>(aggregate.InnerExceptions[0]);

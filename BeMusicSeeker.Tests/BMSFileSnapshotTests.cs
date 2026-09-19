@@ -185,10 +185,10 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n#STAGEFILE " + imageName + "\r\n#BANNER " + imageName + "\r\n#BACKBMP " + imageName + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
 
-            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
 
             Assert.AreEqual("ks_c_5601-1987", detectionResult.EncodingName);
             Assert.AreEqual(title, actual.title);
@@ -223,14 +223,14 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#WAV01 " + resourceName + "\r\n",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             var detectionResult = new BMSFile.BmsEncodingDetectionResult(
                 "utf-8",
                 BMSFile.EncodingDetectionOutcome.Utf8,
                 fastAscii: false,
                 decodedText: File.ReadAllText(filePath, Encoding.UTF8));
 
-            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
 
             Assert.AreEqual(title, actual.title);
             Assert.AreEqual(
@@ -252,9 +252,9 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
-            BMSFile actual = BMSFile.CreateBMSFileFromFile(filePath);
+            var actual = BMSFile.CreateBMSFileFromFile(filePath);
 
             Assert.AreEqual(
                 shiftJisSnapshotParsed.ResourceReferences.Single().RawPath,
@@ -275,8 +275,8 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             actual.ClearResourceReferenceCollections();
             actual.WAVfiles = [];
 
@@ -817,7 +817,7 @@ public sealed class BMSFileSnapshotTests
 
     private static void WriteAllText(string path, string contents, Encoding encoding)
     {
-        using var stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new StreamWriter(stream, encoding);
         writer.Write(contents);
     }

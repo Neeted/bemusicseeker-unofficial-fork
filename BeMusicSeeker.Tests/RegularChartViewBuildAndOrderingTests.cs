@@ -1,8 +1,8 @@
 using System;
-using System.Collections.ObjectModel;
-using System.Collections.Concurrent;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -524,7 +524,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         {
             path = @"C:\Charts\Owner\chart.bms",
         };
-        ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(ChartFileProjection.FromBmsFile(file));
+        var sourceRow = ChartListSourceRow.FromChartFile(ChartFileProjection.FromBmsFile(file));
 
         LibraryChartRow first = owner.CreateVirtualRow(null, sourceRow);
         LibraryChartRow second = owner.CreateVirtualRow(null, sourceRow);
@@ -1354,7 +1354,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     {
         ChartFile matching = CreateSourceRow("Folder A", "Alpha").Chart;
         ChartFile other = CreateSourceRow("Folder B", "Bravo").Chart;
-        var groups = new[]
+        DuplicateGroup[] groups = new[]
         {
             new DuplicateGroup([matching, other], [matching.Folder, other.Folder]) { Header = "Group" }
         };

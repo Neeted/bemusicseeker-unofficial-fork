@@ -24,7 +24,7 @@ public sealed class PlaylistLampAggregationTests
         PlaylistLampScore ownedScore = Score("owned-scored", "owned-scored", ClearType.HARD, RankType.AAA, perfect: 100);
         PlaylistLampScore unownedScore = Score("unowned-scored", "unowned-scored", ClearType.CLEAR, RankType.C, perfect: 50);
         PlaylistLampScoreSnapshot scoreSnapshot = CreateScoreSnapshot(ActiveScoreSource.Beatoraja, ownedScore, unownedScore);
-        var entries = new[]
+        PlaylistLampEntrySnapshot[] entries = new[]
         {
             Entry("folder", "owned-scored", owned: true, sha256: ownedScore.Sha256),
             Entry("folder", "unowned-scored", owned: false, sha256: unownedScore.Sha256),
@@ -53,19 +53,19 @@ public sealed class PlaylistLampAggregationTests
     [TestMethod]
     public void Aggregate_historicalScoresChangeOnlyScoreDependentStatistics()
     {
-        PlaylistLampScore failed = PlaylistLampScore.FromExScore(
+        var failed = PlaylistLampScore.FromExScore(
             "historical-a",
             "historical-a",
             ClearType.FAILED,
             0,
             100);
-        PlaylistLampScore easy = PlaylistLampScore.FromExScore(
+        var easy = PlaylistLampScore.FromExScore(
             "historical-b",
             "historical-b",
             ClearType.EASY,
             200,
             100);
-        PlaylistLampScore noPlay = PlaylistLampScore.FromExScore(
+        var noPlay = PlaylistLampScore.FromExScore(
             "historical-c",
             "historical-c",
             ClearType.NO_PLAY,
@@ -122,7 +122,7 @@ public sealed class PlaylistLampAggregationTests
             resolvedShaScore,
             entryShaScore,
             chartInfoShaScore);
-        var beatorajaEntries = new[]
+        PlaylistLampEntrySnapshot[] beatorajaEntries = new[]
         {
             Entry("folder", "resolved", owned: false, md5: "entry-md5", sha256: "entry-sha", resolvedSha256: "resolved-sha", chartInfoSha256: "info-sha"),
             Entry("folder", "entry", owned: false, md5: "entry-md5-2", sha256: "entry-sha", chartInfoSha256: "info-sha"),
@@ -138,7 +138,7 @@ public sealed class PlaylistLampAggregationTests
         PlaylistLampScore resolvedMd5Score = Score("resolved-md5", "", ClearType.HARD, RankType.AA);
         PlaylistLampScore entryMd5Score = Score("entry-md5", "", ClearType.EASY, RankType.B);
         PlaylistLampScoreSnapshot lr2 = CreateScoreSnapshot(ActiveScoreSource.Lr2, resolvedMd5Score, entryMd5Score);
-        var lr2Entries = new[]
+        PlaylistLampEntrySnapshot[] lr2Entries = new[]
         {
             Entry("folder", "lr2", owned: false, md5: "entry-md5", resolvedMd5: "resolved-md5")
         };
@@ -152,8 +152,8 @@ public sealed class PlaylistLampAggregationTests
     [TestMethod]
     public void Aggregate_mapsRawNoPlayAndNoSongScoresToNpWithoutCountingPlayed()
     {
-        var noPlay = Score("no-play", "no-play", ClearType.NO_PLAY, RankType.INVALID);
-        var noSong = Score("no-song", "no-song", ClearType.NO_SONG, RankType.INVALID);
+        PlaylistLampScore noPlay = Score("no-play", "no-play", ClearType.NO_PLAY, RankType.INVALID);
+        PlaylistLampScore noSong = Score("no-song", "no-song", ClearType.NO_SONG, RankType.INVALID);
         PlaylistLampAggregationResult result = Aggregate(
             "raw-no-score",
             ["folder"],
@@ -183,7 +183,7 @@ public sealed class PlaylistLampAggregationTests
                 0,
                 100,
                 1));
-        var entries = new[]
+        PlaylistLampEntrySnapshot[] entries = new[]
         {
             Entry("z", "chart-1", owned: true, sha256: "a"),
             Entry("z", "chart-1", owned: false, sha256: "a"),
@@ -224,7 +224,7 @@ public sealed class PlaylistLampAggregationTests
     [TestMethod]
     public void Aggregate_mapsBeatorajaClearValuesAndDjRanksInContractOrder()
     {
-        var scores = new[]
+        PlaylistLampScore[] scores = new[]
         {
             Score("pa", "pa", ClearType.PA, RankType.MAX),
             Score("clear", "clear", ClearType.CLEAR, RankType.AA),
@@ -234,7 +234,7 @@ public sealed class PlaylistLampAggregationTests
             Score("max", "max", ClearType.MAX, RankType.D)
         };
         PlaylistLampScoreSnapshot snapshot = CreateScoreSnapshot(ActiveScoreSource.Beatoraja, scores);
-        var entries = scores.Select((score, index) => Entry("folder", "chart-" + index, true, sha256: score.Sha256)).ToArray();
+        PlaylistLampEntrySnapshot[] entries = scores.Select((score, index) => Entry("folder", "chart-" + index, true, sha256: score.Sha256)).ToArray();
         PlaylistLampAggregationResult result = Aggregate("beatoraja", ["folder"], entries, snapshot);
 
         Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.PERFECT));
@@ -256,7 +256,7 @@ public sealed class PlaylistLampAggregationTests
     [TestMethod]
     public void Aggregate_lr2DoesNotExposeMaxOrExhardAndUsesStorageEquivalentBuckets()
     {
-        var scores = new[]
+        PlaylistLampScore[] scores = new[]
         {
             Score("max", "", ClearType.MAX, RankType.AAA),
             Score("exhard", "", ClearType.EX_HARD, RankType.AAA),
@@ -280,13 +280,13 @@ public sealed class PlaylistLampAggregationTests
     [TestMethod]
     public void Aggregate_usesFolderDenominatorAndCalculatesUnequalExRates()
     {
-        var scores = new[]
+        PlaylistLampScore[] scores = new[]
         {
             Score("one", "one", ClearType.CLEAR, RankType.A, perfect: 100, totalNotes: 100),
             Score("two", "two", ClearType.FAILED, RankType.B, perfect: 50, totalNotes: 100)
         };
         PlaylistLampScoreSnapshot snapshot = CreateScoreSnapshot(ActiveScoreSource.Beatoraja, scores);
-        var entries = new[]
+        PlaylistLampEntrySnapshot[] entries = new[]
         {
             Entry("folder", "one", true, sha256: "one"),
             Entry("folder", "two", true, sha256: "two"),
@@ -311,7 +311,7 @@ public sealed class PlaylistLampAggregationTests
     {
         PlaylistLampScore score = Score("one", "one", ClearType.CLEAR, RankType.A);
         PlaylistLampScoreSnapshot snapshot = CreateScoreSnapshot(ActiveScoreSource.Beatoraja, score);
-        var entries = Enumerable.Range(0, 205)
+        PlaylistLampEntrySnapshot[] entries = Enumerable.Range(0, 205)
             .Select(index => Entry("folder", "chart-" + index, true, sha256: index == 0 ? "one" : "other-" + index))
             .ToArray();
         PlaylistLampAggregationResult result = Aggregate("205", ["folder"], entries, snapshot);
@@ -338,7 +338,7 @@ public sealed class PlaylistLampAggregationTests
     [TestMethod]
     public void Aggregate_scoreSourceNoneOrFailedKeepsOwnershipButDoesNotInventNpOrGraphData()
     {
-        var entries = new[]
+        PlaylistLampEntrySnapshot[] entries = new[]
         {
             Entry("folder", "owned", true, md5: "owned"),
             Entry("folder", "missing", false, md5: "missing")

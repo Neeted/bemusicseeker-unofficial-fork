@@ -12,7 +12,7 @@ public sealed class ChartListFilterViewModelTests
     [TestMethod]
     public void ModeFilter_RejectsNoneButRefreshesBindingState()
     {
-        var filters = CreateFilters();
+        ChartListFilterViewModel filters = CreateFilters();
         int changeCount = 0;
         List<string> propertyNames = [];
         filters.ModeFilterChanged += (_, _) => changeCount++;
@@ -31,7 +31,7 @@ public sealed class ChartListFilterViewModelTests
     [TestMethod]
     public void CaptureSnapshot_PreservesRawKeywordAndCanonicalModeTogether()
     {
-        var filters = CreateFilters();
+        ChartListFilterViewModel filters = CreateFilters();
         int changeCount = 0;
         filters.KeywordFilterChanged += (_, _) => changeCount++;
 
@@ -118,7 +118,7 @@ public sealed class ChartListFilterViewModelTests
     [TestMethod]
     public void KeywordFilter_UpdatesWarningAndContextHelpNotifications()
     {
-        var filters = CreateFilters();
+        ChartListFilterViewModel filters = CreateFilters();
         List<string> propertyNames = [];
         filters.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
 
@@ -134,7 +134,7 @@ public sealed class ChartListFilterViewModelTests
     [TestMethod]
     public void KeywordFilter_InvalidPlayHistoryDateShowsLocalizedWarning()
     {
-        var filters = CreateFilters();
+        ChartListFilterViewModel filters = CreateFilters();
         filters.UpdateKeywordSearchContext(GridKeywordSearchContext.PlayHistory, []);
 
         filters.KeywordFilter = "date:\"2026/06/19 12:34:56..\"";

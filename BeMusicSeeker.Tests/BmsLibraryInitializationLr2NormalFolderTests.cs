@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.Tests;
 
 
@@ -1188,7 +1187,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Directory.CreateDirectory(packDirectoryPath);
             string bmsPath = Path.Combine(packDirectoryPath, "current.bms");
             File.WriteAllText(bmsPath, CreateValidBmsText("Current"), Encoding.ASCII);
-            DateTime timestamp = new DateTime(2026, 6, 6, 1, 0, 0, DateTimeKind.Utc);
+            var timestamp = new DateTime(2026, 6, 6, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
@@ -1270,11 +1269,11 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Directory.CreateDirectory(chartDirectoryPath);
             string bmsPath = Path.Combine(chartDirectoryPath, "current.bms");
             File.WriteAllText(bmsPath, CreateValidBmsText("Text Only"), Encoding.ASCII);
-            DateTime timestamp = new DateTime(2026, 6, 6, 1, 0, 0, DateTimeKind.Utc);
+            var timestamp = new DateTime(2026, 6, 6, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
             Directory.SetLastWriteTimeUtc(chartDirectoryPath, timestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
             var currentFile = new TestableBmsFile
             {
                 path = bmsPath,

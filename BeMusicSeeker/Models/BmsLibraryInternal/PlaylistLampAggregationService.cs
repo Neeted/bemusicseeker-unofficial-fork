@@ -98,8 +98,8 @@ internal sealed class PlaylistLampAggregationService
             folderEntries.Add(entry);
         }
 
-        var clearCounts = CreateClearCounts();
-        var rankCounts = CreateRankCounts();
+        Dictionary<PlaylistLampClearCategory, int> clearCounts = CreateClearCounts();
+        Dictionary<PlaylistLampRankCategory, int> rankCounts = CreateRankCounts();
         var folderRows = new List<PlaylistLampFolderRow>(folderOrder.Count);
         int totalCount = 0;
         int ownedCount = 0;
@@ -113,8 +113,8 @@ internal sealed class PlaylistLampAggregationService
             int folderCount = uniqueEntries.Count;
             int folderOwnedCount = uniqueEntries.Count(entry => entry.IsOwned);
             int folderMissingCount = folderCount - folderOwnedCount;
-            var folderClearCounts = CreateClearCounts();
-            var folderRankCounts = CreateRankCounts();
+            Dictionary<PlaylistLampClearCategory, int> folderClearCounts = CreateClearCounts();
+            Dictionary<PlaylistLampRankCategory, int> folderRankCounts = CreateRankCounts();
             foreach (PlaylistLampEntrySnapshot entry in uniqueEntries)
             {
                 cancellationToken.ThrowIfCancellationRequested();

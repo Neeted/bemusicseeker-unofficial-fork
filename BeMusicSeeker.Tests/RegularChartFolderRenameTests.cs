@@ -1,8 +1,8 @@
 using System;
-using System.Collections.ObjectModel;
-using System.Collections.Concurrent;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -48,7 +48,7 @@ public sealed class RegularChartFolderRenameTests
             string lr2RootPath = Path.Combine(libraryRoot, "LR2beta3");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE shutdown\r\n");
-            var file = CreateTestableBmsFile(chartPath);
+            TestableBmsFile file = CreateTestableBmsFile(chartPath);
             var dialogs = new FileDbReportRecordingDialogs();
             TestBmsLibrary library;
             if (finalizationFails)
@@ -177,7 +177,7 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "chart.bms");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE busy\r\n");
-            var file = CreateTestableBmsFile(chartPath);
+            TestableBmsFile file = CreateTestableBmsFile(chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [file]
@@ -234,7 +234,7 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "chart.bms");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE playlist communication\r\n");
-            var file = CreateTestableBmsFile(chartPath);
+            TestableBmsFile file = CreateTestableBmsFile(chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [file]
@@ -287,8 +287,8 @@ public sealed class RegularChartFolderRenameTests
             string secondChartPath = Path.Combine(secondSourceDirectory, "second.bms");
             File.WriteAllText(firstChartPath, "#PLAYER 1\r\n#TITLE first\r\n");
             File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE second\r\n");
-            var firstFile = CreateTestableBmsFile(firstChartPath);
-            var secondFile = CreateTestableBmsFile(secondChartPath);
+            TestableBmsFile firstFile = CreateTestableBmsFile(firstChartPath);
+            TestableBmsFile secondFile = CreateTestableBmsFile(secondChartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [firstFile, secondFile]
@@ -352,7 +352,7 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "queued.bms");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE queued\r\n");
-            var file = CreateTestableBmsFile(chartPath);
+            TestableBmsFile file = CreateTestableBmsFile(chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [file]
@@ -425,7 +425,7 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE workflow finalization failure\r\n");
             try
             {
-                var file = CreateTestableBmsFile(chartPath);
+                TestableBmsFile file = CreateTestableBmsFile(chartPath);
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
                 var library = new TestBmsLibrary(
                     songDbPath,

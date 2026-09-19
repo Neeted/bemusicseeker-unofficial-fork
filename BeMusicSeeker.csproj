@@ -78,18 +78,6 @@
            Text="Everything bridge x64 native asset is missing: native\EverythingBridge_x64.dll" />
   </Target>
   <ItemGroup>
-  <PackageReference Include="Roslynator.Analyzers">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-  <PackageReference Include="Roslynator.CodeAnalysis.Analyzers">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-  <PackageReference Include="Roslynator.Formatting.Analyzers">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
     <PackageReference Include="LivetCask.Core" />
     <PackageReference Include="LivetCask.EventListeners" />
     <PackageReference Include="LivetCask.Mvvm" />

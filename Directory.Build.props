@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'BeMusicSeeker' Or '$(MSBuildProjectName)' == 'BeMusicSeeker.Updater' Or '$(MSBuildProjectName)' == 'BeMusicSeeker.Tests'">
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+</Project>

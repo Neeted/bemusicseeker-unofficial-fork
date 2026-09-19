@@ -42,7 +42,7 @@ public sealed class LocalizationResourceParityTests
     {
         string root = FindRepositoryRoot();
         Dictionary<string, string> resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
-        Dictionary<string, HashSet<int>> expectedArguments = resx.ToDictionary(
+        var expectedArguments = resx.ToDictionary(
             pair => pair.Key,
             pair => ReadFormatArgumentIndices("Resources.resx", pair.Key, pair.Value),
             StringComparer.Ordinal);
@@ -54,7 +54,7 @@ public sealed class LocalizationResourceParityTests
         {
             string sourceName = Path.GetFileName(languagePath);
             JObject language = ReadLanguageJsonObject(languagePath);
-            HashSet<string> keys = language.Properties()
+            var keys = language.Properties()
                 .Select(property => property.Name)
                 .Where(key => key != LanguageNameKey)
                 .ToHashSet(StringComparer.Ordinal);
@@ -100,7 +100,7 @@ public sealed class LocalizationResourceParityTests
 
     private static JObject ReadLanguageJsonObject(string path)
     {
-        JToken token = JToken.Parse(File.ReadAllText(path), new JsonLoadSettings
+        var token = JToken.Parse(File.ReadAllText(path), new JsonLoadSettings
         {
             DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
         });
@@ -114,7 +114,7 @@ public sealed class LocalizationResourceParityTests
         var usedArguments = new HashSet<int>();
         try
         {
-            CompositeFormat format = CompositeFormat.Parse(value);
+            var format = CompositeFormat.Parse(value);
             object[] arguments = Enumerable.Range(0, format.MinimumArgumentCount)
                 .Select(index => (object)new FormatArgument(index, usedArguments))
                 .ToArray();

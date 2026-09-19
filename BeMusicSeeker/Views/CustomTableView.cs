@@ -2557,7 +2557,7 @@ public sealed class CustomTableView : Grid
         {
             return;
         }
-        PerformanceInteraction interaction = PerformanceInteraction.Start("custom_table");
+        var interaction = PerformanceInteraction.Start("custom_table");
         Net10PerformanceLog.Write(interaction, stage, fields);
     }
 

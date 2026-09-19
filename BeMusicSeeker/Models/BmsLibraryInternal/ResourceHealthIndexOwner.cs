@@ -124,7 +124,7 @@ internal sealed class ResourceHealthIndexOwner
             Invalidate(reason);
             return ResourceHealthIndexSnapshot.Empty;
         }
-        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(
+        var snapshot = ResourceHealthIndexSnapshot.Build(
             targetSet.Charts,
             maintenanceService,
             Interlocked.Increment(ref snapshotVersionSeed));

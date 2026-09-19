@@ -20,7 +20,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FolderReconciliationPublishesPreCommitMonotonicProgress()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderProgressRoot");
         string firstDirectory = Path.Combine(rootDirectory, "First");
         string secondDirectory = Path.Combine(rootDirectory, "Second");
@@ -108,7 +108,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FolderReconciliationProgressReporterFailureDoesNotChangeResult()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderProgressObserverFailure");
         string firstDirectory = Path.Combine(rootDirectory, "First");
         string secondDirectory = Path.Combine(rootDirectory, "Second");
@@ -140,7 +140,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_EmptyFolderProjectionDoesNotPublishPositiveStageTotal()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         var progressEvents = new List<Lr2SongDbSyncProgress>();
 
@@ -166,12 +166,12 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FullStageDoesNotDeleteExistingSongMembership()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string stalePath = Path.Combine(scope.DirectoryPath, "stale.bms");
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
-        var existing = new TestableBmsFile
+        TestableBmsFile existing = new TestableBmsFile
         {
             path = stalePath,
             tag = "user-owned"
@@ -192,7 +192,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FullStageDoesNotInsertSongMembership()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string chartPath = Path.Combine(scope.DirectoryPath, "new.bms");
         var file = new TestableBmsFile
         {
@@ -218,7 +218,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FullStageReparsesSameMtimeLr2FolderContent()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(rootDirectory);
         string lr2FolderPath = Path.Combine(rootDirectory, "same-mtime.lr2folder");
@@ -265,7 +265,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FullStagePreservesEpochFolderDate()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "EpochRoot");
         Directory.CreateDirectory(rootDirectory);
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
@@ -294,7 +294,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_PreservesUserColumnsWhenRunningOnCopiedSongDb()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
@@ -306,7 +306,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using (var sourceDb = new LR2SongDBExtended(scope.SongDbPath))
         {
             sourceDb.CreateTable<LR2SongDB.song>();
-            var existing = new TestableBmsFile
+            TestableBmsFile existing = new TestableBmsFile
             {
                 path = chartPath,
                 adddate = 123456,
@@ -345,7 +345,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_FallsBackToSongCopyWhenChartSnapshotCannotBeRead()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Missing");
         Directory.CreateDirectory(songDirectory);
         string missingChartPath = Path.Combine(songDirectory, "missing.bms");
@@ -387,7 +387,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_PreservesNegativeSongDate()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
@@ -421,7 +421,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_PreservesNullSongDate()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
@@ -455,7 +455,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_DeletesLegacyNormalFolderRowWhenNotExpected()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
         string legacyDirectory = Path.Combine(rootDirectory, "Legacy");
         Directory.CreateDirectory(legacyDirectory);
@@ -489,7 +489,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_LeavesIncompleteWhenSourceBecomesStaleBeforeCompletion()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "Root");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
@@ -530,7 +530,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_DoesNotRunLr2FolderStageWhenSourceIsAlreadyStale()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "Root");
         string folderPath = Path.Combine(rootDirectory, "External.lr2folder");
         Directory.CreateDirectory(rootDirectory);
@@ -564,7 +564,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_RollsBackFailedSongRowChunkAndRetriesFromChunkStart()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "RollbackSongRoot");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
@@ -630,7 +630,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_ParsesSongRowsWithDetectedUtf8Encoding()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Utf8");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "utf8.bms");
@@ -666,7 +666,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UsesResolverFactsAndReadsEachSongRowSnapshotOnce()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfo");
         Directory.CreateDirectory(songDirectory);
         string currentPath = Path.Combine(songDirectory, "current.bms");
@@ -731,7 +731,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_SkipsChartInfoParseWhenCurrentParseFailureIsKnown()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfoFailureSkip");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "failure-skip.bms");
@@ -768,7 +768,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UsesRequestChartInfoResolverWithoutChartInfoDbLookup()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfoResolver");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "resolver.bms");
@@ -804,7 +804,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_RequestChartInfoResolverUsesStableMd5FallbackWhenSha256DoesNotMatch()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Md5Fallback");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
@@ -839,7 +839,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_RebuildsChartInfoWhenRequestResolverReturnsStaleRow()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "StaleResolver");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "stale-resolver.bms");
@@ -870,7 +870,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UnexpectedCancellationMarksFailedStatus()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
@@ -893,7 +893,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_ShutdownCancellationAtFolderCommitRollsBackWholeTable()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderCommitBarrier");
         Directory.CreateDirectory(rootDirectory);
         string rootFolderPath = ToFolderPath(rootDirectory);
@@ -951,7 +951,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "SongCommitBarrier");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
@@ -995,7 +995,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UnexpectedCancellationFailsAndRetryStartsFromZero()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "CancelRetryRoot");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
@@ -1072,7 +1072,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UpsertsLr2CompatibilityFactsWithoutReplacingMaintenanceHealth()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2Compatibility");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
@@ -1114,7 +1114,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UpsertsLr2CompatibilityFactsByExactPath()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2CompatibilityExact");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
@@ -1151,9 +1151,9 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_PreservesLr2CompatibilityFactsWhenSongRowFallsBackWithoutSnapshot()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string chartPath = Path.Combine(scope.DirectoryPath, "Missing", "chart.bms");
-        var file = new TestableBmsFile
+        TestableBmsFile file = new TestableBmsFile
         {
             path = chartPath,
             date = 123456
@@ -1195,7 +1195,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_DeletesMissingDiscoveredLr2FolderRow()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(rootDirectory);
         string missingPath = Path.Combine(rootDirectory, "missing.lr2folder");
@@ -1230,7 +1230,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UsesEnumeratedLr2FolderTimestampForGeneratedRow()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(rootDirectory);
         string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
@@ -1266,7 +1266,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_IncludesBuiltinLr2FolderParent()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string chartRoot = Path.Combine(scope.DirectoryPath, "BMS");
         string lr2Root = Path.Combine(scope.DirectoryPath, "LR2");
         string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
@@ -1305,7 +1305,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [TestMethod]
     public void SyncService_UsesEnumeratedDirectoryTimestampForNormalFolderRow()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(rootDirectory);
         DateTime enumeratedTimestamp = new(2026, 6, 5, 5, 0, 0, DateTimeKind.Utc);
@@ -1391,7 +1391,7 @@ public sealed class Lr2SongDbSyncServiceTests
             }
         }
 
-        Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = md5Candidates
+        var byMd5 = md5Candidates
             .Where(pair => pair.Value.Count > 0)
             .ToDictionary(pair => pair.Key, pair => pair.Value.First().Value, StringComparer.OrdinalIgnoreCase);
         return row =>

@@ -13,11 +13,11 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Livet;
+using Ribbit.Logging;
+using Ribbit.Util;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using Ribbit.Logging;
-using Ribbit.Util;
 
 namespace BeMusicSeeker.Models;
 
@@ -697,7 +697,7 @@ public partial class BMSLibrary
         ArgumentNullException.ThrowIfNull(postLeaseEffects);
         mutationSession.AppendRequiredDurableFinalizer(() =>
         {
-            ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(
+            var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
                 deferredMaintenanceCharts);
             if (installedTargets.Charts.Count == 0)
             {
@@ -1823,7 +1823,7 @@ public partial class BMSLibrary
         // resource-only導入でも、destinationへ実際に移ったresourceを基準に
         // installed表示のhealth/warning projectionを確定する。
         BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(entries);
-        ChartPackage displayPackage = ChartPackage.FromChartEntries(entries);
+        var displayPackage = ChartPackage.FromChartEntries(entries);
         displayPackage.path = destinationDirectory;
         displayPackage.delete_parent = false;
         return displayPackage;
@@ -1914,7 +1914,7 @@ public partial class BMSLibrary
                     deferredFeedback,
                     out maintenancePublication);
                 maintenanceReceipt.ThrowIfFailed();
-                ChartStorageTargetSet installedTargets = ChartStorageTargetSet.FromInstalledCharts(
+                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
                     deferredMaintenanceCharts);
                 SetBMSScore(installedTargets.BmsFiles);
                 List<ChartFile> targets =
@@ -2596,7 +2596,7 @@ public partial class BMSLibrary
                         sourceChart.InstallDestinationArtist,
                         sourceChart.InstallDestinationSuggestions,
                         sourceChart.Warnings);
-                PackageChartEntry detachedEntry = PackageChartEntry.FromChart(
+                var detachedEntry = PackageChartEntry.FromChart(
                     ChartFileProjection.ToImmutableSnapshot(packageProjection));
                 if (detachedEntry != null)
                 {

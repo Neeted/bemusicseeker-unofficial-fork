@@ -8,8 +8,8 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -25,7 +25,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     [TestMethod]
     public void SettingDialogSchemaStatusReceipt_FiltersPathAndClearsOnResetAndDispose()
     {
-        var owner = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         var statePort = new TestSettingsDialogStatePort(
             owner,
             () => Task.FromResult(StartupInitializationOutcome.Succeeded));
@@ -50,7 +50,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
         SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
 
-        Lr2PlayHistorySchemaStatusSnapshot matchingSnapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(
+        var matchingSnapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(
             new Lr2PlayHistorySchemaCheckResult
             {
                 Status = Lr2PlayHistorySchemaStatus.Installed,
@@ -148,7 +148,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     [TestMethod]
     public async Task SettingDialogViewModel_InstallOrRepair_BlockedOperationUsesOwnerDialog()
     {
-        var owner = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         var dialogs = new RecordingUiDialogService();
         var settingDialog = new SettingsDialogViewModel(
             owner,
@@ -193,7 +193,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
-            var owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             SetPrivateField(owner, "hasActiveLibraryProfile", true);
             var dialogs = new RecordingUiDialogService
             {
@@ -267,7 +267,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
-            var owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingUiDialogService
             {
                 AcceptUninstall = true,
@@ -338,7 +338,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
-            var owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var dialogs = new RecordingUiDialogService { AcceptUninstall = false };
             int reloadCount = 0;
             var statePort = new TestSettingsDialogStatePort(

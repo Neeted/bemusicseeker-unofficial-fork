@@ -198,7 +198,7 @@ public sealed class BMSTableLoadTests
         table.LoadHeaderJSON("{\"name\":\"Table\",\"symbol\":\"st\",\"tag\":\"tag\",\"compat_prefix\":\"st\",\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"data.json\",\"folder_order\":[\"st1\"],\"level_order\":[1],\"course\":[{\"name\":\"Course\",\"constraint\":[\"grade_mirror\"],\"md5\":[\"11111111111111111111111111111111\"]}]}");
         table.last_update = new DateTime(2024, 1, 2);
 
-        JObject normalized = JObject.Parse(table.HeaderToJson());
+        var normalized = JObject.Parse(table.HeaderToJson());
         normalized["last_update"] = "<LAST_UPDATE>";
         normalized["editor_version"] = "<EDITOR_VERSION>";
         normalized["output_date"] = "<OUTPUT_DATE>";
@@ -604,7 +604,7 @@ public sealed class BMSTableLoadTests
             ],
             Folder_order = ["Alpha"]
         };
-        var future = DateTime.Now.AddDays(1);
+        DateTime future = DateTime.Now.AddDays(1);
 
         table.last_update = future;
         table.CreateNewFolder("Beta");

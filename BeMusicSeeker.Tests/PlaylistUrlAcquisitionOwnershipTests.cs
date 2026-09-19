@@ -1,6 +1,6 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -46,7 +46,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             testSettings.ScanBmsFilesOnStartup = true;
             testSettings.AutoInstall = true;
 
-            PlaylistUrlAcquisitionOptionsSnapshot snapshot =
+            var snapshot =
                 PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.ScanBmsFilesOnStartup);
@@ -1322,7 +1322,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             int browserCount = 0;
             int expansionCount = 0;
             IReadOnlyList<string>? downloaded = null;
-            var workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
@@ -1425,7 +1425,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Action actualTreeExpansionSink = useDefaultTreeExpansionSink
             ? treeExpansionSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink
             : treeExpansionSink!;
-        PlaylistWorkspaceViewModel workspace = new PlaylistWorkspaceViewModel(
+        var workspace = new PlaylistWorkspaceViewModel(
             dispatch,
             new MainChartListViewModel(action => action()),
             new PlaylistDetailBuildState(),

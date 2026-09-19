@@ -26,7 +26,7 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllText(laterPath, "#PLAYER 1");
         try
         {
-            var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             movedBms.path = oldPath;
             LibraryChartPathChange pathChange = new()
             {
@@ -73,9 +73,9 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var bms = CreateBms(Path.GetFileName(oldBmsPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile bms = CreateBms(Path.GetFileName(oldBmsPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             bms.path = oldBmsPath;
-            var bmson = CreateBmson(Path.GetFileName(oldBmsonPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            LR2SongDBExtended.bmson_song bmson = CreateBmson(Path.GetFileName(oldBmsonPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             bmson.path = oldBmsonPath;
             bmson.folder = oldDirectoryPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -176,11 +176,11 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var movedBms = CreateBms(Path.GetFileName(movedOldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile movedBms = CreateBms(Path.GetFileName(movedOldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             movedBms.path = movedOldPath;
-            var removedBms = CreateBms(Path.GetFileName(removedBmsPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile removedBms = CreateBms(Path.GetFileName(removedBmsPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             removedBms.path = removedBmsPath;
-            var removedBmson = CreateBmson(Path.GetFileName(removedBmsonPath), "cccccccccccccccccccccccccccccccc");
+            LR2SongDBExtended.bmson_song removedBmson = CreateBmson(Path.GetFileName(removedBmsonPath), "cccccccccccccccccccccccccccccccc");
             removedBmson.path = removedBmsonPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -280,9 +280,9 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             movedBms.path = oldPath;
-            var removedBms = CreateBms(Path.GetFileName(removedPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile removedBms = CreateBms(Path.GetFileName(removedPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             removedBms.path = removedPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -351,9 +351,9 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             removedBms.path = removedPath;
-            var movedBms = CreateBms(Path.GetFileName(movedOldPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile movedBms = CreateBms(Path.GetFileName(movedOldPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             movedBms.path = movedOldPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -427,9 +427,9 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             removedBms.path = removedPath;
-            var movedBms = CreateBms(Path.GetFileName(movedOldPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile movedBms = CreateBms(Path.GetFileName(movedOldPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             movedBms.path = movedOldPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -490,7 +490,7 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             movedBms.path = oldPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -678,7 +678,7 @@ public sealed class CatalogMutationOwnerTests
                 OwnedChartCollectionState.FromStorageRows(allBmsRows, allBmsonRows),
                 initialRows.BmsRowsVersion,
                 initialRows.BmsonRowsVersion));
-            var removeRequests = new[]
+            OwnedChartRemoveRequest[] removeRequests = new[]
             {
                 OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, targetBmsSharedPath),
                 OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, targetBmsOrphanPath),
@@ -713,7 +713,7 @@ public sealed class CatalogMutationOwnerTests
                 expectedOwnedPaths,
                 ownedCollectionOwner.Collection.CreatePathSnapshot());
             // ここはSELECT専用の観測なので、writer接続を保持せず既存のread-only入口を使う。
-            using (var verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 List<LR2SongDB.song> remainingBmsRows = [.. verifySongDb.Table<LR2SongDB.song>()];
                 List<LR2SongDBExtended.bmson_song> remainingBmsonRows = [.. verifySongDb.Table<LR2SongDBExtended.bmson_song>()];
@@ -805,7 +805,7 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             removedBms.path = removedPath;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -853,10 +853,10 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void Apply_EmitsCanonicalReceiptForBmsAndBmsonReplacement()
     {
-        var oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var nextBms = CreateBms("next.bms", "cccccccccccccccccccccccccccccccc");
-        var nextBmson = CreateBmson("next.bmson", "dddddddddddddddddddddddddddddddd");
+        TestableBmsFile oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LR2SongDBExtended.bmson_song oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile nextBms = CreateBms("next.bms", "cccccccccccccccccccccccccccccccc");
+        LR2SongDBExtended.bmson_song nextBmson = CreateBmson("next.bmson", "dddddddddddddddddddddddddddddddd");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -898,7 +898,7 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void Apply_WithoutDbDiffDoesNotChangeRowsOrEmitMutationFacts()
     {
-        var bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -931,10 +931,10 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyStorageRowsReplacement_EmitsChangedKindsAndVersions()
     {
-        var oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var newBms = CreateBms("new.bms", "cccccccccccccccccccccccccccccccc");
-        var newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
+        TestableBmsFile oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LR2SongDBExtended.bmson_song oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile newBms = CreateBms("new.bms", "cccccccccccccccccccccccccccccccc");
+        LR2SongDBExtended.bmson_song newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -971,10 +971,10 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyStorageRowsReplacement_LeavesUnselectedRowsUntouched()
     {
-        var oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var newBms = CreateBms("new.bms", "cccccccccccccccccccccccccccccccc");
-        var newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
+        TestableBmsFile oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LR2SongDBExtended.bmson_song oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile newBms = CreateBms("new.bms", "cccccccccccccccccccccccccccccccc");
+        LR2SongDBExtended.bmson_song newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
         var owner = new CatalogMutationOwner(storageRowsOwner, new CatalogOwnedCollectionOwner(), null);
@@ -999,7 +999,7 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyStorageRowsReplacement_ExplicitSameInputStillPublishesVersion()
     {
-        var bms = CreateBms("same-input.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile bms = CreateBms("same-input.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -1052,12 +1052,12 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void StorageRowsOwner_RawBmsonUpsertNormalizesOnlyOnBmsonChangeAndKeepsTieSlot()
     {
-        var z = CreateBmson("z.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var upper = CreateBmson("A.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var lower = CreateBmson("a.bmson", "cccccccccccccccccccccccccccccccc");
+        LR2SongDBExtended.bmson_song z = CreateBmson("z.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LR2SongDBExtended.bmson_song upper = CreateBmson("A.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        LR2SongDBExtended.bmson_song lower = CreateBmson("a.bmson", "cccccccccccccccccccccccccccccccc");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         storageRowsOwner.ReplaceBmsonRows([z, upper, lower]);
-        var addedBms = CreateBms("added.bms", "dddddddddddddddddddddddddddddddd");
+        TestableBmsFile addedBms = CreateBms("added.bms", "dddddddddddddddddddddddddddddddd");
 
         storageRowsOwner.ApplyInstalledTargets(ChartStorageTargetSet.FromRows([addedBms], []));
 
@@ -1065,7 +1065,7 @@ public sealed class CatalogMutationOwnerTests
             new[] { z, upper, lower },
             storageRowsOwner.BmsonRows.ToArray());
 
-        var replacement = CreateBmson("A.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        LR2SongDBExtended.bmson_song replacement = CreateBmson("A.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         storageRowsOwner.ApplyInstalledTargets(ChartStorageTargetSet.FromRows([], [replacement]));
 
         CollectionAssert.AreEqual(
@@ -1081,10 +1081,10 @@ public sealed class CatalogMutationOwnerTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         try
         {
-            var oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var oldBmson = CreateBmson("same.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var newBms = CreateBms("same.bms", "cccccccccccccccccccccccccccccccc");
-            var newBmson = CreateBmson("same.bmson", "dddddddddddddddddddddddddddddddd");
+            TestableBmsFile oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            LR2SongDBExtended.bmson_song oldBmson = CreateBmson("same.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile newBms = CreateBms("same.bms", "cccccccccccccccccccccccccccccccc");
+            LR2SongDBExtended.bmson_song newBmson = CreateBmson("same.bmson", "dddddddddddddddddddddddddddddddd");
             var storageRowsOwner = new CatalogStorageRowsOwner();
             CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
             var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -1141,12 +1141,12 @@ public sealed class CatalogMutationOwnerTests
     {
         BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
         {
-            var oldBms = CreateBms("chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var keptBms = CreateBms(siblingName + ".bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile oldBms = CreateBms("chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile keptBms = CreateBms(siblingName + ".bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             keptBms.favorite = 7;
             keptBms.tag = "preserved";
-            var oldBmson = CreateBmson("chart.bmson", "cccccccccccccccccccccccccccccccc");
-            var keptBmson = CreateBmson(siblingName + ".bmson", "dddddddddddddddddddddddddddddddd");
+            LR2SongDBExtended.bmson_song oldBmson = CreateBmson("chart.bmson", "cccccccccccccccccccccccccccccccc");
+            LR2SongDBExtended.bmson_song keptBmson = CreateBmson(siblingName + ".bmson", "dddddddddddddddddddddddddddddddd");
             using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
@@ -1163,8 +1163,8 @@ public sealed class CatalogMutationOwnerTests
                 OwnedChartCollectionState.FromStorageRows([oldBms, keptBms], [oldBmson, keptBmson]),
                 initial.BmsRowsVersion, initial.BmsonRowsVersion));
             var owner = new CatalogMutationOwner(storage, owned, new BmsLibraryDbGateway(songDbPath));
-            var addedBms = CreateBms("chart.bms", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var addedBmson = CreateBmson("chart.bmson", "ffffffffffffffffffffffffffffffff");
+            TestableBmsFile addedBms = CreateBms("chart.bms", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            LR2SongDBExtended.bmson_song addedBmson = CreateBmson("chart.bmson", "ffffffffffffffffffffffffffffffff");
             BMSFile[] bmsInput = replaceBoth ? [addedBms, keptBms] : [addedBms];
             LR2SongDBExtended.bmson_song[] bmsonInput = replaceBoth ? [addedBmson, keptBmson] : [addedBmson];
 
@@ -1190,15 +1190,15 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyInstalledTargetUpsert_RejectsStaleRequestBeforeChangingRows()
     {
-        var original = CreateBms("original.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var replacement = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile original = CreateBms("original.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile replacement = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         var storageRowsOwner = new CatalogStorageRowsOwner();
         storageRowsOwner.ReplaceRowsAndCaptureSnapshot([original], []);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
         var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
-        var concurrent = CreateBms("concurrent.bms", "cccccccccccccccccccccccccccccccc");
+        TestableBmsFile concurrent = CreateBms("concurrent.bms", "cccccccccccccccccccccccccccccccc");
         storageRowsOwner.ReplaceRowsAndCaptureSnapshot([concurrent], []);
 
         Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyInstalledTargetUpsert(request));
@@ -1212,8 +1212,8 @@ public sealed class CatalogMutationOwnerTests
         Directory.CreateDirectory(tempRootPath);
         try
         {
-            var original = CreateBms("original.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var replacement = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile original = CreateBms("original.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile replacement = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var storageRowsOwner = new CatalogStorageRowsOwner();
             CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([original], []);
             var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -1265,7 +1265,7 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyDigestMutation_EmitsImmutableReceiptAndUpdatesOwnedDigestRows()
     {
-        var bms = CreateBms("digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile bms = CreateBms("digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         bms.SetSha256(new string('b', 64));
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
@@ -1328,7 +1328,7 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyDigestMutation_ShaOnlyChangeKeepsDuplicateLookupHash()
     {
-        var bms = CreateBms("sha-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        TestableBmsFile bms = CreateBms("sha-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         bms.SetSha256(new string('b', 64));
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
@@ -1364,7 +1364,7 @@ public sealed class CatalogMutationOwnerTests
             encoding = "shift_jis",
             is_encoding_fixed = true
         }, suppressPropertyChanged: true, MaintenanceInfoOrigin.DbHydrated);
-        var bmson = CreateBmson("snapshot.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        LR2SongDBExtended.bmson_song bmson = CreateBmson("snapshot.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         bmson.MaintenanceInfo = new BMSFileMaintenanceInfo
         {
             path = bmson.path,
@@ -1408,7 +1408,7 @@ public sealed class CatalogMutationOwnerTests
             rawValues[7] = songPath;
             rawValues[14] = "4";
             rawValues[18] = "7";
-            BMSFile song = BMSFile.FromSongTableRawValues(rawValues);
+            var song = BMSFile.FromSongTableRawValues(rawValues);
             var owner = new CatalogMutationOwner(
                 new CatalogStorageRowsOwner(),
                 new CatalogOwnedCollectionOwner(),
@@ -1446,7 +1446,7 @@ public sealed class CatalogMutationOwnerTests
             rawValues[7] = songPath;
             rawValues[14] = "4";
             rawValues[18] = "7";
-            BMSFile song = BMSFile.FromSongTableRawValues(rawValues);
+            var song = BMSFile.FromSongTableRawValues(rawValues);
             var failureFacts = new System.Collections.Generic.List<CatalogWriteFailureFact>();
             var owner = new CatalogMutationOwner(
                 new CatalogStorageRowsOwner(),
@@ -1524,7 +1524,7 @@ public sealed class CatalogMutationOwnerTests
             maxbpm = 180.9,
             notes = 1234
         };
-        Lr2ChartInfoSongProjection projection =
+        var projection =
             Lr2ChartInfoSongProjection.Create(bms.path, bms.hash, chartInfo);
         var request = new CatalogChartInfoStorageWriteRequest(
             [bms],

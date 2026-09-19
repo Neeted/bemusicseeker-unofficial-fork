@@ -268,7 +268,7 @@ internal sealed class PlaylistExternalSyncOwner
                 return uri != null && uri.IsAbsoluteUri;
             })];
         int completedTableCount = 0;
-        PlaylistExternalTableLoadResult[] results = new PlaylistExternalTableLoadResult[targetSnapshot.Count];
+        var results = new PlaylistExternalTableLoadResult[targetSnapshot.Count];
         InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
         {
             IsActive = targetSnapshot.Count > 0,
@@ -832,7 +832,7 @@ internal sealed class PlaylistExternalSyncOwner
             return;
         }
         bool durableCommitted = false;
-        Dictionary<BMSTable, int?> originalPlaylistIds = tableList.ToDictionary(table => table, table => table.playlist_id);
+        var originalPlaylistIds = tableList.ToDictionary(table => table, table => table.playlist_id);
         try
         {
             playlistAggregatePersistenceOwner.CommitTablesWithEntries(

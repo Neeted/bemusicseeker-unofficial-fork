@@ -38,7 +38,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistSummaryConfiguration_IsOwnedByPlaylistWorkspace()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         var columns = new PlaylistSummaryColumnSettings();
         var propertyNames = new List<string>();
         var rootPropertyNames = new List<string>();
@@ -383,7 +383,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistWorkspaceRoutesSharedDetailSortOnlyWhileDetailIsActive()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         workspace.InitializePlaylistDetailSort(new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.Title),
@@ -572,7 +572,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistWorkspaceRoutesSharedDetailFilterOnlyWhileDetailIsActive()
     {
-        var workspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("initial", ChartModeFilter.All));
         int raisedCount = 0;
         workspace.PlaylistDetailFilterChanged += (_, _) => raisedCount++;
@@ -794,7 +794,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyCommitsRowsAndTextWithoutSelectionRestore()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
@@ -878,7 +878,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
         workspace.InvalidatePlaylistSummaryCache();
         long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
-        var originalRows = workspace.PlaylistSummaryView;
+        ObservableCollection<PlaylistSummaryRow> originalRows = workspace.PlaylistSummaryView;
 
         Assert.IsFalse(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
         {
@@ -990,7 +990,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyKeepsStableSourceAndSkipsSamePresentationIdentity()
     {
-        var workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         ObservableCollection<PlaylistSummaryRow> stableSource = workspace.PlaylistSummaryView;
         int resetCount = 0;
@@ -1040,7 +1040,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryTerminalCommitsRowsBeforeVisibleMode()
     {
-        var viewModel = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
         var publicationOrder = new List<string>();
         workspace.PlaylistSummaryView.CollectionChanged += (_, e) =>
@@ -1084,7 +1084,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryCacheSurvivesModeExitUntilCatalogInvalidation()
     {
-        var workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
@@ -1249,7 +1249,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
                         CacheGeneration = buildRequest.CacheGeneration
                     }));
 
-                AggregateException? aggregate = exception.InnerException as AggregateException;
+                var aggregate = exception.InnerException as AggregateException;
                 Assert.IsNotNull(aggregate);
                 Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
                 Assert.AreEqual(1, restoreRequests.Count);
@@ -1326,7 +1326,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
                         CacheGeneration = buildRequest.CacheGeneration
                     }));
 
-                AggregateException? aggregate = exception.InnerException as AggregateException;
+                var aggregate = exception.InnerException as AggregateException;
                 Assert.IsNotNull(aggregate);
                 Assert.AreEqual(2, aggregate!.InnerExceptions.Count);
             }

@@ -733,7 +733,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         {
             return false;
         }
-        var queryParameters = ParseQueryParameters(actionUri.Query);
+        List<KeyValuePair<string, string>> queryParameters = ParseQueryParameters(actionUri.Query);
         foreach (Match inputMatch in Regex.Matches(formMatch.Groups["body"].Value, "<input\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
         {
             string inputTag = inputMatch.Value;
@@ -1161,7 +1161,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
 
     private static Uri SetUriQueryParameter(Uri uri, string name, string value)
     {
-        var parameters = ParseQueryParameters(uri?.Query);
+        List<KeyValuePair<string, string>> parameters = ParseQueryParameters(uri?.Query);
         SetQueryParameter(parameters, name, value);
         return BuildUriWithQuery(uri, parameters);
     }
@@ -1374,7 +1374,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         }
         try
         {
-            Encoding encoding = Encoding.GetEncoding(match.Groups["charset"].Value);
+            var encoding = Encoding.GetEncoding(match.Groups["charset"].Value);
             decoded = DecodePercentEncodedBytes(match.Groups["encoded"].Value, encoding);
             return true;
         }

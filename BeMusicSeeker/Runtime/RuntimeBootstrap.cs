@@ -1,8 +1,8 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
-using System.Threading;
 using System.Text;
+using System.Threading;
 using SQLitePCL;
 
 [assembly: SupportedOSPlatform("windows")]

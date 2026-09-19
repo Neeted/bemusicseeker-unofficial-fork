@@ -182,7 +182,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+            var today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
             DateTime earliest = today.AddDays(-2);
             DateTime selected = today.AddDays(-1);
             var source = new HistoricalLampSource();
@@ -234,8 +234,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 Assert.AreEqual(earliest, picker.DisplayDateStart);
                 Assert.AreEqual(today, picker.DisplayDateEnd);
 
-                var selectedAccepted = NewCompletion<PlaylistLampAggregationResult>();
-                var latestAccepted = NewCompletion<PlaylistLampAggregationResult>();
+                TaskCompletionSource<PlaylistLampAggregationResult> selectedAccepted = NewCompletion<PlaylistLampAggregationResult>();
+                TaskCompletionSource<PlaylistLampAggregationResult> latestAccepted = NewCompletion<PlaylistLampAggregationResult>();
                 resultHandler = (_, args) =>
                 {
                     if (args?.Result?.State != PlaylistLampViewerState.Ready)
@@ -425,7 +425,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 Assert.IsTrue(segmentButtons.Length > 0, "A positive folder segment must be a rendered button.");
                 foreach (Button button in segmentButtons)
                 {
-                    PlaylistLampViewerSegmentViewModel segment = (PlaylistLampViewerSegmentViewModel)button.DataContext;
+                    var segment = (PlaylistLampViewerSegmentViewModel)button.DataContext;
                     Assert.IsTrue(segment.Count > 0 && segment.HasPositiveWidth);
                     Assert.IsTrue(button.ActualWidth > 0d,
                         $"positive segment button for {segment.CategoryKey} must have arranged width");
@@ -1115,7 +1115,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         Resources.PlaylistLampViewer_playlist_last_update
                     });
 
-                var degraded = CreateRequest(ActiveScoreSource.None);
+                PlaylistLampAggregationRequest degraded = CreateRequest(ActiveScoreSource.None);
                 source.Replace(degraded);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.StartAsync(),
@@ -1531,7 +1531,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             source == ActiveScoreSource.Lr2 ? byHash : null,
             source == ActiveScoreSource.Beatoraja ? bySha256 : null);
 
-        var entries = new[]
+        PlaylistLampEntrySnapshot[] entries = new[]
         {
             new PlaylistLampEntrySnapshot("folder", "max", true, md5: max.Hash, sha256: max.Sha256, resolvedMd5: max.Hash, resolvedSha256: max.Sha256),
             new PlaylistLampEntrySnapshot("folder", "assist", true, md5: assist.Hash, sha256: assist.Sha256, resolvedMd5: assist.Hash, resolvedSha256: assist.Sha256),
@@ -1607,7 +1607,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     1);
             })
             .ToArray();
-        var bySha256 = scores.ToDictionary(score => score.Sha256, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PlaylistLampScore> bySha256 = scores.ToDictionary(score => score.Sha256, StringComparer.OrdinalIgnoreCase);
         PlaylistLampEntrySnapshot[] entries = scores
             .Select((score, index) => new PlaylistLampEntrySnapshot(
                 "wide",
@@ -1636,7 +1636,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
     private static PlaylistLampAggregationRequest CreateFolderWidthRequest(params string[] folderNames)
     {
-        var scores = (folderNames ?? [])
+        PlaylistLampScore[] scores = (folderNames ?? [])
             .Select((folderName, index) => new PlaylistLampScore(
                 "folder-width-hash-" + index.ToString(CultureInfo.InvariantCulture),
                 "folder-width-sha-" + index.ToString(CultureInfo.InvariantCulture),
@@ -1647,7 +1647,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 100,
                 1))
             .ToArray();
-        var bySha256 = scores.ToDictionary(score => score.Sha256, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PlaylistLampScore> bySha256 = scores.ToDictionary(score => score.Sha256, StringComparer.OrdinalIgnoreCase);
         PlaylistLampEntrySnapshot[] entries = (folderNames ?? [])
             .Select((folderName, index) => new PlaylistLampEntrySnapshot(
                 folderName,
@@ -1792,7 +1792,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             PlaylistLampViewerQuery query,
             bool hasHistory)
         {
-            DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+            var today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
             string sha256 = "historical-date-sha256";
             var score = PlaylistLampScore.FromExScore(
                 null,

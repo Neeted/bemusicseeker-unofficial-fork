@@ -11,8 +11,8 @@ public sealed class ExternalShellGatewayTests
     [TestMethod]
     public void RequestFactoriesPreserveTypedOperationAndTarget()
     {
-        ExternalShellRequest url = ExternalShellRequest.OpenUrl("https://example.invalid");
-        ExternalShellRequest file = ExternalShellRequest.OpenAssociatedFile(@"C:\Songs\chart.bms");
+        var url = ExternalShellRequest.OpenUrl("https://example.invalid");
+        var file = ExternalShellRequest.OpenAssociatedFile(@"C:\Songs\chart.bms");
 
         Assert.AreEqual(ExternalShellRequestKind.Url, url.Kind);
         Assert.AreEqual("https://example.invalid", url.Target);

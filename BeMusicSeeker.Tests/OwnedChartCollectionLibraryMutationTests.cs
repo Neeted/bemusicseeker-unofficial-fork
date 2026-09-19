@@ -113,7 +113,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Directory.CreateDirectory(folder);
             string chartPath = Path.Combine(folder, "delete.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
-            var file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             string lr2Root = Path.Combine(root, "LR2");
             LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
             var filesystem = new TestFileMutationService();
@@ -188,7 +188,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string partial = Path.Combine(partialDirectory, "partial.bms");
             File.WriteAllText(success, "#PLAYER 1");
             File.WriteAllText(partial, "#PLAYER 1");
-            var files = new[] { CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", success),
+            TestableBmsFile[] files = new[] { CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", success),
                 CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", missing),
                 CreateFile("cccccccccccccccccccccccccccccccc", partial) };
             var partialFailure = new IOException("directory changed before failure");
@@ -205,7 +205,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
             { BMSFiles = files, BmsonSongs = [] };
             using (var db = new LR2SongDBExtended(songDbPath))
-                foreach (var file in files)
+                foreach (TestableBmsFile? file in files)
                     db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
@@ -261,9 +261,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(siblingChartPath, "#PLAYER 1");
             File.WriteAllText(parentResource, "parent resource");
             File.WriteAllText(childResource, "child resource");
-            var parentChart = CreateFile(new string('a', 32), parentChartPath);
-            var independentChart = CreateFile(new string('c', 32), independentChartPath);
-            var siblingChart = CreateFile(new string('d', 32), siblingChartPath);
+            TestableBmsFile parentChart = CreateFile(new string('a', 32), parentChartPath);
+            TestableBmsFile independentChart = CreateFile(new string('c', 32), independentChartPath);
+            TestableBmsFile siblingChart = CreateFile(new string('d', 32), siblingChartPath);
             var childChart = new LR2SongDBExtended.bmson_song
             {
                 path = childChartPath,
@@ -346,8 +346,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
             string child = Path.Combine(folder, "Child");
             Directory.CreateDirectory(child);
-            var selected = CreateFile(new string('a', 32), Path.Combine(folder, "selected.bms"));
-            var kept = CreateFile(new string('b', 32), Path.Combine(child, "kept.bms"));
+            TestableBmsFile selected = CreateFile(new string('a', 32), Path.Combine(folder, "selected.bms"));
+            TestableBmsFile kept = CreateFile(new string('b', 32), Path.Combine(child, "kept.bms"));
             File.WriteAllText(selected.path, "#PLAYER 1");
             File.WriteAllText(kept.path, "#PLAYER 1");
             string resource = Path.Combine(folder, "sound.wav");
@@ -356,7 +356,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BMSFiles = [selected, kept], BmsonSongs = [] };
             using (var db = new LR2SongDBExtended(songDbPath))
-                foreach (var file in new[] { selected, kept })
+                foreach (TestableBmsFile? file in new[] { selected, kept })
                     db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
             Assert.AreEqual(0, library.GetLibraryWholeFolderDeleteConfirmationPaths([LibraryChartRef.FromBmsFile(selected)]).Count);
 
@@ -387,7 +387,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Directory.CreateDirectory(folder);
             string path = Path.Combine(folder, "chart.bms");
             File.WriteAllText(path, "#PLAYER 1");
-            var canonical = CreateFile(new string('a', 32), path);
+            TestableBmsFile canonical = CreateFile(new string('a', 32), path);
             LibraryChartRef selected = pathOnly
                 ? LibraryChartRef.FromPath(LibraryChartKind.Bms, path, canonical.hash, canonical.sha256)
                 : LibraryChartRef.FromBmsFile(CreateFile(canonical.hash, path));
@@ -423,8 +423,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string lowerPath = Path.Combine(folder, "chart.bms");
             string upperPath = Path.Combine(folder, "CHART.bms");
             File.WriteAllText(lowerPath, "#PLAYER 1");
-            var lower = CreateFile(new string('a', 32), lowerPath);
-            var upper = CreateFile(new string('b', 32), upperPath);
+            TestableBmsFile lower = CreateFile(new string('a', 32), lowerPath);
+            TestableBmsFile upper = CreateFile(new string('b', 32), upperPath);
             var filesystem = new TestFileMutationService();
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             {
@@ -473,8 +473,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ? Path.Combine(folder, ".", "chart.bms")
                 : Path.Combine(folder, "CHART.bms");
             File.WriteAllText(canonicalPath, "#PLAYER 1");
-            var canonical = CreateFile(new string('a', 32), canonicalPath);
-            var alias = CreateFile(new string('b', 32), aliasPath);
+            TestableBmsFile canonical = CreateFile(new string('a', 32), canonicalPath);
+            TestableBmsFile alias = CreateFile(new string('b', 32), aliasPath);
             var filesystem = new TestFileMutationService();
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             {
@@ -520,8 +520,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string canonicalPath = Path.Combine(folder, "chart.bms");
             string aliasPath = Path.Combine(folder, ".", "chart.bms");
             File.WriteAllText(canonicalPath, "#PLAYER 1");
-            var canonical = CreateFile(new string('a', 32), canonicalPath);
-            var alias = CreateFile(new string('b', 32), aliasPath);
+            TestableBmsFile canonical = CreateFile(new string('a', 32), canonicalPath);
+            TestableBmsFile alias = CreateFile(new string('b', 32), aliasPath);
             var failure = new IOException("selected physical file deletion failed");
             var filesystem = new TestFileMutationService
             {
@@ -572,9 +572,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string upperPath = Path.Combine(child, "CHART.bms");
             File.WriteAllText(parentPath, "#PLAYER 1");
             File.WriteAllText(lowerPath, "#PLAYER 1");
-            var parentChart = CreateFile(new string('a', 32), parentPath);
-            var lower = CreateFile(new string('b', 32), lowerPath);
-            var upper = CreateFile(new string('c', 32), upperPath);
+            TestableBmsFile parentChart = CreateFile(new string('a', 32), parentPath);
+            TestableBmsFile lower = CreateFile(new string('b', 32), lowerPath);
+            TestableBmsFile upper = CreateFile(new string('c', 32), upperPath);
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs())
             {
@@ -613,7 +613,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             };
             File.WriteAllText(catalogPath, "#PLAYER 1");
             File.WriteAllText(selectedPath, "#PLAYER 1");
-            var canonical = CreateFile(new string('a', 32), catalogPath);
+            TestableBmsFile canonical = CreateFile(new string('a', 32), catalogPath);
             LibraryChartRef selected = selectionKind == 2
                 ? LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(canonical))
                 : LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedPath,
@@ -651,7 +651,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
             Directory.CreateDirectory(folder);
-            var chart = CreateFile(new string('a', 32), Path.Combine(folder, "chart.bms"));
+            TestableBmsFile chart = CreateFile(new string('a', 32), Path.Combine(folder, "chart.bms"));
             File.WriteAllText(chart.path, "#PLAYER 1");
             File.WriteAllText(Path.Combine(folder, "resource.wav"), "remove with the folder");
             var filesystem = new TestFileMutationService();
@@ -691,8 +691,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string secondPath = Path.Combine(secondDirectoryPath, "chart.bms");
             File.WriteAllText(firstPath, "#PLAYER 1");
             File.WriteAllText(secondPath, "#PLAYER 1");
-            var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", firstPath);
-            var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", secondPath);
+            TestableBmsFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", firstPath);
+            TestableBmsFile second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", secondPath);
             var library = new TestBmsLibrary(songDbPath);
             using var initialBmsFilesNotification = new ManualResetEventSlim(false);
             System.ComponentModel.PropertyChangedEventHandler initialHandler = delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -756,8 +756,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
-            var replacement = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Replacement", "chart.bms"));
+            TestableBmsFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
+            TestableBmsFile replacement = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Replacement", "chart.bms"));
             var library = new TestBmsLibrary(songDbPath)
             {
                 BMSFiles = [first],
@@ -780,8 +780,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             List<BMSFile> inputBmsFiles = [bmsFile];
             List<LR2SongDBExtended.bmson_song> inputBmsonSongs = [bmsonSong];
             var library = new TestBmsLibrary(songDbPath)
@@ -818,10 +818,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var bmsFile = CreateFile(
+            TestableBmsFile bmsFile = CreateFile(
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-            var bmsonSong = CreateBmsonSong(
+            LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(
                 Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var library = new TestBmsLibrary(songDbPath)
@@ -854,8 +854,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string secondPath = Path.Combine(secondDirectoryPath, "chart.bmson");
             File.WriteAllText(firstPath, "{}");
             File.WriteAllText(secondPath, "{}");
-            var first = CreateBmsonSong(firstPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var second = CreateBmsonSong(secondPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            LR2SongDBExtended.bmson_song first = CreateBmsonSong(firstPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            LR2SongDBExtended.bmson_song second = CreateBmsonSong(secondPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, []);
             SetLibraryBmsonSongsWithoutNotification(library, [first, second]);
@@ -1011,7 +1011,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsFalse(InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library)
                     .Any(chart => string.Equals(chart.Path, oldPath, StringComparison.OrdinalIgnoreCase)));
                 // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
-                using (var verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     string[] dbPaths = verifyDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                     Assert.IsFalse(dbPaths.Contains(oldPath, StringComparer.OrdinalIgnoreCase));
@@ -1116,7 +1116,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Directory.CreateDirectory(resourceDirectoryPath);
             string resourcePath = Path.Combine(resourceDirectoryPath, "chart.bms");
             File.WriteAllText(resourcePath, "#PLAYER 1");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resourcePath);
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resourcePath);
             bmsFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(bmsFile)
             {
                 hash = bmsFile.hash,

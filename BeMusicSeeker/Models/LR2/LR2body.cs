@@ -221,7 +221,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 LR2bodyHandleShowing = default;
                 LR2bodyProcess = null;
             }
-            ExternalPlayerProcessLaunchRequest launchRequest = ExternalPlayerProcessLaunchRequest.Create(
+            var launchRequest = ExternalPlayerProcessLaunchRequest.Create(
                 ExePath,
                 "-A -NS \"" + bmsFilePath + "\"",
                 System.Diagnostics.ProcessWindowStyle.Hidden);

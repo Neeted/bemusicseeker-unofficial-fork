@@ -51,7 +51,7 @@ public sealed class BmtTableExportServiceTests
                 }
                 BmtTableExportService.ExportResult completedResult = result!;
                 Assert.IsTrue(File.Exists(manifestPath), "未削除ファイルの台帳を残す。");
-                JObject manifest = JObject.Parse(File.ReadAllText(manifestPath));
+                var manifest = JObject.Parse(File.ReadAllText(manifestPath));
                 CollectionAssert.Contains(manifest["files"]!.Values<string>().ToArray(), "locked.bmt");
                 Assert.AreNotEqual("locked.bmt", manifest["playlists"]?["1"]?["file"]?.Value<string>());
                 Assert.AreEqual(route is "cleanup" or "full" ? 2 : 0, completedResult.RemovedCount);
@@ -172,10 +172,10 @@ public sealed class BmtTableExportServiceTests
             manifest["playlists"]!["1"]!["name"] = "2026-09-06T12:00:00Z";
             if (schema >= 0) manifest["schemaVersion"] = schema;
             File.WriteAllText(Path.Combine(directory, BmtTableExportService.ManifestFileName), manifest.ToString());
-            var plan = BmtTableExportService.CreateExportPlan(directory, new[] { CreateExportMetadata("1", "https://example.com/one", "Name") }, false);
+            BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(directory, new[] { CreateExportMetadata("1", "https://example.com/one", "Name") }, false);
             Assert.AreEqual(3, BmtTableExportService.ReadManagedTableUrls(directory).Count);
             Assert.IsTrue(plan.RequiresProjection(CreateExportMetadata("1", "https://example.com/one", "Name")));
-            var cleanup = BmtTableExportService.CleanupManagedFiles(directory);
+            BmtTableExportService.ExportResult cleanup = BmtTableExportService.CleanupManagedFiles(directory);
             Assert.AreEqual(2, cleanup.RemovedCount, "大文字小文字の重複をまとめ、playlist 参照も物理台帳へ取り込む。");
         });
     }
@@ -262,7 +262,7 @@ public sealed class BmtTableExportServiceTests
     [TestMethod]
     public void BuildBeatorajaManagedTableUrlsForConfigSync_OrdersByPlaylistBmtSort()
     {
-        var managedTables = new[]
+        BmtTableExportService.ManagedTableUrlEntry[] managedTables = new[]
         {
             new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "2", Name = "Beta", Url = "file:///beta.bmt" },
             new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "1", Name = "Alpha", Url = "file:///alpha.bmt" },
@@ -297,8 +297,8 @@ public sealed class BmtTableExportServiceTests
                 exportPlan,
                 progressReporter: null);
 
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
-            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var playlist = (JObject)manifest["playlists"]!["1"]!;
             Assert.AreEqual(url, playlist.Value<string>("url"));
             Assert.AreEqual("Empty Table", playlist.Value<string>("name"));
             Assert.IsNull(playlist["file"]);
@@ -349,8 +349,8 @@ public sealed class BmtTableExportServiceTests
                 exportPlan,
                 progressReporter: null);
 
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
-            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var playlist = (JObject)manifest["playlists"]!["1"]!;
             Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, staleFileName)));
             Assert.AreEqual(1, result.RemovedCount);
             Assert.AreEqual(url, playlist.Value<string>("url"));
@@ -386,8 +386,8 @@ public sealed class BmtTableExportServiceTests
 
             BmtTableExportService.ExportResult result = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tempDirectory, metadata);
 
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
-            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var playlist = (JObject)manifest["playlists"]!["1"]!;
             Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, staleFileName)));
             Assert.AreEqual(1, result.RemovedCount);
             Assert.AreEqual(url, playlist.Value<string>("url"));
@@ -449,7 +449,7 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual(0, secondResult.WrittenCount);
             Assert.AreEqual(0, secondResult.RemovedCount);
             Assert.AreEqual(url, secondResult.CurrentManagedTables.Single().Url);
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
             Assert.AreEqual(0, manifest["files"]!.Count());
             Assert.IsNull(manifest["playlists"]!["1"]!["file"]);
         });
@@ -483,8 +483,8 @@ public sealed class BmtTableExportServiceTests
                 cleanupStaleManagedFiles: true);
 
             string fileName = BMSTable.ComputeSha256Hex(url) + ".bmt";
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
-            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var playlist = (JObject)manifest["playlists"]!["1"]!;
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, fileName)));
             Assert.AreEqual(1, result.WrittenCount);
             Assert.AreEqual(fileName, playlist.Value<string>("file"));
@@ -522,7 +522,7 @@ public sealed class BmtTableExportServiceTests
         var alpha = new BMSTable { playlist_id = 1, name = "Alpha", bmt_sort = 1 };
         var bravo = new BMSTable { playlist_id = 2, name = "Bravo", bmt_sort = null };
         var charlie = new BMSTable { playlist_id = 3, name = "Charlie", bmt_sort = 1 };
-        var tables = new[] { bravo, charlie, alpha };
+        BMSTable[] tables = new[] { bravo, charlie, alpha };
 
         int changedCount = PlaylistBmtOutputOwner.NormalizeBeatorajaBmtSortOrder(tables);
 
@@ -728,12 +728,12 @@ public sealed class BmtTableExportServiceTests
 
         JObject json = BmtTableExportService.BuildTableData(table);
 
-        JArray folders = (JArray)json["folder"]!;
+        var folders = (JArray)json["folder"]!;
         Assert.AreEqual(2, folders.Count);
         Assert.AreEqual("Beta", folders[0]!.Value<string>("name"));
         Assert.AreEqual("Alpha", folders[1]!.Value<string>("name"));
-        JArray betaSongs = (JArray)folders[0]!["songs"]!;
-        JArray alphaSongs = (JArray)folders[1]!["songs"]!;
+        var betaSongs = (JArray)folders[0]!["songs"]!;
+        var alphaSongs = (JArray)folders[1]!["songs"]!;
         Assert.AreEqual(1, betaSongs.Count);
         Assert.AreEqual("Beta 1", betaSongs[0]!.Value<string>("title"));
         Assert.AreEqual(2, alphaSongs.Count);
@@ -901,8 +901,8 @@ public sealed class BmtTableExportServiceTests
                 Tuple.Create("1", tableData)
             ], plan, null);
 
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
-            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var playlist = (JObject)manifest["playlists"]!["1"]!;
             Assert.AreEqual(2, manifest.Value<int>("schemaVersion"));
             Assert.AreEqual("header-a", playlist.Value<string>("headerSha256"));
             Assert.AreEqual("data-a", playlist.Value<string>("dataSha256"));
@@ -939,7 +939,7 @@ public sealed class BmtTableExportServiceTests
 
             BmtTableExportService.ExportTableDataSet(tempDirectory, Array.Empty<Tuple<string, JObject>>(), cleanupStaleManagedFiles: true);
 
-            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            var manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
             Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, oldFileName)));
             Assert.AreEqual(2, manifest.Value<int>("schemaVersion"));
             Assert.IsNull(manifest["playlists"]);
@@ -1351,7 +1351,7 @@ public sealed class BmtTableExportServiceTests
         object targets = typeof(PlaylistWorkspaceViewModel)
             .GetMethod("BuildBeatorajaTableUrlImportTargets", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, [new[] { "https://EXAMPLE.com/table/%7Efull.html", "https://example.com/table/~full.html", "https://example.com/other.html" }])!;
-        var targetList = ((System.Collections.IEnumerable)targets).Cast<object>().ToArray();
+        object[] targetList = ((System.Collections.IEnumerable)targets).Cast<object>().ToArray();
 
         Assert.AreEqual(2, targetList.Length);
         Assert.AreEqual("https://EXAMPLE.com/table/%7Efull.html", GetPrivateProperty<string>(targetList[0], "RawUrl"));

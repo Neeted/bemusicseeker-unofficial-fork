@@ -121,7 +121,7 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         var consumerEntered = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         int lateMutationCount = 0;
-        Task consumer = Task.Run(async () =>
+        var consumer = Task.Run(async () =>
         {
             Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
             consumerEntered.TrySetResult(true);

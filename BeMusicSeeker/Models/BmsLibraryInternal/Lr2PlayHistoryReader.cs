@@ -21,7 +21,7 @@ internal sealed class Lr2PlayHistoryReader
     {
         request ??= new Lr2PlayHistoryReadRequest();
         cancellationToken.ThrowIfCancellationRequested();
-        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
+        var sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
 
         Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService().Check(request.ScoreDbPath, request.IsLr2LinkedProfile);
@@ -90,7 +90,7 @@ internal sealed class Lr2PlayHistoryReader
     {
         request ??= new Lr2PlayHistoryPeriodIndexRequest();
         cancellationToken.ThrowIfCancellationRequested();
-        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
+        var sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
 
         Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService().Check(request.ScoreDbPath, request.IsLr2LinkedProfile);

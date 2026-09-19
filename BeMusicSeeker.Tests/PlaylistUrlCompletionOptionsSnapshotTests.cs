@@ -1,5 +1,5 @@
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -22,7 +22,7 @@ public sealed class PlaylistUrlCompletionOptionsSnapshotTests
             testSettings.EnableStellaFullPlaylistUrlCompletion = true;
             testSettings.OverwritePlaylistUrlsWithCompletion = true;
 
-            PlaylistUrlCompletionOptionsSnapshot snapshot = PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings);
+            var snapshot = PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.EnablePlaylistUrlCompletion);
             Assert.AreEqual("https://example.invalid/playlist.tsv", snapshot.PlaylistMd5UrlMappingTsvUri);

@@ -117,7 +117,7 @@ internal sealed class LibraryResourceIndexOwner
     internal LibraryResourceIndexMovedFoldersResult UpdateMovedFolderReferences(
         IEnumerable<LibraryFolderPathChange> movedFolders)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         List<LibraryFolderPathChange> moves = [.. (movedFolders ?? [])
             .Where(move => !string.IsNullOrWhiteSpace(move?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(move.NewFolderPath)
@@ -128,7 +128,7 @@ internal sealed class LibraryResourceIndexOwner
         lock (gate)
         {
             List<string> lookupKeys = [.. currentSnapshot.DirectoryLookupCache.Keys ?? []];
-            Dictionary<string, LibraryFolderPathChange> movesByOldPath = moves.ToDictionary(
+            var movesByOldPath = moves.ToDictionary(
                 move => NormalizeDirectoryPath(move.OldFolderPath),
                 move => move,
                 StringComparer.OrdinalIgnoreCase);

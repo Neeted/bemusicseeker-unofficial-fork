@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -17,7 +18,7 @@ public sealed class ManagedDependencyOutputPolicyTests
     public void ApplicationProjectUsesHostManagedDependencyLayout()
     {
         string repositoryRoot = FindRepositoryRoot();
-        XDocument project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
+        var project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
         XElement projectRoot = project.Root ?? throw new AssertFailedException("Application project XML has no root element.");
 
         Assert.AreEqual(
@@ -37,7 +38,7 @@ public sealed class ManagedDependencyOutputPolicyTests
                 StringComparison.Ordinal)),
             "The legacy managed DLL deletion target must not remain in the project boundary.");
 
-        XDocument config = XDocument.Load(Path.Combine(repositoryRoot, "app.config"));
+        var config = XDocument.Load(Path.Combine(repositoryRoot, "app.config"));
         Assert.IsFalse(
             config.Descendants(XName.Get("probing", "urn:schemas-microsoft-com:asm.v1")).Any(),
             "The runtime must not depend on Framework private probing.");
@@ -160,7 +161,7 @@ public sealed class ManagedDependencyOutputPolicyTests
     public void TestProjectOwnsLockedTestHostDependencyGraph()
     {
         string repositoryRoot = FindRepositoryRoot();
-        XDocument project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"));
+        var project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"));
         XElement projectRoot = project.Root ?? throw new AssertFailedException("Test project XML has no root element.");
 
         Assert.AreEqual(
@@ -175,7 +176,7 @@ public sealed class ManagedDependencyOutputPolicyTests
 
         string lockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json");
         Assert.IsTrue(File.Exists(lockPath), "The test project lock file must be tracked beside its project.");
-        using JsonDocument lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
+        using var lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
         JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
         JsonElement targetDependencies = dependencies.GetProperty("net10.0-windows7.0");
         JsonElement sdk = targetDependencies.GetProperty("Microsoft.NET.Test.Sdk");
@@ -222,7 +223,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         foreach (var lockOwner in lockOwners)
         {
             string projectPath = Path.Combine(repositoryRoot, lockOwner.ProjectPath);
-            XDocument project = XDocument.Load(projectPath);
+            var project = XDocument.Load(projectPath);
             XElement projectRoot = project.Root ?? throw new AssertFailedException($"Project XML has no root element: {projectPath}");
             Assert.AreEqual(
                 "true",
@@ -238,7 +239,7 @@ public sealed class ManagedDependencyOutputPolicyTests
 
             string lockPath = Path.Combine(repositoryRoot, lockOwner.LockPath);
             Assert.IsTrue(File.Exists(lockPath), $"Lock file is missing: {lockPath}");
-            using JsonDocument lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
+            using var lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
             JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
             Assert.IsTrue(
                 dependencies.TryGetProperty(lockOwner.BaseTarget, out _),
@@ -253,10 +254,10 @@ public sealed class ManagedDependencyOutputPolicyTests
     }
 
     [TestMethod]
-    public void PackageVersionsAreCentrallyOwnedAndAnalyzersStayOutOfRuntimeOutput()
+    public void PackageVersionsAreCentrallyOwnedAndRetiredAssembliesStayOutOfRuntimeOutput()
     {
         string repositoryRoot = FindRepositoryRoot();
-        var expectedVersions = new[]
+        Dictionary<string, string> expectedVersions = new[]
         {
             new { Id = "Microsoft.NET.Test.Sdk", Version = "18.8.1" },
             new { Id = "MSTest.TestAdapter", Version = "3.6.4" },
@@ -273,16 +274,13 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "ManagedBass.Enc", Version = "4.0.2" },
             new { Id = "ManagedBass.Asio", Version = "4.0.2" },
             new { Id = "ManagedBass.Wasapi", Version = "4.0.2" },
-            new { Id = "Roslynator.Analyzers", Version = "4.15.0" },
-            new { Id = "Roslynator.CodeAnalysis.Analyzers", Version = "4.15.0" },
-            new { Id = "Roslynator.Formatting.Analyzers", Version = "4.15.0" },
             new { Id = "sqlite-net-pcl", Version = "1.11.285" },
             new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
             new { Id = "SevenZipExtractor", Version = "1.0.19" },
             new { Id = "NVorbis", Version = "0.10.5" },
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
-        XDocument centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
+        var centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
         XElement centralRoot = centralPackages.Root ?? throw new AssertFailedException("Central package props has no root element.");
         Assert.AreEqual(
             "true",
@@ -296,7 +294,7 @@ public sealed class ManagedDependencyOutputPolicyTests
                 package => (string)package.Attribute("Version")!,
                 StringComparer.Ordinal);
         CollectionAssert.AreEquivalent(expectedVersions.Keys.ToArray(), centralVersions.Keys.ToArray());
-        foreach (var expected in expectedVersions)
+        foreach (KeyValuePair<string, string> expected in expectedVersions)
         {
             Assert.AreEqual(
                 expected.Key.StartsWith("ManagedBass", StringComparison.Ordinal)
@@ -319,9 +317,6 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "Microsoft.Xml.SgmlReader",
                     "Newtonsoft.Json",
                     "NLog",
-                    "Roslynator.Analyzers",
-                    "Roslynator.CodeAnalysis.Analyzers",
-                    "Roslynator.Formatting.Analyzers",
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
@@ -359,7 +354,7 @@ public sealed class ManagedDependencyOutputPolicyTests
 
         foreach (var projectPackage in projectPackages)
         {
-            XDocument project = XDocument.Load(projectPackage.ProjectPath);
+            var project = XDocument.Load(projectPackage.ProjectPath);
             XElement projectRoot = project.Root ?? throw new AssertFailedException("Package project has no root element.");
             foreach (XElement packageReference in projectRoot.Elements("ItemGroup").Elements("PackageReference"))
             {
@@ -373,7 +368,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             }
 
             Assert.IsTrue(File.Exists(projectPackage.LockPath), $"Lock file is missing: {projectPackage.LockPath}");
-            using JsonDocument lockDocument = JsonDocument.Parse(File.ReadAllText(projectPackage.LockPath));
+            using var lockDocument = JsonDocument.Parse(File.ReadAllText(projectPackage.LockPath));
             JsonElement target = lockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
             foreach (string packageId in projectPackage.PackageIds)
             {
@@ -387,29 +382,7 @@ public sealed class ManagedDependencyOutputPolicyTests
             }
         }
 
-        XDocument appProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
-        foreach (string analyzerId in new[]
-        {
-            "Roslynator.Analyzers",
-            "Roslynator.CodeAnalysis.Analyzers",
-            "Roslynator.Formatting.Analyzers"
-        })
-        {
-            XElement analyzerReference = appProject
-                .Root!
-                .Elements("ItemGroup")
-                .Elements("PackageReference")
-                .Single(reference => string.Equals((string?)reference.Attribute("Include"), analyzerId, StringComparison.Ordinal));
-            Assert.AreEqual("all", (string?)analyzerReference.Element("PrivateAssets"));
-            Assert.AreEqual(
-                "runtime; build; native; contentfiles; analyzers; buildtransitive",
-                (string?)analyzerReference.Element("IncludeAssets"));
-        }
-
         string releaseOutputDirectory = ResolveReleaseOutputDirectory();
-        Assert.IsFalse(
-            Directory.EnumerateFiles(releaseOutputDirectory, "Roslynator*.dll", SearchOption.AllDirectories).Any(),
-            "Analyzer assemblies must not be copied to the application runtime output.");
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.dll")) ||
             File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.Extensions.dll")),
@@ -434,13 +407,13 @@ public sealed class ManagedDependencyOutputPolicyTests
         string japaneseAsio = ExtractSection(japanese, "1a) BASSASIO", "1b) BASS_FX");
         string japaneseFx = ExtractSection(japanese, "1b) BASS_FX", "2) ManagedBass");
 
-        var englishSections = new[]
+        (string Text, string Component, string Notice, string Copyright)[] englishSections = new[]
         {
             (Text: englishCore, Component: "Component: bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll (x64)", Notice: "Notice Summary: third_party/licenses/01-BASS-NOTICE.txt", Copyright: "Copyright: Un4seen Developments Ltd."),
             (Text: englishAsio, Component: "Component: bassasio.dll (x64)", Notice: "Notice Summary: third_party/licenses/01a-BASSASIO-NOTICE.txt", Copyright: "Copyright: Un4seen Developments Ltd."),
             (Text: englishFx, Component: "Component: bass_fx.dll (x64)", Notice: "Notice Summary: third_party/licenses/01b-BASS_FX-NOTICE.txt", Copyright: "Copyright: (: JOBnik! :) [Arthur Aminov, ISRAEL]")
         };
-        foreach (var section in englishSections)
+        foreach ((string Text, string Component, string Notice, string Copyright) section in englishSections)
         {
             StringAssert.Contains(section.Text, "Status: GREEN");
             StringAssert.Contains(section.Text, section.Component);
@@ -448,13 +421,13 @@ public sealed class ManagedDependencyOutputPolicyTests
             StringAssert.Contains(section.Text, section.Copyright);
         }
 
-        var japaneseSections = new[]
+        (string Text, string Component, string Notice, string Copyright)[] japaneseSections = new[]
         {
             (Text: japaneseCore, Component: "コンポーネント: bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll (x64)", Notice: "Notice Summary: third_party/licenses/01-BASS-NOTICE.txt", Copyright: "著作権所有者: Un4seen Developments Ltd."),
             (Text: japaneseAsio, Component: "コンポーネント: bassasio.dll (x64)", Notice: "Notice Summary: third_party/licenses/01a-BASSASIO-NOTICE.txt", Copyright: "著作権所有者: Un4seen Developments Ltd."),
             (Text: japaneseFx, Component: "コンポーネント: bass_fx.dll (x64)", Notice: "Notice Summary: third_party/licenses/01b-BASS_FX-NOTICE.txt", Copyright: "著作権所有者: (: JOBnik! :) [Arthur Aminov, ISRAEL]")
         };
-        foreach (var section in japaneseSections)
+        foreach ((string Text, string Component, string Notice, string Copyright) section in japaneseSections)
         {
             StringAssert.Contains(section.Text, "ステータス: GREEN");
             StringAssert.Contains(section.Text, section.Component);

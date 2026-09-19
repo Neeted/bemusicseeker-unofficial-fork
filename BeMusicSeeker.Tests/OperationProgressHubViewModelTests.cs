@@ -23,7 +23,7 @@ public sealed class OperationProgressHubViewModelTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
+        using var fixture = ProgressWorkflowFixture.Create(hub);
 
         hub.UpdatePendingEstimateQueueStatus(new PendingInstallEstimateQueueStatusSnapshot
         {
@@ -71,7 +71,7 @@ public sealed class OperationProgressHubViewModelTests
             var urlGateway = new BlockingPlaylistUrlDownloadGateway(urlRoot);
             using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
                 PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
-            var playlistWorkspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
+            PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
                 action => action(),
                 new PlaylistUrlAcquisitionWorkflow(urlGateway, _ => { }),
                 new AcceptedDialogService(),
@@ -112,7 +112,7 @@ public sealed class OperationProgressHubViewModelTests
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
-        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub, packageTotalCount: 0);
+        using var fixture = ProgressWorkflowFixture.Create(hub, packageTotalCount: 0);
         using var packageActive = new ManualResetEventSlim(false);
         hub.PropertyChanged += (_, args) =>
         {
@@ -140,7 +140,7 @@ public sealed class OperationProgressHubViewModelTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
+        using var fixture = ProgressWorkflowFixture.Create(hub);
 
         fixture.StartFolderRenameProgress();
         Assert.IsTrue(fixture.FolderProgressStarted.Wait(TimeSpan.FromSeconds(5)));
@@ -175,7 +175,7 @@ public sealed class OperationProgressHubViewModelTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
+        using var fixture = ProgressWorkflowFixture.Create(hub);
 
         fixture.StartMaintenanceProgress();
         Assert.IsTrue(fixture.MaintenanceProgressStarted.Wait(TimeSpan.FromSeconds(5)));
@@ -203,7 +203,7 @@ public sealed class OperationProgressHubViewModelTests
     public void WorkflowProgressSources_CannotBeAttachedTwice()
     {
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub);
+        using var fixture = ProgressWorkflowFixture.Create(hub);
 
         Assert.ThrowsException<InvalidOperationException>(() => hub.AttachWorkflowProgressSources(
             fixture.Package,

@@ -82,7 +82,7 @@ public sealed class PlaylistSyncAttemptResultTests
         var resultTable = new BMSTable { name = "restored" };
         var exception = new HttpRequestException("HTTP request failed statusCode=404 status=NotFound");
 
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(
+        var result = PlaylistSyncAttemptResult.CreateFailure(
             sourceTable,
             resultTable,
             new Uri("https://example.com/table.html"),

@@ -1,11 +1,11 @@
-using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views.Dialogs;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 

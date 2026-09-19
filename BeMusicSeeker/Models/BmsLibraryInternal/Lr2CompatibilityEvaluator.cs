@@ -272,7 +272,7 @@ internal static class Lr2CompatibilityEvaluator
         try
         {
             ChartFileSnapshot snapshot = snapshotProvider();
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             evaluation = EvaluateBmsResourceReferences(chartPath, parsed);
             return true;
         }

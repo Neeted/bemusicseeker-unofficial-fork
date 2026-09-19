@@ -230,7 +230,7 @@ public sealed class LibraryResourceIndexOwnerTests
         initialScan.ChartDirectories.Add(nested);
         initialScan.AudioRelativePathHashesByChartDirectory[source] = [11u, 12u];
         initialScan.ImageRelativePathHashesByChartDirectory[nested] = [21u];
-        LibraryResourceIndex initialIndex = LibraryResourceIndex.CreateFromScanResult(initialScan);
+        var initialIndex = LibraryResourceIndex.CreateFromScanResult(initialScan);
         var owner = new LibraryResourceIndexOwner(initialIndex);
         LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
 

@@ -57,14 +57,14 @@ public sealed class ExternalAudioEncoderSmokeTests
         EncoderType[] candidateTypes = requestedTypes.Count == 0
             ? SupportedEncoderTypes
             : requestedTypes.ToArray();
-        var discovered = candidateTypes
+        (EncoderType EncoderType, string Directory)[] discovered = candidateTypes
             .Select(encoderType =>
             {
                 string directory = encoderType.SearchEncoderBinary(configuredDirectory);
                 return (EncoderType: encoderType, Directory: directory);
             })
             .ToArray();
-        var missing = discovered
+        string[] missing = discovered
             .Where(item => item.Directory == null)
             .Select(item => item.EncoderType.ToString())
             .ToArray();
@@ -78,7 +78,7 @@ public sealed class ExternalAudioEncoderSmokeTests
                 + string.Join("; ", GetSearchDirectories(configuredDirectory)));
         }
 
-        var available = discovered
+        EncoderType[] available = discovered
             .Where(item => item.Directory != null)
             .Select(item => item.EncoderType)
             .ToArray();
@@ -172,7 +172,7 @@ public sealed class ExternalAudioEncoderSmokeTests
 
     private static IEnumerable<string> GetSearchDirectories(string? configuredDirectory)
     {
-        var directories = new[]
+        string?[] directories = new[]
         {
             configuredDirectory,
             AppContext.BaseDirectory,

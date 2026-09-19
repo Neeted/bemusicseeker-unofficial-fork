@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -15,21 +15,20 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using NLog;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using NLog;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
 using SQLite;
-
 using CustomFolderBatchMaterializationResult = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult;
+using CustomFolderBatchOutputResult = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult;
 using CustomFolderDefinition = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderDefinition;
 using CustomFolderOutputFileProjection = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderOutputFileProjection;
 using CustomFolderOutputPhysicalMtimeSignatureIndex = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderOutputPhysicalMtimeSignatureIndex;
 using CustomFolderOutputProjection = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection;
-using CustomFolderBatchOutputResult = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult;
 
 namespace BeMusicSeeker.Models;
 
@@ -783,7 +782,7 @@ public partial class BMSPlaylist : ObservableObject
             playlistAggregatePersistenceOwner,
             playlistEntriesHydrationOwner,
             this.beatorajaBmtOptionsProvider,
-            this.beatorajaBmtSongHashResolverFactory,
+            beatorajaBmtSongHashResolverFactory,
             () => StartupBackgroundTaskScheduler,
             LogPlaylistPerformance,
             (exception, message) => Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, message),
@@ -1179,7 +1178,7 @@ public partial class BMSPlaylist : ObservableObject
             }
             try
             {
-                var previous = playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot();
+                PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot previous = playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot();
                 List<BMSTable> headers;
                 long persistenceGeneration;
                 bool lockAcquired = false;
@@ -2255,10 +2254,10 @@ public partial class BMSPlaylist : ObservableObject
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(previousAdditionalOutputBaseDirectories));
         IReadOnlyList<CustomFolderOutputBaseEntry> newEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs));
-        Dictionary<string, CustomFolderOutputBaseEntry> newByName = newEntries
+        var newByName = newEntries
             .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, CustomFolderOutputBaseEntry> oldByName = oldEntries
+        var oldByName = oldEntries
             .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var processedTables = new HashSet<BMSTable>();
@@ -3613,7 +3612,7 @@ public partial class BMSPlaylist : ObservableObject
                     break;
                 }
 
-                RootFileEnumerationEntry directoryEntry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
+                var directoryEntry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
                 if (directoryEntry?.LastWriteTimeUtc == null
                     || directoryRow.date != directoryEntry.LastWriteTimeUtc.Value.ToUnixtime())
                 {
@@ -4346,7 +4345,7 @@ public partial class BMSPlaylist : ObservableObject
 
         foreach (string target in metadataTargets ?? [])
         {
-            RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(target);
+            var entry = RootFileEnumerationEntry.FromDirectoryInfo(target);
             string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
             if (!string.IsNullOrWhiteSpace(key))
             {
@@ -5843,7 +5842,7 @@ public partial class BMSPlaylist : ObservableObject
         {
             DateParseHandling = DateParseHandling.None
         };
-        JToken token = JToken.ReadFrom(reader);
+        var token = JToken.ReadFrom(reader);
         if (reader.Read())
         {
             throw new JsonReaderException("JSON document contains trailing content.");

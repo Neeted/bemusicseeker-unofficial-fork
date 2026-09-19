@@ -10,8 +10,8 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Settings;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parago.Windows;
 
@@ -78,7 +78,7 @@ public sealed class WpfTestApplicationHostTests
         TestUiDispatcherHost.Invoke(() =>
         {
             var settingsWindow = new SettingsWindow();
-            Grid settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");
+            var settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");
             AssertBrush(settingsOperationRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
             AssertBrush(settingsWindow.Background, "App.DialogBackgroundBrush");
             var warningField = new SettingsField
@@ -314,7 +314,7 @@ public sealed class WpfTestApplicationHostTests
     {
         object? resource = FindResourceInScope(scope.Resources, resourceKey);
         Assert.IsInstanceOfType(resource, typeof(Style), resourceKey + " must resolve from the dialog-local resource facade.");
-        Style expectedStyle = (Style)resource;
+        var expectedStyle = (Style)resource;
 
         T[] matches = FindVisualDescendants<T>(scope)
             .Where(element => ReferenceEquals(element.Style, expectedStyle))

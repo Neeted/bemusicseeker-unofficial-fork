@@ -380,7 +380,7 @@ internal sealed class UpdateDownloadService
 
     private static string ComputeSha256(string path)
     {
-        using SHA256 sha256 = SHA256.Create();
+        using var sha256 = SHA256.Create();
         using FileStream stream = LongPathFileSystem.OpenRead(path);
         return BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", string.Empty).ToLowerInvariant();
     }

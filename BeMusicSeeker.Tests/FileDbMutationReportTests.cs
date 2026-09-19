@@ -73,9 +73,9 @@ public sealed class FileDbMutationReportTests
     public void AbnormalSeverityPreservesIndependentFailureDimensions(
         bool applyFails, bool finalizationFails, bool cleanupFails, MessageBoxImage expectedIcon)
     {
-        var apply = applyFails ? new IOException("apply-marker") : null;
-        var finalization = finalizationFails ? new IOException("finalization-marker") : null;
-        var cleanup = cleanupFails ? new IOException("cleanup-marker") : null;
+        IOException? apply = applyFails ? new IOException("apply-marker") : null;
+        IOException? finalization = finalizationFails ? new IOException("finalization-marker") : null;
+        IOException? cleanup = cleanupFails ? new IOException("cleanup-marker") : null;
         var session = new LibraryMutationSessionReceipt([Target("confirmed")], durableCommit: true,
             applyFailure: apply, finalizationFailure: finalization, cleanupFailure: cleanup);
 
@@ -123,7 +123,7 @@ public sealed class FileDbMutationReportTests
             recoveryCandidatePaths: candidates);
         foreach (string language in Languages)
         {
-            CultureInfo culture = CultureInfo.GetCultureInfo(language);
+            var culture = CultureInfo.GetCultureInfo(language);
             UiMessageRequest report = FileDbMutationReport.Create(new string('o', 5000), session, culture: culture);
             Assert.IsTrue(report.MessageBoxText.Length <= 4096, language);
             string[] shownPaths = report.MessageBoxText.Split(Environment.NewLine)
@@ -159,7 +159,7 @@ public sealed class FileDbMutationReportTests
         int[] expected = durable ? [2, 2, 2, 2, 1, 3] : [2, 0, 4, 1, 0, 3];
         foreach (string language in Languages)
         {
-            CultureInfo culture = CultureInfo.GetCultureInfo(language);
+            var culture = CultureInfo.GetCultureInfo(language);
             string pattern = Regex.Escape(Resources.ResourceManager.GetString(nameof(Resources.LibraryMutationSessionReport_Counts), culture)!);
             for (int index = 0; index < 6; index++)
                 pattern = pattern.Replace(Regex.Escape("{" + index + "}"), "(?<field" + index + @">\d+)", StringComparison.Ordinal);
@@ -177,7 +177,7 @@ public sealed class FileDbMutationReportTests
             .Select(index => new FileDbMutationDestinationTypeConflict(
                 @"C:\Source\source" + index, @"D:\Destination\destination" + index,
                 expectedIsDirectory: false, existingIsDirectory: true)).ToArray();
-        var session = ConflictSession(conflicts);
+        LibraryMutationSessionReceipt session = ConflictSession(conflicts);
 
         UiMessageRequest report = FileDbMutationReport.Create("install-operation", session);
 
@@ -197,7 +197,7 @@ public sealed class FileDbMutationReportTests
     [DataRow(true, true)]
     public void DestinationTypeConflictsUseOperationWordingAndOnlyShowConfirmedDurableSuccess(bool merge, bool success)
     {
-        var session = ConflictSession([Conflict()], confirmed: success ? [Target("confirmed")] : []);
+        LibraryMutationSessionReceipt session = ConflictSession([Conflict()], confirmed: success ? [Target("confirmed")] : []);
         UiMessageRequest report = FileDbMutationReport.Create("operation", session, mergeOperation: merge);
 
         Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
@@ -220,7 +220,7 @@ public sealed class FileDbMutationReportTests
     [DataRow(true, MessageBoxImage.Error)]
     public void DestinationTypeConflictReportRetainsRecoveryAndFailureDimensions(bool requiredFailure, MessageBoxImage expectedIcon)
     {
-        var session = ConflictSession([Conflict()], [Target("confirmed")],
+        LibraryMutationSessionReceipt session = ConflictSession([Conflict()], [Target("confirmed")],
             physicalFailure: requiredFailure ? new IOException("physical-marker") : null,
             cleanupFailure: new IOException("cleanup-marker"),
             recoveryPaths: [@"D:\Recovery\backup"]);
@@ -237,15 +237,15 @@ public sealed class FileDbMutationReportTests
     [TestMethod]
     public void ConflictReportBoundsWholeBodyAndRetainsGuidanceAcrossLanguages()
     {
-        var conflicts = Enumerable.Range(0, 8).Select(index => new FileDbMutationDestinationTypeConflict(
+        FileDbMutationDestinationTypeConflict[] conflicts = Enumerable.Range(0, 8).Select(index => new FileDbMutationDestinationTypeConflict(
             @"C:\" + index + new string('s', 600), @"D:\" + index + new string('d', 600), false, true)).ToArray();
-        var session = ConflictSession(conflicts, [Target("confirmed")],
+        LibraryMutationSessionReceipt session = ConflictSession(conflicts, [Target("confirmed")],
             physicalFailure: new IOException("physical-" + new string('x', 800)),
             cleanupFailure: new IOException("cleanup-" + new string('y', 800)),
             recoveryPaths: Enumerable.Range(0, 8).Select(index => "recovery-" + index + new string('r', 600)));
         foreach (string language in Languages)
         {
-            CultureInfo culture = CultureInfo.GetCultureInfo(language);
+            var culture = CultureInfo.GetCultureInfo(language);
             UiMessageRequest report = FileDbMutationReport.Create(new string('o', 5000), session, culture: culture);
             Assert.IsTrue(report.MessageBoxText.Length <= 4096, language);
             StringAssert.EndsWith(report.MessageBoxText,

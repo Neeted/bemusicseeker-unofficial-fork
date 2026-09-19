@@ -767,7 +767,7 @@ internal sealed class DirectoryResourceLookupCache
             return ReverseLookupMutationResult.Empty;
         }
 
-        Dictionary<string, string> replacementsByOldPath = replacements.ToDictionary(
+        var replacementsByOldPath = replacements.ToDictionary(
             pair => pair.Key,
             pair => pair.Value,
             StringComparer.OrdinalIgnoreCase);

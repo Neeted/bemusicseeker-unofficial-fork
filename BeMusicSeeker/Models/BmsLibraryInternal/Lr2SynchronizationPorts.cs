@@ -645,7 +645,7 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
 
     public HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures =

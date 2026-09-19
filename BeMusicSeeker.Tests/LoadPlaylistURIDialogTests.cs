@@ -47,7 +47,7 @@ public sealed class LoadPlaylistURIDialogTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(host);
-                TextBox input = (TextBox)dialog.FindName("textBoxURIInput");
+                var input = (TextBox)dialog.FindName("textBoxURIInput");
                 Border content = FindDialogContentBorder(dialog);
                 Button[] footerButtons = FindVisualDescendants<Button>(dialog)
                     .Where(button => button.TemplatedParent == null)
@@ -139,7 +139,7 @@ public sealed class LoadPlaylistURIDialogTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            UiDialogStatus status = (UiDialogStatus)statusValue;
+            var status = (UiDialogStatus)statusValue;
             var dialogs = new RecordingLoadPlaylistDialogService(new UiFilePickerResult(status));
             var dialog = new LoadPlaylistURIDialog(dialogs);
             var host = new Window

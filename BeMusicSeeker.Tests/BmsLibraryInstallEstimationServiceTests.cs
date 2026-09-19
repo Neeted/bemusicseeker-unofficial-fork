@@ -46,7 +46,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_RecordsExplicitCandidateDegree()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
@@ -78,7 +78,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_NormalModeDoesNotUseSha256OnlyInstalledHash()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile(null, Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
         file.SetSha256(new string('b', 64));
@@ -103,7 +103,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string dirA = Path.Combine("C:\\Installed", "DirA");
         string dirB = Path.Combine("C:\\Installed", "DirB");
@@ -116,7 +116,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
         TestableBmsFile pendingC = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\c.bms");
-        var package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingC]);
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingC]);
         package.path = "C:\\Pending";
         package.delete_parent = false;
 
@@ -134,7 +134,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonPackagePrefersDirectoryWithMostMatchingCharts()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string dirA = Path.Combine("C:\\Installed", "DirA");
         string dirB = Path.Combine("C:\\Installed", "DirB");
@@ -181,7 +181,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_ReturnsMultipleCandidateDirectoriesForTopTie()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string dirA = Path.Combine("C:\\Installed", "DirA");
         string dirB = Path.Combine("C:\\Installed", "DirB");
@@ -193,7 +193,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
         TestableBmsFile pendingMissing = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\missing.bms", "sound.wav");
-        var package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingMissing]);
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingMissing]);
         package.path = "C:\\Pending";
         package.delete_parent = false;
 
@@ -211,7 +211,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonTopTieReturnsMultipleCandidateDirectories()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string dirA = Path.Combine("C:\\Installed", "DirA");
         string dirB = Path.Combine("C:\\Installed", "DirB");
@@ -255,7 +255,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectoryForCandidateDirectories_RequiresResourceIndex()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -264,7 +264,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(candidateDir);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
             package.path = sourceDir;
             package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
@@ -287,7 +287,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_MergeMode_SelectsExternalCandidateOnly()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -306,7 +306,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"), Path.Combine("sound", "01.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 1), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -331,7 +331,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_UsesFallbackCandidateExpansion_WhenNameHashFilterMisses()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -364,7 +364,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_DoesNotFallbackToAllCandidates_WhenBroadFilterFindsNoCandidates()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -400,7 +400,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_RequiresTwoAudioMatches_WhenAudioRefsAreTwoOrMore()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -443,7 +443,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_AllowsSingleAudioMatch_WhenAudioRefsIsOne()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -479,7 +479,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_IsSkipped_WhenAudioRefsIsZero()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -514,7 +514,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioHealthGate_DropsCandidateBelowThreshold_WhenPackageUnionStillInsufficient()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -549,7 +549,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioHealthGate_UsesBundledResourcesInNormalMode_ButNotInMergeMode()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -564,7 +564,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -599,7 +599,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_DropsCandidateSatisfiedOnlyByBundledResources()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -620,7 +620,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             file.BGAfiles = new HashSet<string>(["title.png"], StringComparer.OrdinalIgnoreCase);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 71), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -647,7 +647,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_RequiresMatchedAboveSeventyPercentBoundary()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -695,7 +695,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestCategory("estimation")]
     public void EstimateInstallationDirectory_BuildsEachCandidateResourceViewOnce()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
         {
             int candidateCount = scale switch
@@ -748,7 +748,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_RelativePathExactCanRescueViability()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -794,7 +794,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_UsesCachedHashesWithoutRuntimeDirectoryEnumeration()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Temp", "source");
         string candidateDir = Path.Combine("C:\\Library", "candidate");
@@ -819,7 +819,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_CachelessPath_DoesNotApplyAudioHealthGate()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Temp", "source");
         string candidateDir = Path.Combine("C:\\Library", "candidate");
@@ -847,7 +847,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_DirectoryPackageBuildsBundledResources()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -869,7 +869,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             primary.SetMaintenanceInfo(CreateMaintenanceInfo(primary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
             secondary.SetMaintenanceInfo(CreateMaintenanceInfo(secondary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
 
             package.path = sourceDir;
 
@@ -900,7 +900,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EvaluateSourceBaseline_ChartResourceOverloadMatchesPackageSnapshot()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -912,7 +912,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -935,7 +935,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_BuildsTargetMetadataProfileFromDominantGroup()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -948,7 +948,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             var primary = BMSFile.CreateBMSFileFromFile(primaryPath);
             var secondary = BMSFile.CreateBMSFileFromFile(secondaryPath);
 
-            var package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
 
             package.path = sourceDir;
 
@@ -966,7 +966,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_FilePackageDoesNotIncludeSiblingBundledResources()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -984,7 +984,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = file.path;
 
@@ -1021,7 +1021,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_FilePackageDoesNotScanSourceSurfaceAtLimit()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -1044,7 +1044,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(0, surface.SourceCandidateResources.AudioFileNameHashCount);
 
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav");
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(
                 package,
@@ -1061,7 +1061,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_DirectoryPackageDiscardsPartialSurfaceAtLimit()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "DirectoryPackage");
@@ -1075,7 +1075,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 sourceDir,
                 maxVisitedFileSystemEntryCount: 1);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav");
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
             package.path = sourceDir;
             PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(
                 package,
@@ -1097,7 +1097,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_LooseBmsonKeepsRelativeResourcesWithoutScanningParent()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "LooseBmson");
@@ -1110,7 +1110,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             File.WriteAllText(Path.Combine(sourceDir, "sibling.wav"), "audio");
             File.WriteAllText(Path.Combine(nestedDir, "nested.wav"), "audio");
             LR2SongDBExtended.bmson_song song = BmsonSongParser.Parse(bmsonPath);
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
             PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries([entry]);
             string expectedResourceKey = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup("sound/00.wav");
@@ -1136,7 +1136,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_FilePackageCachesNoScanSurface()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "FilePackageCache");
@@ -1144,7 +1144,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string chartPath = Path.Combine(sourceDir, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
             package.path = chartPath;
 
             PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshotFromEntries(package.ChartEntries);
@@ -1164,7 +1164,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartAdaptersAreRequested()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1209,7 +1209,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_PathPackage_UsesChartEntriesBeforeCompatibilityAdaptersAreRequested()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1243,7 +1243,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_PathPackage_CountsChartEntriesBeforeCompatibilityAdaptersAreRequested()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1265,7 +1265,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_BuildsFromPackageChartEntries()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1297,7 +1297,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_AcceptsChartEntryWithoutCompatibilityAdapter()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -1313,7 +1313,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 wav_files = [Path.Combine("sound", "keysound.wav")]
             };
             ChartFile chart = ChartFileProjection.FromBmsonSong(song);
-            PackageChartEntry entry = PackageChartEntry.FromChart(chart);
+            var entry = PackageChartEntry.FromChart(chart);
             var package = new ChartPackage
             {
                 path = sourceDir
@@ -1344,7 +1344,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             wav_files = ["keysound.wav"]
         };
         ChartFile chart = ChartFileProjection.FromBmsonSong(song);
-        PackageChartEntry entry = PackageChartEntry.FromChart(chart);
+        var entry = PackageChartEntry.FromChart(chart);
         var discoverySnapshot = new PackageChartDiscoverySnapshot
         {
             ChartEntries = [entry]
@@ -1394,7 +1394,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             artist = "Artist",
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
@@ -1413,7 +1413,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void PackageChartEntry_BmsStorageOwnerKeepsInstallDestinationOnChartState()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         string installedPath = Path.Combine(destinationDirectory, "chart.bms");
 
@@ -1441,7 +1441,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             File.WriteAllText(installedPath, "#PLAYER 1");
             File.WriteAllText(Path.Combine(destinationDirectory, "readme.txt"), "text group");
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
             entry.ApplyInstalledPath(installedPath);
 
@@ -1461,7 +1461,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             File.WriteAllText(installedPath, "#PLAYER 1");
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
             file.SetTextGroupFlag(1);
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
             entry.ApplyInstalledPath(installedPath);
 
@@ -1482,7 +1482,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             File.WriteAllText(installedPath, "#PLAYER 1");
             File.SetLastWriteTimeUtc(installedPath, installedTimestamp);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
             entry.ApplyInstalledPath(installedPath);
 
@@ -1506,7 +1506,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
             file.date = 12345;
             file.adddate = 67890;
-            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
             entry.ApplyInstalledPath(installedPath);
 
@@ -1520,7 +1520,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void PackageChartEntry_BmsStorageOwnerProjectsPackageWarningsWithoutHidingStorageWarnings()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
         file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
@@ -1534,7 +1534,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
         file.status = BMSFile.BMSFileStatus.PLAY;
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
         entry.SetSearchingStatus(isSearching: true);
 
@@ -1565,7 +1565,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             artist = "Artist",
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
         entry.SetSearchingStatus(isSearching: true);
 
@@ -1581,7 +1581,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1613,7 +1613,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_UsesPackageEntriesWhenTargetAdaptersAreEmpty()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1642,7 +1642,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_PathPackage_DiscoversBmsonAsChartEntryWithoutCompatibilityAdapter()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1673,7 +1673,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_DisplayTitle_UsesChartEntriesWithoutMaterializingBmsonAdapter()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1698,7 +1698,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_RemoveChartEntriesPredicate_RemovesAdapterlessBmsonEntryWithoutMaterializing()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1734,7 +1734,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile primary = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "a.bms"));
         primary.SetTitleParts("Main Title", "Sub Title");
         TestableBmsFile secondary = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Pending", "b.bms"));
-        var package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
 
         Assert.AreEqual("Main Title", package.DisplayTitle);
     }
@@ -1742,7 +1742,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_BuildInstallEstimationSnapshot_ResolvesBatchPathMatchedBmsonTargetToPackageEntry()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
@@ -1780,7 +1780,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ChartPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDirA = Path.Combine(tempRoot, "PathPackageA");
@@ -1820,7 +1820,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PackageUnionPrefersDestinationWithBaseResourcesMissingFromSourcePackage()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -1835,7 +1835,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -1863,7 +1863,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PackageUnionDoesNotMatchBundledResourceByBasenameOnly()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -1879,7 +1879,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -1907,7 +1907,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_BelowThresholdReturnsHighWithoutDestination()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -1920,7 +1920,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -1949,7 +1949,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
@@ -1957,7 +1957,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(pendingDirectoryPath);
             Directory.CreateDirectory(installDirectoryPath);
             TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(pendingDirectoryPath, "chart.bms"));
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
             pendingPackage.path = pendingDirectoryPath;
             pendingPackage.delete_parent = false;
 
@@ -1977,7 +1977,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ValidateInstallDestination_MatchesAdapterlessBmsonPackageByChartPath()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
@@ -1988,7 +1988,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(
                     bmsonPath,
                     "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
-                PackageChartEntry targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
+                var targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
                 var pendingPackage = new ChartPackage
                 {
                     path = pendingDirectoryPath,
@@ -2015,7 +2015,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ValidateInstallDestination_DoesNotMaterializeAdapterlessBmsonWhenDestinationIsInvalid()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
@@ -2024,7 +2024,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(
                     bmsonPath,
                     "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
-                PackageChartEntry targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
+                var targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
                 var pendingPackage = new ChartPackage
                 {
                     path = pendingDirectoryPath,
@@ -2049,10 +2049,10 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void CorrectChartInstallationDirectory_ClearsSameDirectorySuggestion()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
         service.CorrectChartInstallationDirectory([entry], delegate (PackageChartEntry target)
         {
@@ -2065,10 +2065,10 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ClearInstallDestinations_ClearsResolveFailedWarningOnly()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
 
         service.ClearInstallDestinations([entry]);
@@ -2080,7 +2080,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_AutoAppliesOnlyImprovedUniqueCandidate()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Music", "Current");
         string candidateDir = Path.Combine("C:\\Music", "Candidate");
@@ -2109,7 +2109,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_DoesNotAutoApplyWhenCandidateDoesNotImproveHealth()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Music", "Current");
         string candidateDir = Path.Combine("C:\\Music", "Candidate");
@@ -2137,7 +2137,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_DoesNotUseSourceBundledResources()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Music", "Current");
         string candidateDir = Path.Combine("C:\\Music", "Candidate");
@@ -2163,7 +2163,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_DoesNotAutoApplyMultipleViableCandidatesEvenWhenAmbiguousSettingEnabled()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithAutoApplyAmbiguousInstallDestination(true, delegate
         {
             BmsLibraryInstallEstimationService service = CreateService();
@@ -2196,7 +2196,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_MetadataMismatchDoesNotAutoApply()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "Current");
@@ -2240,7 +2240,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_IncludesBmsonMd5AndSha256Directories()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string installDir = Path.Combine("C:\\Installed", "Bmson");
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
@@ -2262,7 +2262,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_DoesNotRegisterMd5lessRows()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string installDir = Path.Combine("C:\\Installed", "ShaOnly");
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
@@ -2282,7 +2282,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_CountsPrimaryHashesForExcludingLookup()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string duplicateHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         TestableBmsFile first = CreateFile(duplicateHash, "C:\\Installed\\A\\chart.bms");
@@ -2327,7 +2327,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void OwnedChartCollectionState_CreateInstalledChartLookupIndexBuildsBmsAndBmsonLookup()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string bmsDir = Path.Combine("C:\\Installed", "Bms");
         string bmsonDir = Path.Combine("C:\\Installed", "Bmson");
         TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(bmsDir, "chart.bms"));
@@ -2369,7 +2369,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_DecrementsPrimaryHashAndDirectoryCounts()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string firstDir = Path.Combine("C:\\Installed", "First");
         string secondDir = Path.Combine("C:\\Installed", "Second");
@@ -2434,7 +2434,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void PrimaryHashLookupState_SharesImmutableCountRootAndKeepsPreviousSnapshots()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         const string sharedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         var state = new PrimaryHashLookupState();
@@ -2468,7 +2468,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_KeepsDigestBucketsAndCountsConsistentAcrossLastOwnerRemoval()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string sharedSha256 = new string('b', 64);
         string otherMd5 = "cccccccccccccccccccccccccccccccc";
@@ -2534,7 +2534,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [DataRow(128)]
     public void InstalledChartLookupIndexState_ObservesOnlyAffectedBucketWork(int backgroundChartCount)
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string rootDirectory = Path.Combine("C:\\Installed", "Background", backgroundChartCount.ToString());
         string targetHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string targetSha256 = new string('b', 64);
@@ -2606,7 +2606,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_CountsDistinctDirectoryReferences()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string sha256 = new string('b', 64);
         string dir = Path.Combine("C:\\Installed", "SameDir");
@@ -2631,7 +2631,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_CountsUniquePrimaryHashesByDirectory()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string duplicateHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         string bmsonHash = "cccccccccccccccccccccccccccccccc";
@@ -2660,7 +2660,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_TracksPathsByPrimaryHash()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string firstPath = Path.Combine("C:\\Installed", "First", "a.bms");
         string secondPath = Path.Combine("C:\\Installed", "Second", "b.bms");
@@ -2679,7 +2679,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_CreateExcludingLookupFreezesBaselineCounts()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string firstPath = Path.Combine("C:\\Installed", "First", "a.bms");
         string secondPath = Path.Combine("C:\\Installed", "Second", "b.bms");
@@ -2700,7 +2700,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_KeepsPrimaryHashUntilAllDistinctPathsAreRemoved()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string firstPath = Path.Combine("C:\\Installed", "First", "chart.bms");
         string secondPath = Path.Combine("C:\\Installed", "Second", "chart.bms");
@@ -2723,7 +2723,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void InstalledChartLookupIndexState_MoveChartUpdatesDirectoryLookup()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string oldDir = Path.Combine("C:\\Installed", "Old");
         string newDir = Path.Combine("C:\\Installed", "New");
@@ -2743,7 +2743,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_BmsonUsesCommonHealthBasedSearch()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "source");
@@ -2784,7 +2784,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_BmsonSampleLikeOggSetSelectsMatchingDirectory()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "bmson");
@@ -2852,7 +2852,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_ReturnsLowConfidenceWhenOnlyDirectoryPathBreaksTie()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateADir = Path.Combine("C:\\Installed", "A");
@@ -2883,7 +2883,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_AmbiguousStrongMetadataWithSetting_AutoAppliesFirstCandidate()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithAutoApplyAmbiguousInstallDestination(true, delegate
         {
             WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -2938,7 +2938,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_CandidateDirectoryHashCountTieBreakUsesFullTiedFrontier()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateADir = Path.Combine("C:\\Installed", "A");
@@ -3013,7 +3013,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_MetadataTieBreakPromotesMatchingCandidateToHigh()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "Pending", "Source");
@@ -3065,7 +3065,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_WhenSourceDirectoryWouldTieExternalCandidate_SourceIsExcluded()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "A_Source");
@@ -3079,7 +3079,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 1), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -3110,7 +3110,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_SingleCandidateWithMetadataMismatch_ReturnsLowWithoutDestination()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithAutoApplyAmbiguousInstallDestination(true, delegate
         {
             WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -3158,7 +3158,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_WhenNoExternalViableCandidate_ReturnsHighWithoutDestinationEvenIfSourceIsHealthy()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "A_Source");
@@ -3174,7 +3174,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav", "01.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 2), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = chartPath;
 
@@ -3205,7 +3205,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_WhenRoundedRatiosTie_UsesRawRatiosBeforeDirectoryPath()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "Source");
@@ -3260,7 +3260,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PopulatesRepresentativeMetadataForTopCandidates()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Chosen");
@@ -3297,7 +3297,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAudioBroadFilter_DropsBasenameOnlyCandidate_WhenLookupCachePresent()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string flatCandidateDir = Path.Combine("C:\\Installed", "Flat");
@@ -3327,7 +3327,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAudioBroadFilter_RequiresLookupCache()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string flatCandidateDir = Path.Combine("C:\\Installed", "Flat");
@@ -3354,7 +3354,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareVisualBroadFilter_UsesImageRelativeHashes()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string flatCandidateDir = Path.Combine("C:\\Installed", "Flat");
@@ -3383,7 +3383,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareOptionalImageBroadFilter_UsesImageRelativeHashes()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string flatCandidateDir = Path.Combine("C:\\Installed", "Flat");
@@ -3412,7 +3412,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAdmissionGate_DropsCandidateThatOnlyMatchesBasenameRefs()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string basenameOnlyCandidateDir = Path.Combine("C:\\Installed", "BaseOnly");
@@ -3438,7 +3438,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_NestedRootStylePathAwareAudio_SelectsParentAggregateCandidate()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string parentDir = Path.Combine("C:\\Installed", "Parent");
@@ -3481,7 +3481,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_NestedFlatRelativeAudio_UsesAncestorShadowRuleToPreferChildCandidate()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string parentDir = Path.Combine("C:\\Installed", "Parent");
@@ -3529,7 +3529,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_FlatAudioRef_MatchesOnlyFlatRelativePath()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string nestedCandidateDir = Path.Combine("C:\\Installed", "A_Nested");
@@ -3562,7 +3562,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_MixedBasenameAndPathAwareAudioRefs_CountEachReferenceOnce()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Candidate");
@@ -3590,7 +3590,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_CandidateCount_TreatsSameBasenameDifferentRelativePathsAsDistinct()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Candidate");
@@ -3619,7 +3619,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAudioGate_UsesRelativePathAwareMatchesForNormalAndMerge()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
         {
             string sourceDir = Path.Combine(tempRoot, "SourcePackage");
@@ -3636,7 +3636,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\00.wav", "sound\\01.wav", "sound\\02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true);
 
-            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
 
             package.path = sourceDir;
 
@@ -3672,7 +3672,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_WithoutResourceIndex_ReturnsUnavailableForRelativePathSemantics()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Candidate");
@@ -3707,7 +3707,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_WithoutResourceIndex_DoesNotUseChartRelativeFallback()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Candidate");
@@ -3744,7 +3744,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void EstimateInstallationDirectory_WithoutResourceIndex_SkipsAncestorShadowDiagnostics()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string parentDir = Path.Combine("C:\\Installed", "Parent");
@@ -3801,7 +3801,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void GetDistinctInstalledDirectoriesForChart_ChartWithMd5DoesNotFallBackToSha256()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string installDir = Path.Combine("C:\\Installed", "PrimaryOnly");
         TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installDir, "chart.bms"));
         installedFile.SetSha256(new string('b', 64));
@@ -3818,7 +3818,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void GetDistinctInstalledDirectoriesForChart_Sha256OnlyChartDoesNotUseSha256()
     {
-        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string installDir = Path.Combine("C:\\Installed", "ShaOnly");
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {

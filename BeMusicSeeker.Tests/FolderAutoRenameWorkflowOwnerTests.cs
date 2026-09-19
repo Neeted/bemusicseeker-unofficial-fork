@@ -31,7 +31,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var events = new List<string>();
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             FolderAutoRenameCompletionReceipt? receipt = null;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     observedRequest = selectedRequest;
@@ -314,7 +314,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             int callerThreadId = Thread.CurrentThread.ManagedThreadId;
             int checkerThreadId = 0;
             var dialogs = new AcceptedFolderDialogService();
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -362,7 +362,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             int schedulerCalls = 0;
             int executorCalls = 0;
             string? observedParentDirectory = null;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -494,7 +494,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             };
             int executorCalls = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -532,7 +532,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failed"))
             };
             int executorCalls = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -572,7 +572,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
             var dialogs = new AcceptedFolderDialogService { DeferConfirmation = true };
             int executorCalls = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -614,7 +614,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var notifications = new Queue<Action>();
             int completionCount = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) => new FolderAutoRenameExecutionResult { RefreshRequired = true },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
@@ -671,7 +671,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     started.TrySetResult(true);
@@ -723,7 +723,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int completionCount = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     if (ReferenceEquals(current, first))
@@ -851,7 +851,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             int resetCount = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     if (ReferenceEquals(current, first))
@@ -913,7 +913,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     started.TrySetResult(true);
@@ -956,7 +956,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception? observed = null;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) => throw new InvalidOperationException("rename failed"),
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
@@ -993,7 +993,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             int workflowFailures = 0;
             int notificationFailures = 0;
-            var owner = CreateOwner(
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
                 (current, selectedRequest, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,

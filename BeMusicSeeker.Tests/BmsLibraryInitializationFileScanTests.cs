@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.Tests;
 
 
@@ -26,7 +25,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     public void Initialize_StartupPublishesScanAfterLeaseReleaseAndIsolatesTerminalSubscriber()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string lr2RootPath = Path.Combine(scope.DirectoryPath, "LR2");
         string songDbPath = scope.SongDbPath;
@@ -139,7 +138,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsTrue(library.BMSFiles.Any(file =>
             string.Equals(file?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
 
-        BMSLibrary.Lr2SynchronizationOwner synchronizationOwner =
+        var synchronizationOwner =
             (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Lr2SongDbSyncInput scanInput = synchronizationOwner.CreateLr2SongDbSyncInput();
         Assert.IsTrue(scanInput.ScanSurfaceGeneration > 0);
@@ -147,7 +146,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsNotNull(synchronizationOwner.CommittedPathReceipt);
         Assert.AreEqual(scanInput.BmsRowsVersion, synchronizationOwner.CommittedPathReceipt.BmsRowsVersion);
 
-        using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
         Assert.IsTrue(verify.Table<BMSFile>().Any(row =>
             string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
     }
@@ -156,7 +155,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     public void Initialize_StartupParseFailureStillOpensCatalogFileMutationAdmission()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string chartDirectoryPath = Path.Combine(scope.DirectoryPath, "InvalidBmson");
         Directory.CreateDirectory(chartDirectoryPath);
@@ -213,7 +212,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     public void Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndUsesSettingWarningForCatalogMutation()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+        using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         BmsLibraryOptionsSnapshot options = new()
         {
@@ -473,7 +472,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual("directory_enumeration_failed:" + existingDirectoryPath, result.ScanFallbackReason);
 
             // 初期化結果の観測はSELECTだけなので、writer接続を保持せずread-only入口を使います。
-            using var songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
             Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", addedPath));
         });
@@ -539,7 +538,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.AddedFiles.Count);
             Assert.IsTrue(logs.Any(message => message.Contains("reason=empty_scan_with_existing_db")));
 
-            using var songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
         });
     }
@@ -596,7 +595,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsFalse(result.HasDbDiff);
             Assert.AreEqual(0, result.DeletedPaths.Count);
 
-            using var songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
         });
     }
@@ -801,7 +800,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             BMSFile.ReloadBMSFileWithEncoding(result.AddedFiles[0], "shift_jis");
             Assert.AreEqual("Long Path", result.AddedFiles[0].title);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
         });
     }
@@ -852,7 +851,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(bmsonPath, result.AddedBmsonSongs[0].path);
             Assert.AreEqual("Long Bmson", result.AddedBmsonSongs[0].title);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = ?;", bmsonPath));
         });
     }
@@ -1186,7 +1185,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 currentBmsonSongs: []);
 
             CollectionAssert.AreEquivalent(new[] { bmsPath }, result.CommittedLr2SongDbSyncBmsPaths.ToArray());
-            using var verifyConnection = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifyConnection = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verifyConnection.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
         });
     }
@@ -1270,7 +1269,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(finalProgressIndex >= 0, "final parse progress was not recorded.");
             Assert.IsTrue(firstCommitChunkProgressIndex >= 0, "first commit chunk prepared progress was not recorded.");
             Assert.IsTrue(firstCommitChunkProgressIndex < firstCommitIndex, "file diff progress should report DB-ready rows before their commit completion.");
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
@@ -1338,7 +1337,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(logs.Any(message => message.Contains("file_diff_chart_info_snapshot")
                 && message.Contains("status=loaded")));
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM maintenance;"));
@@ -1455,7 +1454,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsFalse(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
             Assert.AreEqual(0, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(file.parent)));
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(added.folder, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
             Assert.AreEqual(added.parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
         });
@@ -1507,7 +1506,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             StringAssert.Contains(added.Warnings.BuildTooltipText(), "Shift_JIS");
             Assert.AreEqual(1, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(file.parent)));
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
             Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath)));
         });
@@ -1886,7 +1885,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 null);
 
             CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + deletedFile.hash + "';"));
         });
     }
@@ -1953,7 +1952,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 null);
 
             CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + keepFile.hash + "';"));
         });
     }
@@ -1996,7 +1995,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(new string('c', 64), chartB.sha256);
             Assert.IsTrue(progress.Any((item) => item.Total == 1 && item.Processed == 1));
 
-            using var songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDBExtended.chart_digest_map> rows = [.. songDb.Table<LR2SongDBExtended.chart_digest_map>()];
             Assert.AreEqual(1, rows.Count);
             Assert.AreEqual(chartA.hash, rows[0].md5);
@@ -2071,7 +2070,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDBExtended.bmson_song> rows = [.. verify.Table<LR2SongDBExtended.bmson_song>()];
             Assert.AreEqual(2, rows.Count);
             Assert.IsTrue(rows.Any(song => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
@@ -2143,7 +2142,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsFalse(result.CommittedLr2SongDbSyncBmsPaths.Any(path =>
                 string.Equals(path, bmsPath, StringComparison.OrdinalIgnoreCase)));
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(ToUnixSeconds(newTimestamp), row.date);
             Assert.AreEqual(12345, row.adddate);
@@ -2164,7 +2163,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             DateTime oldTimestamp = new(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             DateTime newTimestamp = new(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
             var existingFile = new TestableBmsFile
             {
                 path = bmsPath,
@@ -2309,7 +2308,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual("keep", existingFile.tag);
             Assert.IsFalse(result.HasDbDiff);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(ToUnixSeconds(oldTimestamp), row.date);
             Assert.AreEqual(12345, row.adddate);
@@ -2330,7 +2329,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
             var existingFile = new TestableBmsFile
             {
                 path = bmsPath,
@@ -2387,7 +2386,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual("keep", existingFile.tag);
             Assert.IsFalse(result.HasDbDiff);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(ToUnixSeconds(oldTimestamp), row.date);
             Assert.AreEqual(0, row.txt);
@@ -2408,7 +2407,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            BMSFile oldParsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var oldParsed = BMSFile.CreateBMSFileFromFile(bmsPath);
             var existingFile = new TestableBmsFile
             {
                 path = bmsPath,
@@ -2461,7 +2460,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreNotEqual(oldParsed.hash, result.NextFiles[0].hash);
             Assert.IsTrue(result.HasDbDiff);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual("New", row.title);
             Assert.AreEqual(ToUnixSeconds(newTimestamp), row.date);
@@ -2505,7 +2504,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
             var timestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(newPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(newPath);
             var existingFile = new TestableBmsFile
             {
                 path = oldPath,
@@ -2602,7 +2601,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(34567, moved.adddate);
             Assert.AreEqual("moved-tag", moved.tag);
 
-            using (var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
                 LR2SongDB.song row = verify.Find<LR2SongDB.song>(newPath);
@@ -2658,7 +2657,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(34567, reapplied.adddate);
             Assert.AreEqual("moved-tag", reapplied.tag);
 
-            using var verifyAfterReapply = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifyAfterReapply = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verifyAfterReapply.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
             LR2SongDB.song rowAfterReapply = verifyAfterReapply.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(newPath, rowAfterReapply.path);
@@ -2691,7 +2690,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(currentPath, bmsText, Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 3, 1, 30, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(currentPath, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(currentPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(currentPath);
             var staleSource = new TestableBmsFile
             {
                 path = oldPath,
@@ -2764,7 +2763,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(76543, firstDestination.adddate);
             Assert.AreEqual("current-destination", firstDestination.tag);
 
-            using (var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", currentPath));
@@ -2801,7 +2800,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(newPath, bmsText, Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 3, 2, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(newPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(newPath);
             var existingFile1 = new TestableBmsFile
             {
                 path = oldPath1,
@@ -2862,7 +2861,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreNotEqual("source-a", moved.tag);
             Assert.AreNotEqual("source-b", moved.tag);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(newPath, row.path);
             Assert.IsNull(row.favorite);
@@ -2900,7 +2899,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             var timestamp = new DateTime(2026, 5, 3, 3, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath1, timestamp);
             File.SetLastWriteTimeUtc(newPath2, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(newPath1);
+            var parsed = BMSFile.CreateBMSFileFromFile(newPath1);
             var existingFile = new TestableBmsFile
             {
                 path = oldPath,
@@ -2955,7 +2954,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 Assert.AreNotEqual("moved-tag", moved.tag);
             }
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> rows = [.. verify.Table<LR2SongDB.song>()];
             Assert.AreEqual(2, rows.Count);
             CollectionAssert.AreEquivalent(
@@ -3019,7 +3018,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.AddedFiles.Single(file => file.path == directBmsPath).txt);
             Assert.AreEqual(0, result.AddedFiles.Single(file => file.path == nestedBmsPath).txt);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", directBmsPath));
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", nestedBmsPath));
         });
@@ -3037,7 +3036,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Text Only"), Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 4, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
             var existingFile = new TestableBmsFile
             {
                 path = bmsPath,
@@ -3088,7 +3087,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(45678, existingFile.adddate);
             Assert.AreEqual("text-tag", existingFile.tag);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(1, row.txt);
             Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
@@ -3147,7 +3146,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(0, result.BmsTextOnlyUpdateCount);
             Assert.AreEqual(1, existingFile.txt);
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", bmsPath));
         });
     }
@@ -3214,7 +3213,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreSame(existingSong, installDestinationChange.GetBmsonStorageOwner());
             Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.bmson_song row = verify.Table<LR2SongDBExtended.bmson_song>().Single();
             Assert.AreEqual("New", row.title);
             Assert.AreEqual(newTimestamp, row.updated_at);
@@ -3282,7 +3281,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(bmsonPath, result.AddedBmsonSongs.Single().path);
             Assert.AreEqual(Path.GetDirectoryName(bmsonPath), result.AddedBmsonSongs.Single().folder);
 
-            using var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", oldCasePath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", bmsonPath));
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", oldCasePath));
@@ -3352,7 +3351,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(first.HasDbDiff);
             Assert.AreEqual(bmsonPath, first.AddedBmsonSongs.Single().path);
 
-            using (var verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", oldCasePath));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", bmsonPath));
@@ -3387,7 +3386,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Keep"));
             var scanTimestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, scanTimestamp.AddDays(1));
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
             var currentFile = new TestableBmsFile
             {
                 path = bmsPath,

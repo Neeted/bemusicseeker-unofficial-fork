@@ -15,7 +15,7 @@ public sealed class NativeWindowTitleBarTests
         var themeSource = new RecordingThemeSource(appearance);
         var gateway = new RecordingGateway();
         using var controller = new NativeWindowTitleBarController(gateway, themeSource);
-        var handle = new IntPtr(42);
+        IntPtr handle = new IntPtr(42);
 
         controller.Attach(handle);
         themeSource.RaiseThemeChanged();

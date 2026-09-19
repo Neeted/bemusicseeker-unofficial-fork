@@ -90,7 +90,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return 0L;
         }
-        PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+        var performanceInteraction = PerformanceInteraction.Existing(
             "playlist_summary",
             buildRequest.Generation,
             buildRequest.Generation);
@@ -373,7 +373,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         List<PlaylistSummaryRow> safeRawRows = rawRows ?? [];
         long interactionId = dataRebuildGeneration ?? presentationGeneration;
-        PerformanceInteraction performanceInteraction = PerformanceInteraction.Existing(
+        var performanceInteraction = PerformanceInteraction.Existing(
             "playlist_summary",
             interactionId,
             presentationGeneration);
@@ -560,7 +560,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         string text = (keywordFilter ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(text))
         {
-            GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(text);
+            var query = GridKeywordSearchQuery.Parse(text);
             source = source.Where(row => query.MatchesPlaylistSummary(row));
         }
         return source.Where(row => IsPlaylistSummaryRowMatchedOwnedFilter(row, ownedFilter));

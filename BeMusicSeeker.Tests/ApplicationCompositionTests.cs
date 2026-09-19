@@ -137,7 +137,7 @@ public sealed class ApplicationCompositionTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>();
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
@@ -810,7 +810,7 @@ public sealed class ApplicationCompositionTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>([first, second]);
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
@@ -936,7 +936,7 @@ public sealed class ApplicationCompositionTests
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
             var third = new BMSTable { playlist_id = 3, name = "Third", symbol = "T", bmt_sort = 3 };
-            var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>([first, second, third]);
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),

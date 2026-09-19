@@ -739,7 +739,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             DateParseHandling = DateParseHandling.None
         };
-        JToken token = JToken.ReadFrom(reader, PlaylistJsonLoadSettings);
+        var token = JToken.ReadFrom(reader, PlaylistJsonLoadSettings);
         if (reader.Read())
         {
             throw new JsonReaderException("JSON document contains trailing content.");

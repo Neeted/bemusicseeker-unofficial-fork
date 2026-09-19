@@ -12,7 +12,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void Evaluate_ReturnsNotNeededWhenFeatureIsDisabled()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -29,7 +29,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void Evaluate_ReturnsNeededWhenStatusRowIsMissing()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -47,7 +47,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void Evaluate_ReturnsCompletedOnlyForMatchingCompletedSignature()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -74,7 +74,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void Evaluate_ReturnsNeededForRestartableTerminalStates()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -101,7 +101,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void NonCompletedStatusAndRunningMarkAlwaysStartAtZero()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -142,7 +142,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void UpdateCursor_PersistsProgress()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -162,7 +162,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void MarkFailed_PreservesSameRunCursorWhenNoCursorIsProvided()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
@@ -180,7 +180,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     [TestMethod]
     public void EnsureAppOwnedSchema_CreatesStatusTable()
     {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
 
         BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);

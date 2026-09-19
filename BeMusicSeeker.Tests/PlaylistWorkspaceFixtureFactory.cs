@@ -1,8 +1,8 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
-using System.Threading.Tasks;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -216,7 +216,7 @@ internal static class PlaylistWorkspaceFixtureFactory
         Func<bool>? restoreUiThreadCheck = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-        BMSPlaylist createdPlaylist = new BMSPlaylist(
+        var createdPlaylist = new BMSPlaylist(
             songDbPath,
             null,
             null,

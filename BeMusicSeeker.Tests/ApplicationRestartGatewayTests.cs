@@ -49,7 +49,7 @@ public sealed class ApplicationRestartGatewayTests
     [TestMethod]
     public void RestartRequestPreservesExecutableArgumentsAndWorkingDirectory()
     {
-        ApplicationRestartRequest request = ApplicationRestartRequest.Create(
+        var request = ApplicationRestartRequest.Create(
             @"C:\BeMusicSeeker\BeMusicSeeker.exe",
             "--log-level info",
             @"C:\BeMusicSeeker");

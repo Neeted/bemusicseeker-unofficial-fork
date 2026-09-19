@@ -1216,7 +1216,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         get
         {
-            Lr2PlayHistorySchemaStatusPresentation presentation = Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot);
+            var presentation = Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaStatusSnapshot);
             if (presentation.CanInstall)
             {
                 return BeMusicSeeker.Properties.Resources.Lr2_play_history_schema_install;
@@ -1526,7 +1526,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ApplyLr2PlayHistorySchemaCheckResult(Lr2PlayHistorySchemaCheckResult result)
     {
-        Lr2PlayHistorySchemaStatusSnapshot snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
+        var snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
         lr2PlayHistoryScoreDbPath = snapshot.IsReset
             ? ResolveLr2PlayHistoryScoreDbPath()
             : snapshot.ScoreDbPath;
@@ -4025,7 +4025,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private List<AudioDeviceInfo> BuildPlayerDeviceNames(AudioDriver driver)
     {
-        var devices = AudioDriverPolicy.IsSelectable(driver)
+        List<AudioDeviceInfo> devices = AudioDriverPolicy.IsSelectable(driver)
             ? new List<AudioDeviceInfo>(audioDeviceCatalog.GetDevices(driver))
             : [];
         string savedIdentity = audioOutputSelectionDraft.DeviceIdentity;
@@ -4526,7 +4526,7 @@ public partial class SettingsDialogViewModel : ViewModel
         PlayHistoryFolderDisplayPresetEditor preset = SelectedPlayHistoryFolderDisplayPreset;
         if (preset != null)
         {
-            PlayHistoryFolderDisplayPresetSelectionIndex selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(preset.Targets);
+            var selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(preset.Targets);
             foreach (PlaylistTablePresentationSnapshot table in GetPlayHistoryFolderDisplayPresetTables())
             {
                 PlayHistoryFolderDisplayPresetPlaylistOptions.Add(new PlayHistoryFolderPresetPlaylistOption(
@@ -4728,7 +4728,7 @@ public partial class SettingsDialogViewModel : ViewModel
     public PlayHistoryFolderDisplayPresetEditSession CreatePlayHistoryFolderDisplayPresetEditSession(PlayHistoryFolderDisplayPresetEditor preset)
     {
         IEnumerable<PlayHistoryDisplayTargetReference> targets = preset?.Targets ?? [];
-        PlayHistoryFolderDisplayPresetSelectionIndex selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(targets);
+        var selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(targets);
         string sessionName = preset == null ? CreateUniquePlayHistoryFolderDisplayPresetName() : preset.Name;
         return new PlayHistoryFolderDisplayPresetEditSession(
             preset,

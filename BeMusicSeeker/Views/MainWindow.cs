@@ -540,7 +540,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             ?? new UiDialogCoordinator();
         this.mainWindowForegroundTerminal = mainWindowForegroundTerminal
             ?? MainWindowForegroundTerminal.Create(this);
-        this.playlistLampViewerWindowManager = new(
+        playlistLampViewerWindowManager = new(
             this,
             viewModel.PlaylistWorkspace,
             this.playlistWorkspaceDialogService,
@@ -1076,7 +1076,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         bool updateShutdownPreparationFailed = viewModel?.ShellShutdownWorkflow.ConsumeUpdatePreparationFailure() == true;
         if (ShouldDeferStartupUpdateFailurePresentation(
             IsShellClosingOrClosed(),
@@ -1634,7 +1634,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async Task ApplyTerminalShutdownAsync()
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
@@ -1683,7 +1683,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
-        MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
+        var closingViewModel = base.DataContext as MainWindowViewModel;
         if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow
             && !terminalWindowCloseAuthorized)
         {
@@ -1697,7 +1697,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
             return;
         }
-        var viewModel = closingViewModel;
+        MainWindowViewModel viewModel = closingViewModel;
         if (_startupInitialSelectionReadyOwner != null && _startupInitialSelectionReadyHandler != null)
         {
             _startupInitialSelectionReadyOwner.PropertyChanged -= _startupInitialSelectionReadyHandler;
@@ -2467,7 +2467,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PlaylistSummaryRow playlistSummaryRow = e.Row as PlaylistSummaryRow;
+        var playlistSummaryRow = e.Row as PlaylistSummaryRow;
         PlaylistSummaryPropertyEditCompletion completion;
         try
         {
@@ -3105,7 +3105,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
     private void keywordSearchWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        DependencyObject clickedElement = e.OriginalSource as DependencyObject;
+        var clickedElement = e.OriginalSource as DependencyObject;
         KeywordSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
         PlaylistSummaryKeywordSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
     }
@@ -3435,7 +3435,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return false;
         }
-        TreeViewItem treeViewItem = rootTreeViewItem.ItemContainerGenerator
+        var treeViewItem = rootTreeViewItem.ItemContainerGenerator
             .ContainerFromItem(targetDataContext) as TreeViewItem;
         if (treeViewItem == null)
         {
@@ -6246,7 +6246,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return false;
         }
 
-        TreeViewItem targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+        var targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
         if (targetItem == null)
         {
             if (!TryRealizeVirtualizedDuplicateGroupItem(duplicateRootItem, targetIndex, out failReason))
@@ -7879,7 +7879,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PendingInstallPackageOperationRequest request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
+        var request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -7927,7 +7927,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PendingInstallPackageOperationRequest request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
+        var request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -7975,7 +7975,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PendingInstallDestinationSearchRequest request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets);
+        var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await pendingInstallEstimationTerminal
@@ -8111,7 +8111,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PendingInstallDestinationSearchRequest request = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets);
+        var request = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await pendingInstallEstimationTerminal

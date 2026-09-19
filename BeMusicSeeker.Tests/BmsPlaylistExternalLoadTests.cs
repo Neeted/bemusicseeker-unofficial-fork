@@ -59,7 +59,7 @@ public sealed class BmsPlaylistExternalLoadTests
     public async Task LoadExternalTableAsync_NewExternalTableUsesPlaylistDefaultIgnoreFolderOutputSetting()
     {
         int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
-        var expectedMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+        LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
             | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder;
         BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = (int)expectedMask;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
@@ -96,7 +96,7 @@ public sealed class BmsPlaylistExternalLoadTests
         int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
         BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
-        var expectedMask = LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+        LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.UserFolder
             | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);

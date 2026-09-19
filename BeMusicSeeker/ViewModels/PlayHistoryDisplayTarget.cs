@@ -395,7 +395,7 @@ internal sealed class PlayHistoryDisplayTargetIndex
         PlayHistoryDisplayTargetSet targetSet)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
-        Dictionary<int, List<BMSTable>> tablesByPlaylistId = tableList
+        var tablesByPlaylistId = tableList
             .Where(table => table.playlist_id.HasValue)
             .GroupBy(table => table.playlist_id.Value)
             .ToDictionary(group => group.Key, group => group.ToList());

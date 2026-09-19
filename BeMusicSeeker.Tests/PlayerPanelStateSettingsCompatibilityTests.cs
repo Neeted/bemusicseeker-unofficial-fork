@@ -1,4 +1,5 @@
 using System;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -19,7 +20,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         Assert.AreEqual(1, (int)PlayerPanelState.TITLE_SMALL);
         Assert.AreEqual(2, (int)PlayerPanelState.BMS_PLAYER);
 
-        var metadata = new Settings().Properties[nameof(Settings.PlayerPanelState)];
+        SettingsProperty metadata = new Settings().Properties[nameof(Settings.PlayerPanelState)];
         Assert.IsNotNull(metadata);
         Assert.AreEqual("PlayerPanelState", metadata.Name);
         Assert.AreEqual("TITLE_SMALL", metadata.DefaultValue);

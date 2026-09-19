@@ -18,7 +18,7 @@ public class ResourceHealthIndexOwnerTests
             new StorageRowsVersionSnapshot(2, 2),
             ownedCollectionVersion: 2,
             inputVersion: 0);
-        ResourceMaintenanceTargetSet staleTarget = ResourceMaintenanceTargetSet.ForFullOwned(
+        var staleTarget = ResourceMaintenanceTargetSet.ForFullOwned(
             [chart],
             new StorageRowsVersionSnapshot(1, 1),
             ownedCollectionVersion: 1,
@@ -533,7 +533,7 @@ public class ResourceHealthIndexOwnerTests
     {
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
-        IList<ChartFile> exposed = (IList<ChartFile>)target.Charts;
+        var exposed = (IList<ChartFile>)target.Charts;
 
         Assert.ThrowsException<NotSupportedException>(() => exposed.Add(CreateChart()));
         Assert.AreEqual(1, target.Count);

@@ -31,7 +31,7 @@ public sealed class UpdaterProcessGatewayTests
         string packagePath = @"C:\downloads\app package.zip";
         string backupDirectory = @"C:\Be Music Seeker\update_backup";
         string restartExecutablePath = @"C:\Be Music Seeker\BeMusicSeeker.exe";
-        UpdaterProcessLaunchRequest request = UpdaterProcessLaunchRequest.Create(
+        var request = UpdaterProcessLaunchRequest.Create(
             @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
             @"C:\Be Music Seeker\update_work",
             applicationDirectory,
@@ -79,7 +79,7 @@ public sealed class UpdaterProcessGatewayTests
         string readyFilePath = Path.Combine(root, "updater-ready.txt");
         string decisionFilePath = Path.Combine(root, "updater-decision.txt");
         var gateway = new WindowsUpdaterProcessGateway(_ => throw new InvalidOperationException("start failed"));
-        UpdaterProcessLaunchRequest request = UpdaterProcessLaunchRequest.Create(
+        var request = UpdaterProcessLaunchRequest.Create(
             @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
             @"C:\Be Music Seeker\update_work",
             @"C:\Be Music Seeker",
@@ -126,7 +126,7 @@ public sealed class UpdaterProcessGatewayTests
             File.WriteAllText(readyFilePath, "1");
             return updaterProcess;
         });
-        UpdaterProcessLaunchRequest request = UpdaterProcessLaunchRequest.Create(
+        var request = UpdaterProcessLaunchRequest.Create(
             @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
             @"C:\Be Music Seeker\update_work",
             @"C:\Be Music Seeker",
@@ -182,7 +182,7 @@ public sealed class UpdaterProcessGatewayTests
             File.WriteAllText(readyFilePath, "1");
             return updaterProcess;
         });
-        UpdaterProcessLaunchRequest request = UpdaterProcessLaunchRequest.Create(
+        var request = UpdaterProcessLaunchRequest.Create(
             @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
             @"C:\Be Music Seeker\update_work",
             @"C:\Be Music Seeker",
@@ -330,7 +330,7 @@ public sealed class UpdaterProcessGatewayTests
         {
             try
             {
-                using Process survivingProcess = Process.GetProcessById(recoveryProcessId);
+                using var survivingProcess = Process.GetProcessById(recoveryProcessId);
                 survivingProcess.Kill(entireProcessTree: true);
                 survivingProcess.WaitForExit(5000);
             }

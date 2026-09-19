@@ -469,7 +469,7 @@ internal sealed class PlaylistLampScoreSnapshot
         var byHash = new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSScore score in snapshot.Scores ?? [])
         {
-            PlaylistLampScore projected = PlaylistLampScore.FromBmsScore(score);
+            var projected = PlaylistLampScore.FromBmsScore(score);
             if (projected != null && !string.IsNullOrWhiteSpace(projected.Hash))
             {
                 byHash[projected.Hash] = projected;
@@ -478,7 +478,7 @@ internal sealed class PlaylistLampScoreSnapshot
         var bySha256 = new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, BMSScore> pair in snapshot.ScoresBySha256 ?? new Dictionary<string, BMSScore>())
         {
-            PlaylistLampScore projected = PlaylistLampScore.FromBmsScore(pair.Value);
+            var projected = PlaylistLampScore.FromBmsScore(pair.Value);
             if (projected != null && !string.IsNullOrWhiteSpace(pair.Key))
             {
                 bySha256[pair.Key.Trim()] = projected;
@@ -621,7 +621,7 @@ internal sealed class PlaylistLampHistoricalDateRange
     /// <returns>範囲内なら true。</returns>
     public bool Contains(DateTime localDate)
     {
-        DateTime date = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+        var date = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
         return EarliestLocalDate.HasValue
             && date >= EarliestLocalDate.Value
             && date <= LatestLocalDate;

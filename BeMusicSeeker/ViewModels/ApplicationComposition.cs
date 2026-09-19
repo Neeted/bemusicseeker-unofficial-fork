@@ -326,7 +326,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playlistReferenceApplyScheduler,
             playlistRestoreUiApplyScheduler,
             playlistRestoreUiThreadCheck,
-            this.playlistWorkspaceDialogService);
+            playlistWorkspaceDialogService);
         return playlistWorkspace;
     }
 
@@ -439,7 +439,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainChartList,
             playlistWorkspace,
             bmsPlayerFactory,
-            this.uiScheduler,
+            uiScheduler,
             playbackSettingsStore,
             keywordSearchHistorySettingsStore,
             chartFileOperations,
@@ -492,11 +492,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             libraryFolderTreeLog,
             libraryFolderTreeLogWarning,
             externalShellGateway,
-            this.applicationPathSnapshot,
-            this.updaterProcessGateway,
-            settingsProvider: () => this.settingsEditSession.Values,
-            externalProgramLaunchGateway: this.externalProgramLaunchGateway,
-            keywordSearchFavoritesSettingsStore: this.keywordSearchFavoritesSettingsStore,
+            applicationPathSnapshot,
+            updaterProcessGateway,
+            settingsProvider: () => settingsEditSession.Values,
+            externalProgramLaunchGateway: externalProgramLaunchGateway,
+            keywordSearchFavoritesSettingsStore: keywordSearchFavoritesSettingsStore,
             packageInstallMutationPort: packageInstallMutationPort ?? this.packageInstallMutationPort);
     }
 

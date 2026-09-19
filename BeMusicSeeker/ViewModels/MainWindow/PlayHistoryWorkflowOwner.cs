@@ -457,7 +457,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
             {
-                var readRequest = periodRequest.ToBeatorajaReadRequest(request.Source.ScoreDbPath);
+                BeatorajaPlayHistoryReadRequest readRequest = periodRequest.ToBeatorajaReadRequest(request.Source.ScoreDbPath);
                 readRequest.ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256;
                 readRequest.ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion;
                 beatorajaReadResult = readCache.ReadBeatoraja(readRequest, cancellationToken, out readCacheHit);
@@ -865,7 +865,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
 
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics = CreateViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
-        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+        var summary = PlayHistoryPeriodSummary.FromRows(
             state.PeriodRequest.Label,
             sortedRows,
             state.SummaryOverride);
@@ -1882,7 +1882,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             return safeRows;
         }
 
-        var keywordQuery = hasKeywordFilter ? GridKeywordSearchQuery.Parse(keywordFilter) : null;
+        GridKeywordSearchQuery keywordQuery = hasKeywordFilter ? GridKeywordSearchQuery.Parse(keywordFilter) : null;
         var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
         for (int index = 0; index < safeRows.Count; index++)
         {
@@ -1937,7 +1937,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
         ThrowIfStaleDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
         IReadOnlyList<BMSTable> tableSnapshot = tableSnapshotFactory?.Invoke() ?? [];
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+        var index = PlayHistoryDisplayTargetIndex.Create(
             safeTarget,
             tableSnapshot,
             table => ensureEntriesLoaded?.Invoke(table),

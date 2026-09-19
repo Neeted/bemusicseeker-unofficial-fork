@@ -1,12 +1,10 @@
 using System;
 using System.Configuration;
-using System.Diagnostics.CodeAnalysis;
 
 namespace BeMusicSeeker.Properties;
 
-/// <summary>Identifies the portable settings operation and file while retaining the original failure.</summary>
-[SuppressMessage("Roslynator", "RCS1194:Implement exception constructors",
-    Justification = "設定の復旧判断と失敗報告にはファイルパス・操作・原因例外が必須であり、それらを欠く標準コンストラクターは提供しない。")]
+/// <summary>ポータブル設定の操作と対象ファイルを示し、元の失敗を保持します。</summary>
+/// <remarks>失敗報告に必要なファイルパス、操作、原因例外を保持するため、標準の簡略コンストラクターは提供しません。</remarks>
 internal sealed class PortableSettingsException : ConfigurationErrorsException
 {
     /// <summary>Captures a failure at the file-owning boundary.</summary>

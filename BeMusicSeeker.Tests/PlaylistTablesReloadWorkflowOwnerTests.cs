@@ -60,7 +60,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
     [TestMethod]
     public async Task ReloadAsync_ReloadFailureDoesNotQueueAndPreservesException()
     {
-        var queueCalls = 0;
+        int queueCalls = 0;
         var failure = new InvalidOperationException("table reload failed");
         PlaylistTablesReloadWorkflowOwner owner = new(
             _ => Task.FromException(failure),
@@ -76,7 +76,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
     [TestMethod]
     public async Task ReloadAsync_QueueFailureIsPropagatedAfterSuccessfulReload()
     {
-        var reloadCalls = 0;
+        int reloadCalls = 0;
         var failure = new InvalidOperationException("external sync queue failed");
         PlaylistTablesReloadWorkflowOwner owner = new(
             _ =>
@@ -98,7 +98,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
     {
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
-        var queueCalls = 0;
+        int queueCalls = 0;
         PlaylistTablesReloadWorkflowOwner owner = new(
             _ => Task.FromCanceled(cancellation.Token),
             _ => queueCalls++);

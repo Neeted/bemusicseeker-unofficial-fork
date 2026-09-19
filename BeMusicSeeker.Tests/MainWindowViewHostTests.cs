@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Threading;
-using System.Linq;
 using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,6 +17,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
@@ -31,7 +32,7 @@ public sealed class MainWindowViewHostTests
     {
         const double initialTreeViewWidth = 281d;
         const double capturedTreeViewWidth = 347d;
-        var settings = CreateSettings(
+        Settings settings = CreateSettings(
             initialTreeViewWidth,
             startupSelectInstallPending: false,
             customTableRowHeight: 23d,
@@ -135,7 +136,7 @@ public sealed class MainWindowViewHostTests
         const double rowHeight = 24d;
         const double headerHeight = 27d;
         const double fontSize = 14d;
-        var settings = CreateSettings(
+        Settings settings = CreateSettings(
             initialTreeViewWidth,
             startupSelectInstallPending: true,
             customTableRowHeight: rowHeight,
@@ -213,7 +214,7 @@ public sealed class MainWindowViewHostTests
     [TestMethod]
     public void MainWindowConstructorOnlyPresentsInitialSetupThroughCompiledOverlay()
     {
-        var settings = CreateSettings(
+        Settings settings = CreateSettings(
             treeViewWidth: 280d,
             startupSelectInstallPending: false,
             customTableRowHeight: 23d,
@@ -386,7 +387,7 @@ public sealed class MainWindowViewHostTests
     [DataRow(true)]
     public void MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose(bool prepareForUpdate)
     {
-        var settings = CreateSettings(279d, false, 23d, 25d, 13d);
+        Settings settings = CreateSettings(279d, false, 23d, 25d, 13d);
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -397,7 +398,7 @@ public sealed class MainWindowViewHostTests
             bool closed = false;
             bool hadResource = Application.Current.Resources.Contains("vm");
             object? previous = hadResource ? Application.Current.Resources["vm"] : null;
-            var dispatcher = Dispatcher.CurrentDispatcher;
+            Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
             bool saveOnUi = false;
             bool audioActiveAtSave = false;
             bool audioInactiveAtShutdown = false;
@@ -1015,7 +1016,7 @@ public sealed class MainWindowViewHostTests
 
     private static bool CanEnterAudioOperation()
     {
-        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(out var lease))
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(out BassAudioOperationLease lease))
         {
             return false;
         }

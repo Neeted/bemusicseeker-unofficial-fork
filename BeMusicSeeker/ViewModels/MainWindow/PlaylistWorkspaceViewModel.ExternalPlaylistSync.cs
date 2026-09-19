@@ -419,7 +419,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         object sender,
         PlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublishedEventArgs eventArgs)
     {
-        PlaylistExternalSyncOwner owner = sender as PlaylistExternalSyncOwner;
+        var owner = sender as PlaylistExternalSyncOwner;
         lock (playlistExternalSyncReceiptSyncRoot)
         {
             BMSPlaylist currentPlaylist = subscribedPlaylistExternalSyncStore;

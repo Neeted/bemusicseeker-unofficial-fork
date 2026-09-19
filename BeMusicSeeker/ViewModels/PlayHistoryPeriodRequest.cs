@@ -155,7 +155,7 @@ internal sealed class PlayHistoryPeriodRequest
 
     private static long ToUnixSeconds(DateTime localDateTime, TimeZoneInfo timeZone)
     {
-        DateTime unspecified = DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified);
+        var unspecified = DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified);
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecified, timeZone)).ToUnixTimeSeconds();
     }
 

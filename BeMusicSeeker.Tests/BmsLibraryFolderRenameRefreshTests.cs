@@ -11,15 +11,15 @@ using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Tests;
 
@@ -124,8 +124,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.CreateDirectory(root);
             File.WriteAllText(bSource, "#PLAYER 1\r\n#TITLE Alpha\r\n#BPM 120\r\n");
             File.WriteAllText(pSource, "#PLAYER 1\r\n#TITLE Beta\r\n#BPM 120\r\n");
-            BMSFile bFile = BMSFile.CreateBMSFileFromFile(bSource);
-            BMSFile pFile = BMSFile.CreateBMSFileFromFile(pSource);
+            var bFile = BMSFile.CreateBMSFileFromFile(bSource);
+            var pFile = BMSFile.CreateBMSFileFromFile(pSource);
             try
             {
                 using (var db = new LR2SongDBExtended(songDbPath))
@@ -217,8 +217,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.CreateDirectory(root);
             File.WriteAllText(bSource, "#PLAYER 1\r\n#TITLE Alpha\r\n#BPM 120\r\n");
             File.WriteAllText(pSource, "#PLAYER 1\r\n#TITLE Beta\r\n#BPM 120\r\n");
-            BMSFile bFile = BMSFile.CreateBMSFileFromFile(bSource);
-            BMSFile pFile = BMSFile.CreateBMSFileFromFile(pSource);
+            var bFile = BMSFile.CreateBMSFileFromFile(bSource);
+            var pFile = BMSFile.CreateBMSFileFromFile(pSource);
             var mutations = new TestFileMutationService();
             mutations.MoveFileFailureSourcePaths.Add(bSource);
             mutations.MoveFileFailureSourcePaths.Add(pSource);
@@ -690,7 +690,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         ? "[Target Artist 2] Target Title 2"
                         : "Renamed2", 0)
                 };
-                var before = library.WarmOwnedRealPathDirectoryView("配置変更warmup前");
+                BMSLibrary.OwnedAdjacentIndexWarmupResult before = library.WarmOwnedRealPathDirectoryView("配置変更warmup前");
                 foreach ((TestableBmsFile target, string sourceDirectoryPath, string destinationName, int favorite) in operations)
                 {
                     string oldChartPath = target.path;
@@ -709,7 +709,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Assert.IsTrue(receipt.DurableCommit);
                     }
 
-                    var after = library.WarmOwnedRealPathDirectoryView("配置変更warmup後");
+                    BMSLibrary.OwnedAdjacentIndexWarmupResult after = library.WarmOwnedRealPathDirectoryView("配置変更warmup後");
                     int countQueryDelta = after.BmsCountQueryCount - before.BmsCountQueryCount;
                     int rangeQueryDelta = after.BmsRangeQueryCount - before.BmsRangeQueryCount;
                     int visitedReferenceDelta =
@@ -730,7 +730,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Assert.AreEqual(destinationChartPath, target.path);
 
                     // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
-                    using (var verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                     {
                         string[] dbPaths = verifySongDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                         Assert.IsFalse(dbPaths.Contains(oldChartPath, StringComparer.OrdinalIgnoreCase));
@@ -906,7 +906,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 File.WriteAllText(
                     pendingChartPath,
                     "#PLAYER 1\r\n#TITLE First Title\r\n#ARTIST First Artist\r\n#WAVAA first.wav\r\n#00111:AA\r\n");
-                var pendingPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage(
                     [BMSFile.CreateBMSFileFromFile(pendingChartPath)]);
                 pendingPackage.path = pendingDirectoryPath;
                 pendingPackage.delete_parent = false;
@@ -925,7 +925,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     pendingBmsonPath,
                     "{\"version\":\"1.0.0\",\"info\":{\"title\":\"First Title\",\"artist\":\"First Artist\",\"mode_hint\":\"beat-7k\"},"
                     + "\"sound_channels\":[{\"name\":\"first.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}");
-                ChartPackage pendingBmsonPackage = ChartPackage.FromChartEntries(
+                var pendingBmsonPackage = ChartPackage.FromChartEntries(
                 [
                     PackageChartEntry.FromChart(
                         ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)))
@@ -1525,7 +1525,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
                 library.RenameChartFolder(sourceDirectoryPath, "Renamed");
-                LibraryChartRow row = LibraryChartRow.FromBmsonSong(song);
+                var row = LibraryChartRow.FromBmsonSong(song);
 
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.AreEqual(0, Volatile.Read(ref bmsonSongsChangedCount));
@@ -2406,7 +2406,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE repaired\r\n");
             try
             {
-                BMSFile file = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+                var file = BMSFile.CreateBMSFileFromFile(sourceChartPath);
                 string hash = file.hash;
                 var existing = new TestableBmsFile
                 {
@@ -2725,8 +2725,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(secondSourcePath, chartText);
             try
             {
-                BMSFile first = BMSFile.CreateBMSFileFromFile(firstSourcePath);
-                BMSFile second = BMSFile.CreateBMSFileFromFile(secondSourcePath);
+                var first = BMSFile.CreateBMSFileFromFile(firstSourcePath);
+                var second = BMSFile.CreateBMSFileFromFile(secondSourcePath);
                 Assert.AreEqual(first.hash, second.hash);
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
@@ -3096,7 +3096,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.AddReferenceBMSTables(currentTable);
             ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
 
-            var stalePlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
+            BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan stalePlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
             Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
 
             currentTable.symbol = "C";
@@ -3107,7 +3107,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.AreEqual("C", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Concurrent", library.GetPlaylistReferenceDisplay(chart).Names);
 
-            var currentPlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
+            BmsLibraryPlaylistReferenceOwner.PlaylistReferenceSynchronizationPlan currentPlan = library.PrepareReferenceBMSTableSynchronization([replacementTable]);
             Assert.IsTrue(library.TryCommitReferenceBMSTableSynchronization(currentPlan));
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
@@ -3174,7 +3174,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+            var song = new LR2SongDBExtended.bmson_song
             {
                 path = @"C:\Pending\Package\matching.bmson",
                 md5 = matchingHash,
@@ -3182,7 +3182,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 title = "Pending Bmson",
                 artist = "Artist"
             };
-            PackageChartEntry matchingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+            var matchingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
             library.ChartPackagesPending = CreatePackageCollection(
             [
                 ChartPackage.FromChartEntries([matchingBmsonEntry])
@@ -3286,7 +3286,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
                 @"C:\Installed\Package\unmatched.bmson",
                 "cccccccccccccccccccccccccccccccc");
-            ChartPackage installedPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+            var installedPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
             library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
@@ -3309,7 +3309,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             PackageChartEntry unmatchedBmsonEntry = CreateAdapterlessBmsonEntry(
                 @"C:\Installed\Package\unmatched.bmson",
                 "cccccccccccccccccccccccccccccccc");
-            ChartPackage installedPackage = ChartPackage.FromChartEntries([matchingBmsonEntry, unmatchedBmsonEntry]);
+            var installedPackage = ChartPackage.FromChartEntries([matchingBmsonEntry, unmatchedBmsonEntry]);
             BMSTable table = CreateTable("Matched", "M", matchingHash);
             library.AddReferenceBMSTables([table]);
 
@@ -3572,7 +3572,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         testableBmsFile.SetHash(md5);
         testableBmsFile.SetSha256(sha256);
         testableBmsFile.path = @"C:\Library\chart.bms";
-        BMSTableEntry entry = new BMSTableEntry(testableBmsFile)
+        var entry = new BMSTableEntry(testableBmsFile)
         {
             is_removed = false
         };

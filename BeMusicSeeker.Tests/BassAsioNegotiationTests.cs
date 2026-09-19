@@ -146,8 +146,8 @@ public sealed class BassAsioNegotiationTests
             AsioError = Errors.SampleFormat
         };
         native.AcceptedFormats.Clear();
-        var session = CreateSession();
-        var request = CreateRequest(SampleRate.AUTO, SampleFormat.AUTO);
+        BassAudioSession session = CreateSession();
+        BassAudioNegotiationRequest request = CreateRequest(SampleRate.AUTO, SampleFormat.AUTO);
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(request, session, Callback));
@@ -168,7 +168,7 @@ public sealed class BassAsioNegotiationTests
             GetDeviceInfosResult = false,
             DeviceInfosError = Errors.Device
         };
-        var session = CreateSession();
+        BassAudioSession session = CreateSession();
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
@@ -191,7 +191,7 @@ public sealed class BassAsioNegotiationTests
             EnableOutputResult = false,
             AsioError = Errors.Unknown
         };
-        var session = CreateSession();
+        BassAudioSession session = CreateSession();
 
         Assert.ThrowsException<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
@@ -211,7 +211,7 @@ public sealed class BassAsioNegotiationTests
     public void AsioMixer_IsPublishedBeforeEnableJoinAndStart()
     {
         var native = new RecordingAsioBoundary();
-        var session = CreateSession();
+        BassAudioSession session = CreateSession();
         native.EnableObserver = () => Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
         native.JoinObserver = () => Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
         native.StartObserver = () => Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
@@ -233,7 +233,7 @@ public sealed class BassAsioNegotiationTests
             JoinOutputResult = false,
             AsioError = Errors.Unknown
         };
-        var session = CreateSession();
+        BassAudioSession session = CreateSession();
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
@@ -256,7 +256,7 @@ public sealed class BassAsioNegotiationTests
             StartResult = false,
             AsioError = Errors.Unknown
         };
-        var session = CreateSession();
+        BassAudioSession session = CreateSession();
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(

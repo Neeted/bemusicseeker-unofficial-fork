@@ -14,7 +14,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     public void RequestStatusBarRetry_QueuesWithReasonAndGeneratedDataPreparation()
     {
         var runtime = new RecordingRuntime();
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
 
         owner.RequestStatusBarRetry();
 
@@ -28,7 +28,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     public async Task RequestManualResync_QueuesForcedRequestAndAwaitsIt()
     {
         var runtime = new RecordingRuntime();
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
 
         await owner.RequestManualResyncAsync();
 
@@ -42,7 +42,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     public void DisabledModeOrUnavailableLibrary_DoesNotQueueRetry()
     {
         var runtime = new RecordingRuntime { IsLr2ModeEnabled = false };
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
 
         owner.RequestStatusBarRetry();
 
@@ -58,7 +58,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     public void SettingsCoreSync_PreparesBothSurfacesBeforeIncompleteQueue()
     {
         var runtime = new RecordingRuntime();
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
 
         owner.SyncFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
 
@@ -73,7 +73,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     public void SettingsExternalImpact_UsesExternalRowsOnly()
     {
         var runtime = new RecordingRuntime();
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
 
         owner.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChange("SettingDialog.SaveSettings");
 
@@ -85,7 +85,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     public void PostStartupSync_InvokesContinuationAfterQueueAttempt()
     {
         var runtime = new RecordingRuntime();
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
         int continuationCount = 0;
 
         owner.SchedulePostStartupSync("initialization_complete", () => continuationCount++);
@@ -101,7 +101,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     {
         var failure = new InvalidOperationException("queue failure");
         var runtime = new RecordingRuntime { QueueFailure = failure };
-        var owner = CreateOwner(runtime);
+        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
         int continuationCount = 0;
 
         InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(

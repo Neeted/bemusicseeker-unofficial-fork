@@ -155,7 +155,7 @@ public sealed class BmsLibraryIrStartupTests
         private async Task<string> FetchAsync(CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref RequestCount);
-            using var registration = cancellationToken.Register(() => Cancelled.TrySetResult());
+            using CancellationTokenRegistration registration = cancellationToken.Register(() => Cancelled.TrySetResult());
             Started.TrySetResult();
             try
             {

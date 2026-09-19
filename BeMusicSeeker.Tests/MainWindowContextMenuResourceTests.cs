@@ -243,7 +243,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ChartOperationTargetSelectionResolver_FiltersRowsByCapability()
     {
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
+        var row = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
 
         List<ChartOperationTarget> openFileTargets = ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
             [row, new object()],
@@ -274,8 +274,8 @@ public sealed class MainWindowContextMenuResourceTests
             ChartFileKind.Bms,
             ChartOperationCapabilities.UpdateInstallDestination);
 
-        PackageCatalogRemovalRequest pending = PackageCatalogRemovalRequest.CreatePending([target]);
-        PackageCatalogRemovalRequest installed = PackageCatalogRemovalRequest.CreateInstalled([target]);
+        var pending = PackageCatalogRemovalRequest.CreatePending([target]);
+        var installed = PackageCatalogRemovalRequest.CreateInstalled([target]);
 
         Assert.AreEqual(PackageCatalogSection.Pending, pending.Section);
         Assert.IsTrue(pending.IsPending);
@@ -293,8 +293,8 @@ public sealed class MainWindowContextMenuResourceTests
             ChartFileKind.Bms,
             ChartOperationCapabilities.UpdateInstallDestination);
 
-        PendingInstallPackageOperationRequest forceInstall = PendingInstallPackageOperationRequest.CreateForceInstall([target]);
-        PendingInstallPackageOperationRequest manualInstall = PendingInstallPackageOperationRequest.CreateManualInstall([target]);
+        var forceInstall = PendingInstallPackageOperationRequest.CreateForceInstall([target]);
+        var manualInstall = PendingInstallPackageOperationRequest.CreateManualInstall([target]);
 
         Assert.AreEqual(PendingInstallPackageOperationKind.ForceInstall, forceInstall.Kind);
         Assert.IsTrue(forceInstall.IsForceInstall);
@@ -315,8 +315,8 @@ public sealed class MainWindowContextMenuResourceTests
             ChartFileKind.Bms,
             ChartOperationCapabilities.UpdateInstallDestination);
 
-        PendingInstallDestinationSearchRequest installSearch = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
-        PendingInstallDestinationSearchRequest mergeSearch = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
+        var installSearch = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
+        var mergeSearch = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
 
         Assert.AreEqual(PendingInstallDestinationSearchKind.InstallDestination, installSearch.Kind);
         Assert.IsTrue(installSearch.HasTargets);
@@ -392,7 +392,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         XDocument document = LoadMainWindowXamlDocument();
         XElement splitterStyle = FindElementByAttribute(document, "Key", "SidebarSplitterStyle");
-        List<XElement> sidebarSplitters = FindElementsByAttribute(document, "Style", "{StaticResource SidebarSplitterStyle}").ToList();
+        var sidebarSplitters = FindElementsByAttribute(document, "Style", "{StaticResource SidebarSplitterStyle}").ToList();
         XElement verticalSplitter = FindElementByAttribute(document, "Name", "gridSplitter");
         XElement treePane = FindElementByAttribute(document, "Name", "gridTreePane");
         XElement horizontalSplitter = FindElementByAttribute(document, "Name", "gridSplitterTree");
@@ -411,7 +411,7 @@ public sealed class MainWindowContextMenuResourceTests
             "The sidebar width splitter hit area must be wider than the visible vertical separator line.");
 
         XElement rowDefinitions = DirectChild(treePane, "Grid.RowDefinitions");
-        List<XElement> rows = rowDefinitions.Elements().Where(element => element.Name.LocalName == "RowDefinition").ToList();
+        var rows = rowDefinitions.Elements().Where(element => element.Name.LocalName == "RowDefinition").ToList();
         XElement playlistTree = FindElementByAttribute(document, "Name", "treeViewPlaylist");
         XElement libraryTree = FindElementByAttribute(document, "Name", "treeView");
         int splitterRow = int.Parse(GetAttributeValue(horizontalSplitter, "Grid.Row"), CultureInfo.InvariantCulture);
@@ -739,7 +739,7 @@ public sealed class MainWindowContextMenuResourceTests
             StackPanel itemPanel = FindVisualDescendants<StackPanel>(navigation)
                 .Single(panel => panel.Children.OfType<ListBoxItem>().Count() == navigation.Items.Count);
             Assert.AreEqual(Orientation.Horizontal, itemPanel.Orientation);
-            var items = navigation.Items
+            ListBoxItem[] items = navigation.Items
                 .Cast<object>()
                 .Select((_, index) => (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(index))
                 .ToArray();
@@ -1307,7 +1307,7 @@ public sealed class MainWindowContextMenuResourceTests
     private static PlayHistoryRow CreateResolvedPlayHistoryRow(string hash = "cccccccccccccccccccccccccccccccc")
     {
         string sha256 = new string('d', 64);
-        BMSFile file = BMSFile.FromSongTableRawValues(
+        var file = BMSFile.FromSongTableRawValues(
         [
             hash,
             "Resolved Play History",
@@ -1340,8 +1340,8 @@ public sealed class MainWindowContextMenuResourceTests
             ""
         ]);
         file.ApplySnapshotDigest(hash, sha256);
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
-        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        var projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
@@ -1370,7 +1370,7 @@ public sealed class MainWindowContextMenuResourceTests
 
     private static BMSFile CreateContextMenuBmsFile()
     {
-        BMSFile file = BMSFile.FromSongTableRawValues(
+        var file = BMSFile.FromSongTableRawValues(
         [
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "Context Menu BMS",
@@ -1482,7 +1482,7 @@ public sealed class MainWindowContextMenuResourceTests
 
     private static XElement FindElementByAttribute(XContainer container, string attributeLocalName, string value)
     {
-        List<XElement> matches = FindElementsByAttribute(container, attributeLocalName, value).ToList();
+        var matches = FindElementsByAttribute(container, attributeLocalName, value).ToList();
         Assert.AreEqual(1, matches.Count, attributeLocalName + "=" + value);
         return matches[0];
     }
@@ -1495,7 +1495,7 @@ public sealed class MainWindowContextMenuResourceTests
 
     private static XElement DirectChild(XElement parent, string localName)
     {
-        List<XElement> matches = parent.Elements()
+        var matches = parent.Elements()
             .Where(element => element.Name.LocalName == localName)
             .ToList();
         Assert.AreEqual(1, matches.Count, localName);

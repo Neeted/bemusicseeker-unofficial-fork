@@ -219,7 +219,7 @@ public sealed class Lr2FolderRowGeneratorTests
         });
         LR2SongDB.folder root = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS"), StringComparison.Ordinal));
         LR2SongDB.folder pack = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS\Pack"), StringComparison.Ordinal));
-        var changedPack = Clone(pack);
+        LR2SongDB.folder changedPack = Clone(pack);
         changedPack.title = "Old Title";
 
         Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
@@ -341,7 +341,7 @@ public sealed class Lr2FolderRowGeneratorTests
         });
         LR2SongDB.folder root = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS"), StringComparison.Ordinal));
         LR2SongDB.folder pack = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS\Pack"), StringComparison.Ordinal));
-        var driftedPack = Clone(pack);
+        LR2SongDB.folder driftedPack = Clone(pack);
         driftedPack.path = Normalize(@"D:\BMS\Pack");
 
         Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
@@ -366,7 +366,7 @@ public sealed class Lr2FolderRowGeneratorTests
                 : null
         });
         LR2SongDB.folder root = generation.Rows.Single();
-        var caseDriftRoot = Clone(root);
+        LR2SongDB.folder caseDriftRoot = Clone(root);
         caseDriftRoot.path = root.path.ToLowerInvariant();
         var staleNormal = new LR2SongDB.folder
         {

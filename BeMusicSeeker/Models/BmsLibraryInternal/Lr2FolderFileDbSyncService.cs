@@ -135,7 +135,7 @@ internal static class Lr2FolderFileDbSyncService
             request.DirectoryRowGenerationScopeDirectories?.Count > 0
                 ? request.DirectoryRowGenerationScopeDirectories
                 : request.DirectoryRowScopeDirectories;
-        DirectoryScopeMatcher directoryRowGenerationScopeMatcher =
+        var directoryRowGenerationScopeMatcher =
             DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories);
 
         foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
@@ -303,7 +303,7 @@ internal static class Lr2FolderFileDbSyncService
             return result;
         }
 
-        DirectoryScopeMatcher directoryRowGenerationScopeMatcher =
+        var directoryRowGenerationScopeMatcher =
             DirectoryScopeMatcher.Create(request.DirectoryRowGenerationScopeDirectories?.Count > 0
                 ? request.DirectoryRowGenerationScopeDirectories
                 : request.DirectoryRowScopeDirectories);
@@ -530,9 +530,9 @@ internal static class Lr2FolderFileDbSyncService
         IEnumerable<string> pruneExcludedDirectories,
         IEnumerable<string> pruneExcludedPaths)
     {
-        DirectoryScopeMatcher scopeMatcher = DirectoryScopeMatcher.Create(scopeDirectories);
-        DirectoryScopeMatcher directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
-        DirectoryScopeMatcher pruneExcludeMatcher = DirectoryScopeMatcher.Create(pruneExcludedDirectories);
+        var scopeMatcher = DirectoryScopeMatcher.Create(scopeDirectories);
+        var directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
+        var pruneExcludeMatcher = DirectoryScopeMatcher.Create(pruneExcludedDirectories);
         HashSet<string> pruneExcludedPathSet = new((pruneExcludedPaths ?? [])
             .Select(NormalizeFilePath)
             .Where(path => !string.IsNullOrWhiteSpace(path)), PathComparer);
@@ -592,7 +592,7 @@ internal static class Lr2FolderFileDbSyncService
         IEnumerable<Lr2FolderFileSyncItem> items,
         IEnumerable<string> directoryRowGenerationScopeDirectories)
     {
-        DirectoryScopeMatcher directoryRowGenerationScopeMatcher =
+        var directoryRowGenerationScopeMatcher =
             DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories);
         var result = new HashSet<string>(PathComparer);
         foreach (Lr2FolderFileSyncItem item in items ?? [])

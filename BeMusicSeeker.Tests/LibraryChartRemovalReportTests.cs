@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -22,7 +23,7 @@ public sealed class LibraryChartRemovalReportTests
         foreach (LibraryChartRemovalState state in Enum.GetValues<LibraryChartRemovalState>().Where(state => state != LibraryChartRemovalState.Confirmed))
         {
             var outcome = new LibraryChartRemovalOutcome([new("check-this.bms", state)], true, true);
-            var request = LibraryChartRemovalReport.Create(outcome);
+            UiMessageRequest request = LibraryChartRemovalReport.Create(outcome);
             Assert.IsNotNull(request, state.ToString());
             Assert.AreEqual(System.Windows.MessageBoxImage.Error, request.Icon);
             StringAssert.Contains(request.MessageBoxText, "check-this.bms");
@@ -42,7 +43,7 @@ public sealed class LibraryChartRemovalReportTests
         var outcome = new LibraryChartRemovalOutcome(targets, true, true, catalogFailure);
         foreach (string culture in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW" })
         {
-            var request = LibraryChartRemovalReport.Create(outcome, culture: CultureInfo.GetCultureInfo(culture));
+            UiMessageRequest request = LibraryChartRemovalReport.Create(outcome, culture: CultureInfo.GetCultureInfo(culture));
             Assert.IsNotNull(request);
             Assert.AreEqual(System.Windows.MessageBoxImage.Error, request.Icon);
             Assert.IsTrue(request.MessageBoxText.Length <= 4096);

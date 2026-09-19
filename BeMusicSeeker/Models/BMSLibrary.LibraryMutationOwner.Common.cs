@@ -1006,7 +1006,7 @@ internal sealed partial class LibraryMutationOwner
         bool? resourceHealthIndexCurrentAtBase = null)
     {
         OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(catalogFacts);
-        var result = CreateOwnedChartCollectionMutationResult(
+        OwnedChartCollectionMutationResult result = CreateOwnedChartCollectionMutationResult(
             storageMutation,
             BuildInstalledChartLookupMutation(storageMutation, catalogFacts?.FolderPathChanges),
             deltaBaseResourceHealthInputVersion,
@@ -1143,7 +1143,7 @@ internal sealed partial class LibraryMutationOwner
     {
         var storageMutation = new OwnedChartCollectionStorageMutation();
         storageMutation.AddAddedTargets(addedTargets);
-        var result = CreateOwnedChartCollectionMutationResult(
+        OwnedChartCollectionMutationResult result = CreateOwnedChartCollectionMutationResult(
             storageMutation,
             BuildInstalledChartLookupUpsertMutation(storageMutation),
             deltaBaseResourceHealthInputVersion,
@@ -2430,7 +2430,7 @@ internal sealed partial class LibraryMutationOwner
         OwnedChartCollectionMutationResult result,
         IReadOnlyList<ChartFile> installDestinationChangedCharts)
     {
-        var effects = LibraryChartRefreshEffects.None;
+        LibraryChartRefreshEffects effects = LibraryChartRefreshEffects.None;
         if (result?.OwnedCollectionChanged == true)
         {
             effects |= LibraryChartRefreshEffects.SourceChanged;
@@ -2674,7 +2674,7 @@ internal sealed partial class LibraryMutationOwner
             return existingTargets;
         }
 
-        ChartStorageTargetSet targets = ChartStorageTargetSet.FromInstalledCharts(charts);
+        var targets = ChartStorageTargetSet.FromInstalledCharts(charts);
         if (installResult != null)
         {
             installResult.InstalledTargetSet = targets;

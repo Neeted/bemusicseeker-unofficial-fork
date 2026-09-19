@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -160,7 +160,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             out _);
         cancellationToken.ThrowIfCancellationRequested();
         BMSLibrary.ScoreSnapshot scoreSnapshot = library.GetScoreSnapshotForDiagnostics();
-        PlaylistLampScoreSnapshot currentLampScoreSnapshot = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(scoreSnapshot);
+        var currentLampScoreSnapshot = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(scoreSnapshot);
         PlaylistLampHistoricalScoreSnapshotResult historicalResult = ResolveHistoricalScoreSnapshot(
             query,
             currentLampScoreSnapshot,
@@ -282,7 +282,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         string message = string.IsNullOrWhiteSpace(exception?.Message)
             ? "Historical score source could not be resolved."
             : exception.Message;
-        DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+        var today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
         PlaylistLampHistoricalDateRange range = new(null, today);
         if (!query.SelectedLocalDate.HasValue)
         {
@@ -479,7 +479,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         {
             return;
         }
-        INotifyCollectionChanged currentCollection = playlist.BMSTables as INotifyCollectionChanged;
+        var currentCollection = playlist.BMSTables as INotifyCollectionChanged;
         lock (subscriptionGate)
         {
             if (Volatile.Read(ref disposed) != 0

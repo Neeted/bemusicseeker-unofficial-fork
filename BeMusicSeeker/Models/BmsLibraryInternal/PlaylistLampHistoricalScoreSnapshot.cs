@@ -89,7 +89,7 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
     {
         ArgumentNullException.ThrowIfNull(currentScoreSnapshot);
         cancellationToken.ThrowIfCancellationRequested();
-        DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+        var today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
 
         if (sourceContext == null)
         {
@@ -350,8 +350,8 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
         DateTime? todayLocalDate = null)
     {
         ArgumentNullException.ThrowIfNull(currentScoreSnapshot);
-        DateTime today = DateTime.SpecifyKind((todayLocalDate ?? DateTime.Today).Date, DateTimeKind.Unspecified);
-        List<PlaylistLampHistoricalScoreChange> rows = (changes ?? [])
+        var today = DateTime.SpecifyKind((todayLocalDate ?? DateTime.Today).Date, DateTimeKind.Unspecified);
+        var rows = (changes ?? [])
             .Where(row => row != null && row.Source == activeSource)
             .ToList();
         DateTime? earliest = null;
@@ -382,7 +382,7 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
                 PlaylistLampHistoricalSnapshotStatus.Latest);
         }
 
-        DateTime selected = DateTime.SpecifyKind(selectedLocalDate.Value.Date, DateTimeKind.Unspecified);
+        var selected = DateTime.SpecifyKind(selectedLocalDate.Value.Date, DateTimeKind.Unspecified);
         if (!range.Contains(selected))
         {
             return new PlaylistLampHistoricalScoreSnapshotResult(
@@ -394,7 +394,7 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
         }
 
         long cutoffUnixSeconds = ToUnixSecondsAtLocalMidnight(selected.AddDays(1));
-        List<PlaylistLampHistoricalScoreChange> futureRows = rows
+        var futureRows = rows
             .Where(row => row.PlayedAtUnixSeconds >= cutoffUnixSeconds)
             .OrderByDescending(row => row.PlayedAtUnixSeconds)
             .ThenByDescending(row => row.SourceId)
@@ -548,7 +548,7 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
 
     private static long ToUnixSecondsAtLocalMidnight(DateTime localDate)
     {
-        DateTime unspecified = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+        var unspecified = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
         DateTime utc = TimeZoneInfo.ConvertTimeToUtc(unspecified, TimeZoneInfo.Local);
         return new DateTimeOffset(utc).ToUnixTimeSeconds();
     }

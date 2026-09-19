@@ -8,10 +8,11 @@ using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using NVorbis;
 using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
+using NVorbis;
+using NVorbis.Contracts;
 using Ribbit.Cryptography;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
@@ -2108,7 +2109,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             throw new InvalidDataException("Decoded OGG stream did not contain a logical stream.");
         }
 
-        var firstStream = stream.Streams[0];
+        IStreamDecoder firstStream = stream.Streams[0];
         int sampleRate = firstStream.SampleRate;
         int channelCount = firstStream.Channels;
         if (sampleRate <= 0 || channelCount <= 0)
@@ -2119,7 +2120,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         long totalSampleCountLong = 0;
         for (int streamIndex = 0; streamIndex < stream.Streams.Count; streamIndex++)
         {
-            var logicalStream = stream.Streams[streamIndex];
+            IStreamDecoder logicalStream = stream.Streams[streamIndex];
             if (logicalStream.SampleRate != sampleRate || logicalStream.Channels != channelCount)
             {
                 throw new InvalidDataException("Concatenated OGG streams must use one audio format.");
@@ -2161,7 +2162,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         int samplesWritten = 0;
         for (int streamIndex = 0; streamIndex < stream.Streams.Count; streamIndex++)
         {
-            var logicalStream = stream.Streams[streamIndex];
+            IStreamDecoder logicalStream = stream.Streams[streamIndex];
             stream.SwitchStreams(streamIndex);
             int logicalSampleCount = checked((int)checked(logicalStream.TotalSamples * channelCount));
             int logicalSamplesWritten = 0;
@@ -3032,7 +3033,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         try
         {
-            BassAudioPlaybackException playbackException = exception as BassAudioPlaybackException;
+            var playbackException = exception as BassAudioPlaybackException;
             string nativeErrorSource = playbackException?.NativeErrorSource ?? "none";
             ManagedBass.Errors? nativeErrorCode = playbackException?.NativeErrorCode;
             string stage = playbackException?.Stage.ToString() ?? "unknown";

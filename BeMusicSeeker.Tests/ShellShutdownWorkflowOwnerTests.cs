@@ -1,16 +1,18 @@
-using System.Threading.Tasks;
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
-using System.ComponentModel;
-using System.Collections.Generic;
-using System.IO;
+using System.Threading.Tasks;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -96,7 +98,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel? viewModel = null;
         try
         {
-            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
             var diskPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
             var memoryPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
             var finalPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 50, 60, 850, 660);
@@ -110,7 +112,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             var player = new FakeBmsPlayer(() => gateway.UpdateWindowPlacement(finalPlacement));
             await viewModel.PlaybackPanel.ReplacePlayerAsync(player);
             var session = new RecordingSettingsEditSession(settings.Save, settings);
-            var owner = CreateDirectOwner(viewModel, settingsEditSession: session);
+            ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, settingsEditSession: session);
 
             await owner.CompleteTerminalShutdownAsync();
             await owner.CompleteTerminalShutdownAsync();
@@ -170,7 +172,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
                     var notices = new List<Exception>();
                     int exitCount = 0;
                     bool noticeOnUi = false;
-                    var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                    Dispatcher dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
 
                     ShellShutdownWorkflowOwner owner = CreateDirectOwner(
                         viewModel,
@@ -345,8 +347,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
         ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
         Assert.IsTrue(receipt.PreparationSucceeded);
 
-        BMSLibrary library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        BMSPlaylist playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
+        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        var playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
         SetPrivateField(
             playlist,
             "shutdownCoordinator",
@@ -390,8 +392,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
-        BMSLibrary library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        BMSPlaylist playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
+        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        var playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
         SetPrivateField(
             playlist,
             "shutdownCoordinator",
@@ -447,7 +449,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         var events = new List<string>();
         var startEntered = new ManualResetEventSlim();
         var startRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        UpdateCheckResult available = UpdateCheckResult.Available(
+        var available = UpdateCheckResult.Available(
             new Version(2, 0, 0, 0),
             "1.0.0.0",
             "2.0.0.0",
@@ -873,7 +875,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel? viewModel = null;
         try
         {
-            var settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
             var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var shutdownMarked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

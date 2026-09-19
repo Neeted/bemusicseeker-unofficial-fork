@@ -418,7 +418,7 @@ internal sealed class AppHttpClient
         }
         using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
         using Stream stream = httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-        using var fileStream = LongPathFileSystem.Open(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        using FileStream fileStream = LongPathFileSystem.Open(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
         stream.CopyTo(fileStream);
     }
 

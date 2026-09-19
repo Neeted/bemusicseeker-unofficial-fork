@@ -40,7 +40,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string bmsPath = Path.Combine(directoryPath, "bad.bms");
             File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Bad\r\n#00111:01\r\n");
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-            var owner = CreateOwner(callbacks);
+            LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
             Lr2FolderFileDiffPreparationResult scan = owner.ApplyFileScanDiff(
                 new BmsLibraryOptionsSnapshot(),
                 [directoryPath],
@@ -93,7 +93,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string bmsPath = Path.Combine(directoryPath, "committed.bms");
             File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Committed\r\n#BPM 120\r\n#00111:01\r\n");
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-            var owner = CreateOwner(callbacks, lr2ModeEnabled: true);
+            LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true);
             var injectedException = new InvalidOperationException("injected post-lease observer failure");
             int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
             int initialSynchronizationOwnedCollectionVersion =
@@ -163,7 +163,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 },
                 [directoryPath]);
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-            var owner = CreateOwner(callbacks, lr2ModeEnabled: true, chartFileScanner: chartFileScanner);
+            LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true, chartFileScanner: chartFileScanner);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
             int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
             int initialSynchronizationOwnedCollectionVersion =
@@ -236,7 +236,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 ErrorReason = "bridge_dll_not_found:test_incomplete_after_commit"
             };
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-            var owner = CreateOwner(
+            LibraryFileScanPipelineOwner owner = CreateOwner(
                 callbacks,
                 lr2ModeEnabled: true,
                 chartFileScanner: new SequenceChartFileScanner(completeScan, incompleteScan));
@@ -356,7 +356,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void ApplyFileScanDiff_EmptyDirectoryRequestCompletesProgressForRepeatedRequests()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
 
         Lr2FolderFileDiffPreparationResult first = owner.ApplyFileScanDiff(
             new BmsLibraryOptionsSnapshot(),
@@ -388,7 +388,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void ApplyFileScanDiff_IncompletePrefetchSkipsStorageAndReportsWarning()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var prefetch = new ChartScanPrefetchInfo
         {
             ScanResult = new ChartScanExecutionResult
@@ -420,7 +420,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void ApplyActiveFileScan_NoRootsUsesOwnedApplyRoute()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         long generation = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_request");
         Lr2FolderFileDiffPreparationResult scan = owner.ApplyActiveFileScan(
             generation,
@@ -438,7 +438,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void BeginFileScanRequest_RejectsOverlapUntilTerminal()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         long firstGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_first");
         Assert.ThrowsException<InvalidOperationException>(
             () => owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_overlap"));
@@ -458,7 +458,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void AbortActiveFileScan_PreventsApplyAndAllowsNextRequest()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         long abortedGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_abort");
 
         owner.AbortActiveFileScan(abortedGeneration);
@@ -491,7 +491,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             BmsFiles = [keepFile, replacedFile]
         };
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
@@ -550,7 +550,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             BmsFiles = [keepFile]
         };
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
@@ -583,7 +583,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string.Empty,
             []);
 
-        FileScanCatalogResidualEvent residual = FileScanCatalogResidualEvent.Create(
+        var residual = FileScanCatalogResidualEvent.Create(
             [changedChart],
             "residual_test");
         bmsFile.path = "C:\\Library\\renamed.bms";
@@ -608,7 +608,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string.Empty,
             []);
 
-        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
+        var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
         bmsFile.path = "C:\\Library\\renamed.bms";
 
         ChartFile capturedChart = snapshot.Charts.Single();
@@ -625,7 +625,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             BmsFiles = [keepFile]
         };
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
@@ -636,7 +636,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string.Empty,
             string.Empty,
             []);
-        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
+        var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
 
         owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
@@ -657,7 +657,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             BmsonSongs = [bmsonSong]
         };
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
@@ -668,7 +668,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string.Empty,
             string.Empty,
             []);
-        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
+        var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
 
         owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
@@ -690,7 +690,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             BmsonSongs = [bmsonSong]
         };
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
@@ -702,7 +702,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string.Empty,
             string.Empty,
             []);
-        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([bmsChart]);
+        var snapshot = InstallDestinationCleanupSnapshot.FromCharts([bmsChart]);
 
         owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
@@ -718,7 +718,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             BmsFiles = [keptFile]
         };
-        var owner = CreateOwner(callbacks);
+        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             HasDbDiff = true

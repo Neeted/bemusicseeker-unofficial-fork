@@ -1,22 +1,18 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
-using BeMusicSeeker.Views.Settings;
-using Livet;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -24,23 +20,26 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using ManagedBass;
-using Ribbit.Media;
-using Ribbit.Media.Audio;
-
-using System.Diagnostics;
-using System.Runtime.ExceptionServices;
-using System.Windows.Automation;
-using System.Windows.Automation.Peers;
-using System.Windows.Automation.Provider;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
+using Livet;
+using ManagedBass;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
 using Ribbit.Logging;
+using Ribbit.Media;
+using Ribbit.Media.Audio;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -86,7 +85,7 @@ public sealed class SettingsForegroundInteractionTests
                 ownerWindow.UpdateLayout();
                 window.Owner = ownerWindow;
                 windowTest.ShowAndWaitForContentRendered(window);
-                GeneralSettingsPage page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 Button resyncButton = FindDescendants<Button>(page)
                     .Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
                 Assert.IsTrue(settings.CanRequestLr2SongDbSyncDataResync);
@@ -397,14 +396,14 @@ public sealed class SettingsForegroundInteractionTests
             try
             {
                 Grid host = CreateSettingsControlHost();
-                Style comboBoxItemStyle = (Style)host.Resources["SettingsComboBoxItemStyle"];
-                Style listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
-                Style listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
-                Style expanderStyle = (Style)host.Resources["SettingsExpanderStyle"];
-                Style canonicalComboBoxItemStyle = (Style)host.Resources["App.Canonical.ComboBoxItemStyle"];
-                Style canonicalListBoxStyle = (Style)host.Resources["App.Canonical.ListBoxStyle"];
-                Style canonicalListBoxItemStyle = (Style)host.Resources["App.Canonical.ListBoxItemStyle"];
-                Style canonicalExpanderStyle = (Style)host.Resources["App.Canonical.ExpanderStyle"];
+                var comboBoxItemStyle = (Style)host.Resources["SettingsComboBoxItemStyle"];
+                var listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
+                var listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
+                var expanderStyle = (Style)host.Resources["SettingsExpanderStyle"];
+                var canonicalComboBoxItemStyle = (Style)host.Resources["App.Canonical.ComboBoxItemStyle"];
+                var canonicalListBoxStyle = (Style)host.Resources["App.Canonical.ListBoxStyle"];
+                var canonicalListBoxItemStyle = (Style)host.Resources["App.Canonical.ListBoxItemStyle"];
+                var canonicalExpanderStyle = (Style)host.Resources["App.Canonical.ExpanderStyle"];
                 AssertEffectiveTemplateRole(comboBoxItemStyle, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
                 AssertEffectiveTemplateRole(listBoxStyle, canonicalListBoxStyle, nameof(ListBox));
                 AssertEffectiveTemplateRole(listBoxItemStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
@@ -733,7 +732,7 @@ public sealed class SettingsForegroundInteractionTests
                     KeyboardNavigation.GetDirectionalNavigation(topNavigation));
                 StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation)!;
                 Assert.AreEqual(Orientation.Horizontal, topNavigationItems.Orientation);
-                var topNavigationItemsByIndex = topNavigation.Items
+                ListBoxItem[] topNavigationItemsByIndex = topNavigation.Items
                     .Cast<object>()
                     .Select((_, index) => (ListBoxItem)topNavigation.ItemContainerGenerator.ContainerFromIndex(index))
                     .ToArray();
@@ -1353,7 +1352,7 @@ public sealed class SettingsForegroundInteractionTests
 
     private static void RaiseKey(UIElement target, Key key)
     {
-        PresentationSource source = PresentationSource.FromVisual(target);
+        var source = PresentationSource.FromVisual(target);
         Assert.IsNotNull(source);
         target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
         {

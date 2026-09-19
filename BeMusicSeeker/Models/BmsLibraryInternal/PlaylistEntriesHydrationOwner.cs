@@ -689,7 +689,7 @@ internal sealed class PlaylistEntriesHydrationOwner
         }
         catch (Exception ex)
         {
-            List<BMSTable> tablesToMarkFailed = GetTablesSnapshot().Tables
+            var tablesToMarkFailed = GetTablesSnapshot().Tables
                 .Where(table => table != null && !table.ArePlaylistEntriesLoaded)
                 .ToList();
             foreach (BMSTable table in tablesToMarkFailed)

@@ -183,7 +183,7 @@ public sealed class DialogPresentationTests
                 windowTest.ShowAndWaitForContentRendered(dialog);
                 dialog.UpdateLayout();
 
-                ListBox playlistList = (ListBox)dialog.FindName("PlaylistOptionsList")!;
+                var playlistList = (ListBox)dialog.FindName("PlaylistOptionsList")!;
                 ScrollViewer playlistViewport = FindVisualDescendants<ScrollViewer>(playlistList).Single();
                 Button saveButton = FindVisualDescendants<Button>(dialog)
                     .Single(button => AutomationProperties.GetAutomationId(button) == "PlayHistoryPresetSave");
@@ -625,7 +625,7 @@ public sealed class DialogPresentationTests
             Border[] contentBorders = contentBorderCandidates
                 .Where(border =>
                 {
-                    Style? contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+                    var contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
                     return contentStyle != null && StyleChainContains(border.Style, contentStyle);
                 })
                 .ToArray();
@@ -722,7 +722,7 @@ public sealed class DialogPresentationTests
                 : Array.Empty<Border>())
             .Concat(FindVisualDescendants<Border>(presentationRoot))
             .ToArray();
-        Style? dialogContentStyle = presentationRoot.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+        var dialogContentStyle = presentationRoot.TryFindResource("App.Canonical.DialogContentStyle") as Style;
         if (dialogContentStyle != null)
         {
             Assert.IsFalse(
@@ -962,13 +962,13 @@ public sealed class DialogPresentationTests
     {
         const string listBoxStyleKey = "App.Canonical.ListBoxStyle";
         const string topNavigationStyleKey = "App.Canonical.TopNavigationStyle";
-        FrameworkElement? propertyNavigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
+        var propertyNavigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
         ListBox[] listBoxes = FindVisualDescendants<ListBox>(presentationRoot)
             .Where(item => item.TemplatedParent == null)
             .ToArray();
         foreach (ListBox listBox in listBoxes.Where(item => !ReferenceEquals(item, propertyNavigation)))
         {
-            Style? topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
+            var topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
             bool isTopNavigation = topNavigationStyle != null && StyleChainContains(listBox.Style, topNavigationStyle);
             string canonicalStyleKey = isTopNavigation ? topNavigationStyleKey : listBoxStyleKey;
             Style resolvedStyle = RequireStyle(listBox, canonicalStyleKey);
@@ -1110,7 +1110,7 @@ public sealed class DialogPresentationTests
 
     private static void AssertPropertyNavigationRole(FrameworkElement presentationRoot)
     {
-        FrameworkElement? navigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
+        var navigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
         if (navigation == null)
         {
             return;

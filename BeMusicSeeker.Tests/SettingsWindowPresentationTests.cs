@@ -86,8 +86,8 @@ public sealed class SettingsWindowPresentationTests
                     && FindResourceInStyleScope(border, "App.Canonical.NativeWindowContentStyle")
                     && border.BorderThickness == new Thickness(0)
                     && border.CornerRadius == new CornerRadius(0));
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
-                ContentControl pageHeader = (ContentControl)window.FindName("settingsPageHeader");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var pageHeader = (ContentControl)window.FindName("settingsPageHeader");
 
                 Rect nativeBounds = new(0d, 0d, nativeContent.ActualWidth, nativeContent.ActualHeight);
                 Rect navigationBounds = GetVisualBounds(nativeContent, navigation);
@@ -139,7 +139,7 @@ public sealed class SettingsWindowPresentationTests
                 window.Measure(new Size(820, 760));
                 window.Arrange(new Rect(0, 0, 820, 760));
                 window.UpdateLayout();
-                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (ListBox)window.FindName("settingsNavigation");
                 Assert.AreEqual(11, navigation.Items.Count);
                 var rightClickNavigation = (ListBoxItem)window.FindName("navigationRightClick");
                 Assert.AreEqual("SettingsCategoryRightClick", AutomationProperties.GetAutomationId(rightClickNavigation));
@@ -335,7 +335,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             try
             {
-                Settings settings = new Settings { OperationModeLR2DB = false };
+                var settings = new Settings { OperationModeLR2DB = false };
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
                 var dialogs = new RecordingSettingsRouteDialogService(
                     installDirectory,
@@ -499,7 +499,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             try
             {
-                Settings settings = new Settings
+                var settings = new Settings
                 {
                     OperationModeLR2DB = false,
                     BMSRootPath = string.Empty,
@@ -576,7 +576,7 @@ public sealed class SettingsWindowPresentationTests
             SynchronizationContext? previousContext = SynchronizationContext.Current;
             try
             {
-                Settings settings = new Settings
+                var settings = new Settings
                 {
                     OperationModeLR2DB = false,
                     BMSRootPath = string.Empty,
@@ -671,7 +671,7 @@ public sealed class SettingsWindowPresentationTests
 
                 Assert.AreNotEqual(englishVersion, version.Text);
                 Assert.AreNotEqual(englishBuild, build.Text);
-                Assembly? entryAssembly = Assembly.GetEntryAssembly();
+                var entryAssembly = Assembly.GetEntryAssembly();
                 string assemblyVersion = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
                 string? informationalVersion = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
                 string displayedVersion = string.IsNullOrWhiteSpace(informationalVersion) ? assemblyVersion : informationalVersion;
@@ -1112,7 +1112,7 @@ public sealed class SettingsWindowPresentationTests
     {
         XDocument document = LoadSettingsWindowXaml();
         XElement navigation = FindNamedElement(document, "settingsNavigation");
-        List<XElement> items = navigation.Elements(PresentationName("ListBoxItem")).ToList();
+        var items = navigation.Elements(PresentationName("ListBoxItem")).ToList();
         string[] expectedResourcePaths =
         [
             "Resources.General",
@@ -1497,7 +1497,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var window = new SettingsWindow();
-            var sharedDataContext = owner.SettingDialog;
+            SettingsDialogViewModel sharedDataContext = owner.SettingDialog;
             window.DataContext = sharedDataContext;
             var navigation = (ListBox)window.FindName("settingsNavigation");
             var header = (ContentControl)window.FindName("settingsPageHeader");
@@ -1756,7 +1756,7 @@ public sealed class SettingsWindowPresentationTests
                 PumpDispatcher(window.Dispatcher);
                 var page = (AppearanceSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
 
-                Dictionary<string, Slider> sliders = FindDescendants<Slider>(page)
+                var sliders = FindDescendants<Slider>(page)
                     .ToDictionary(
                         slider => slider.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path
                             ?? throw new AssertFailedException("Appearance slider must bind to a settings property."),
@@ -2665,7 +2665,7 @@ public sealed class SettingsWindowPresentationTests
             .Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".AboutSettingsPage", StringComparison.Ordinal) == true);
         Assert.IsFalse(aboutDocument.Descendants(PresentationName("FlowDocumentScrollViewer")).Any());
 
-        XDocument releaseNotesDocument = XDocument.Load(Path.Combine(
+        var releaseNotesDocument = XDocument.Load(Path.Combine(
             FindRepositoryRoot(), "BeMusicSeeker", "Views", "ReleaseNotesWindow.xaml"));
         XElement versionDocument = releaseNotesDocument.Descendants(PresentationName("FlowDocumentScrollViewer")).Single();
         Assert.IsNull(versionDocument.Attribute("Height"));
@@ -2793,7 +2793,7 @@ public sealed class SettingsWindowPresentationTests
         string scoreDbPath,
         Lr2PlayHistorySchemaStatus status)
     {
-        Lr2PlayHistorySchemaStatusSnapshot snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
+        var snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
         {
             Status = status,
             ScoreDbPath = scoreDbPath,
@@ -3062,7 +3062,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static void RaiseKey(UIElement target, Key key)
     {
-        PresentationSource source = PresentationSource.FromVisual(target);
+        var source = PresentationSource.FromVisual(target);
         Assert.IsNotNull(source);
         target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
         {
@@ -3369,7 +3369,7 @@ public sealed class SettingsWindowPresentationTests
                         $"The rendered settings pages did not materialize {requiredType.Name}.");
                 }
 
-                FrameworkPropertyMetadata pathMetadata = (FrameworkPropertyMetadata)SettingsPathPicker.PathProperty.GetMetadata(typeof(SettingsPathPicker));
+                var pathMetadata = (FrameworkPropertyMetadata)SettingsPathPicker.PathProperty.GetMetadata(typeof(SettingsPathPicker));
                 Assert.IsTrue(pathMetadata.BindsTwoWayByDefault);
                 Assert.AreEqual(true, SettingsPathPicker.IsPathReadOnlyProperty.DefaultMetadata.DefaultValue);
 

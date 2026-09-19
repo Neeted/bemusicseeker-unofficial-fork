@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -271,7 +271,7 @@ public sealed class PlaybackPanelViewModelTests
         Task<bool> start = Task.Run(
             () => panel.TryPlayStart(generation, "race.bms", null));
         Assert.IsTrue(startEntered.Wait(TimeSpan.FromSeconds(5)));
-        Task stop = Task.Run(() => panel.StopPlayback(closeProcess: true));
+        var stop = Task.Run(() => panel.StopPlayback(closeProcess: true));
         Assert.IsFalse(stop.Wait(TimeSpan.FromMilliseconds(100)));
 
         releaseStart.Set();
@@ -1368,8 +1368,8 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void MainChartListPlaybackQueue_ForwardsLiveRowsAndSelection()
     {
-        var firstRow = new object();
-        var secondRow = new object();
+        object firstRow = new object();
+        object secondRow = new object();
         var chartList = new MainChartListViewModel
         {
             Rows = new List<object> { firstRow },
@@ -1753,7 +1753,7 @@ public sealed class PlaybackPanelViewModelTests
                 values[2] = "[Current Subtitle]";
                 values[3] = "Current Artist";
                 values[7] = Path.Combine(Path.GetTempPath(), "current.bms");
-                BMSFile current = BMSFile.FromSongTableRawValues(values);
+                var current = BMSFile.FromSongTableRawValues(values);
                 panel.SetBmsPlayerHeader(current);
 
                 var view = new PlaybackPanelView { DataContext = panel };
@@ -2459,7 +2459,7 @@ public sealed class PlaybackPanelViewModelTests
             int expectedOccurrence = commandCounts.TryGetValue(command, out int currentOccurrence)
                 ? currentOccurrence + 1
                 : 1;
-            var key = (command, expectedOccurrence);
+            (string command, int expectedOccurrence) key = (command, expectedOccurrence);
             if (commandCounts.TryGetValue(command, out currentOccurrence)
                 && currentOccurrence >= expectedOccurrence)
             {

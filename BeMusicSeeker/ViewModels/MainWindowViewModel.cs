@@ -24,9 +24,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Livet;
 using Livet.Commands;
 using Livet.EventListeners;
@@ -39,6 +36,9 @@ using Ribbit.Media.Audio;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -874,7 +874,7 @@ public partial class MainWindowViewModel : ViewModel,
             int separator = normalized.IndexOf(' ');
             string stage = separator > 0 ? normalized[..separator] : "main_view_diagnostic";
             string fields = separator > 0 ? normalized[(separator + 1)..] : normalized;
-            PerformanceInteraction interaction = PerformanceInteraction.Start("main_view");
+            var interaction = PerformanceInteraction.Start("main_view");
             Net10PerformanceLog.Write(interaction, stage, fields);
         }
     }
@@ -5069,7 +5069,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         else if (mode == MainViewUpdateMode.PlayHistorySelected)
         {
-            PlayHistoryViewRequest playHistoryRequest = parameter as PlayHistoryViewRequest;
+            var playHistoryRequest = parameter as PlayHistoryViewRequest;
             if (playHistoryRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(playHistoryRequest.RequestId))
             {
                 playHistoryRuntimeEventReporter.ReportStaleViewRequest(

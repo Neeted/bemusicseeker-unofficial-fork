@@ -75,7 +75,7 @@ public sealed class ResourceIconContractTests
             var mismatches = new List<string>();
             foreach (string name in expectedNames)
             {
-                Icon managerIcon = (Icon)(Images.ResourceManager.GetObject(name, CultureInfo.InvariantCulture)
+                var managerIcon = (Icon)(Images.ResourceManager.GetObject(name, CultureInfo.InvariantCulture)
                     ?? throw new AssertFailedException($"ResourceManager returned no icon for {name}."));
                 Icon typedIcon = TypedAccessors[name]();
                 Assert.AreEqual(typeof(Icon), managerIcon.GetType(), $"ResourceManager type changed for {name}.");
@@ -106,7 +106,7 @@ public sealed class ResourceIconContractTests
             foreach (Func<Icon> accessor in TypedAccessors.Values)
             {
                 Icon icon = accessor();
-                var image = converter.Convert(icon, typeof(BitmapImage), parameter: null!, CultureInfo.InvariantCulture) as BitmapImage
+                BitmapImage image = converter.Convert(icon, typeof(BitmapImage), parameter: null!, CultureInfo.InvariantCulture) as BitmapImage
                     ?? throw new AssertFailedException("Icon converter did not return a BitmapImage.");
                 Assert.IsTrue(image.PixelWidth > 0);
                 Assert.AreEqual(icon.Width, image.PixelWidth);
@@ -117,7 +117,7 @@ public sealed class ResourceIconContractTests
 
     private static string ComputePngDigest(Icon icon)
     {
-        using Bitmap bitmap = icon.ToBitmap();
+        using var bitmap = icon.ToBitmap();
         using var stream = new MemoryStream();
         bitmap.Save(stream, ImageFormat.Png);
         return Convert.ToHexString(SHA256.HashData(stream.ToArray()));

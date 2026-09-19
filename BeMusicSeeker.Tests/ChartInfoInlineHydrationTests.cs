@@ -12,18 +12,17 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.ViewModels;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
-
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using OwnedChartCollectionTestSupport = BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 namespace BeMusicSeeker.Tests;
 
@@ -170,7 +169,7 @@ public sealed class ChartInfoInlineHydrationTests
 
             using var lockAcquired = new ManualResetEventSlim(false);
             using var releaseLock = new ManualResetEventSlim(false);
-            Task lockHolder = Task.Run(delegate
+            var lockHolder = Task.Run(delegate
             {
                 Assert.IsTrue(LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5)));
                 try
@@ -736,7 +735,7 @@ public sealed class ChartInfoInlineHydrationTests
                 chartPath,
                 "#PLAYER 1\r\n#TITLE publication order before\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
             string oldMd5 = file.hash;
             string oldSha256 = file.sha256;
             File.WriteAllText(
@@ -809,7 +808,7 @@ public sealed class ChartInfoInlineHydrationTests
         {
             string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 13\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
             var file = new TestableBmsFile
             {
                 path = chartPath

@@ -429,7 +429,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         }
         catch (Exception exception)
         {
-            PlaylistLampAggregationRequest failedRequest = PlaylistLampAggregationRequest.Failed(
+            var failedRequest = PlaylistLampAggregationRequest.Failed(
                 playlistId,
                 DescribeFailure(exception),
                 query: requestedQuery);

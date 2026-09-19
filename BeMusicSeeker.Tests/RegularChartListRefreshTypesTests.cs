@@ -11,7 +11,7 @@ public sealed class RegularChartListRefreshTypesTests
     [TestMethod]
     public void RegularChartListRefreshRequest_NormalizesSortInputs()
     {
-        ChartListSortSpecification sort = ChartListSortSpecification.Create(
+        var sort = ChartListSortSpecification.Create(
             nameof(LibraryChartRow.rank),
             ListSortDirection.Descending,
             hasValue: true);
@@ -51,7 +51,7 @@ public sealed class RegularChartListRefreshTypesTests
 
         List<LibraryChartRow> fromNull = RegularChartListStageState.Materialize(null);
         List<LibraryChartRow> fromList = RegularChartListStageState.Materialize(rows);
-        RegularChartListStageState state = RegularChartListStageState.FromCaches(rows, null, fromList);
+        var state = RegularChartListStageState.FromCaches(rows, null, fromList);
 
         Assert.AreEqual(0, fromNull.Count);
         Assert.AreSame(rows, fromList);

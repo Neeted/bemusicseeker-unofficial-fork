@@ -1,6 +1,6 @@
 using System;
-using System.ComponentModel;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -12,10 +12,10 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 
 namespace BeMusicSeeker.Models;
 
@@ -971,7 +971,7 @@ public partial class BMSLibrary
             var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
             foreach (string targetDirectory in targets)
             {
-                RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory);
+                var entry = RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory);
                 string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
                 if (!string.IsNullOrWhiteSpace(key) && targetSet.Contains(key))
                 {
@@ -2128,7 +2128,7 @@ public partial class BMSLibrary
             {
                 return false;
             }
-            Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = Lr2BuiltinCustomFolderSettings.Create(
+            var builtinCustomFolderSettings = Lr2BuiltinCustomFolderSettings.Create(
                 data.CreateCurrentLr2ConfigOrNull(),
                 [],
                 DateTime.UtcNow);

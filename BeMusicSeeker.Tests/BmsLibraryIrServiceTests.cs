@@ -1255,7 +1255,7 @@ public sealed class BmsLibraryIrServiceTests
         const string hash = "12345678901234567890123456789012";
         gateway.ReplaceIrScoreTable([new LR2IRScore { hash = hash, pg = 321, gr = 45 }]);
         gateway.UpsertIrScoreRefreshMetadata(123, "retained-digest");
-        var beforeMetadata = gateway.LoadIrScoreRefreshMetadata(123);
+        LR2SongDBExtended.ir_score_refresh_metadata beforeMetadata = gateway.LoadIrScoreRefreshMetadata(123);
         var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1));
         var prefetch = new IrScorePrefetchResult { Lr2Id = 123, FailureReason = "fetch_failed" };
 
@@ -1264,7 +1264,7 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, client.PlayerScoreXmlRequestCount, "失敗済みの同じ要求を再取得しない。");
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
-        var retained = gateway.LoadIrScoreRows().Single();
+        LR2IRScore retained = gateway.LoadIrScoreRows().Single();
         Assert.AreEqual(hash, retained.hash);
         Assert.AreEqual(321, retained.pg);
         Assert.AreEqual(45, retained.gr);

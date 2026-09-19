@@ -224,7 +224,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
         PlaylistLampViewerSession session = null;
         PlaylistLampViewerViewModel viewModel = null;
         WindowLifetime lifetime = null;
-        using CancellationTokenSource openCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+        using var openCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             shutdownCancellation.Token,
             cancellationToken);
         try

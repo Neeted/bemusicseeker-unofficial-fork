@@ -396,7 +396,7 @@ internal sealed class GingerPlaylistExternalPackageLookupProvider : IPlaylistExt
         }
         try
         {
-            JObject root = JObject.Parse(json);
+            var root = JObject.Parse(json);
             // NOTE:
             // Ginger は downloadURL を直ダウンロード相当の契約点として公開しているため、
             // md5s や shardMD5 は補助情報として扱い、導入可否は既存ダウンロード検証で判断します。
@@ -491,7 +491,7 @@ internal sealed class KonmaiPlaylistExternalPackageLookupProvider : IPlaylistExt
         }
         try
         {
-            JObject root = JObject.Parse(json);
+            var root = JObject.Parse(json);
             // NOTE:
             // Konmai は成功時に data.song_url を返す契約だが、エラー形状にも data が混在する可能性を避けるため
             // result == success も確認してから URL を採用します。

@@ -319,7 +319,7 @@ public sealed class CustomTablePhase6CacheTests
             textSelector: _ => "HARD",
             foregroundSelector: _ => Brushes.Red);
 
-        CustomTableCellValue value = CustomTableCellValue.Create(row, column);
+        var value = CustomTableCellValue.Create(row, column);
 
         Assert.AreSame(Brushes.Red, value.Foreground);
         Assert.AreEqual(1, value.TextRuns.Count);
@@ -400,7 +400,7 @@ public sealed class CustomTablePhase6CacheTests
                 new CustomTableTextRunStyle(0, 1, Brushes.Blue)
             ]);
 
-        CustomTableCellValue value = CustomTableCellValue.Create(row, column);
+        var value = CustomTableCellValue.Create(row, column);
 
         Assert.AreEqual(1, value.TextRuns.Count);
         Assert.AreEqual(0, value.TextRuns[0].StartIndex);

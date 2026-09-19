@@ -662,7 +662,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             throw new ArgumentNullException(nameof(player));
         }
-        PlayerStateSnapshot preparedState = PlayerStateSnapshot.Capture(player);
+        var preparedState = PlayerStateSnapshot.Capture(player);
         player.PropertyChanged += BmsPlayerPropertyChanged;
         bmsPlayer = player;
         ApplyPlayerState(preparedState);
@@ -694,7 +694,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 return;
             }
 
-            PlayerStateSnapshot preparedState = PlayerStateSnapshot.Capture(player);
+            var preparedState = PlayerStateSnapshot.Capture(player);
             if (currentWindowHost != null && player is IExternalWindowPlayer externalWindowPlayer)
             {
                 externalWindowPlayer.AttachWindowHost(currentWindowHost);

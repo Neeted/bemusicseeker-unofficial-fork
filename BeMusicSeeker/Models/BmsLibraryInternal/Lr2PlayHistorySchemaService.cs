@@ -434,7 +434,7 @@ internal sealed class Lr2PlayHistorySchemaService
         };
 
         Dictionary<string, string> objectTypesByName = LoadObjectTypes(db);
-        var existingTables = LoadObjectNames(db, "table");
+        HashSet<string> existingTables = LoadObjectNames(db, "table");
         CheckRequiredTables(db, existingTables, RequiredBaseTables, result, isBaseSchema: true);
         if (result.MissingBaseTables.Count > 0
             || result.MissingBaseColumns.Count > 0

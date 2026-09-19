@@ -81,7 +81,7 @@ internal sealed class InstallDestinationStateOwner
 
             foreach (ChartFile chart in mutation.AppliedCharts)
             {
-                ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
+                var state = ChartFileTransientState.FromInstallDestinationState(
                     chart,
                     includeWarningSnapshot: true,
                     forceInstallDestinationProjection: true,
@@ -385,7 +385,7 @@ internal sealed class InstallDestinationStateOwner
             return;
         }
 
-        InstallDestinationRuntimeStateEntry movedEntry = InstallDestinationRuntimeStateEntry.FromChart(newChart, entry.State);
+        var movedEntry = InstallDestinationRuntimeStateEntry.FromChart(newChart, entry.State);
         foreach (InstallDestinationRuntimeStateKey newKey in newKeys)
         {
             runtimeStatesByKey[newKey.Key] = movedEntry;

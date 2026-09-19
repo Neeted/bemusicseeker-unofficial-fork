@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using ManagedBass;
 
 namespace Ribbit.Media.Audio;
@@ -666,7 +666,7 @@ internal sealed class ManagedBassBfxVolumeEnvelopeParameters : ManagedBassCustom
                 "BASS_FX returned volume-envelope nodes without a native node pointer.");
         }
 
-        ManagedBassBfxEnvelopeNode[] nodes = new ManagedBassBfxEnvelopeNode[nodeCount];
+        var nodes = new ManagedBassBfxEnvelopeNode[nodeCount];
         for (int index = 0; index < nodeCount; index++)
         {
             nodes[index] = Marshal.PtrToStructure<ManagedBassBfxEnvelopeNode>(

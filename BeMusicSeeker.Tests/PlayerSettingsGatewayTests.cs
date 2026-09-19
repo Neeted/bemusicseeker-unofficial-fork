@@ -2,6 +2,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -18,7 +19,7 @@ public sealed class PlayerSettingsGatewayTests
         string path = System.IO.Path.Combine(directory, "user.config");
         try
         {
-            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
             var first = new WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
             var captured = new WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
             settings.LR2bodyWindowPlacement = BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(first);
@@ -42,7 +43,7 @@ public sealed class PlayerSettingsGatewayTests
     public void GatewayCapturesRequestedAudioSettingsWithoutNegotiatedWriteBack()
     {
         Settings settings = testSettings;
-        var originalDriver = settings.PlayerDriver;
+        BassAudioPlayer.DeviceDriver originalDriver = settings.PlayerDriver;
         string originalDevice = settings.PlayerDevice;
         string originalDeviceName = settings.PlayerDeviceName;
         SampleRate originalRate = settings.PlayerSampleRate;

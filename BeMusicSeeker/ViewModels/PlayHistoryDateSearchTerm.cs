@@ -258,8 +258,8 @@ internal sealed class PlayHistoryDateSearchTerm
             return false;
         }
 
-        PlayHistoryWallClockSecond dayStart = PlayHistoryWallClockSecond.FromDateTime(day.Date);
-        PlayHistoryWallClockSecond dayEnd = PlayHistoryWallClockSecond.FromDateTime(
+        var dayStart = PlayHistoryWallClockSecond.FromDateTime(day.Date);
+        var dayEnd = PlayHistoryWallClockSecond.FromDateTime(
             day.Date.AddHours(23).AddMinutes(59).AddSeconds(59));
         parsed = new PlayHistoryDateSearchTerm(dayStart, dayEnd);
         return true;

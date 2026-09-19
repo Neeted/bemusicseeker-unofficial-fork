@@ -34,7 +34,7 @@ internal sealed partial class LibraryMutationOwner
             return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
 
-        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        var totalStopwatch = Stopwatch.StartNew();
         LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + sourceDirectory + " dst=" + destinationDirectory);
         List<Action> postLeaseNotifications = [];
         LibraryMutationSessionReceipt sessionReceipt = LibraryMutationSessionReceipt.Empty;
@@ -231,14 +231,14 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
 
-            PackageChartEntry entry = PackageChartEntry.FromChart(detachedChart);
+            var entry = PackageChartEntry.FromChart(detachedChart);
             if (entry != null)
             {
                 entries.Add(entry);
             }
         }
 
-        ChartPackage package = ChartPackage.FromChartEntries(entries);
+        var package = ChartPackage.FromChartEntries(entries);
         package.path = LongPathFileSystem.NormalizePathForStorage(sourceDirectory);
         package.delete_parent = false;
         return new DetachedMergePackage(

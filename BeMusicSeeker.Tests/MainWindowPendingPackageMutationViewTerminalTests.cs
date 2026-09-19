@@ -1,8 +1,8 @@
 using System;
 using System.IO;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -89,7 +89,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
                 navigationCount++;
                 return Task.FromResult(true);
             });
-        PendingPackageMutationResult result = PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending);
+        var result = PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending);
 
         await terminal.ApplyAsync(
             result,
@@ -269,7 +269,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
     public async Task ReceiptReportIsOnceAndDoesNotDependOnNavigation(bool finalizationFailed, bool reporterThrows)
     {
         var cleanup = new IOException("pending-cleanup-marker");
-        var primary = finalizationFailed ? new IOException("pending-finalizer-marker") : null;
+        IOException? primary = finalizationFailed ? new IOException("pending-finalizer-marker") : null;
         var sessionReceipt = new LibraryMutationSessionReceipt(
             [new LibraryMutationSessionTarget(@"C:\pending-source", @"D:\installed")],
             durableCommit: true,

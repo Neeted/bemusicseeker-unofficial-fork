@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Properties;
+using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models;
 

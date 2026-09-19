@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -62,7 +63,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             is_backbmp_existing = true,
             is_files_warning_ignored = true
         };
-        ResourceHealthMaintenanceSnapshot snapshot = ResourceHealthMaintenanceSnapshot.From(info);
+        var snapshot = ResourceHealthMaintenanceSnapshot.From(info);
 
         IReadOnlyList<ChartWarning> mutableWarnings =
             BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
@@ -224,7 +225,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult first =
                 BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache: null, forceUpdate: true);
@@ -254,7 +255,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             _ = BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache: null, forceUpdate: true);
             file.maintenanceInfo.is_files_warning_ignored = true;
 
@@ -284,7 +285,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
             File.WriteAllText(Path.Combine(tempDirectoryPath, "hit.wav"), string.Empty);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             file.ReplaceResourceReferences(
                 stagefile: null,
                 banner: null,
@@ -922,7 +923,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             // 所持 collection だけを通常の hash 読取りで温め、resource health は cold のままにする。
             _ = library.GetOwnedChartHashIndexSnapshot();
 
-            var storageWriteGate = RegularChartListOwnerTestSupport.GetCatalogStorageRowsWriteGate(library);
+            ReaderWriterLockSlimWrapper storageWriteGate = RegularChartListOwnerTestSupport.GetCatalogStorageRowsWriteGate(library);
             List<ChartFile>? result = null;
             Task worker = null!;
             try
@@ -1072,8 +1073,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 secondPath,
                 "#PLAYER 1\r\n#TITLE target second\r\n#WAV01 second.wav\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            BMSFile first = BMSFile.CreateBMSFileFromFile(firstPath);
-            BMSFile second = BMSFile.CreateBMSFileFromFile(secondPath);
+            var first = BMSFile.CreateBMSFileFromFile(firstPath);
+            var second = BMSFile.CreateBMSFileFromFile(secondPath);
             first.SetMaintenanceInfo(new BMSFileMaintenanceInfo(first)
             {
                 hash = first.hash,
@@ -1473,7 +1474,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 chartPath,
                 "#PLAYER 1\r\n#TITLE warning before\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
             string oldMd5 = file.hash;
             File.WriteAllText(
                 chartPath,
@@ -1711,7 +1712,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bgaFilesExisting: 1,
             isIgnored: true);
 
-        ResourceHealthIndexSnapshot initial = ResourceHealthIndexSnapshot.Build(
+        var initial = ResourceHealthIndexSnapshot.Build(
             [activeA, activeUnchanged, activeB, activeC, ignoredA, ignoredUnchanged, ignoredB],
             service,
             version: 10);
@@ -1829,7 +1830,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     index.ToString("x8") + new string('f', 24)));
             }
 
-            ResourceHealthIndexSnapshot initial = ResourceHealthIndexSnapshot.Build(targets, service, version: 20);
+            var initial = ResourceHealthIndexSnapshot.Build(targets, service, version: 20);
             List<string> storeWork = [];
             initial.StoreWorkObserver = operation => storeWork.Add(operation);
             ChartFile updatedHealthy = CreateResourceHealthChart(
@@ -1896,7 +1897,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         ChartFile coldHealthy = CreateResourceHealthChart(
             @"C:\Library\cold-healthy.bms",
             new string('e', 32));
-        ResourceHealthIndexSnapshot cold = ResourceHealthIndexSnapshot.Build(
+        var cold = ResourceHealthIndexSnapshot.Build(
             [coldActive, coldIgnored, coldHealthy],
             service,
             version: 22);
@@ -1938,7 +1939,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }, suppressPropertyChanged: true);
         ChartFile upperInitialChart = ChartFileProjection.FromBmsFile(upperInitial);
         ChartFile lowerInitialChart = ChartFileProjection.FromBmsFile(lowerInitial);
-        ResourceHealthIndexSnapshot initial = ResourceHealthIndexSnapshot.Build(
+        var initial = ResourceHealthIndexSnapshot.Build(
             [upperInitialChart, lowerInitialChart],
             service,
             version: 1);
@@ -2151,7 +2152,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void CreateBmsonMaintenanceInfo_SetsHashAndPath()
     {
         LR2SongDBExtended.bmson_song bmsonRow = CreateBmsonSong("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSFileMaintenanceInfo info = BMSFileMaintenanceInfo.CreateForBmson(bmsonRow.path, bmsonRow.md5);
+        var info = BMSFileMaintenanceInfo.CreateForBmson(bmsonRow.path, bmsonRow.md5);
 
         Assert.AreEqual(bmsonRow.md5, info.hash);
         Assert.AreEqual(bmsonRow.path, info.path);
@@ -2610,7 +2611,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.ASCII);
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> noOpWriter = _ => CatalogMaintenanceWriteReceipt.NotApplied;
             file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
             {

@@ -134,7 +134,7 @@ internal sealed class OwnedChartHashIndexRoot
     private static ImmutableDictionary<string, int> CreateCounts(
         IReadOnlyDictionary<string, int> capturedCounts)
     {
-        ImmutableDictionary<string, int>.Builder builder = EmptyCounts.ToBuilder();
+        var builder = EmptyCounts.ToBuilder();
         foreach (KeyValuePair<string, int> item in capturedCounts ?? new Dictionary<string, int>())
         {
             if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > 0)

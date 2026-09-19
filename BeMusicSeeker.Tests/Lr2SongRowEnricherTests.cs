@@ -24,7 +24,7 @@ public sealed class Lr2SongRowEnricherTests
             var timestamp = new DateTime(2026, 6, 1, 2, 3, 4, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(chartPath, timestamp);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             var existing = new TestableBmsFile
             {
                 adddate = 12345,
@@ -67,7 +67,7 @@ public sealed class Lr2SongRowEnricherTests
                 "#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             BMSFile parsed = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
                 snapshot,
@@ -194,7 +194,7 @@ public sealed class Lr2SongRowEnricherTests
         {
             File.WriteAllText(chartPath, chartText, Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             Assert.AreEqual(expectedMode, parsed.mode);
         }
@@ -217,7 +217,7 @@ public sealed class Lr2SongRowEnricherTests
         {
             File.WriteAllText(chartPath, "#RANK 3\r\n#CUSTOMFOLDER\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             Assert.AreEqual(2, parsed.judge);
         }
@@ -308,7 +308,7 @@ public sealed class Lr2SongRowEnricherTests
         };
 
         Lr2SongRowEnricher.EnrichFromChartInfo(newChartSong, chartInfo);
-        Lr2ChartInfoSongProjection projection =
+        var projection =
             Lr2ChartInfoSongProjection.Create(existingSong.path, existingSong.hash, chartInfo);
         Assert.IsTrue(projection.ApplyTo(existingSong));
 

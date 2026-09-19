@@ -1,5 +1,5 @@
-using BeMusicSeeker.Models;
 using System;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

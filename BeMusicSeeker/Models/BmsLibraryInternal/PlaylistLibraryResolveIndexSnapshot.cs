@@ -55,7 +55,7 @@ internal sealed class PlaylistLibraryResolveChartFact
         LibraryChartRef chart,
         OwnedChartCanonicalOrderKey canonicalOrder)
     {
-        LibraryChartRef immutableChart = LibraryChartRef.FromImmutableSnapshot(chart);
+        var immutableChart = LibraryChartRef.FromImmutableSnapshot(chart);
         if (immutableChart == null
             || string.IsNullOrWhiteSpace(immutableChart.Path)
             || string.IsNullOrWhiteSpace(immutableChart.Md5))
@@ -246,7 +246,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             AddMutableBucket(sha256Buckets, candidate.Sha256, candidate);
         }
 
-        ImmutableDictionary<string, PlaylistLibraryResolveChartFact> membership =
+        var membership =
             ImmutableDictionary.CreateRange(StringComparer.Ordinal, candidates);
         ImmutableDictionary<string, ImmutableArray<PlaylistLibraryResolveChartFact>> immutableMd5Buckets =
             CreateImmutableBuckets(md5Buckets);
@@ -460,7 +460,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// <returns>一致したchart。見つからない場合はnull。</returns>
     internal LibraryChartRef ResolveChartForPlaylistEntry(BMSTableEntry entry)
     {
-        PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
+        var lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
         return ResolveChartForPlaylistLookupKey(lookupKey);
     }
 

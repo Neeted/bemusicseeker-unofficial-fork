@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -68,7 +68,7 @@ public sealed class Net10PerformanceCorpusContractTests
     {
         var events = new ConcurrentQueue<Net10PerformanceEvent>();
         var writer = new Net10PerformanceBatchWriter(8, 4, events.Enqueue);
-        PerformanceInteraction interaction = PerformanceInteraction.Existing(
+        var interaction = PerformanceInteraction.Existing(
             "playlist_summary",
             interactionId: 19,
             generation: 23);
@@ -108,7 +108,7 @@ public sealed class Net10PerformanceCorpusContractTests
                 }
                 events.Enqueue(performanceEvent);
             });
-        PerformanceInteraction interaction = PerformanceInteraction.Existing(
+        var interaction = PerformanceInteraction.Existing(
             "normal_library",
             interactionId: 42,
             generation: 7);
@@ -188,7 +188,7 @@ public sealed class Net10PerformanceCorpusContractTests
     [TestMethod]
     public void InteractionRouteTransition_PreservesCorrelationIdentity()
     {
-        PerformanceInteraction startup = PerformanceInteraction.Existing(
+        var startup = PerformanceInteraction.Existing(
             "startup",
             interactionId: 31,
             generation: 4);

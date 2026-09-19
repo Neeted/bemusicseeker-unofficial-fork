@@ -35,8 +35,8 @@ public sealed class MainWindowPlaybackWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                using var visualHost = CreateVisualHost(window, "MainWindowPlaybackWpfTests");
-                PlaybackPanelView panel = (PlaybackPanelView)window.FindName("playbackPanelView");
+                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlaybackWpfTests");
+                var panel = (PlaybackPanelView)window.FindName("playbackPanelView");
                 Assert.IsNotNull(panel);
                 Assert.AreSame(viewModel.PlaybackPanel, panel.DataContext);
 
@@ -47,8 +47,8 @@ public sealed class MainWindowPlaybackWpfTests
                 Assert.AreEqual(2, seekButtons.Count);
                 Assert.IsTrue(seekButtons.All(button => button.IsEnabled == viewModel.PlaybackPanel.CanSeek));
 
-                var row = new object();
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                object row = new object();
+                var table = (CustomTableView)window.FindName("customTableView");
                 table.ItemsSource = new List<object> { new object(), row };
                 table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
 

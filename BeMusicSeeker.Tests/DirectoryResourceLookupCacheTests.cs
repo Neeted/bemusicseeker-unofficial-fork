@@ -44,7 +44,7 @@ public sealed class DirectoryResourceLookupCacheTests
                 }
         };
 
-        DirectoryResourceLookupCache cache = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
+        var cache = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
         DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(directory);
 
         CollectionAssert.AreEqual(new uint[] { 10u, 20u, 30u }, entry.AudioRelativePathHashArray);
@@ -75,7 +75,7 @@ public sealed class DirectoryResourceLookupCacheTests
                 }
         };
 
-        DirectoryResourceLookupCache trustedCache = DirectoryResourceLookupCache.CreateFromScanResult(trustedScanResult);
+        var trustedCache = DirectoryResourceLookupCache.CreateFromScanResult(trustedScanResult);
         DirectoryResourceLookupCache.Entry trustedEntry = trustedCache.GetEntryOrNull(trustedDirectory);
 
         CollectionAssert.AreEqual(trustedHashes, trustedEntry.AudioRelativePathHashArray);
@@ -490,7 +490,7 @@ public sealed class DirectoryResourceLookupCacheTests
     public void SelfOwnedOnlyChange_PreservesEntryChangeWithoutRewritingIdenticalCandidates()
     {
         const string directory = @"C:\Songs\Only";
-        DirectoryResourceLookupCache original = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+        var original = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
             [directory], [[11u]], [[22u]], [[33u]], [[11u]], [[22u]], [[33u]],
             new Dictionary<uint, string[]> { [11u] = [directory] },
             new Dictionary<uint, string[]> { [22u] = [directory] },
@@ -520,7 +520,7 @@ public sealed class DirectoryResourceLookupCacheTests
     {
         const string first = @"C:\Songs\First";
         const string second = @"C:\Songs\Second";
-        DirectoryResourceLookupCache original = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+        var original = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
             [first, second], [[11u], [11u]], [[22u], [22u]], [[33u], [33u]],
             [[11u], [11u]], [[22u], [22u]], [[33u], [33u]],
             new Dictionary<uint, string[]> { [11u] = [first, second] },
@@ -634,7 +634,7 @@ public sealed class DirectoryResourceLookupCacheTests
         {
             retained.Add((cache, new Dictionary<string, uint[][]>(facts, StringComparer.OrdinalIgnoreCase)));
             // Oracle membership is a direct relation in fixture facts, not the incremental algorithm.
-            foreach (var generation in retained)
+            foreach ((DirectoryResourceLookupCache Cache, Dictionary<string, uint[][]> Facts) generation in retained)
             {
                 CollectionAssert.AreEquivalent(generation.Facts.Keys.ToArray(), generation.Cache.Keys.ToArray());
                 foreach (uint hash in new uint[] { 0u, 1u, 2u, 3u, 10u, 11u, 20u, 21u, 99u })

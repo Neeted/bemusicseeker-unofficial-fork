@@ -11,8 +11,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Win32;
 
 namespace BeMusicSeeker.Tests;
 
@@ -49,7 +49,7 @@ public sealed class UpdaterPackageSyncTests
                 string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
                 string journalJson = File.ReadAllText(journalPath);
                 Assert.IsFalse(journalJson.Contains('\n'), "The durable journal must remain compact JSON.");
-                using JsonDocument journalDocument = JsonDocument.Parse(journalJson);
+                using var journalDocument = JsonDocument.Parse(journalJson);
                 JsonElement journal = journalDocument.RootElement;
                 CollectionAssert.AreEqual(
                     new[]
@@ -1370,7 +1370,7 @@ public sealed class UpdaterPackageSyncTests
         // The published updater is NativeAOT. Use its managed build for this
         // in-process failure boundary; the remaining process tests use the
         // selected published executable. No CLI flag or global hook is added.
-        Assembly assembly = Assembly.LoadFrom(FindBuiltUpdaterFile("BeMusicSeeker.Updater.dll"));
+        var assembly = Assembly.LoadFrom(FindBuiltUpdaterFile("BeMusicSeeker.Updater.dll"));
         Type program = assembly.GetType("BeMusicSeeker.Updater.Program", throwOnError: true)!;
         Type requestType = program.GetNestedType("UpdateRequest", BindingFlags.NonPublic)!;
         string restartPath = Path.Combine(appDirectoryPath, "restart.exe");

@@ -628,7 +628,7 @@ internal sealed class CatalogChartInfoOwner
                         includeScoreSnapshot: false);
                 }
             }
-            var snapshotCount = chartSnapshot.Count;
+            int snapshotCount = chartSnapshot.Count;
             bool completedLatestRequest = false;
             Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null;
             ChartInfoBackfillResult result = null;
@@ -1764,7 +1764,7 @@ internal sealed class CatalogChartInfoOwner
 
         if (parseFailureChanged)
         {
-            CatalogChartInfoOwnerEvent warningEvent = CatalogChartInfoOwnerEvent.Warning(
+            var warningEvent = CatalogChartInfoOwnerEvent.Warning(
                 reason + "_parse_failure");
             if (deferPublication == null)
             {

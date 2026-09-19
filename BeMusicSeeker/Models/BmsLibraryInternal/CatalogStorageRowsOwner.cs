@@ -520,7 +520,7 @@ internal sealed class CatalogStorageRowsOwner
             ReplaceBmsonEntry(current, replacement);
             return;
         }
-        var added = CreateEntry(song, path, path);
+        CatalogStorageSequenceEntry<LR2SongDBExtended.bmson_song> added = CreateEntry(song, path, path);
         int insertionIndex = bmsonSequence.FindInsertionIndex(added);
         bmsonSequence = bmsonSequence.InsertAt(insertionIndex, added);
         AddBmsonLookup(added);

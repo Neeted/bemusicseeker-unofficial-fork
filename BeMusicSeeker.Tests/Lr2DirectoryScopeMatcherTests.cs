@@ -12,7 +12,7 @@ public sealed class Lr2DirectoryScopeMatcherTests
     {
         string root = Path.Combine(Path.GetTempPath(), "BMS");
         string scopeDirectory = Path.Combine(root, "Output");
-        Lr2DirectoryScopeMatcher matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
+        var matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
 
         Assert.IsTrue(matcher.ContainsDirectory(scopeDirectory));
         Assert.IsTrue(matcher.ContainsDirectory(Path.Combine(scopeDirectory, "Playlist")));
@@ -24,7 +24,7 @@ public sealed class Lr2DirectoryScopeMatcherTests
     {
         string root = Path.Combine(Path.GetTempPath(), "BMS");
         string scopeDirectory = Path.Combine(root, "Output");
-        Lr2DirectoryScopeMatcher matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
+        var matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
 
         Assert.IsTrue(matcher.ContainsFilePath(Path.Combine(scopeDirectory, "Playlist", "item.lr2folder")));
         Assert.IsFalse(matcher.ContainsFilePath(Path.Combine(root, "OutputOther", "item.lr2folder")));
@@ -35,7 +35,7 @@ public sealed class Lr2DirectoryScopeMatcherTests
     {
         string root = Lr2FolderPath.NormalizeDirectoryPath(Path.Combine(Path.GetTempPath(), "BMS"));
         string scopeDirectory = Lr2FolderPath.NormalizeDirectoryPath(Path.Combine(root, "Output"));
-        Lr2DirectoryScopeMatcher matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
+        var matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
 
         Assert.IsTrue(matcher.ContainsNormalizedFilePath(Path.Combine(scopeDirectory, "Playlist", "item.lr2folder")));
         Assert.IsFalse(matcher.ContainsNormalizedFilePath(Path.Combine(root, "OutputOther", "item.lr2folder")));
@@ -46,7 +46,7 @@ public sealed class Lr2DirectoryScopeMatcherTests
     {
         string root = Path.GetPathRoot(Path.GetTempPath())!;
         Assert.IsFalse(string.IsNullOrWhiteSpace(root));
-        Lr2DirectoryScopeMatcher matcher = Lr2DirectoryScopeMatcher.Create([root]);
+        var matcher = Lr2DirectoryScopeMatcher.Create([root]);
 
         Assert.IsTrue(matcher.ContainsDirectory(Path.Combine(root, "BMS")));
     }

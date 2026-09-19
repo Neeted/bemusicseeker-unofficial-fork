@@ -4,8 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -742,7 +742,7 @@ internal sealed class CatalogMutationOwner
             return 0;
         }
 
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         foreach (BmsSongPathReplacement replacement in request.BmsPathReplacements)
         {
             ApplyBmsFilePathInMemory(replacement);

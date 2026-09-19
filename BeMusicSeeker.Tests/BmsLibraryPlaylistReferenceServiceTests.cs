@@ -92,7 +92,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        LibraryChartRef chart = LibraryChartRef.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var chart = LibraryChartRef.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Library\chart.bmson",
             md5 = md5,
@@ -114,7 +114,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Pending\chart.bmson",
             md5 = md5,
@@ -137,7 +137,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
         TestableBmsFile file = CreateFile(md5);
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
@@ -152,13 +152,13 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Pending\chart.bmson",
             md5 = md5,
             sha256 = new string('a', 64)
         };
-        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
@@ -193,7 +193,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         BMSTable table = CreateTable(CreateEntry(md5, sha256));
         table.symbol = "ID";
         table.name = "Identity";
-        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromSnapshots(
+        var index = PlaylistReferenceIndex.FromSnapshots(
             [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
@@ -201,7 +201,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             md5 = md5,
             sha256 = sha256
         });
-        LibraryChartRef chartRef = LibraryChartRef.FromChartFile(chart);
+        var chartRef = LibraryChartRef.FromChartFile(chart);
 
         Assert.AreEqual(1, index.Md5Count);
         Assert.AreEqual(0, index.Sha256Count);
@@ -307,7 +307,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         table.symbol = "DUP";
         table.name = "Duplicate";
 
-        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromSnapshots(
+        var index = PlaylistReferenceIndex.FromSnapshots(
             [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         PlaylistReferenceDisplay display = index.Find(md5, null);
 

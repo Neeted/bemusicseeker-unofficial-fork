@@ -905,7 +905,7 @@ public sealed class BassAudioSessionTests
             CoreInitialized = true,
             CoreDeviceIndex = 2
         };
-        var owner = new object();
+        object owner = new object();
         int confirmations = 0;
         session.TrackPlayerStream(91, owner, _ => confirmations++);
         var native = new RecordingNativeBoundary
@@ -929,7 +929,7 @@ public sealed class BassAudioSessionTests
     public void PlayerStreamCleanupFallback_RetainsOnlyUnownedHandle()
     {
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
-        var owner = new object();
+        object owner = new object();
         int notifications = 0;
 
         Assert.IsTrue(session.TryTrackPlayerStreamForCleanup(

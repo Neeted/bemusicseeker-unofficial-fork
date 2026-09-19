@@ -24,7 +24,7 @@ public sealed class PlaylistLampViewerSessionTests
     {
         var source = new FakeLampSource(ReadyRequest("playlist", 1, 1));
         var session = new PlaylistLampViewerSession("playlist", source);
-        var loadingPublished = NewCompletion<bool>();
+        TaskCompletionSource<bool> loadingPublished = NewCompletion<bool>();
         session.ResultChanged += (_, args) =>
         {
             if (args.Result.State == PlaylistLampViewerState.Loading)
@@ -80,7 +80,7 @@ public sealed class PlaylistLampViewerSessionTests
         executor.Complete(0, firstResult);
         await firstRefresh;
 
-        var acceptedSecond = NewCompletion<PlaylistLampAggregationResult>();
+        TaskCompletionSource<PlaylistLampAggregationResult> acceptedSecond = NewCompletion<PlaylistLampAggregationResult>();
         session.ResultChanged += (_, args) =>
         {
             if (args.Result.State == PlaylistLampViewerState.Ready
@@ -138,7 +138,7 @@ public sealed class PlaylistLampViewerSessionTests
         var executor = new GatedBuildExecutor();
         using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
         var acceptedReadyResults = new List<PlaylistLampAggregationResult>();
-        var acceptedSecond = NewCompletion<PlaylistLampAggregationResult>();
+        TaskCompletionSource<PlaylistLampAggregationResult> acceptedSecond = NewCompletion<PlaylistLampAggregationResult>();
         session.ResultChanged += (_, args) =>
         {
             if (args.Result.State == PlaylistLampViewerState.Ready)
@@ -262,7 +262,7 @@ public sealed class PlaylistLampViewerSessionTests
         Assert.AreEqual(2, source.AddCount);
         Assert.AreEqual(1, source.RemoveCount);
 
-        var acceptedB = NewCompletion<PlaylistLampAggregationResult>();
+        TaskCompletionSource<PlaylistLampAggregationResult> acceptedB = NewCompletion<PlaylistLampAggregationResult>();
         sessionB.ResultChanged += (_, args) =>
         {
             if (args.Result.State == PlaylistLampViewerState.Ready
@@ -310,7 +310,7 @@ public sealed class PlaylistLampViewerSessionTests
         var executor = new GatedBuildExecutor();
         using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
         var acceptedReadyResults = new List<PlaylistLampAggregationResult>();
-        var secondAccepted = NewCompletion<PlaylistLampAggregationResult>();
+        TaskCompletionSource<PlaylistLampAggregationResult> secondAccepted = NewCompletion<PlaylistLampAggregationResult>();
         session.ResultChanged += (_, args) =>
         {
             if (args.Result.State != PlaylistLampViewerState.Ready)
@@ -359,7 +359,7 @@ public sealed class PlaylistLampViewerSessionTests
 
     private static async Task WaitForReadyBuildAsync(PlaylistLampViewerSession session, int totalCount)
     {
-        var completion = NewCompletion<PlaylistLampAggregationResult>();
+        TaskCompletionSource<PlaylistLampAggregationResult> completion = NewCompletion<PlaylistLampAggregationResult>();
         EventHandler<PlaylistLampAggregationResultChangedEventArgs> handler = (_, args) =>
         {
             if (args.Result.State == PlaylistLampViewerState.Ready
@@ -523,7 +523,7 @@ public sealed class PlaylistLampViewerSessionTests
         private static PlaylistLampAggregationRequest CreateRequest(PlaylistLampViewerQuery query)
         {
             string hash = "query-chart";
-            var entries = new[]
+            PlaylistLampEntrySnapshot[] entries = new[]
             {
                 new PlaylistLampEntrySnapshot(
                     "folder",
@@ -582,7 +582,7 @@ public sealed class PlaylistLampViewerSessionTests
         {
             _ = aggregationService;
             _ = cancellationToken;
-            var completion = NewCompletion<PlaylistLampAggregationResult>();
+            TaskCompletionSource<PlaylistLampAggregationResult> completion = NewCompletion<PlaylistLampAggregationResult>();
             lock (stateGate)
             {
                 requests.Add(request);

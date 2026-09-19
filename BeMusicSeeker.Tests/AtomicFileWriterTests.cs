@@ -160,7 +160,7 @@ public sealed class AtomicFileWriterTests
                     _ => throw cleanupFailure));
 
             Assert.IsInstanceOfType(failure.InnerException, typeof(AggregateException));
-            AggregateException causes = (AggregateException)failure.InnerException;
+            var causes = (AggregateException)failure.InnerException;
             Assert.IsTrue(causes.InnerExceptions.Contains(publishFailure));
             Assert.IsTrue(causes.InnerExceptions.Contains(cleanupFailure));
             Assert.IsTrue(ContainsException(failure, publishFailure));

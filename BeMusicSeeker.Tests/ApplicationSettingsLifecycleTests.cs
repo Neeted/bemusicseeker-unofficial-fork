@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -201,12 +202,12 @@ public sealed class ApplicationSettingsLifecycleTests
         string directory = Path.Combine(Path.GetTempPath(), "BmsLifecycle-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string path = Path.Combine(directory, "user.config");
-        var previousCulture = Resources.Culture;
+        CultureInfo previousCulture = Resources.Culture;
         try
         {
             WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("PlayerPanelState", "12"));
             byte[] before = File.ReadAllBytes(path);
-            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
             var notices = new System.Collections.Generic.List<Exception>();
             var lifecycle = new ApplicationSettingsLifecycle(settingsStore: new FileSettingsStore(settings),
                 normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path),
@@ -245,12 +246,12 @@ public sealed class ApplicationSettingsLifecycleTests
         string directory = Path.Combine(Path.GetTempPath(), "BmsVersionSave-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string path = Path.Combine(directory, "user.config");
-        var previousCulture = Resources.Culture;
+        CultureInfo previousCulture = Resources.Culture;
         try
         {
             WriteConfig(path, ("AssemblyVersion", "1.0.0.0"), ("Lang", "en-US"));
             byte[] before = File.ReadAllBytes(path);
-            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
             var notices = new System.Collections.Generic.List<Exception>();
             var lifecycle = new ApplicationSettingsLifecycle(
                 settingsStore: new FileSettingsStore(settings),
@@ -266,7 +267,7 @@ public sealed class ApplicationSettingsLifecycleTests
 
             if (blockRead)
             {
-                var failure = Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(
+                PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(
                     ["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0)));
                 Assert.AreEqual("Read", failure.Operation);
                 Assert.AreEqual(path, failure.FilePath);
@@ -275,7 +276,7 @@ public sealed class ApplicationSettingsLifecycleTests
             }
             else
             {
-                var result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
+                ApplicationSettingsInitializationResult result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
                 Assert.IsFalse(result.FirstStartup);
                 Assert.AreEqual("en-US", result.Culture.Name);
                 Assert.AreEqual(1, notices.Count);
@@ -293,7 +294,7 @@ public sealed class ApplicationSettingsLifecycleTests
     [TestMethod]
     public void VersionSaveFailureWarnsAndContinuesWithLoadedSettings()
     {
-        var previousCulture = Resources.Culture;
+        CultureInfo previousCulture = Resources.Culture;
         try
         {
             var store = new FakeApplicationSettingsStore { AssemblyVersion = new SerializableVersion(1, 0, 0, 0), Language = "en-US", AppearanceTheme = AppThemeService.Light };
@@ -301,7 +302,7 @@ public sealed class ApplicationSettingsLifecycleTests
             Exception? warning = null;
             var lifecycle = new ApplicationSettingsLifecycle(settingsStore: store, normalizeSettings: () => { },
                 saveSettings: () => throw expected, warnSaveFailure: exception => warning = exception);
-            var result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
+            ApplicationSettingsInitializationResult result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
             Assert.AreSame(expected, warning);
             Assert.IsFalse(result.FirstStartup);
             Assert.AreEqual("en-US", result.Culture.Name);
@@ -319,38 +320,38 @@ public sealed class ApplicationSettingsLifecycleTests
         string legacyPath = Path.Combine(legacyRoot, "BeMusicSeeker.exe_Url_example", "1.0", "user.config");
         string path = Path.Combine(directory, "user.config");
         Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
-        var previousCulture = Resources.Culture;
+        CultureInfo previousCulture = Resources.Culture;
         try
         {
             WriteConfig(legacyPath, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"),
                 ("TableListURL", "https://example.invalid/legacy"), ("BMSInstallDir", "legacy-install"),
                 ("OperationModeLR2DB", "False"), ("BMSRootPath", "legacy-root"));
             // First prove that this exact physical legacy candidate is eligible through the real owner.
-            var normal = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
+            ApplicationSettingsLifecycle normal = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
             Assert.IsFalse(normal.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
             Assert.AreEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
 
             File.WriteAllText(path, "<configuration>");
             byte[] corrupt = File.ReadAllBytes(path);
             string? backup = null;
-            var failed = CreateFileLifecycle(path, legacyRoot, preserved =>
+            ApplicationSettingsLifecycle failed = CreateFileLifecycle(path, legacyRoot, preserved =>
             {
                 backup = preserved;
                 Directory.CreateDirectory(path);
             });
-            var failure = Assert.ThrowsException<PortableSettingsException>(() =>
+            PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
                 failed.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
             Assert.AreEqual("Create", failure.Operation);
             Assert.IsNotNull(backup);
             Directory.Delete(path);
 
-            var restarted = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail("Already quarantined."));
+            ApplicationSettingsLifecycle restarted = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail("Already quarantined."));
             Assert.IsTrue(restarted.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
             Assert.AreNotEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
             CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
 
             WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("BMSInstallDir", "current-install"));
-            var current = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
+            ApplicationSettingsLifecycle current = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
             Assert.IsFalse(current.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
             Assert.AreEqual("current-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
             CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
@@ -373,7 +374,7 @@ public sealed class ApplicationSettingsLifecycleTests
     private static void WriteConfig(string path, params (string Key, string Value)[] values)
     {
         var section = new XElement(PortableSettingsProvider.SettingsSectionName);
-        foreach (var value in values)
+        foreach ((string Key, string Value) value in values)
         {
             if (value.Key == "AssemblyVersion")
             {

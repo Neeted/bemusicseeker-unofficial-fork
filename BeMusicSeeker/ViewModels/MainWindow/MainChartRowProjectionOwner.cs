@@ -49,14 +49,14 @@ internal sealed class MainChartRowProjectionOwner
 
     internal LibraryChartRow CreateLibraryRow(BMSLibrary library, ChartFile chart)
     {
-        LibraryChartRow row = LibraryChartRow.FromChartFile(chart);
+        var row = LibraryChartRow.FromChartFile(chart);
         ConfigureLibraryRow(library, row);
         return row;
     }
 
     internal LibraryChartRow CreatePackageRow(BMSLibrary library, PackageChartEntry entry)
     {
-        LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
+        var row = LibraryChartRow.FromPackageChartEntry(entry);
         ConfigureLibraryRow(library, row);
         return row;
     }
@@ -127,14 +127,14 @@ internal sealed class MainChartRowProjectionOwner
         int expectedCount = source == null
             ? 0
             : source.BmsFiles.Count + (includeBmsonRows ? source.BmsonSongs.Count : 0);
-        var rows = expectedCount > 0 ? new List<ChartListSourceRow>(expectedCount) : [];
+        List<ChartListSourceRow> rows = expectedCount > 0 ? new List<ChartListSourceRow>(expectedCount) : [];
         foreach (BMSFile file in source?.BmsFiles ?? [])
         {
             if (file == null)
             {
                 continue;
             }
-            ChartListSourceRow row = ChartListSourceRow.FromBmsStorageOwner(
+            var row = ChartListSourceRow.FromBmsStorageOwner(
                 file,
                 candidate => ResolveResourceHealth(library, candidate),
                 candidate => ResolvePlaylistReferenceDisplay(library, candidate),
@@ -159,7 +159,7 @@ internal sealed class MainChartRowProjectionOwner
             {
                 continue;
             }
-            ChartListSourceRow row = ChartListSourceRow.FromBmsonStorageOwner(
+            var row = ChartListSourceRow.FromBmsonStorageOwner(
                 song,
                 candidate => ResolveResourceHealth(library, candidate),
                 candidate => ResolvePlaylistReferenceDisplay(library, candidate),
@@ -217,7 +217,7 @@ internal sealed class MainChartRowProjectionOwner
             {
                 continue;
             }
-            ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
+            var state = ChartFileTransientState.FromInstallDestinationState(
                 chart,
                 includeWarningSnapshot: true,
                 forceInstallDestinationProjection: forceInstallDestinationProjection,

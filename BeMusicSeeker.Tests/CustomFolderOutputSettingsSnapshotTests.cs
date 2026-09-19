@@ -30,7 +30,7 @@ public sealed class CustomFolderOutputSettingsSnapshotTests
             testSettings.PlaylistDefaultIgnoreFolderOutput = 23;
             testSettings.ShowRecommUpdatedMsg = true;
 
-            CustomFolderOutputSettingsSnapshot snapshot = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+            var snapshot = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.OperationModeLR2DB);
             Assert.AreEqual("lr2-root", snapshot.LR2RootPath);

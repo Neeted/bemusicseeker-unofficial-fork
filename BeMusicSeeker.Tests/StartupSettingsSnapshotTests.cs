@@ -45,7 +45,7 @@ public sealed class StartupSettingsSnapshotTests
             testSettings.BeatorajaPlayerId = "player-id";
             testSettings.BeatorajaScoreDbPath = "beatoraja-score.db";
 
-            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent(testSettings);
+            var snapshot = StartupSettingsSnapshot.CreateCurrent(testSettings);
 
             Assert.AreEqual(tableListUrl, snapshot.TableListURL);
             Assert.IsTrue(snapshot.IsLR2BackupEnabled);
@@ -91,7 +91,7 @@ public sealed class StartupSettingsSnapshotTests
             testSettings.StandaloneBmsRootPaths = tempDirectory;
             testSettings.BMSRootPath = null;
 
-            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent(testSettings);
+            var snapshot = StartupSettingsSnapshot.CreateCurrent(testSettings);
 
             Assert.IsTrue(snapshot.StandaloneBmsRootPaths.Contains(tempDirectory, StringComparer.OrdinalIgnoreCase));
         }

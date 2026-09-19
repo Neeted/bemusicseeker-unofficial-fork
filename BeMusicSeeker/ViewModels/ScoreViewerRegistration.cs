@@ -7,12 +7,12 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -444,7 +444,7 @@ internal sealed class AppScoreViewerRegistrationGateway : IScoreViewerRegistrati
         {
             DateParseHandling = DateParseHandling.None
         };
-        JToken token = JToken.ReadFrom(reader);
+        var token = JToken.ReadFrom(reader);
         if (reader.Read())
         {
             throw new JsonReaderException("JSON document contains trailing content.");
