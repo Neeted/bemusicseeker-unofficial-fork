@@ -12,10 +12,7 @@ namespace BeMusicSeeker.ViewModels;
 internal enum SelectedChartExternalActionKind
 {
     OpenExplorer,
-    OpenFile,
-    OpenLr2Ir,
-    OpenMocha,
-    OpenMinIr
+    OpenFile
 }
 
 /// <summary>
@@ -159,8 +156,6 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
             ?? ((directory, pattern) => LongPathFileSystem.EnumerateFiles(directory, pattern));
     }
 
-    internal bool HasConfiguredActions => true;
-
     internal bool CanQueryRelatedDocuments(ChartOperationTarget target)
     {
         return TryGetExistingChartPath(target, out _);
@@ -249,7 +244,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 : null;
         input = new RightClickActionResolutionInput(
             target.Chart.Md5,
-            GetRepositorySha256(target),
+            GetExternalActionSha256(target),
             localFilePath,
             target.Chart.Kind == ChartFileKind.Bmson
                 ? ExternalChartKind.BmsonOnly
@@ -374,27 +369,6 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         };
     }
 
-    internal string GetDisplayName(ResolvedRightClickWebAction action)
-    {
-        if (action == null)
-        {
-            return string.Empty;
-        }
-        if (!string.IsNullOrWhiteSpace(action.Name))
-        {
-            return action.Name;
-        }
-        return action.Id switch
-        {
-            RightClickActionSettingsDefaults.BmsIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_bms_ir,
-            RightClickActionSettingsDefaults.MochaId => BeMusicSeeker.Properties.Resources.RightClick_builtin_mocha,
-            RightClickActionSettingsDefaults.MinIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_minir,
-            RightClickActionSettingsDefaults.RianIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_rianir,
-            RightClickActionSettingsDefaults.StellaverseIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_stellaverse,
-            _ => action.Id
-        };
-    }
-
     internal bool CanExecute(ChartOperationTarget target, SelectedChartExternalActionKind action)
     {
         if (target?.Chart == null)
@@ -408,12 +382,6 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 return TryGetExistingPath(target, ChartOperationCapabilities.OpenFolder, out _);
             case SelectedChartExternalActionKind.OpenFile:
                 return TryGetExistingPath(target, ChartOperationCapabilities.OpenFile, out _);
-            case SelectedChartExternalActionKind.OpenLr2Ir:
-                return HasConfiguredWebAction(target, RightClickActionSettingsDefaults.BmsIrId);
-            case SelectedChartExternalActionKind.OpenMocha:
-                return HasConfiguredWebAction(target, RightClickActionSettingsDefaults.MochaId);
-            case SelectedChartExternalActionKind.OpenMinIr:
-                return HasConfiguredWebAction(target, RightClickActionSettingsDefaults.MinIrId);
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
         }
@@ -446,35 +414,8 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                     }
                 }
                 return;
-            case SelectedChartExternalActionKind.OpenLr2Ir:
-                ExecuteBuiltInWeb(target, RightClickActionSettingsDefaults.BmsIrId);
-                return;
-            case SelectedChartExternalActionKind.OpenMocha:
-                ExecuteBuiltInWeb(target, RightClickActionSettingsDefaults.MochaId);
-                return;
-            case SelectedChartExternalActionKind.OpenMinIr:
-                ExecuteBuiltInWeb(target, RightClickActionSettingsDefaults.MinIrId);
-                return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
-        }
-    }
-
-    private bool HasConfiguredWebAction(ChartOperationTarget target, string actionId)
-    {
-        if (!TryCreateResolutionInput(target, out RightClickActionResolutionInput input))
-        {
-            return false;
-        }
-        return ResolveConfiguredActions(input).WebActions.Any(
-            action => string.Equals(action.Id, actionId, StringComparison.Ordinal));
-    }
-
-    private void ExecuteBuiltInWeb(ChartOperationTarget target, string actionId)
-    {
-        if (TryCreateResolutionInput(target, out RightClickActionResolutionInput input))
-        {
-            ExecuteConfiguredAction(input, ConfiguredExternalActionKind.Web, actionId);
         }
     }
 
@@ -498,7 +439,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
             && fileExists(path);
     }
 
-    private static string GetRepositorySha256(ChartOperationTarget target)
+    private static string GetExternalActionSha256(ChartOperationTarget target)
     {
         return FirstNonEmpty(target.Chart.Sha256, target.Chart.ChartInfo?.sha256);
     }

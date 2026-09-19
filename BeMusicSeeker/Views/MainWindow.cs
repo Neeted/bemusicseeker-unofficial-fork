@@ -2885,18 +2885,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void MaterializeConfiguredExternalActions(
         ContextMenu contextMenu,
         RightClickActionResolution resolution,
-        MainWindowSelectedChartExternalActionsTerminal terminal,
         bool includePrograms,
         string programAnchorName,
         string webAnchorName,
         string programParentName)
     {
         RemoveGeneratedConfiguredActionItems(contextMenu);
-        if (!terminal.HasConfiguredActions)
-        {
-            return;
-        }
-
         resolution ??= new RightClickActionResolution([], []);
         int webIndex = FindContextMenuItemIndex(contextMenu, webAnchorName);
         if (webIndex < 0)
@@ -2908,7 +2902,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             MenuItem menuItem = CreateConfiguredExternalActionMenuItem(
                 ConfiguredExternalActionKind.Web,
                 action.Id,
-                terminal.GetDisplayName(action),
+                action.Name,
                 "configuredWebAction_" + SanitizeMenuName(action.Id));
             menuItem.Click += configuredExternalActionMenuItemClick;
             contextMenu.Items.Insert(webIndex++, menuItem);
@@ -6587,10 +6581,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         IReadOnlyList<ChartOperationTarget> selectedTargets = contextMenuState.SelectedTargets;
         bool hasBmsonSelection = contextMenuState.HasBmsonSelection;
         bool hasBmsSelection = contextMenuState.HasBmsSelection;
-        bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
         RightClickActionResolutionInput configuredTargetInput = null;
-        RightClickActionResolution configuredResolution = useConfiguredExternalActions
-            && selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
+        RightClickActionResolution configuredResolution = selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
                 rowTarget,
                 out configuredTargetInput)
                     ? selectedChartContextMenuTerminals.SelectedChartExternalActions.ResolveConfiguredActions(configuredTargetInput)
@@ -6598,7 +6590,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MaterializeConfiguredExternalActions(
             contextMenu,
             configuredResolution,
-            selectedChartContextMenuTerminals.SelectedChartExternalActions,
             includePrograms: rowTarget?.IsPlaylistMissing != true,
             programAnchorName: "tableContextMenuItemOpenBMSFile",
             webAnchorName: "tableContextMenuItemOpenURL",
@@ -6636,6 +6627,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MenuItem menuItemOpenDocument = null;
         MenuItem menuItem18 = null;
         MenuItem menuItemRenameInvalidExt = null;
+        Separator separatorExternalActions = null;
         Separator separator = null;
         MenuItem menuItem19 = null;
         Separator separator2 = null;
@@ -6721,6 +6713,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 case "tableContextMenuItemFixEncoding":
                     menuItem17 = item as MenuItem;
                     break;
+                case "tableContextMenuSeparatorExternalActions":
+                    separatorExternalActions = item as Separator;
+                    break;
                 case "tableContextMenuSeparatorForFolderview":
                     separator = item as Separator;
                     break;
@@ -6774,6 +6769,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 menuItemFindExternalPackage.Visibility = Visibility.Collapsed;
             }
+        }
+        if (separatorExternalActions != null)
+        {
+            bool hasExternalGroupItems = configuredResolution?.WebActions.Count > 0
+                || menuItem?.Visibility == Visibility.Visible
+                || menuItem2?.Visibility == Visibility.Visible
+                || menuItemFindExternalPackage?.Visibility == Visibility.Visible;
+            separatorExternalActions.Visibility = hasExternalGroupItems ? Visibility.Visible : Visibility.Collapsed;
         }
         if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null)
         {
@@ -7056,10 +7059,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
-        bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
         RightClickActionResolutionInput configuredTargetInput = null;
-        RightClickActionResolution configuredResolution = useConfiguredExternalActions
-            && selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
+        RightClickActionResolution configuredResolution = selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
                 rowTarget,
                 out configuredTargetInput)
                     ? selectedChartContextMenuTerminals.SelectedChartExternalActions.ResolveConfiguredActions(configuredTargetInput)
@@ -7067,7 +7068,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MaterializeConfiguredExternalActions(
             contextMenu,
             configuredResolution,
-            selectedChartContextMenuTerminals.SelectedChartExternalActions,
             includePrograms: false,
             programAnchorName: "tableContextMenuItemOpenBMSFile",
             webAnchorName: "tableContextMenuItemOpenURL",
@@ -7136,46 +7136,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         playHistoryDateSearchSnapshot = null;
         bool hasContextMenuState = TryGetPlayHistoryContextMenuState(row, out PlayHistoryContextMenuState state);
-        bool hasDateSearchSnapshot = viewModel.PlayHistory.TryCreateDateSearchSnapshot(
+        viewModel.PlayHistory.TryCreateDateSearchSnapshot(
             customTableView?.GetSelectedRowsSnapshot(),
             out playHistoryDateSearchSnapshot);
-        if (!hasContextMenuState && !hasDateSearchSnapshot)
-        {
-            // A test or host may reuse the resource instance after a prior open.  Reset
-            // the aggregate item before returning so stale visibility cannot advertise
-            // an unavailable action for the current selection.
-            ResetPlayHistoryDateSearchMenuItem(contextMenu);
-            return;
-        }
 
         CancelRelatedDocumentRequest();
         _lastOpenedContextMenu = contextMenu;
-        bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
         RightClickActionResolutionInput configuredInput = null;
-        if (useConfiguredExternalActions && hasContextMenuState)
+        if (hasContextMenuState)
         {
             viewModel.PlayHistory.TryCreateRightClickActionResolutionInput(
                 row,
                 LongPathFileSystem.FileExists,
                 out configuredInput);
         }
-        RightClickActionResolution configuredResolution = useConfiguredExternalActions && configuredInput != null
+        RightClickActionResolution configuredResolution = configuredInput != null
             ? selectedChartContextMenuTerminals.SelectedChartExternalActions.ResolveConfiguredActions(configuredInput)
             : null;
         MaterializeConfiguredExternalActions(
             contextMenu,
             configuredResolution,
-            selectedChartContextMenuTerminals.SelectedChartExternalActions,
             includePrograms: configuredInput?.LocalFilePath != null,
             programAnchorName: "playHistoryContextMenuItemOpenAssociated",
             webAnchorName: null,
             programParentName: "playHistoryContextMenuItemOpenProgramActions");
+        bool hasConfiguredWebActions = configuredResolution?.WebActions.Count > 0;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
             {
                 case "playHistoryContextMenuSeparatorLocal":
-                    item.Visibility = state?.HasExternalLinkItem == true && state.HasLocalChartItem ? Visibility.Visible : Visibility.Collapsed;
+                    item.Visibility = hasConfiguredWebActions && state?.HasLocalChartItem == true ? Visibility.Visible : Visibility.Collapsed;
                     break;
                 case "playHistoryContextMenuItemOpenAssociated":
                     item.Visibility = state?.CanOpenAssociated == true ? Visibility.Visible : Visibility.Collapsed;
@@ -7191,7 +7182,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "playHistoryContextMenuSeparatorHash":
                     item.Visibility = state != null
-                        && (state.HasExternalLinkItem || state.HasLocalChartItem)
+                        && (hasConfiguredWebActions || state.HasLocalChartItem)
                         && state.HasHashCopyItem
                         ? Visibility.Visible
                         : Visibility.Collapsed;

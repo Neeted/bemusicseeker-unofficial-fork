@@ -81,50 +81,10 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Execute_OpenLr2IrBuildsTrimmedMd5Url()
+    public void ResolveConfiguredActions_PlaylistStorageProjectionPreservesChartInfoSha256()
     {
-        var urls = new List<string>();
-        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(urlLauncher: urls.Add);
-        ChartOperationTarget target = CreateTarget(
-            @"C:\Songs\alpha.bms",
-            ChartOperationCapabilities.UseLr2Ir,
-            md5: "  ABCDEFABCDEFABCDEFABCDEFABCDEFAB  ");
-
-        owner.Execute(target, SelectedChartExternalActionKind.OpenLr2Ir);
-
-        CollectionAssert.AreEqual(
-            new[] { "https://bms-ir.org/new/song?songmd5=abcdefabcdefabcdefabcdefabcdefab&view=both" },
-            urls);
-    }
-
-    [TestMethod]
-    public void Execute_OpenRepositoriesUsesSha256AndChartInfoFallback()
-    {
-        var urls = new List<string>();
-        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(urlLauncher: urls.Add);
-        string chartInfoSha256 = new string('A', 64);
-        ChartOperationTarget target = CreateTarget(
-            @"C:\Songs\alpha.bms",
-            ChartOperationCapabilities.OpenRepositoryBySha256,
-            chartInfo: new LR2SongDBExtended.chart_info { sha256 = chartInfoSha256 });
-
-        owner.Execute(target, SelectedChartExternalActionKind.OpenMocha);
-        owner.Execute(target, SelectedChartExternalActionKind.OpenMinIr);
-
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "https://mocha-repository.info/song.php?sha256=" + chartInfoSha256.ToLowerInvariant(),
-                "https://www.gaftalk.com/minir/#/viewer/song/" + chartInfoSha256.ToLowerInvariant() + "/0"
-            },
-            urls);
-    }
-
-    [TestMethod]
-    public void Execute_PlaylistStorageProjectionPreservesChartInfoSha256()
-    {
-        var urls = new List<string>();
-        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(urlLauncher: urls.Add);
+        Settings settings = new() { RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson };
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(settingsProvider: () => settings);
         string chartInfoSha256 = new string('c', 64);
         var chartInfo = new LR2SongDBExtended.chart_info { sha256 = chartInfoSha256 };
         var storageOwner = new TestableBmsFile();
@@ -153,30 +113,32 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
             row,
             ChartOperationSourceScope.PlaylistOwned,
             out ChartOperationTarget target));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        Assert.AreEqual(chartInfoSha256, input.Sha256);
 
-        owner.Execute(target, SelectedChartExternalActionKind.OpenMocha);
-
-        CollectionAssert.AreEqual(
-            new[] { "https://mocha-repository.info/song.php?sha256=" + chartInfoSha256 },
-            urls);
+        RightClickActionResolution resolution = owner.ResolveConfiguredActions(input);
+        ResolvedRightClickWebAction kaleid = resolution.WebActions.Single(action =>
+            action.Id == "kaleid-ir");
+        Assert.AreEqual("https://kaleidir.com/charts/" + chartInfoSha256, kaleid.Url);
     }
 
     [TestMethod]
     public void Execute_UrlLauncherFailureReturnsTypedResult()
     {
+        Settings settings = new() { RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson };
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
-            urlLauncher: _ => throw new InvalidOperationException("browser failed"));
+            urlLauncher: _ => throw new InvalidOperationException("browser failed"),
+            settingsProvider: () => settings);
         ChartOperationTarget target = CreateTarget(
             @"C:\Songs\alpha.bms",
-            ChartOperationCapabilities.OpenRepositoryBySha256,
+            ChartOperationCapabilities.None,
             sha256: new string('b', 64));
 
         Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
         ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
             input,
             ConfiguredExternalActionKind.Web,
-            RightClickActionSettingsDefaults.MochaId);
+            "mocha");
 
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(ExternalConfiguredActionFailureKind.WebLaunchFailed, result.FailureKind);
@@ -275,7 +237,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
             input,
             ConfiguredExternalActionKind.Web,
-            RightClickActionSettingsDefaults.BmsIrId);
+            "bms-ir");
 
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(ExternalConfiguredActionFailureKind.InvalidSettings, result.FailureKind);
@@ -283,22 +245,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Execute_InvalidRepositoryHashDoesNotOpenUrl()
-    {
-        int launcherCalls = 0;
-        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(urlLauncher: _ => launcherCalls++);
-        ChartOperationTarget target = CreateTarget(
-            @"C:\Songs\alpha.bms",
-            ChartOperationCapabilities.OpenRepositoryBySha256,
-            sha256: "not-a-sha256");
-
-        owner.Execute(target, SelectedChartExternalActionKind.OpenMocha);
-
-        Assert.AreEqual(0, launcherCalls);
-    }
-
-    [TestMethod]
-    public void CanExecute_UsesExistingEligibilityWithoutInvokingLaunchers()
+    public void CanExecute_UsesExistingLocalEligibilityWithoutInvokingLaunchers()
     {
         int launchCalls = 0;
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
@@ -308,52 +255,31 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
                 launchCalls++;
                 return new ExplorerOpenResult();
             },
-            associatedFileLauncher: _ => launchCalls++,
-            urlLauncher: _ => launchCalls++);
+            associatedFileLauncher: _ => launchCalls++);
         ChartOperationTarget target = CreateTarget(
             @"C:\Songs\alpha.bms",
-            ChartOperationCapabilities.OpenFolder
-                | ChartOperationCapabilities.OpenFile
-                | ChartOperationCapabilities.UseLr2Ir
-                | ChartOperationCapabilities.OpenRepositoryBySha256,
-            md5: new string('a', 32),
-            sha256: new string('b', 64));
+            ChartOperationCapabilities.OpenFolder | ChartOperationCapabilities.OpenFile);
 
         Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenExplorer));
         Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenFile));
-        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenLr2Ir));
-        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenMocha));
-        Assert.IsTrue(owner.CanExecute(target, SelectedChartExternalActionKind.OpenMinIr));
         Assert.AreEqual(0, launchCalls);
     }
 
     [TestMethod]
-    public void CanExecute_RejectsMissingPathCapabilityAndMalformedIdentifiers()
+    public void CanExecute_RejectsMissingLocalPathCapability()
     {
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(fileExists: _ => false);
         ChartOperationTarget noCapability = CreateTarget(
             @"C:\Songs\alpha.bms",
-            ChartOperationCapabilities.None,
-            md5: new string('a', 32),
-            sha256: new string('b', 64));
-        ChartOperationTarget invalidMd5 = CreateTarget(
+            ChartOperationCapabilities.None);
+        ChartOperationTarget missingFile = CreateTarget(
             @"C:\Songs\beta.bms",
-            ChartOperationCapabilities.UseLr2Ir,
-            md5: "not-md5");
-        ChartOperationTarget invalidSha256 = CreateTarget(
-            @"C:\Songs\gamma.bms",
-            ChartOperationCapabilities.OpenRepositoryBySha256,
-            sha256: "not-sha256");
-        ChartOperationTarget fallbackSha256 = CreateTarget(
-            @"C:\Songs\delta.bms",
-            ChartOperationCapabilities.OpenRepositoryBySha256,
-            chartInfo: new LR2SongDBExtended.chart_info { sha256 = new string('c', 64) });
+            ChartOperationCapabilities.OpenFolder | ChartOperationCapabilities.OpenFile);
 
         Assert.IsFalse(owner.CanExecute(noCapability, SelectedChartExternalActionKind.OpenExplorer));
         Assert.IsFalse(owner.CanExecute(noCapability, SelectedChartExternalActionKind.OpenFile));
-        Assert.IsFalse(owner.CanExecute(invalidMd5, SelectedChartExternalActionKind.OpenLr2Ir));
-        Assert.IsFalse(owner.CanExecute(invalidSha256, SelectedChartExternalActionKind.OpenMocha));
-        Assert.IsTrue(owner.CanExecute(fallbackSha256, SelectedChartExternalActionKind.OpenMinIr));
+        Assert.IsFalse(owner.CanExecute(missingFile, SelectedChartExternalActionKind.OpenExplorer));
+        Assert.IsFalse(owner.CanExecute(missingFile, SelectedChartExternalActionKind.OpenFile));
     }
 
     [TestMethod]

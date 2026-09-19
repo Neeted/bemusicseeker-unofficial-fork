@@ -61,6 +61,20 @@
          TargetType="{x:Type TextBox}"
          BasedOn="{StaticResource App.Canonical.TextBoxStyle}" />
   <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource SettingsTextBoxStyle}" />
+  <Style x:Key="SettingsValidatedTextBoxStyle"
+         TargetType="{x:Type TextBox}"
+         BasedOn="{StaticResource SettingsTextBoxStyle}">
+    <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" />
+    <Setter Property="AutomationProperties.HelpText" Value="{Binding ValidationMessage, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" />
+    <Style.Triggers>
+      <DataTrigger Binding="{Binding ValidationStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" Value="Warning">
+        <Setter Property="BorderBrush" Value="{DynamicResource App.WarningTextBrush}" />
+      </DataTrigger>
+      <DataTrigger Binding="{Binding ValidationStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type settings:SettingsField}}}" Value="Error">
+        <Setter Property="BorderBrush" Value="{DynamicResource App.ErrorTextBrush}" />
+      </DataTrigger>
+    </Style.Triggers>
+  </Style>
 
   <Style x:Key="SettingsComboBoxStyle"
          TargetType="{x:Type ComboBox}"

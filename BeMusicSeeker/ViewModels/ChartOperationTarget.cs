@@ -22,7 +22,6 @@ internal enum ChartOperationCapabilities
     None = 0,
     OpenFile = 1 << 0,
     OpenFolder = 1 << 1,
-    OpenRepositoryBySha256 = 1 << 2,
     UseLr2Ir = 1 << 3,
     UseScoreViewer = 1 << 4,
     UpdateRanking = 1 << 5,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -163,7 +164,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 BMSInstallDir = Path.GetTempPath(),
                 ScanBmsFilesOnStartup = false,
                 SkipInitPlaylistLoad = true,
-                RightClickActionsJson = string.Empty
+                RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}"
             });
             var window = new SettingsWindow
             {
@@ -196,7 +197,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     }
 
     [TestMethod]
-    public void RightClickPageShowsBuiltInNameInEditorWithoutCreatingAnOverride()
+    public void RightClickPageMarksNewWebActionRequiredFieldsAsErrors()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
@@ -223,19 +224,21 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 Materialize(window);
 
-                var page = (RightClickSettingsPage)content.Content;
-                TextBox nameEditor = FindLogicalDescendants<TextBox>(page)
-                    .Single(textBox => string.Equals(
-                        GetBindingPath(textBox, TextBox.TextProperty),
-                        "RightClickActionSettingsEditor.SelectedWebAction.Name",
-                        StringComparison.Ordinal));
-                nameEditor.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+                owner.SettingDialog.RightClickActionSettingsEditor.AddWebAction();
+                Materialize(window);
 
-                RightClickWebActionEditorRow first = owner.SettingDialog.RightClickActionSettingsEditor.WebActions[0];
-                Assert.AreEqual(Resources.RightClick_builtin_bms_ir, nameEditor.Text);
-                Assert.AreEqual(Resources.RightClick_builtin_bms_ir, first.Name);
-                Assert.IsNull(first.NameOverride);
-                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+                var page = (RightClickSettingsPage)content.Content;
+                TextBox nameEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                    AutomationProperties.GetAutomationId(textBox) == "RightClickWebName");
+                TextBox urlEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                    AutomationProperties.GetAutomationId(textBox) == "RightClickWebUrl");
+
+                Assert.AreEqual(string.Empty, nameEditor.Text);
+                Assert.AreEqual("Error", AutomationProperties.GetItemStatus(nameEditor));
+                Assert.AreEqual(Resources.RightClick_name_required, AutomationProperties.GetHelpText(nameEditor));
+                Assert.AreEqual(string.Empty, urlEditor.Text);
+                Assert.AreEqual("Error", AutomationProperties.GetItemStatus(urlEditor));
+                Assert.AreEqual(Resources.RightClick_url_required, AutomationProperties.GetHelpText(urlEditor));
             }
             finally
             {
@@ -264,7 +267,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     ScanBmsFilesOnStartup = false,
                     SkipInitPlaylistLoad = true,
                     UseBeatorajaScoreDb = false,
-                    EnableBeatorajaBmtOutput = false
+                    EnableBeatorajaBmtOutput = false,
+                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
                 });
                 window = new SettingsWindow
                 {

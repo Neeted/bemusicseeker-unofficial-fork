@@ -11,4 +11,4 @@
 | [既存データ受入の固定入力](net10-existing-data/fixture-manifest.json) | 管理する固定入力と受入条件。 |
 | [公開旧版の配布物指定](v216-first-hop/artifact.json) | 旧版からの実移行に使用する版・サイズ・ハッシュ。 |
 
-現行の判定規則は[性能仕様](../spec/core/performance-and-scale.md)と[検証仕様](../spec/development/testing.md)、残る測定は[性能評価計画](../plan/library-mutation-performance-plan.md)を参照します。[開発資料の入口](../README.md)へ戻ります。
+現行の判定規則は[性能仕様](../spec/core/performance-and-scale.md)と[検証仕様](../spec/development/testing.md)を参照します。[開発資料の入口](../README.md)へ戻ります。

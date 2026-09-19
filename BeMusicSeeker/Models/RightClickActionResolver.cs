@@ -12,13 +12,13 @@ namespace BeMusicSeeker.Models;
 internal sealed class RightClickActionResolutionInput
 {
     /// <summary>
-    /// optional digest、local chart path、chart kind の immutable context を構築します。
+    /// optional digest、local chart path、判定できる場合だけ指定する chart kind の immutable context を構築します。
     /// </summary>
     internal RightClickActionResolutionInput(
         string md5,
         string sha256,
         string localFilePath,
-        ExternalChartKind chartKind)
+        ExternalChartKind? chartKind)
     {
         Md5 = md5;
         Sha256 = sha256;
@@ -42,9 +42,9 @@ internal sealed class RightClickActionResolutionInput
     internal string LocalFilePath { get; }
 
     /// <summary>
-    /// 解決対象 chart の種別を取得します。
+    /// 解決対象 chart の種別を取得します。null は BMS/bmson を確定できない入力を表します。
     /// </summary>
-    internal ExternalChartKind ChartKind { get; }
+    internal ExternalChartKind? ChartKind { get; }
 }
 
 /// <summary>
@@ -72,7 +72,7 @@ internal sealed class ResolvedRightClickWebAction
     internal string Id => Definition.Id;
 
     /// <summary>
-    /// 表示名 override を取得します。
+    /// 表示名を取得します。
     /// </summary>
     internal string Name => Definition.Name;
 
@@ -215,7 +215,7 @@ internal static class RightClickActionResolver
     /// <summary>
     /// action の chart kind が対象 chart に適用可能かを判定します。
     /// </summary>
-    internal static bool IsEligible(ExternalChartKind actionKind, ExternalChartKind chartKind)
+    internal static bool IsEligible(ExternalChartKind actionKind, ExternalChartKind? chartKind)
     {
         return actionKind == ExternalChartKind.All
             || actionKind == chartKind;

@@ -564,6 +564,96 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    public void PlayHistoryBmsonRowOffersConfiguredMd5WebAction()
+    {
+        const string actionName = "Bmson MD5";
+        Settings settings = new();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+            new RightClickActionSettings(
+                [new RightClickWebActionDefinition(
+                    "bmson-md5",
+                    actionName,
+                    "https://example.test/{md5}",
+                    enabled: true,
+                    ExternalChartKind.BmsonOnly)],
+                []));
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryBmsonMd5Action");
+                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow resolved = CreateResolvedBmsonPlayHistoryRow();
+                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                table.ItemsSource = new List<object> { resolved };
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
+
+                RaiseKey(table, Key.Apps);
+                TestUiDispatcherHost.Drain();
+
+                MenuItem webAction = FindMenuItem(playHistoryMenu, "configuredWebAction_bmson_md5");
+                Assert.AreEqual(actionName, webAction.Header);
+                Assert.AreEqual(Visibility.Visible, webAction.Visibility);
+            });
+    }
+
+    [TestMethod]
+    public void PlayHistoryUnresolvedBeatorajaRowOffersOnlyWebActionsForBothChartKinds()
+    {
+        const string allKindsName = "All kinds";
+        Settings settings = new();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+            new RightClickActionSettings(
+                [
+                    new RightClickWebActionDefinition(
+                        "bms-only",
+                        "BMS only",
+                        "https://example.test/bms/{sha256}",
+                        enabled: true,
+                        ExternalChartKind.BmsOnly),
+                    new RightClickWebActionDefinition(
+                        "bmson-only",
+                        "bmson only",
+                        "https://example.test/bmson/{sha256}",
+                        enabled: true,
+                        ExternalChartKind.BmsonOnly),
+                    new RightClickWebActionDefinition(
+                        "all-kinds",
+                        allKindsName,
+                        "https://example.test/all/{sha256}",
+                        enabled: true,
+                        ExternalChartKind.All)
+                ],
+                []));
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryUnresolvedBeatorajaWebAction");
+                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow unresolved = CreateUnresolvedBeatorajaPlayHistoryRow();
+                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                table.ItemsSource = new List<object> { unresolved };
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, unresolved));
+
+                RaiseKey(table, Key.Apps);
+                TestUiDispatcherHost.Drain();
+
+                Assert.IsFalse(playHistoryMenu.Items.OfType<MenuItem>().Any(item =>
+                    string.Equals(item.Name, "configuredWebAction_bms_only", StringComparison.Ordinal)));
+                Assert.IsFalse(playHistoryMenu.Items.OfType<MenuItem>().Any(item =>
+                    string.Equals(item.Name, "configuredWebAction_bmson_only", StringComparison.Ordinal)));
+                MenuItem allKinds = FindMenuItem(playHistoryMenu, "configuredWebAction_all_kinds");
+                Assert.AreEqual(allKindsName, allKinds.Header);
+                Assert.AreEqual(Visibility.Visible, allKinds.Visibility);
+            });
+    }
+
+    [TestMethod]
     public void PlayHistoryResolvedRowPlacesAssociatedOpenBeforeProgramActions()
     {
         Settings settings = new();
@@ -599,9 +689,18 @@ public sealed class MainWindowPlayHistoryWpfTests
                 MenuItem program = FindMenuItem(
                     playHistoryMenu,
                     "playHistoryContextMenuItemOpenProgramActions");
+                Control localSeparator = playHistoryMenu.Items.OfType<Control>().Single(item =>
+                    item.Name == "playHistoryContextMenuSeparatorLocal");
+                Control hashSeparator = playHistoryMenu.Items.OfType<Control>().Single(item =>
+                    item.Name == "playHistoryContextMenuSeparatorHash");
                 Assert.AreEqual(Visibility.Visible, associated.Visibility);
                 Assert.IsTrue(associated.IsEnabled);
                 Assert.AreEqual(Resources.Open_association, associated.Header);
+                Assert.AreEqual(
+                    Visibility.Collapsed,
+                    localSeparator.Visibility,
+                    "Web操作がない場合はWeb/ローカル間の区切り線を表示しないこと。");
+                Assert.AreEqual(Visibility.Visible, hashSeparator.Visibility);
                 Assert.AreEqual(
                     playHistoryMenu.Items.IndexOf(associated) + 1,
                     playHistoryMenu.Items.IndexOf(program));
@@ -736,6 +835,60 @@ public sealed class MainWindowPlayHistoryWpfTests
                 [],
                 Lr2PlayHistorySchemaStatus.Installed),
             projectionIndex);
+        return projected.Rows.Single();
+    }
+
+    private static PlayHistoryRow CreateResolvedBmsonPlayHistoryRow(long playedAt = 1000)
+    {
+        const string md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        string sha256 = new string('f', 64);
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\BMS\play-history-resolved.bmson",
+            title = "Resolved BMSON Play History",
+            artist = "Artist",
+            md5 = md5,
+            sha256 = sha256
+        };
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+            [LibraryChartRef.FromBmsonSong(song)]);
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(resolveIndex);
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(
+            new BeatorajaPlayHistoryReadResult(
+                PlayHistorySourceProfile.Beatoraja("score.db"),
+                [
+                    new BeatorajaPlayHistoryRecord
+                    {
+                        history_id = 3,
+                        sha256 = sha256,
+                        played_at = playedAt,
+                        playcount = 1
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            projectionIndex);
+        return projected.Rows.Single();
+    }
+
+    private static PlayHistoryRow CreateUnresolvedBeatorajaPlayHistoryRow(long playedAt = 1000)
+    {
+        string sha256 = new string('a', 64);
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(
+            new BeatorajaPlayHistoryReadResult(
+                PlayHistorySourceProfile.Beatoraja("score.db"),
+                [
+                    new BeatorajaPlayHistoryRecord
+                    {
+                        history_id = 4,
+                        sha256 = sha256,
+                        played_at = playedAt,
+                        playcount = 1
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            PlayHistoryProjectionIndex.Empty);
         return projected.Rows.Single();
     }
 

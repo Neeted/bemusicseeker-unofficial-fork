@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -24,12 +23,6 @@ public sealed partial class PlayHistoryWorkflowOwner
 
         switch (actionKind)
         {
-            case PlayHistoryContextMenuActionKind.OpenBmsIr:
-                return TryCreateConfiguredWebAction(state, RightClickActionSettingsDefaults.BmsIrId, out action);
-            case PlayHistoryContextMenuActionKind.OpenMocha:
-                return TryCreateConfiguredWebAction(state, RightClickActionSettingsDefaults.MochaId, out action);
-            case PlayHistoryContextMenuActionKind.OpenMinIr:
-                return TryCreateConfiguredWebAction(state, RightClickActionSettingsDefaults.MinIrId, out action);
             case PlayHistoryContextMenuActionKind.OpenAssociated:
                 if (!state.CanOpenAssociated)
                 {
@@ -100,27 +93,4 @@ public sealed partial class PlayHistoryWorkflowOwner
             && (target = state.CreateAssociatedOpenTarget()) != null;
     }
 
-    private bool TryCreateConfiguredWebAction(
-        PlayHistoryContextMenuState state,
-        string actionId,
-        out PlayHistoryContextMenuAction action)
-    {
-        action = null;
-        RightClickActionSettingsParseResult parsed = rightClickActionSettingsStore.Load();
-        if (!parsed.Succeeded)
-        {
-            return false;
-        }
-        RightClickActionResolution resolution = RightClickActionResolver.Resolve(
-            parsed.Settings,
-            state.CreateResolutionInput(_ => false));
-        ResolvedRightClickWebAction resolved = resolution.WebActions.FirstOrDefault(
-            candidate => string.Equals(candidate.Id, actionId, StringComparison.Ordinal));
-        if (resolved == null)
-        {
-            return false;
-        }
-        action = PlayHistoryContextMenuAction.ForUrl(resolved.Url);
-        return true;
-    }
 }

@@ -41,30 +41,6 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void ContextMenusRetireFixedExternalWebItems()
-    {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
-
-        foreach (string retiredName in new[]
-        {
-            "tableContextMenuItemOpenLR2IR",
-            "tableContextMenuItemOpenMocha",
-            "tableContextMenuItemOpenMinIR",
-            "playHistoryContextMenuItemOpenBMSIR",
-            "playHistoryContextMenuItemOpenMocha",
-            "playHistoryContextMenuItemOpenMinIR"
-        })
-        {
-            Assert.AreEqual(0, CountOccurrences(xaml, "Name=\"" + retiredName + "\""), retiredName);
-        }
-
-        StringAssert.Contains(xaml, "Name=\"tableContextMenuItemOpenBMSFile\"");
-        StringAssert.Contains(xaml, "Name=\"playHistoryContextMenuItemOpenExplorer\"");
-        StringAssert.Contains(xaml, "Name=\"playHistoryContextMenuItemOpenAssociated\"");
-        StringAssert.Contains(xaml, "Path=Resources.Open_association, Mode=OneWay");
-    }
-
-    [TestMethod]
     public void ConfiguredExternalActionFailureUsesTypedLocalizedMessage()
     {
         foreach ((ExternalConfiguredActionFailureKind kind, string expected) in new[]
@@ -127,19 +103,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryTree, "<HierarchicalDataTemplate DataType=\"{x:Type vm:PlayHistoryPeriodTreeItem}\" ItemsSource=\"{Binding Children}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\">");
         StringAssert.Contains(playHistoryTree, "<DataTemplate x:Key=\"templateTreeViewItemHeaderPlayHistoryPeriod\">");
         StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" HeaderTemplate=\"{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistory.ArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
-    }
-
-    [TestMethod]
-    public void PlayHistoryContextMenuOwnerRejectsMalformedExternalIdentifiersWithoutFallback()
-    {
-        PlayHistoryRow row = CreateResolvedPlayHistoryRow("not-a-md5");
-        PlayHistoryWorkflowOwner owner = new();
-
-        Assert.IsFalse(owner.TryCreateContextMenuAction(
-            row,
-            PlayHistoryContextMenuActionKind.OpenBmsIr,
-            out PlayHistoryContextMenuAction rejectedAction));
-        Assert.IsNull(rejectedAction);
     }
 
     [TestMethod]

@@ -176,18 +176,6 @@ internal static class GridRowResolver
     }
 
     /// <summary>
-    /// 行の LR2BMSID を取得します。
-    /// </summary>
-    internal static string GetLr2BmsId(object row)
-    {
-        return row switch
-        {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.lr2_bmsid,
-            _ => null
-        };
-    }
-
-    /// <summary>
     /// 行の差分名を取得します。
     /// </summary>
     internal static string GetNameDiff(object row)
@@ -266,10 +254,10 @@ internal static class GridRowResolver
     }
 
     /// <summary>
-    /// Mocha / MinIR など SHA256 ベースの外部 repository 連携に使うハッシュを取得します。
-    /// 表示用 row に materialize 済みの値を優先し、通常 BMS 行では chart_info の SHA256 も fallback にします。
+    /// 設定された外部 Web 操作へ渡す SHA256 を取得します。
+    /// 表示用 row に保持済みの値を優先し、通常 BMS 行では chart_info の SHA256 も補完に使います。
     /// </summary>
-    internal static string GetRepositorySha256(object row)
+    internal static string GetExternalActionSha256(object row)
     {
         string sha256 = row is PlayHistoryRow playHistoryRow
             ? playHistoryRow.ResolvedChart == null
@@ -320,10 +308,6 @@ internal static class GridRowResolver
         if (hasPath && !isPlaylistMissing)
         {
             capabilities |= ChartOperationCapabilities.OpenFile | ChartOperationCapabilities.OpenFolder;
-        }
-        if (IsValidSha256(chart.Sha256) || IsValidSha256(chart.ChartInfo?.sha256))
-        {
-            capabilities |= ChartOperationCapabilities.OpenRepositoryBySha256;
         }
         if (isPlaylistRow && (playlistEntry?.EffectiveUrl != null || playlistEntry?.EffectiveUrlDiff != null))
         {

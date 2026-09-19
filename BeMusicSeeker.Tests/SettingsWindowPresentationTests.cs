@@ -118,7 +118,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
             {
-                RightClickActionsJson = string.Empty,
+                RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}",
                 OperationModeLR2DB = false,
                 BMSRootPath = Path.GetTempPath(),
                 StandaloneBmsRootPaths = Path.GetTempPath(),
@@ -204,7 +204,7 @@ public sealed class SettingsWindowPresentationTests
                 PumpDispatcher(window.Dispatcher);
 
                 RightClickActionSettingsEditor editor = owner.SettingDialog.RightClickActionSettingsEditor;
-                Assert.AreEqual(5, editor.WebActions.Count);
+                Assert.AreEqual(6, editor.WebActions.Count);
                 Assert.AreEqual(0, editor.ProgramActions.Count);
                 Assert.IsTrue(editor.IsDirty);
                 Assert.IsFalse(editor.IsInvalidPersistedSettings);
@@ -3451,7 +3451,8 @@ public sealed class SettingsWindowPresentationTests
                 UsePlayeruBMplay = false,
                 UsePlayerLR2body = false,
                 UsePlayerBMIIDXView = false,
-                IsLR2BackupEnabled = false
+                IsLR2BackupEnabled = false,
+                RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
             };
             var session = new DangerSettingsEditSession(values, events);
             var initializeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

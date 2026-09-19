@@ -21,7 +21,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = new()
+    {
+        RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
+    };
     [TestMethod]
     public void HasPendingSettingChanges_UsesSnapshotDiffsAndReset()
     {
@@ -680,9 +683,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             bool isValid = dialog.CheckValidationBeforeSave(out string errMsg);
 
             Assert.IsFalse(isValid);
-            StringAssert.Contains(errMsg, "親子関係");
-            StringAssert.Contains(errMsg, parent);
-            StringAssert.Contains(errMsg, child);
+            string expectedDetail = string.Format(
+                Resources.Validation_NestedBmsSearchRootPathsFormat,
+                string.Format(Resources.Validation_NestedBmsSearchRootPathLineFormat, parent, child));
+            StringAssert.Contains(errMsg, expectedDetail);
         }
         finally
         {
@@ -741,8 +745,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             bool isValid = dialog.CheckValidationBeforeSave(out string errMsg);
 
             Assert.IsFalse(isValid);
-            StringAssert.Contains(errMsg, "登録済みBMSディレクトリ");
-            StringAssert.Contains(errMsg, "通常出力先");
+            string expectedDetail = string.Format(
+                Resources.Validation_OutputBaseNestedWithBmsRootFormat,
+                Resources.Label_NormalOutputBase,
+                normalOutputBase,
+                parent);
+            StringAssert.Contains(errMsg, expectedDetail);
         }
         finally
         {

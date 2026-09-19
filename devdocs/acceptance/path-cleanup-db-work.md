@@ -26,4 +26,4 @@ SQLiteの `trace_v2` から返却行とSQL完了を観測し、`FULLSCAN_STEP` �
 
 [`CatalogMutationOwnerTests`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership` と [`SqliteStatementObservation`](../../BeMusicSeeker.Tests/Helpers/SqliteStatementObservation.cs) が、実接続で結果・処理量を確認します。操作後の別接続で作った補助的な実行計画は、本番実行中や大規模入力の計画を証明しません。
 
-実ライブラリの全体時間や800万規模のリソース逆引きはこの入力の範囲外です。現行の契約は[パスの識別](../spec/core/path-identity.md)、実規模の測定は[性能計画](../plan/library-mutation-performance-plan.md)を参照します。
+実ライブラリの全体時間や800万規模のリソース逆引きはこの入力の範囲外です。現行の契約は[パスの識別](../spec/core/path-identity.md)を参照します。

@@ -379,9 +379,38 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     [TestMethod]
+    public void CompiledTableContextMenuHidesExternalSeparatorWithoutVisibleExternalActions()
+    {
+        LibraryChartRow row = CreateChartRow(
+            ChartFileKind.Bms,
+            "33333333333333333333333333333333",
+            @"C:\wave6e-external-separator\chart.bms");
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (viewModel, window) =>
+            {
+                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+
+                OpenContextMenu(menu);
+
+                Separator separator = menu.Items
+                    .OfType<Separator>()
+                    .Single(item => item.Name == "tableContextMenuSeparatorExternalActions");
+                Assert.AreEqual(Visibility.Collapsed, separator.Visibility);
+            },
+            selectedChartContextMenuTerminals: CreateTerminals());
+    }
+
+    [TestMethod]
     public void CompiledSelectedChartExternalActionsUseEligibilityAndExactRowTargets()
     {
-        var legacyCalls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
+        var localActionCalls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
         var configuredCalls = new List<(string Md5, ConfiguredExternalActionKind Kind, string Id)>();
         var createdTargets = new List<ChartOperationTarget>();
         bool eligible = true;
@@ -408,7 +437,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         MainWindowSelectedChartExternalActionsTerminal external = new(
             (_, action) => eligible
                 && (action is SelectedChartExternalActionKind.OpenExplorer or SelectedChartExternalActionKind.OpenFile),
-            (target, action) => legacyCalls.Add((target, action)),
+            (target, action) => localActionCalls.Add((target, action)),
             _ => false,
             (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
             _ => { },
@@ -432,8 +461,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 }
                 configuredCalls.Add((input.Md5, actionKind, actionId));
                 return ExternalConfiguredActionResult.Success;
-            },
-            getDisplayName: action => action.Name);
+            });
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, md5, chartPath);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -448,6 +476,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
                 OpenContextMenu(menu);
 
+                Separator externalActionsSeparator = menu.Items
+                    .OfType<Separator>()
+                    .Single(item => item.Name == "tableContextMenuSeparatorExternalActions");
+                Assert.AreEqual(Visibility.Visible, externalActionsSeparator.Visibility);
+
                 var expected = new[]
                 {
                     ("tableContextMenuItemOpenExplorer", SelectedChartExternalActionKind.OpenExplorer),
@@ -459,11 +492,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Assert.IsTrue(args.Handled);
                 }
 
-                Assert.AreEqual(expected.Length, legacyCalls.Count);
+                Assert.AreEqual(expected.Length, localActionCalls.Count);
                 for (int index = 0; index < expected.Length; index++)
                 {
-                    Assert.AreSame(row.Chart, legacyCalls[index].Target.Chart);
-                    Assert.AreEqual(expected[index].Item2, legacyCalls[index].Action);
+                    Assert.AreSame(row.Chart, localActionCalls[index].Target.Chart);
+                    Assert.AreEqual(expected[index].Item2, localActionCalls[index].Action);
                 }
 
                 foreach (string id in configuredIds)
@@ -514,7 +547,12 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 queryCompletions.Add(completion);
                 return completion.Task;
             },
-            path => openedPaths.Add(path));
+            path => openedPaths.Add(path),
+            _ => null,
+            _ => new RightClickActionResolution([], []),
+            (_, _, _) => ExternalConfiguredActionResult.Failure(
+                ExternalConfiguredActionFailureKind.ActionUnavailable,
+                string.Empty));
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "44444444444444444444444444444444", @"C:\wave6e-related\chart.bms");
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -630,7 +668,12 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 (_, _) => { },
                 _ => false,
                 (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
-                _ => { }));
+                _ => { },
+                _ => null,
+                _ => new RightClickActionResolution([], []),
+                (_, _, _) => ExternalConfiguredActionResult.Failure(
+                    ExternalConfiguredActionFailureKind.ActionUnavailable,
+                    string.Empty)));
     }
 
     private static TaskCompletionSource<T> NewCompletion<T>()

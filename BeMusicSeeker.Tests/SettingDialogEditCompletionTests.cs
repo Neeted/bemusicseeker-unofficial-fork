@@ -4715,7 +4715,8 @@ public sealed class SettingDialogEditCompletionTests
             UsePlayeruBMplay = false,
             UsePlayerLR2body = false,
             UsePlayerBMIIDXView = false,
-            IsLR2BackupEnabled = false
+            IsLR2BackupEnabled = false,
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
         };
         return settings;
     }

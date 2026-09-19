@@ -839,12 +839,6 @@ public class Resources
 
     public static string Open_install_destination => ResourceManager.GetString("Open_install_destination", resourceCulture);
 
-    public static string Open_lr2ir => ResourceManager.GetString("Open_lr2ir", resourceCulture);
-
-    public static string Open_minir => ResourceManager.GetString("Open_minir", resourceCulture);
-
-    public static string Open_mocha => ResourceManager.GetString("Open_mocha", resourceCulture);
-
     public static string Open_page => ResourceManager.GetString("Open_page", resourceCulture);
 
     public static string Open_Url => ResourceManager.GetString("Open_Url", resourceCulture);
@@ -2058,6 +2052,8 @@ public class Resources
     public static string RightClick_restore_defaults => ResourceManager.GetString("RightClick_restore_defaults", resourceCulture);
     public static string RightClick_name => ResourceManager.GetString("RightClick_name", resourceCulture);
     public static string RightClick_url => ResourceManager.GetString("RightClick_url", resourceCulture);
+    public static string RightClick_name_required => ResourceManager.GetString("RightClick_name_required", resourceCulture);
+    public static string RightClick_url_required => ResourceManager.GetString("RightClick_url_required", resourceCulture);
     public static string RightClick_chart_kind => ResourceManager.GetString("RightClick_chart_kind", resourceCulture);
     public static string RightClick_enabled => ResourceManager.GetString("RightClick_enabled", resourceCulture);
     public static string RightClick_chart_kind_bms => ResourceManager.GetString("RightClick_chart_kind_bms", resourceCulture);
@@ -2070,14 +2066,6 @@ public class Resources
     public static string RightClick_settings_invalid => ResourceManager.GetString("RightClick_settings_invalid", resourceCulture);
     public static string RightClick_settings_invalid_format => ResourceManager.GetString("RightClick_settings_invalid_format", resourceCulture);
     public static string RightClick_settings_validation_error_format => ResourceManager.GetString("RightClick_settings_validation_error_format", resourceCulture);
-    public static string RightClick_builtin_bms_ir => ResourceManager.GetString("RightClick_builtin_bms_ir", resourceCulture);
-    public static string RightClick_builtin_mocha => ResourceManager.GetString("RightClick_builtin_mocha", resourceCulture);
-    public static string RightClick_builtin_minir => ResourceManager.GetString("RightClick_builtin_minir", resourceCulture);
-    public static string RightClick_builtin_rianir => ResourceManager.GetString("RightClick_builtin_rianir", resourceCulture);
-    public static string RightClick_builtin_stellaverse => ResourceManager.GetString("RightClick_builtin_stellaverse", resourceCulture);
-
-    /// <summary>選択した項目を開けない場合の失敗を表示します。</summary>
-    public static string RightClick_external_launch_failed_format => ResourceManager.GetString("RightClick_external_launch_failed_format", resourceCulture);
 
     /// <summary>選択した項目が stale または利用不能であることを表示します。</summary>
     public static string RightClick_external_action_unavailable => ResourceManager.GetString("RightClick_external_action_unavailable", resourceCulture);

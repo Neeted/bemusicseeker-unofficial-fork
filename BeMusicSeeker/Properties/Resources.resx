@@ -692,15 +692,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Msg_error_unexpected" xml:space="preserve">
     <value>予期しないエラーが発生しました。</value>
   </data>
-  <data name="Open_lr2ir" xml:space="preserve">
-    <value>BMS-IRを開く</value>
-  </data>
-  <data name="Open_minir" xml:space="preserve">
-    <value>MinIRを開く</value>
-  </data>
-  <data name="Open_mocha" xml:space="preserve">
-    <value>Mochaを開く</value>
-  </data>
   <data name="Sampling_rate" xml:space="preserve">
     <value>サンプリングレート</value>
   </data>
@@ -3158,6 +3149,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="RightClick_restore_defaults" xml:space="preserve"><value>既定値へ戻す</value></data>
   <data name="RightClick_name" xml:space="preserve"><value>名前</value></data>
   <data name="RightClick_url" xml:space="preserve"><value>URLテンプレート</value></data>
+  <data name="RightClick_name_required" xml:space="preserve"><value>名前を入力してください。</value></data>
+  <data name="RightClick_url_required" xml:space="preserve"><value>URLテンプレートを入力してください。</value></data>
   <data name="RightClick_chart_kind" xml:space="preserve"><value>対象の譜面種別</value></data>
   <data name="RightClick_enabled" xml:space="preserve"><value>有効</value></data>
   <data name="RightClick_chart_kind_bms" xml:space="preserve"><value>BMS</value></data>
@@ -3170,12 +3163,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="RightClick_settings_invalid" xml:space="preserve"><value>右クリック設定を読み取れません。</value></data>
   <data name="RightClick_settings_invalid_format" xml:space="preserve"><value>保存済みの右クリック設定が不正です。既定値へ戻してから保存してください。詳細: {0}</value></data>
   <data name="RightClick_settings_validation_error_format" xml:space="preserve"><value>右クリック設定を保存できません。詳細: {0}</value></data>
-  <data name="RightClick_builtin_bms_ir" xml:space="preserve"><value>BMS-IR</value></data>
-  <data name="RightClick_builtin_mocha" xml:space="preserve"><value>Mocha</value></data>
-  <data name="RightClick_builtin_minir" xml:space="preserve"><value>MinIR</value></data>
-  <data name="RightClick_builtin_rianir" xml:space="preserve"><value>rianIR</value></data>
-  <data name="RightClick_builtin_stellaverse" xml:space="preserve"><value>STELLAVERSE IR</value></data>
-  <data name="RightClick_external_launch_failed_format" xml:space="preserve"><value>選択した項目を開けませんでした。詳細: {0}</value></data>
   <data name="RightClick_external_action_unavailable" xml:space="preserve"><value>選択した項目は利用できません。</value></data>
   <data name="RightClick_external_settings_invalid" xml:space="preserve"><value>右クリック設定が不正なため、選択した項目を開けません。</value></data>
   <data name="RightClick_external_web_launch_failed" xml:space="preserve"><value>Webページを開けませんでした。</value></data>

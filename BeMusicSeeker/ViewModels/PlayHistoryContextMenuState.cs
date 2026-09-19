@@ -1,5 +1,6 @@
 using System;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -16,7 +17,7 @@ internal sealed class PlayHistoryContextMenuState
         ChartFile resolvedChart,
         bool canOpenScoreViewer,
         bool hasResolvedChart,
-        ExternalChartKind chartKind)
+        ExternalChartKind? chartKind)
     {
         Md5 = md5 ?? string.Empty;
         Sha256 = sha256 ?? string.Empty;
@@ -38,10 +39,6 @@ internal sealed class PlayHistoryContextMenuState
 
     internal string ChartTitle { get; }
 
-    internal bool CanOpenBmsIr => IsValidBmsIrHash(Md5);
-
-    internal bool CanOpenRepository => !string.IsNullOrWhiteSpace(Sha256);
-
     internal bool CanOpenExplorer => !string.IsNullOrWhiteSpace(ChartPath);
 
     /// <summary>Gets whether the resolved play-history row can use the associated-file terminal.</summary>
@@ -53,19 +50,18 @@ internal sealed class PlayHistoryContextMenuState
 
     internal bool HasResolvedChart { get; }
 
-    internal ExternalChartKind ChartKind { get; }
+    /// <summary>譜面種別を取得します。履歴の取得元だけでは BMS/bmson を区別できない場合は null です。</summary>
+    internal ExternalChartKind? ChartKind { get; }
 
     internal bool CanCopyMd5 => !string.IsNullOrWhiteSpace(Md5);
 
     internal bool CanCopySha256 => !string.IsNullOrWhiteSpace(Sha256);
 
-    internal bool HasExternalLinkItem => CanOpenBmsIr || CanOpenRepository;
-
     internal bool HasLocalChartItem => CanOpenAssociated || CanOpenScoreViewer;
 
     internal bool HasHashCopyItem => CanCopyMd5 || CanCopySha256;
 
-    internal bool HasVisibleItem => HasExternalLinkItem || HasLocalChartItem || HasHashCopyItem;
+    internal bool HasVisibleItem => HasLocalChartItem || HasHashCopyItem;
 
     internal static bool TryCreate(object row, out PlayHistoryContextMenuState state)
     {
@@ -76,17 +72,21 @@ internal sealed class PlayHistoryContextMenuState
         }
 
         ChartFile chart = playHistoryRow.ResolvedChart;
-        string md5 = chart?.Kind == ChartFileKind.Bmson
-            ? null
-            : FirstNonEmpty(GridRowResolver.GetHash(playHistoryRow), playHistoryRow.Md5, playHistoryRow.RawHash);
+        string md5 = FirstNonEmpty(
+            GridRowResolver.GetHash(playHistoryRow),
+            playHistoryRow.Md5,
+            playHistoryRow.RawHash);
         string sha256 = FirstNonEmpty(
-            GridRowResolver.GetRepositorySha256(playHistoryRow),
+            GridRowResolver.GetExternalActionSha256(playHistoryRow),
             playHistoryRow.Sha256,
             chart?.Sha256,
             chart?.ChartInfo?.sha256);
         bool canOpenScoreViewer = chart?.Kind == ChartFileKind.Bms
             && !string.IsNullOrWhiteSpace(chart.Md5)
             && !string.IsNullOrWhiteSpace(chart.Path);
+        ExternalChartKind? chartKind = chart != null
+            ? chart.Kind == ChartFileKind.Bmson ? ExternalChartKind.BmsonOnly : ExternalChartKind.BmsOnly
+            : playHistoryRow.Provider == PlayHistoryProvider.Lr2 ? ExternalChartKind.BmsOnly : null;
         state = new PlayHistoryContextMenuState(
             md5,
             sha256,
@@ -95,7 +95,7 @@ internal sealed class PlayHistoryContextMenuState
             chart,
             canOpenScoreViewer,
             chart != null,
-            chart?.Kind == ChartFileKind.Bmson ? ExternalChartKind.BmsonOnly : ExternalChartKind.BmsOnly);
+            chartKind);
         if (state.HasVisibleItem)
         {
             return true;
@@ -113,12 +113,6 @@ internal sealed class PlayHistoryContextMenuState
             CopySha256Kind => CanCopySha256 ? Sha256 : null,
             _ => null
         };
-    }
-
-    internal static bool IsValidBmsIrHash(string md5)
-    {
-        return !string.IsNullOrWhiteSpace(md5)
-            && System.Text.RegularExpressions.Regex.IsMatch(md5.Trim(), "^[A-F0-9]{32}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
     internal RightClickActionResolutionInput CreateResolutionInput(Func<string, bool> fileExists)
@@ -166,9 +160,6 @@ internal sealed class PlayHistoryContextMenuState
 
 internal enum PlayHistoryContextMenuActionKind
 {
-    OpenBmsIr,
-    OpenMocha,
-    OpenMinIr,
     OpenAssociated,
     OpenExplorer,
     RegisterScoreViewer,
@@ -179,18 +170,14 @@ internal enum PlayHistoryContextMenuActionKind
 internal sealed class PlayHistoryContextMenuAction
 {
     private PlayHistoryContextMenuAction(
-        string url,
         string value,
         string path,
         ScoreViewerTarget scoreViewerTarget)
     {
-        Url = url;
         Value = value;
         Path = path;
         ScoreViewerTarget = scoreViewerTarget;
     }
-
-    internal string Url { get; }
 
     internal string Value { get; }
 
@@ -198,23 +185,18 @@ internal sealed class PlayHistoryContextMenuAction
 
     internal ScoreViewerTarget ScoreViewerTarget { get; }
 
-    internal static PlayHistoryContextMenuAction ForUrl(string url)
-    {
-        return new PlayHistoryContextMenuAction(url, null, null, null);
-    }
-
     internal static PlayHistoryContextMenuAction ForValue(string value)
     {
-        return new PlayHistoryContextMenuAction(null, value, null, null);
+        return new PlayHistoryContextMenuAction(value, null, null);
     }
 
     internal static PlayHistoryContextMenuAction ForPath(string path)
     {
-        return new PlayHistoryContextMenuAction(null, null, path, null);
+        return new PlayHistoryContextMenuAction(null, path, null);
     }
 
     internal static PlayHistoryContextMenuAction ForScoreViewer(ScoreViewerTarget scoreViewerTarget)
     {
-        return new PlayHistoryContextMenuAction(null, null, null, scoreViewerTarget);
+        return new PlayHistoryContextMenuAction(null, null, scoreViewerTarget);
     }
 }

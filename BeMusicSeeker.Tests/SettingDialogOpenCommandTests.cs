@@ -42,6 +42,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
             PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerWASAPIParam = false
         };
@@ -74,6 +75,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
             PlayerDriver = BassAudioPlayer.DeviceDriver.NULL_DEVICE
         };
         MainWindowViewModel viewModel = CreateViewModel(
@@ -100,6 +102,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
             PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = "saved-missing-device",
             PlayerDeviceName = "Saved missing device"
@@ -134,6 +137,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
             PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = "saved-device",
             PlayerDeviceName = "Saved device"
@@ -179,6 +183,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
             PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = string.Empty,
             PlayerDeviceName = "stale default name"
@@ -220,6 +225,7 @@ public sealed class SettingDialogOpenCommandTests
     {
         var settings = new BeMusicSeeker.Properties.Settings
         {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
             PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerDevice = "saved-device",
             PlayerDeviceName = "Saved device"
@@ -291,7 +297,10 @@ public sealed class SettingDialogOpenCommandTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             settingsEditSession: settingsEditSession
-                ?? new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings()),
+                ?? new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings
+                {
+                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
+                }),
             audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog())
             .CreateMainWindowViewModel();
     }

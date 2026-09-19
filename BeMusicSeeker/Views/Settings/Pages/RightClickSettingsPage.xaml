@@ -82,13 +82,19 @@
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <settings:SettingsField Grid.Row="0"
-                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_name, Mode=OneWay}">
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_name, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedWebAction.NameValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedWebAction.NameValidationStatus, Mode=OneWay}">
               <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedWebAction.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
                        AutomationProperties.AutomationId="RightClickWebName" />
             </settings:SettingsField>
             <settings:SettingsField Grid.Row="1" Margin="0,8,0,0"
-                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_url, Mode=OneWay}">
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_url, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedWebAction.UrlTemplateValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedWebAction.UrlTemplateValidationStatus, Mode=OneWay}">
               <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedWebAction.UrlTemplate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
                        AutomationProperties.AutomationId="RightClickWebUrl" />
             </settings:SettingsField>
             <settings:SettingsField Grid.Row="2" Margin="0,8,0,0"

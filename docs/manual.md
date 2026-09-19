@@ -332,7 +332,7 @@ This setting is used by processes that move bundled files into existing folders,
 
 The `Right-click settings` category configures `Open web pages` and `Open with a program` entries for chart context menus. Each list supports `Add`, `Delete`, `Up`, `Down`, and `Enabled`, and lets you edit the item name and order.
 
-For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, or both). Templates can contain `{md5}` or `{sha256}`. An entry is hidden when the chart does not have a hash required by its template. The initial configuration contains these five enabled items in this order:
+For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, or both). Templates can contain `{md5}` or `{sha256}`. An entry is hidden when the chart does not have a hash required by its template. Immediately after `Add`, the blank name and URL template fields are shown as errors, and Settings cannot be saved until both contain valid values. The initial configuration contains these six enabled items in this order:
 
 | Order | Name | URL template | Target |
 | --- | --- | --- | --- |
@@ -341,6 +341,7 @@ For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, o
 | 3 | MinIR | `https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0` | BMS / bmson |
 | 4 | rianIR | `https://rianir.link/ranking?sha256={sha256}` | BMS / bmson |
 | 5 | STELLAVERSE IR | `https://ir.stellabms.xyz/charts/{md5}` | BMS / bmson |
+| 6 | Kaleid IR | `https://kaleidir.com/charts/{sha256}` | BMS / bmson |
 
 For owned charts, add entries to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. New entries use `{filePath}` as their default arguments. When browsing for an executable, a blank name is filled from the filename without its extension; an existing name is not overwritten. `{filePath}` is resolved as one argument token, so paths containing spaces remain safe, while additional options can be entered in the arguments field.
 
@@ -440,7 +441,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 
 Open / external pages:
 
-- `Open web pages`: Enabled items from `Settings > Right-click settings` are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, and STELLAVERSE IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.
+- `Open web pages`: Enabled items from `Settings > Right-click settings` are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, STELLAVERSE IR, and Kaleid IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.
 - `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
 - `Find source via external API`: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use `URL1` / `URL2`, so rows with empty URLs can still be targets when an MD5 is available.
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.

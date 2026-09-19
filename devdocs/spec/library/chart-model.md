@@ -67,7 +67,6 @@ UIからは `ChartOperationTarget` に譜面、元の項目、所持・保留・
 | 権限 | BMS | BMSON | 条件 |
 | --- | --- | --- | --- |
 | `OpenFile` / `OpenFolder` | 可 | 可 | 実パスがあり、欠落していないこと。 |
-| `OpenRepositoryBySha256` | 可 | 可 | 譜面または譜面情報に有効なSHA-256があること。 |
 | `OpenPlaylistUrls` | 可 | 可 | プレイリスト項目にURLまたは差分URLがあること。 |
 | `RunResourceHealthCheck` | 可 | 可 | 実パスがあり、欠落していないこと。 |
 | `UseLr2Ir` / `UseScoreViewer` / `UpdateRanking` | 可 | 不可 | BMSで、有効なMD5があること。BMS-IRリンクでLR2BMSIDを代用しません。 |

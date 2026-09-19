@@ -10,28 +10,29 @@ namespace BeMusicSeeker.Tests;
 public sealed class RightClickActionSettingsStoreTests
 {
     [TestMethod]
-    public void ParseMissingPropertyReturnsExactBuiltInDefaults()
+    public void DefaultsContainSixNamedWebActionsInPersistedOrder()
     {
-        RightClickActionSettingsParseResult result = RightClickActionSettingsSerializer.Parse(null);
+        RightClickActionSettings settings = RightClickActionSettingsDefaults.Create();
 
-        Assert.IsTrue(result.Succeeded);
-        Assert.IsTrue(result.IsMissing);
-        Assert.IsFalse(result.IsExplicitEmpty);
-        Assert.AreEqual(5, result.Settings.WebActions.Count);
-        Assert.AreEqual(0, result.Settings.ProgramActions.Count);
+        Assert.AreEqual(6, settings.WebActions.Count);
+        Assert.AreEqual(0, settings.ProgramActions.Count);
         CollectionAssert.AreEqual(
-            new[] { "bms-ir", "mocha", "minir", "rianir", "stellaverse-ir" },
-            result.Settings.WebActions.Select(action => action.Id).ToArray());
+            new[] { "bms-ir", "mocha", "minir", "rianir", "stellaverse-ir", "kaleid-ir" },
+            settings.WebActions.Select(action => action.Id).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "BMS-IR", "Mocha", "MinIR", "rianIR", "STELLAVERSE IR", "Kaleid IR" },
+            settings.WebActions.Select(action => action.Name).ToArray());
         CollectionAssert.AreEqual(
             new[]
             {
-                RightClickActionSettingsDefaults.BmsIrUrl,
-                RightClickActionSettingsDefaults.MochaUrl,
-                RightClickActionSettingsDefaults.MinIrUrl,
-                RightClickActionSettingsDefaults.RianIrUrl,
-                RightClickActionSettingsDefaults.StellaverseIrUrl
+                "https://bms-ir.org/new/song?songmd5={md5}&view=both",
+                "https://mocha-repository.info/song.php?sha256={sha256}",
+                "https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0",
+                "https://rianir.link/ranking?sha256={sha256}",
+                "https://ir.stellabms.xyz/charts/{md5}",
+                "https://kaleidir.com/charts/{sha256}"
             },
-            result.Settings.WebActions.Select(action => action.UrlTemplate).ToArray());
+            settings.WebActions.Select(action => action.UrlTemplate).ToArray());
         CollectionAssert.AreEqual(
             new[]
             {
@@ -39,11 +40,12 @@ public sealed class RightClickActionSettingsStoreTests
                 ExternalChartKind.All,
                 ExternalChartKind.All,
                 ExternalChartKind.All,
+                ExternalChartKind.All,
                 ExternalChartKind.All
             },
-            result.Settings.WebActions.Select(action => action.ChartKind).ToArray());
-        Assert.IsTrue(result.Settings.WebActions.All(action => action.Enabled));
-        Assert.IsTrue(result.Settings.WebActions.All(action => action.Name == null));
+            settings.WebActions.Select(action => action.ChartKind).ToArray());
+        Assert.IsTrue(settings.WebActions.All(action => action.Enabled));
+        Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, RightClickActionSettingsSerializer.Serialize(settings));
     }
 
     [TestMethod]
@@ -51,13 +53,14 @@ public sealed class RightClickActionSettingsStoreTests
     {
         Settings settings = new()
         {
-            RightClickActionsJson = string.Empty
+            RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}"
         };
         var store = new RightClickActionSettingsStore(() => settings);
 
         RightClickActionSettingsParseResult loaded = store.Load();
         Assert.IsTrue(loaded.Succeeded);
-        Assert.IsTrue(loaded.IsExplicitEmpty);
+        Assert.AreEqual(0, loaded.Settings.WebActions.Count);
+        Assert.AreEqual(0, loaded.Settings.ProgramActions.Count);
 
         RightClickActionSettings replacement = RightClickActionSettingsDefaults.Create();
         Assert.IsTrue(store.TrySave(replacement, out RightClickActionSettingsParseError saveError), saveError?.ToString());
@@ -79,15 +82,15 @@ public sealed class RightClickActionSettingsStoreTests
     }
 
     [TestMethod]
-    public void ParseExplicitEmptyDoesNotReseedDefaults()
+    public void ParseRejectsMissingAndBlankSerializedValues()
     {
-        RightClickActionSettingsParseResult result = RightClickActionSettingsSerializer.Parse(string.Empty);
-
-        Assert.IsTrue(result.Succeeded);
-        Assert.IsFalse(result.IsMissing);
-        Assert.IsTrue(result.IsExplicitEmpty);
-        Assert.AreEqual(0, result.Settings.WebActions.Count);
-        Assert.AreEqual(0, result.Settings.ProgramActions.Count);
+        foreach (string? value in new string?[] { null, string.Empty, "   " })
+        {
+            RightClickActionSettingsParseResult result = RightClickActionSettingsSerializer.Parse(value);
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsNull(result.Settings);
+            Assert.AreEqual(RightClickActionSettingsParseErrorKind.InvalidValue, result.Error.Kind);
+        }
     }
 
     [TestMethod]
@@ -171,21 +174,26 @@ public sealed class RightClickActionSettingsStoreTests
     }
 
     [TestMethod]
-    public void ParseCustomAndBuiltInNameOverrideSemanticsAreDistinct()
+    public void ParseRequiresNonblankNameForEveryWebAction()
     {
-        string custom = """
+        string literal = """
         {"webActions":[{"id":"custom","name":"  Literal name  ","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"}],"programActions":[]}
         """;
-        RightClickActionSettingsParseResult customResult = RightClickActionSettingsSerializer.Parse(custom);
-        Assert.IsTrue(customResult.Succeeded, customResult.Error?.ToString());
-        Assert.AreEqual("  Literal name  ", customResult.Settings.WebActions[0].Name);
+        RightClickActionSettingsParseResult literalResult = RightClickActionSettingsSerializer.Parse(literal);
+        Assert.IsTrue(literalResult.Succeeded, literalResult.Error?.ToString());
+        Assert.AreEqual("  Literal name  ", literalResult.Settings.WebActions[0].Name);
 
-        string builtIn = """
-        {"webActions":[{"id":"bms-ir","name":null,"urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"BmsOnly"}],"programActions":[]}
-        """;
-        RightClickActionSettingsParseResult builtInResult = RightClickActionSettingsSerializer.Parse(builtIn);
-        Assert.IsTrue(builtInResult.Succeeded, builtInResult.Error?.ToString());
-        Assert.IsNull(builtInResult.Settings.WebActions[0].Name);
+        foreach (string invalid in new[]
+        {
+            "{\"webActions\":[{\"id\":\"bms-ir\",\"name\":null,\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}",
+            "{\"webActions\":[{\"id\":\"bms-ir\",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}",
+            "{\"webActions\":[{\"id\":\"bms-ir\",\"name\":\"   \",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}"
+        })
+        {
+            RightClickActionSettingsParseResult result = RightClickActionSettingsSerializer.Parse(invalid);
+            Assert.IsFalse(result.Succeeded, invalid);
+            Assert.IsNull(result.Settings, invalid);
+        }
     }
 
     [TestMethod]
@@ -237,6 +245,11 @@ public sealed class RightClickActionSettingsStoreTests
             parsed.Settings,
             new RightClickActionResolutionInput(new string('A', 32), new string('B', 64), null, ExternalChartKind.BmsonOnly));
         CollectionAssert.AreEqual(new[] { "sha", "both" }, bmsonResult.WebActions.Select(action => action.Id).ToArray());
+
+        RightClickActionResolution unknownKindResult = RightClickActionResolver.Resolve(
+            parsed.Settings,
+            new RightClickActionResolutionInput(new string('A', 32), new string('B', 64), null, null));
+        CollectionAssert.AreEqual(new[] { "both" }, unknownKindResult.WebActions.Select(action => action.Id).ToArray());
 
         RightClickActionResolution missingHashResult = RightClickActionResolver.Resolve(
             parsed.Settings,

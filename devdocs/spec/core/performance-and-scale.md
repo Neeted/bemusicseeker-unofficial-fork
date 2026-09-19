@@ -136,4 +136,4 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 ## 関連資料
 
-[データと索引](data-and-indexes.md)、[並行性](workflow-concurrency.md)、[ログ](logging.md)、[検証](../development/testing.md)、[性能の残作業](../../plan/library-mutation-performance-plan.md)。
+[データと索引](data-and-indexes.md)、[並行性](workflow-concurrency.md)、[ログ](logging.md)、[検証](../development/testing.md)。

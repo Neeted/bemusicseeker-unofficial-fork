@@ -1324,11 +1324,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", sourceRow.sha256);
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", row.sha256);
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetSha256(row));
-        Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetRepositorySha256(row));
+        Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetExternalActionSha256(row));
     }
 
     [TestMethod]
-    public void GridRowResolver_GetRepositorySha256_UsesBmsChartRowChartInfoFallback()
+    public void GridRowResolver_GetExternalActionSha256_UsesBmsChartRowChartInfoFallback()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "ChartInfoSha", 7);
@@ -1336,7 +1336,7 @@ public sealed class PlaylistViewPipelineTests
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
-        Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(row));
+        Assert.AreEqual(new string('d', 64), GridRowResolver.GetExternalActionSha256(row));
     }
 
     [TestMethod]
@@ -1446,11 +1446,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void GridRowResolver_GetRepositorySha256_ReturnsNullWhenMissing()
+    public void GridRowResolver_GetExternalActionSha256_ReturnsNullWhenMissing()
     {
         PlaylistDetailSourceRow sourceRow = CreateSourceRow("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "NoSha", 7);
 
-        Assert.IsNull(GridRowResolver.GetRepositorySha256(sourceRow.CreateViewRow()));
+        Assert.IsNull(GridRowResolver.GetExternalActionSha256(sourceRow.CreateViewRow()));
     }
 
     [TestMethod]
@@ -1497,7 +1497,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(7, row.mode);
         Assert.AreEqual(bmson.path, row.path);
         Assert.AreEqual(bmson.sha256, row.sha256);
-        Assert.AreEqual(bmson.sha256, GridRowResolver.GetRepositorySha256(row));
+        Assert.AreEqual(bmson.sha256, GridRowResolver.GetExternalActionSha256(row));
         Assert.AreEqual(ClearType.NO_PLAY, row.clear);
         Assert.AreEqual(RankType.INVALID, row.rank);
         Assert.IsNull(row.score);
@@ -1626,7 +1626,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(bmson.path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
@@ -1855,7 +1854,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(file.path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -1888,7 +1886,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.GetBmsStorageOwner());
         Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -1918,7 +1915,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.GetBmsStorageOwner());
         Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -2825,7 +2821,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
@@ -3156,7 +3151,6 @@ public sealed class PlaylistViewPipelineTests
         {
             ChartOperationCapabilities.OpenFile,
             ChartOperationCapabilities.OpenFolder,
-            ChartOperationCapabilities.OpenRepositoryBySha256,
             ChartOperationCapabilities.RunResourceHealthCheck
         })
         {
@@ -3580,18 +3574,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_MissingSha256_DisablesRepositoryCapability()
-    {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "NoSha", 7);
-
-        var row = LibraryChartRow.FromBmsFile(file);
-
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
-    }
-
-    [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithoutResolvedFiles_PreservesPlaylistEntryFallbackValues()
     {
         var entry = new TestablePlaylistEntry
@@ -3643,10 +3625,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(row.Chart, rowChart);
         Assert.AreSame(chartInfo, rowChart.ChartInfo);
         Assert.AreEqual(chartInfo.sha256, sourceRow.sha256);
-        Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
+        Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetExternalActionSha256(row));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.IsTrue(target.IsPlaylistMissing);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
@@ -3667,7 +3648,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: chartInfo).CreateViewRow();
 
         Assert.AreEqual(chartInfo.sha256, row.sha256);
-        Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
+        Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetExternalActionSha256(row));
     }
 
     [TestMethod]
@@ -3694,7 +3675,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(viewRow.Chart, viewChart);
         Assert.AreSame(newInfo, viewChart.ChartInfo);
         Assert.AreEqual(newInfo.sha256, viewRow.sha256);
-        Assert.AreEqual(newInfo.sha256, GridRowResolver.GetRepositorySha256(viewRow));
+        Assert.AreEqual(newInfo.sha256, GridRowResolver.GetExternalActionSha256(viewRow));
         Assert.AreEqual("12", viewRow.ChartLevelText);
         Assert.AreEqual(2500, viewRow.ChartNotes);
         Assert.AreEqual("500", viewRow.ChartTotalText);

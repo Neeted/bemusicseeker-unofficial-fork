@@ -5,13 +5,10 @@
 | 計画 | 残る作業 |
 | --- | --- |
 | [安全性の改善](safety-improvements-plan.md) | 保存・受付・失敗報告・入力制限の不足確認と限定修正。 |
-| [ライブラリ変更の性能評価](library-mutation-performance-plan.md) | 実規模、I/O条件、連続操作、長期利用での測定と必要な調整。 |
 | [起動からLR2同期までの順序統合](lr2-startup-procedural-orchestration-plan.md) | 必須処理の直接待機、型付き結果の引渡し、閲覧と変更受付の分離。 |
 | [LR2同期の確定パスを処理対象から除外する](lr2-song-db-receipt-target-filter-plan.md) | 証票対象の投入前除外、除外後の件数による進捗・状態の統一、不要なパイプライン内スキップの削除。 |
 | [起動・一覧の応答性](ui-responsiveness-plan.md) | 重い画面処理と書込み待機の測定・整理。 |
-| [プレイ履歴の表示受入](play-history-acceptance-plan.md) | ロック・読取り専用時の実表示と日英マニュアル画像の確認。 |
 | [検証基盤の改善](test-infrastructure-plan.md) | 共有資源・待機の整理、実行結果からの対象調査の改善。 |
-| [配布と音声の実機受入](distribution-manual-acceptance-plan.md) | ランタイム未導入環境と、利用者が用意する外部エンコーダーの動作確認。 |
 
 ## 運用
 

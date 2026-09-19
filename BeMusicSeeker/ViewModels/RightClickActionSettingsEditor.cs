@@ -12,9 +12,8 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns the settings-dialog draft for configured right-click web and program actions.
-/// The editor never writes <see cref="Settings.RightClickActionsJson"/> while a field is edited;
-/// the parent settings dialog commits the serialized snapshot only after validation succeeds.
+/// 右クリックの Web / program action を設定ダイアログ内の draft として保持します。
+/// 編集中は <see cref="Settings.RightClickActionsJson"/> を変更せず、検証成功後だけ親ダイアログが保存します。
 /// </summary>
 public sealed class RightClickActionSettingsEditor : ViewModel
 {
@@ -41,8 +40,7 @@ public sealed class RightClickActionSettingsEditor : ViewModel
     private RightClickProgramActionEditorRow selectedProgramAction;
 
     /// <summary>
-    /// Initializes an editor from the saved JSON snapshot. A missing value creates the five
-    /// built-in web actions; an invalid value remains invalid and creates no fallback draft.
+    /// 保存済み JSON snapshot から editor を初期化します。不正値には fallback draft を作りません。
     /// </summary>
     /// <param name="rawJson">The raw settings value from the current edit-session settings.</param>
     public RightClickActionSettingsEditor(string rawJson)
@@ -139,7 +137,7 @@ public sealed class RightClickActionSettingsEditor : ViewModel
         && programActions.IndexOf(selectedProgramAction) >= 0
         && programActions.IndexOf(selectedProgramAction) < programActions.Count - 1;
 
-    /// <summary>Adds a deliberately incomplete custom web action to the draft.</summary>
+    /// <summary>名前と URL が未入力の Web action を draft に追加し、編集対象として選択します。</summary>
     public void AddWebAction()
     {
         var action = new RightClickWebActionEditorRow(
@@ -153,7 +151,7 @@ public sealed class RightClickActionSettingsEditor : ViewModel
         SelectedWebAction = action;
     }
 
-    /// <summary>Deletes the selected web action, including built-in actions.</summary>
+    /// <summary>既定値由来の項目を含め、選択中の Web action を削除します。</summary>
     public void DeleteSelectedWebAction()
     {
         if (selectedWebAction == null)
@@ -233,7 +231,7 @@ public sealed class RightClickActionSettingsEditor : ViewModel
         Move(programActions, selectedProgramAction, 1);
     }
 
-    /// <summary>Restores the built-in defaults in the draft and marks the editor dirty.</summary>
+    /// <summary>draft を既定 action に戻し、未保存変更として扱います。</summary>
     public void ResetToDefaults()
     {
         Populate(RightClickActionSettingsDefaults.Create());
@@ -261,12 +259,12 @@ public sealed class RightClickActionSettingsEditor : ViewModel
         LoadRawSnapshot(savedRawJson);
     }
 
-    /// <summary>Refreshes localized built-in labels and chart-kind option labels after a culture change.</summary>
+    /// <summary>culture 変更後に翻訳対象の表示を更新します。</summary>
     public void RefreshLocalizedDisplayNames()
     {
         foreach (RightClickWebActionEditorRow action in webActions)
         {
-            action.RefreshDisplayName();
+            action.RefreshLocalizedValidationMessages();
         }
 
         chartKindOptions[0].DisplayName = Resources.RightClick_chart_kind_bms;
@@ -297,10 +295,7 @@ public sealed class RightClickActionSettingsEditor : ViewModel
         {
             webDefinitions.Add(new RightClickWebActionDefinition(
                 action.Id,
-                RightClickActionSettingsDefaults.IsBuiltInId(action.Id)
-                    && string.IsNullOrWhiteSpace(action.NameOverride)
-                    ? null
-                    : action.NameOverride,
+                action.Name,
                 action.UrlTemplate,
                 action.Enabled,
                 action.ChartKind));
@@ -517,7 +512,7 @@ public sealed class RightClickActionSettingsEditor : ViewModel
     }
 }
 
-/// <summary>Editable web-action row owned by <see cref="RightClickActionSettingsEditor"/>.</summary>
+/// <summary><see cref="RightClickActionSettingsEditor"/> が保持する編集可能な Web action 行です。</summary>
 public sealed class RightClickWebActionEditorRow : ViewModel
 {
     private readonly Action changed;
@@ -542,44 +537,43 @@ public sealed class RightClickWebActionEditorRow : ViewModel
         this.changed = changed ?? throw new ArgumentNullException(nameof(changed));
     }
 
-    /// <summary>Gets the stable persisted ID.</summary>
+    /// <summary>保存形式で使う安定 ID を取得します。</summary>
     public string Id { get; }
 
-    /// <summary>
-    /// Gets or sets the editable name. Built-in actions expose their localized default when
-    /// the raw name override is empty, while serialization retains that override as null.
-    /// </summary>
+    /// <summary>表示名を取得または設定します。</summary>
     public string Name
     {
-        get => string.IsNullOrWhiteSpace(name) && IsBuiltIn
-            ? GetBuiltInDisplayName(Id)
-            : name ?? string.Empty;
+        get => name ?? string.Empty;
         set
         {
-            string normalizedValue = NormalizeName(value);
-            if (string.Equals(name, normalizedValue, StringComparison.Ordinal))
+            if (string.Equals(name, value, StringComparison.Ordinal))
             {
                 return;
             }
-            name = normalizedValue;
+            name = value;
             RaisePropertyChanged(nameof(Name));
             RaisePropertyChanged(nameof(DisplayName));
+            RaisePropertyChanged(nameof(NameValidationMessage));
+            RaisePropertyChanged(nameof(NameValidationStatus));
             changed();
         }
     }
 
-    /// <summary>Gets the raw optional built-in name override used for serialization.</summary>
-    internal string NameOverride => name;
+    /// <summary>action 一覧に表示する名前を取得します。</summary>
+    public string DisplayName => Name;
 
-    /// <summary>Gets the localized display name used by the action list.</summary>
-    public string DisplayName => string.IsNullOrWhiteSpace(name) && RightClickActionSettingsDefaults.IsBuiltInId(Id)
-        ? GetBuiltInDisplayName(Id)
-        : name ?? string.Empty;
+    /// <summary>名前入力欄の検証メッセージを取得します。</summary>
+    public string NameValidationMessage => string.IsNullOrWhiteSpace(Name)
+        ? Resources.RightClick_name_required
+        : string.Empty;
 
-    /// <summary>Gets or sets the URL template.</summary>
+    /// <summary>名前入力欄の検証状態を取得します。</summary>
+    public string NameValidationStatus => string.IsNullOrWhiteSpace(NameValidationMessage) ? string.Empty : "Error";
+
+    /// <summary>URL template を取得または設定します。</summary>
     public string UrlTemplate
     {
-        get => urlTemplate;
+        get => urlTemplate ?? string.Empty;
         set
         {
             if (string.Equals(urlTemplate, value, StringComparison.Ordinal))
@@ -588,9 +582,19 @@ public sealed class RightClickWebActionEditorRow : ViewModel
             }
             urlTemplate = value;
             RaisePropertyChanged(nameof(UrlTemplate));
+            RaisePropertyChanged(nameof(UrlTemplateValidationMessage));
+            RaisePropertyChanged(nameof(UrlTemplateValidationStatus));
             changed();
         }
     }
+
+    /// <summary>URL template 入力欄の検証メッセージを取得します。</summary>
+    public string UrlTemplateValidationMessage => string.IsNullOrWhiteSpace(UrlTemplate)
+        ? Resources.RightClick_url_required
+        : string.Empty;
+
+    /// <summary>URL template 入力欄の検証状態を取得します。</summary>
+    public string UrlTemplateValidationStatus => string.IsNullOrWhiteSpace(UrlTemplateValidationMessage) ? string.Empty : "Error";
 
     /// <summary>Gets or sets whether this action is enabled.</summary>
     public bool Enabled
@@ -639,42 +643,13 @@ public sealed class RightClickWebActionEditorRow : ViewModel
         }
     }
 
-    /// <summary>Gets whether this row uses one of the five built-in stable IDs.</summary>
-    public bool IsBuiltIn => RightClickActionSettingsDefaults.IsBuiltInId(Id);
-
-    /// <summary>Raises display-name notifications after a culture change.</summary>
-    internal void RefreshDisplayName()
+    /// <summary>culture 変更後に翻訳済み検証メッセージを再評価します。</summary>
+    internal void RefreshLocalizedValidationMessages()
     {
-        if (IsBuiltIn && string.IsNullOrWhiteSpace(name))
-        {
-            RaisePropertyChanged(nameof(Name));
-            RaisePropertyChanged(nameof(DisplayName));
-        }
-    }
-
-    private string NormalizeName(string value)
-    {
-        if (IsBuiltIn
-            && (string.IsNullOrWhiteSpace(value)
-                || string.Equals(value, GetBuiltInDisplayName(Id), StringComparison.Ordinal)))
-        {
-            return null;
-        }
-
-        return value;
-    }
-
-    private static string GetBuiltInDisplayName(string id)
-    {
-        return id switch
-        {
-            RightClickActionSettingsDefaults.BmsIrId => Resources.RightClick_builtin_bms_ir,
-            RightClickActionSettingsDefaults.MochaId => Resources.RightClick_builtin_mocha,
-            RightClickActionSettingsDefaults.MinIrId => Resources.RightClick_builtin_minir,
-            RightClickActionSettingsDefaults.RianIrId => Resources.RightClick_builtin_rianir,
-            RightClickActionSettingsDefaults.StellaverseIrId => Resources.RightClick_builtin_stellaverse,
-            _ => id
-        };
+        RaisePropertyChanged(nameof(NameValidationMessage));
+        RaisePropertyChanged(nameof(NameValidationStatus));
+        RaisePropertyChanged(nameof(UrlTemplateValidationMessage));
+        RaisePropertyChanged(nameof(UrlTemplateValidationStatus));
     }
 }
 

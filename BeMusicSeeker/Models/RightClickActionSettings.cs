@@ -25,7 +25,7 @@ internal sealed class RightClickWebActionDefinition
     internal string Id { get; }
 
     /// <summary>
-    /// built-in 表示名の override を取得します。built-in では null のまま resource 解決へ委譲できます。
+    /// menu と設定画面に表示する名前を取得します。
     /// </summary>
     internal string Name { get; }
 
@@ -60,11 +60,6 @@ internal sealed class RightClickWebActionDefinition
         Enabled = enabled;
         ChartKind = chartKind;
     }
-
-    /// <summary>
-    /// built-in name override を明示的に扱う別名を取得します。
-    /// </summary>
-    internal string NameOverride => Name;
 }
 
 /// <summary>
@@ -144,105 +139,36 @@ internal sealed class RightClickActionSettings
     /// 保存順を正本とする program action 定義を取得します。
     /// </summary>
     internal IReadOnlyList<RightClickProgramActionDefinition> ProgramActions { get; }
-
-    /// <summary>
-    /// 明示的に全 action を無効化した空 aggregate です。
-    /// </summary>
-    internal static RightClickActionSettings Empty { get; } = new([], []);
 }
 
 /// <summary>
-/// built-in right-click web action の安定 ID と既定 JSON を一元管理します。
+/// 右クリック操作の既定 JSON を一元管理します。
 /// </summary>
 internal static class RightClickActionSettingsDefaults
 {
     /// <summary>
-    /// BMS-IR built-in の安定 ID です。
-    /// </summary>
-    internal const string BmsIrId = "bms-ir";
-
-    /// <summary>
-    /// Mocha built-in の安定 ID です。
-    /// </summary>
-    internal const string MochaId = "mocha";
-
-    /// <summary>
-    /// MinIR built-in の安定 ID です。
-    /// </summary>
-    internal const string MinIrId = "minir";
-
-    /// <summary>
-    /// rianIR built-in の安定 ID です。
-    /// </summary>
-    internal const string RianIrId = "rianir";
-
-    /// <summary>
-    /// STELLAVERSE built-in の安定 ID です。
-    /// </summary>
-    internal const string StellaverseIrId = "stellaverse-ir";
-
-    /// <summary>
-    /// BMS-IR built-in の URL template です。
-    /// </summary>
-    internal const string BmsIrUrl = "https://bms-ir.org/new/song?songmd5={md5}&view=both";
-
-    /// <summary>
-    /// Mocha built-in の URL template です。
-    /// </summary>
-    internal const string MochaUrl = "https://mocha-repository.info/song.php?sha256={sha256}";
-
-    /// <summary>
-    /// MinIR built-in の URL template です。
-    /// </summary>
-    internal const string MinIrUrl = "https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0";
-
-    /// <summary>
-    /// rianIR built-in の URL template です。
-    /// </summary>
-    internal const string RianIrUrl = "https://rianir.link/ranking?sha256={sha256}";
-
-    /// <summary>
-    /// STELLAVERSE built-in の URL template です。
-    /// </summary>
-    internal const string StellaverseIrUrl = "https://ir.stellabms.xyz/charts/{md5}";
-
-    /// <summary>
-    /// Settings の missing-property default と app.config が共有する canonical JSON です。
+    /// Settings の既定値と app.config が共有する canonical JSON です。
     /// </summary>
     internal const string SerializedJson =
         "{\"webActions\":["
-        + "{\"id\":\"bms-ir\",\"name\":null,\"urlTemplate\":\"https://bms-ir.org/new/song?songmd5={md5}&view=both\",\"enabled\":true,\"chartKind\":\"BmsOnly\"},"
-        + "{\"id\":\"mocha\",\"name\":null,\"urlTemplate\":\"https://mocha-repository.info/song.php?sha256={sha256}\",\"enabled\":true,\"chartKind\":\"All\"},"
-        + "{\"id\":\"minir\",\"name\":null,\"urlTemplate\":\"https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0\",\"enabled\":true,\"chartKind\":\"All\"},"
-        + "{\"id\":\"rianir\",\"name\":null,\"urlTemplate\":\"https://rianir.link/ranking?sha256={sha256}\",\"enabled\":true,\"chartKind\":\"All\"},"
-        + "{\"id\":\"stellaverse-ir\",\"name\":null,\"urlTemplate\":\"https://ir.stellabms.xyz/charts/{md5}\",\"enabled\":true,\"chartKind\":\"All\"}],"
+        + "{\"id\":\"bms-ir\",\"name\":\"BMS-IR\",\"urlTemplate\":\"https://bms-ir.org/new/song?songmd5={md5}&view=both\",\"enabled\":true,\"chartKind\":\"BmsOnly\"},"
+        + "{\"id\":\"mocha\",\"name\":\"Mocha\",\"urlTemplate\":\"https://mocha-repository.info/song.php?sha256={sha256}\",\"enabled\":true,\"chartKind\":\"All\"},"
+        + "{\"id\":\"minir\",\"name\":\"MinIR\",\"urlTemplate\":\"https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0\",\"enabled\":true,\"chartKind\":\"All\"},"
+        + "{\"id\":\"rianir\",\"name\":\"rianIR\",\"urlTemplate\":\"https://rianir.link/ranking?sha256={sha256}\",\"enabled\":true,\"chartKind\":\"All\"},"
+        + "{\"id\":\"stellaverse-ir\",\"name\":\"STELLAVERSE IR\",\"urlTemplate\":\"https://ir.stellabms.xyz/charts/{md5}\",\"enabled\":true,\"chartKind\":\"All\"},"
+        + "{\"id\":\"kaleid-ir\",\"name\":\"Kaleid IR\",\"urlTemplate\":\"https://kaleidir.com/charts/{sha256}\",\"enabled\":true,\"chartKind\":\"All\"}],"
         + "\"programActions\":[]}";
 
     /// <summary>
-    /// missing settings 用の標準五 action を保存順で生成します。
+    /// canonical JSON から既定 action を生成します。
     /// </summary>
     internal static RightClickActionSettings Create()
     {
-        return new RightClickActionSettings(
-        [
-            new RightClickWebActionDefinition(BmsIrId, null, BmsIrUrl, true, ExternalChartKind.BmsOnly),
-            new RightClickWebActionDefinition(MochaId, null, MochaUrl, true, ExternalChartKind.All),
-            new RightClickWebActionDefinition(MinIrId, null, MinIrUrl, true, ExternalChartKind.All),
-            new RightClickWebActionDefinition(RianIrId, null, RianIrUrl, true, ExternalChartKind.All),
-            new RightClickWebActionDefinition(StellaverseIrId, null, StellaverseIrUrl, true, ExternalChartKind.All)
-        ],
-        []);
-    }
-
-    /// <summary>
-    /// ID が標準 action のいずれかであるかを判定します。
-    /// </summary>
-    internal static bool IsBuiltInId(string id)
-    {
-        return string.Equals(id, BmsIrId, StringComparison.Ordinal)
-            || string.Equals(id, MochaId, StringComparison.Ordinal)
-            || string.Equals(id, MinIrId, StringComparison.Ordinal)
-            || string.Equals(id, RianIrId, StringComparison.Ordinal)
-            || string.Equals(id, StellaverseIrId, StringComparison.Ordinal);
+        RightClickActionSettingsParseResult parsed = RightClickActionSettingsSerializer.Parse(SerializedJson);
+        if (!parsed.Succeeded)
+        {
+            throw new InvalidOperationException("既定の右クリック設定 JSON が不正です: " + parsed.Error);
+        }
+        return parsed.Settings;
     }
 }

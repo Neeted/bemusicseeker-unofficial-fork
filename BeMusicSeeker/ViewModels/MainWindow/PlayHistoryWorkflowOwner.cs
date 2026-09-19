@@ -27,14 +27,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     private Func<PlaylistSourceRetirementRequest> prepareDetailSourceRetirement;
     private bool isViewActive;
     private readonly Action<string> mainViewLog;
-    private readonly RightClickActionSettingsStore rightClickActionSettingsStore;
-
-    internal PlayHistoryWorkflowOwner(
-        Action<string> mainViewLog = null,
-        Func<BeMusicSeeker.Properties.Settings> settingsProvider = null)
+    internal PlayHistoryWorkflowOwner(Action<string> mainViewLog = null)
     {
         this.mainViewLog = mainViewLog ?? (_ => { });
-        rightClickActionSettingsStore = new RightClickActionSettingsStore(settingsProvider);
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
     }
 

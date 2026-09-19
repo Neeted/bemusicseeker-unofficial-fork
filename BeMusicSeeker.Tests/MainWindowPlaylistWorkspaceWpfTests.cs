@@ -2144,7 +2144,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             UsePlayeruBMplay = false,
             UsePlayerLR2body = false,
             UsePlayerBMIIDXView = false,
-            IsLR2BackupEnabled = false
+            IsLR2BackupEnabled = false,
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
         };
         var lifetime = new RecordingApplicationLifetime();
         var modalPreparation = new ModalPreparationRecorder();

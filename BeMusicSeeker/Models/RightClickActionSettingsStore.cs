@@ -74,13 +74,9 @@ internal sealed class RightClickActionSettingsParseResult
 {
     private RightClickActionSettingsParseResult(
         RightClickActionSettings settings,
-        bool isMissing,
-        bool isExplicitEmpty,
         RightClickActionSettingsParseError error)
     {
         Settings = settings;
-        IsMissing = isMissing;
-        IsExplicitEmpty = isExplicitEmpty;
         Error = error;
     }
 
@@ -95,16 +91,6 @@ internal sealed class RightClickActionSettingsParseResult
     internal bool Succeeded => Error == null;
 
     /// <summary>
-    /// 入力が missing-property default として扱われたかを取得します。
-    /// </summary>
-    internal bool IsMissing { get; }
-
-    /// <summary>
-    /// 入力が明示的な empty aggregate として保持されたかを取得します。
-    /// </summary>
-    internal bool IsExplicitEmpty { get; }
-
-    /// <summary>
     /// failure 診断を取得します。成功時は null です。
     /// </summary>
     internal RightClickActionSettingsParseError Error { get; }
@@ -112,12 +98,9 @@ internal sealed class RightClickActionSettingsParseResult
     /// <summary>
     /// 成功 result を生成します。
     /// </summary>
-    internal static RightClickActionSettingsParseResult Success(
-        RightClickActionSettings settings,
-        bool isMissing = false,
-        bool isExplicitEmpty = false)
+    internal static RightClickActionSettingsParseResult Success(RightClickActionSettings settings)
     {
-        return new RightClickActionSettingsParseResult(settings, isMissing, isExplicitEmpty, null);
+        return new RightClickActionSettingsParseResult(settings, null);
     }
 
     /// <summary>
@@ -125,7 +108,7 @@ internal sealed class RightClickActionSettingsParseResult
     /// </summary>
     internal static RightClickActionSettingsParseResult Failure(RightClickActionSettingsParseError error)
     {
-        return new RightClickActionSettingsParseResult(null, false, false, error);
+        return new RightClickActionSettingsParseResult(null, error);
     }
 }
 
@@ -147,18 +130,11 @@ internal static class RightClickActionSettingsSerializer
     /// </summary>
     internal static RightClickActionSettingsParseResult Parse(string json)
     {
-        if (json == null)
+        if (string.IsNullOrWhiteSpace(json))
         {
-            return RightClickActionSettingsParseResult.Success(
-                RightClickActionSettingsDefaults.Create(),
-                isMissing: true);
-        }
-
-        if (json.Length == 0)
-        {
-            return RightClickActionSettingsParseResult.Success(
-                RightClickActionSettings.Empty,
-                isExplicitEmpty: true);
+            return RightClickActionSettingsParseResult.Failure(InvalidValue(
+                string.Empty,
+                "Right-click settings JSON must be nonblank."));
         }
 
         JObject root;
@@ -222,7 +198,7 @@ internal static class RightClickActionSettingsSerializer
             RightClickActionSettingsParseError actionError = ValidateProperties(
                 actionObject,
                 WebActionProperties,
-                ["id", "urlTemplate", "enabled", "chartKind"],
+                ["id", "name", "urlTemplate", "enabled", "chartKind"],
                 "webActions[" + index + "]");
             if (actionError != null)
             {
@@ -244,25 +220,12 @@ internal static class RightClickActionSettingsSerializer
                     "Duplicate action id: " + id));
             }
 
-            string name = null;
-            if (actionObject.TryGetValue("name", StringComparison.Ordinal, out JToken nameToken))
+            if (!TryReadString(actionObject, "name", "webActions[" + index + "].name", out string name, out actionError)
+                || string.IsNullOrWhiteSpace(name))
             {
-                if (nameToken.Type != JTokenType.Null)
-                {
-                    if (!TryReadString(actionObject, "name", "webActions[" + index + "].name", out name, out actionError)
-                        || string.IsNullOrWhiteSpace(name))
-                    {
-                        return RightClickActionSettingsParseResult.Failure(actionError ?? InvalidValue(
-                            "webActions[" + index + "].name",
-                            "Web action name must be null or nonblank."));
-                    }
-                }
-            }
-            if (!RightClickActionSettingsDefaults.IsBuiltInId(id) && string.IsNullOrWhiteSpace(name))
-            {
-                return RightClickActionSettingsParseResult.Failure(InvalidValue(
+                return RightClickActionSettingsParseResult.Failure(actionError ?? InvalidValue(
                     "webActions[" + index + "].name",
-                    "Custom web actions require a nonblank name."));
+                    "Web action name must be nonblank."));
             }
 
             if (!TryReadString(actionObject, "urlTemplate", "webActions[" + index + "].urlTemplate", out string urlTemplate, out actionError))
@@ -436,7 +399,7 @@ internal static class RightClickActionSettingsSerializer
         var result = new JObject
         {
             ["id"] = action.Id,
-            ["name"] = action.Name == null ? JValue.CreateNull() : new JValue(action.Name),
+            ["name"] = action.Name,
             ["urlTemplate"] = action.UrlTemplate,
             ["enabled"] = action.Enabled,
             ["chartKind"] = action.ChartKind.ToString()
@@ -664,7 +627,7 @@ internal sealed class RightClickActionSettingsStore
     }
 
     /// <summary>
-    /// user.config の現在値を typed result として読み取ります。invalid は default へ fallback しません。
+    /// user.config の現在値を typed result として読み取ります。不正値は既定値へフォールバックしません。
     /// </summary>
     internal RightClickActionSettingsParseResult Load()
     {

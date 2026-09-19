@@ -737,9 +737,7 @@ internal sealed class MainWindowChildComposition
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel();
-        PlayHistory = new PlayHistoryWorkflowOwner(
-            mainViewLog,
-            settingsProvider: settingsProvider);
+        PlayHistory = new PlayHistoryWorkflowOwner(mainViewLog);
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,

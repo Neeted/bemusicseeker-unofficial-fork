@@ -100,4 +100,4 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 
 ## 関連資料
 
-[履歴表示](play-history.md)、[LR2カスタムフォルダ](lr2-custom-folders.md)、[残る受入確認](../../plan/play-history-acceptance-plan.md)を参照します。
+[履歴表示](play-history.md)、[LR2カスタムフォルダ](lr2-custom-folders.md)を参照します。
