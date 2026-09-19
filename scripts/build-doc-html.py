@@ -1096,6 +1096,9 @@ def build_html_docs(
 
         body = render_markdown(source_file.read_text(encoding="utf-8"))
         soup = BeautifulSoup(body, "html.parser")
+        # 開発参加などリポジトリ専用の案内は、配布・公開サイトの本文と目次に含めない。
+        for repository_only in soup.select(".repository-only"):
+            repository_only.decompose()
         output_doc = doc_map[source_doc]
         rewrite_links(soup, source_doc, output_doc, doc_map)
         rewrite_images(soup, source_doc, output_doc, site_mode)

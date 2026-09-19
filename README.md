@@ -86,6 +86,14 @@ These are rough notes. Priority is mixed, and completed items are removed over t
 4. Replace hardcoded URLs that are now broken
 5. Consolidation feature for duplicate `.wav` and `.ogg` files
 
+<div class="repository-only" markdown="1">
+
+## Contributing
+
+To prepare a Windows 11 development environment and start contributing, see the [development setup guide (Japanese)](devdocs/setup.md).
+
+</div>
+
 ## License Scope
 
 First-party source code newly created and published in this repository, such as scripts, is distributed under the **MIT License**, following the original binary.
