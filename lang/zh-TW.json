@@ -1027,5 +1027,12 @@
   "Validation_OutputBasesOverlapFormat": "{0}和{1}不能指定為同一資料夾或具有父子關係的資料夾。",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}不能指定為已登錄 BMS 目錄的子資料夾。\n輸出位置：{1}\n已登錄目錄：{2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "本應用程式將不再於以下位置搜尋歌曲。\n\n{0}",
-  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n是否繼續？"
+  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n是否繼續？",
+  "RightClick_executable_required": "請選取執行檔。",
+  "RightClick_executable_absolute_required": "請輸入執行檔的絕對路徑。",
+  "RightClick_arguments_required": "請輸入引數範本。",
+  "RightClick_arguments_file_path_required": "引數範本必須包含 {0}。",
+  "RightClick_arguments_unknown_placeholder": "引數範本包含未知的替換記號。",
+  "RightClick_arguments_unbalanced_placeholder": "引數範本中的替換記號括號不相稱。",
+  "RightClick_arguments_unbalanced_quote": "引數範本中的雙引號不相稱。"
 }

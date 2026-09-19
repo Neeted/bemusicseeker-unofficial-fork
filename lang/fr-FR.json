@@ -1027,5 +1027,12 @@
   "Validation_OutputBasesOverlapFormat": "{0} et {1} ne peuvent pas être le même dossier ni des dossiers parent et enfant.",
   "Validation_OutputBaseInsideBmsRootFormat": "{0} ne peut pas être un sous-dossier d’un répertoire BMS enregistré.\nEmplacement de sortie : {1}\nRépertoire enregistré : {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "Cette application ne recherchera plus de morceaux dans les emplacements suivants.\n\n{0}",
-  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\nContinuer ?"
+  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\nContinuer ?",
+  "RightClick_executable_required": "Sélectionnez un exécutable.",
+  "RightClick_executable_absolute_required": "Saisissez un chemin absolu vers l’exécutable.",
+  "RightClick_arguments_required": "Saisissez un modèle d’arguments.",
+  "RightClick_arguments_file_path_required": "Incluez {0} dans le modèle d’arguments.",
+  "RightClick_arguments_unknown_placeholder": "Le modèle d’arguments contient un paramètre de remplacement inconnu.",
+  "RightClick_arguments_unbalanced_placeholder": "Le modèle d’arguments contient un paramètre de remplacement non équilibré.",
+  "RightClick_arguments_unbalanced_quote": "Le modèle d’arguments contient un guillemet double non équilibré."
 }

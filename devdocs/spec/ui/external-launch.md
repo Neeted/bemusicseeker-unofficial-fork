@@ -33,7 +33,11 @@ null、空文字、不正JSON、未知・重複項目、重複ID、不正な列�
 
 Web操作は固定ID、空白でない名前、URLテンプレート、有効設定、対象譜面形式を持ちます。既定項目の名前も通常の設定データであり、サイト名を言語リソースから補完しません。`追加` は空の名前とURLテンプレートを持つ編集行を選択状態で作成し、両入力欄を直ちにエラー表示にします。保存は必要項目を入力するまで拒否します。Webテンプレートは絶対HTTP(S) URLで、大小文字を区別する `{md5}` または `{sha256}` を一つ以上含む必要があります。未知・閉じていない置換記号は拒否します。ハッシュは規定長の16進だけを小文字へ置換し、必要なハッシュがなければその操作を公開しません。
 
-プログラムは固定ID、名前、絶対実行パス、有効設定、`{filePath}` を含む引数テンプレートを持ちます。Windowsの二重引用符とバックスラッシュ規則で先に引数へ分解し、その後に置換します。単一引用符は通常文字です。未知・不均衡な記号は拒否します。存在確認は定義解析時ではなくクリック時に行います。
+プログラムは固定ID、空白でない名前、絶対実行パス、有効設定、`{filePath}` を含む引数テンプレートを持ちます。保存する項目は `id`、`name`、`executablePath`、`argumentTemplate`、`enabled` の五つです。`追加` は名前と実行パスが空、引数が `{filePath}` の行を選択状態で作り、名前と実行パスの入力欄を直ちにエラー表示にします。実行パスは参照ボタンから選び、名前が空白の場合だけ実行ファイル名（拡張子なし）で補完します。
+
+プログラムの入力欄と保存時の検証は同じ規則を使います。名前の空白、実行パスの未指定・非絶対パス、引数の空白・`{filePath}` の欠落・未知または不均衡な置換記号・不均衡な二重引用符を拒否し、該当欄へ原因に応じた翻訳済みの説明を表示します。入力を修正すると欄のエラーを更新し、言語を変更すると入力値を保って説明を更新します。無効にした行も保存時の検証対象です。保存時に不正なプログラム行がある場合は、配列順で最初の不正行を選択して保存を拒否し、保存済みの値と編集内容を保持します。
+
+引数はWindowsの二重引用符とバックスラッシュ規則で先に分解し、その後に置換します。単一引用符は通常文字です。`{filePath}` 以外の波括弧を通常文字として記述する構文は設けません。存在確認は定義解析時ではなくクリック時に行います。
 
 ### 単一譜面の解決
 
@@ -61,7 +65,7 @@ LR2bodyの試聴が一時変更するXML項目は、`system/windowsize_x`、`sys
 | --- | --- | --- |
 | 既定値、厳密な解析、順序・種類・ハッシュの解決 | [`RightClickActionSettingsStore`](../../../BeMusicSeeker/Models/RightClickActionSettingsStore.cs) | [`RightClickActionSettingsStoreTests`](../../../BeMusicSeeker.Tests/RightClickActionSettingsStoreTests.cs)、[`ApplicationSettingsMetadataTests`](../../../BeMusicSeeker.Tests/ApplicationSettingsMetadataTests.cs) |
 | Windowsの引数分解と正確な引数列 | [`ExternalProgramArgumentTemplate`](../../../BeMusicSeeker/Models/ExternalProgramArgumentTemplate.cs) | [`ExternalProgramArgumentTemplateTests`](../../../BeMusicSeeker.Tests/ExternalProgramArgumentTemplateTests.cs) |
-| 編集、既定への復帰、取消、保存と閉じる操作 | [`RightClickActionSettingsEditor`](../../../BeMusicSeeker/ViewModels/RightClickActionSettingsEditor.cs) | [`RightClickActionSettingsEditorTests`](../../../BeMusicSeeker.Tests/RightClickActionSettingsEditorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs) |
+| 追加直後・編集時の欄別検証、保存拒否と不正行の選択、言語切替、既定への復帰、取消、保存と閉じる操作 | [`RightClickActionSettingsEditor`](../../../BeMusicSeeker/ViewModels/RightClickActionSettingsEditor.cs) | [`RightClickActionSettingsEditorTests`](../../../BeMusicSeeker.Tests/RightClickActionSettingsEditorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/SettingsWindowCompiledBehaviorTests.cs) |
 | クリック時の再解決とプロセス起動条件 | [`SelectedChartExternalActionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/SelectedChartExternalActionWorkflowOwner.cs)、[`ExternalProgramLaunchGateway`](../../../BeMusicSeeker/Models/Utils/ExternalProgramLaunchGateway.cs) | [`SelectedChartExternalActionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/SelectedChartExternalActionWorkflowOwnerTests.cs)、[`ExternalProgramLaunchGatewayTests`](../../../BeMusicSeeker.Tests/ExternalProgramLaunchGatewayTests.cs) |
 | 単一行のメニュー、履歴・未所持の区別 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow.cs) | [`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindowSelectedChartContextMenuWpfTests.cs)、[`MainWindowPlayHistoryWpfTests`](../../../BeMusicSeeker.Tests/MainWindowPlayHistoryWpfTests.cs) |
 | 型付きの起動失敗メッセージ、多言語リソースの整合 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow.cs) | [`MainWindowContextMenuResourceTests`](../../../BeMusicSeeker.Tests/MainWindowContextMenuResourceTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/LocalizationResourceParityTests.cs) |

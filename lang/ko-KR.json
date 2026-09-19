@@ -1027,5 +1027,12 @@
   "Validation_OutputBasesOverlapFormat": "{0}과(와) {1}에는 같은 폴더나 부모·자식 관계의 폴더를 지정할 수 없습니다.",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}에는 등록된 BMS 디렉터리의 하위 폴더를 지정할 수 없습니다.\n출력 위치: {1}\n등록된 디렉터리: {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "다음 위치는 이 앱의 곡 검색 대상에서 제외됩니다.\n\n{0}",
-  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n계속하시겠습니까?"
+  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n계속하시겠습니까?",
+  "RightClick_executable_required": "실행 파일을 선택하세요.",
+  "RightClick_executable_absolute_required": "절대 경로인 실행 파일을 입력하세요.",
+  "RightClick_arguments_required": "인수 템플릿을 입력하세요.",
+  "RightClick_arguments_file_path_required": "인수 템플릿에 {0}를 포함하세요.",
+  "RightClick_arguments_unknown_placeholder": "인수 템플릿에 알 수 없는 자리 표시자가 있습니다.",
+  "RightClick_arguments_unbalanced_placeholder": "인수 템플릿의 자리 표시자 괄호가 맞지 않습니다.",
+  "RightClick_arguments_unbalanced_quote": "인수 템플릿의 큰따옴표가 맞지 않습니다."
 }

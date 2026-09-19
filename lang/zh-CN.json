@@ -1027,5 +1027,12 @@
   "Validation_OutputBasesOverlapFormat": "{0}和{1}不能指定为同一文件夹或具有父子关系的文件夹。",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}不能指定为已注册 BMS 目录的子文件夹。\n输出位置：{1}\n已注册目录：{2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "本应用将不再在以下位置搜索歌曲。\n\n{0}",
-  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n是否继续？"
+  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n是否继续？",
+  "RightClick_executable_required": "请选择可执行文件。",
+  "RightClick_executable_absolute_required": "请输入可执行文件的绝对路径。",
+  "RightClick_arguments_required": "请输入参数模板。",
+  "RightClick_arguments_file_path_required": "参数模板必须包含 {0}。",
+  "RightClick_arguments_unknown_placeholder": "参数模板包含未知的占位符。",
+  "RightClick_arguments_unbalanced_placeholder": "参数模板中的占位符括号不匹配。",
+  "RightClick_arguments_unbalanced_quote": "参数模板中的双引号不匹配。"
 }

@@ -282,32 +282,41 @@ internal static class RightClickActionSettingsSerializer
                     "Duplicate action id: " + id));
             }
 
-            if (!TryReadString(actionObject, "name", "programActions[" + index + "].name", out string name, out actionError)
-                || string.IsNullOrWhiteSpace(name))
+            if (!TryReadString(actionObject, "name", "programActions[" + index + "].name", out string name, out actionError))
             {
-                return RightClickActionSettingsParseResult.Failure(actionError ?? InvalidValue(
+                return RightClickActionSettingsParseResult.Failure(actionError);
+            }
+            RightClickProgramActionValidationErrorKind nameValidation =
+                RightClickProgramActionValidator.ValidateName(name);
+            if (nameValidation != RightClickProgramActionValidationErrorKind.None)
+            {
+                return RightClickActionSettingsParseResult.Failure(InvalidValue(
                     "programActions[" + index + "].name",
-                    "Program action name must be nonblank."));
+                    DescribeProgramValidation(nameValidation)));
             }
             if (!TryReadString(actionObject, "executablePath", "programActions[" + index + "].executablePath", out string executablePath, out actionError))
             {
                 return RightClickActionSettingsParseResult.Failure(actionError);
             }
-            if (!Path.IsPathFullyQualified(executablePath))
+            RightClickProgramActionValidationErrorKind executableValidation =
+                RightClickProgramActionValidator.ValidateExecutablePath(executablePath);
+            if (executableValidation != RightClickProgramActionValidationErrorKind.None)
             {
                 return RightClickActionSettingsParseResult.Failure(InvalidValue(
                     "programActions[" + index + "].executablePath",
-                    "Executable path must be absolute."));
+                    DescribeProgramValidation(executableValidation)));
             }
             if (!TryReadString(actionObject, "argumentTemplate", "programActions[" + index + "].argumentTemplate", out string argumentTemplate, out actionError))
             {
                 return RightClickActionSettingsParseResult.Failure(actionError);
             }
-            if (!ExternalProgramArgumentTemplate.TryParse(argumentTemplate, out _, out string templateError))
+            RightClickProgramActionValidationErrorKind argumentValidation =
+                RightClickProgramActionValidator.ValidateArgumentTemplate(argumentTemplate);
+            if (argumentValidation != RightClickProgramActionValidationErrorKind.None)
             {
                 return RightClickActionSettingsParseResult.Failure(InvalidValue(
                     "programActions[" + index + "].argumentTemplate",
-                    templateError));
+                    DescribeProgramValidation(argumentValidation)));
             }
             if (!TryReadBoolean(actionObject, "enabled", "programActions[" + index + "].enabled", out bool enabled, out actionError))
             {
@@ -599,6 +608,32 @@ internal static class RightClickActionSettingsSerializer
     /// 64 桁 hex SHA-256 として使えるかを判定します。
     /// </summary>
     internal static bool IsValidSha256(string value) => IsValidHex(value, 64);
+
+    private static string DescribeProgramValidation(RightClickProgramActionValidationErrorKind kind)
+    {
+        return kind switch
+        {
+            RightClickProgramActionValidationErrorKind.NameRequired
+                => "Program action name must be nonblank.",
+            RightClickProgramActionValidationErrorKind.ExecutablePathRequired
+                => "Executable path must be nonblank.",
+            RightClickProgramActionValidationErrorKind.ExecutablePathNotAbsolute
+                => "Executable path must be absolute.",
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateRequired
+                => "Argument template must be nonblank.",
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateMissingFilePath
+                => "Argument template must contain {filePath}.",
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateUnknownPlaceholder
+                => "Argument template contains an unknown placeholder.",
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateUnbalancedPlaceholder
+                => "Argument template contains an unbalanced placeholder.",
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateUnbalancedDoubleQuote
+                => "Argument template contains an unbalanced double quote.",
+            RightClickProgramActionValidationErrorKind.None
+                => throw new InvalidOperationException("プログラム action の検証原因がありません。"),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知のプログラム action 検証原因です。")
+        };
+    }
 
     private static RightClickActionSettingsParseError InvalidValue(string path, string message)
     {

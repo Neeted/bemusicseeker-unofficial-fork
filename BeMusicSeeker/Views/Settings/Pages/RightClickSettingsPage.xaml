@@ -169,12 +169,17 @@
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <settings:SettingsField Grid.Row="0"
-                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_name, Mode=OneWay}">
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_name, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedProgramAction.NameValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedProgramAction.NameValidationStatus, Mode=OneWay}">
               <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedProgramAction.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
                        AutomationProperties.AutomationId="RightClickProgramName" />
             </settings:SettingsField>
             <settings:SettingsField Grid.Row="1" Margin="0,8,0,0"
-                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_executable, Mode=OneWay}">
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_executable, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ExecutablePathValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ExecutablePathValidationStatus, Mode=OneWay}">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
@@ -182,6 +187,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0"
                          IsReadOnly="True"
+                         Style="{StaticResource SettingsValidatedTextBoxStyle}"
                          Text="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ExecutablePath, Mode=OneWay}"
                          AutomationProperties.AutomationId="RightClickProgramExecutable" />
                 <Button Grid.Column="1"
@@ -192,8 +198,11 @@
               </Grid>
             </settings:SettingsField>
             <settings:SettingsField Grid.Row="2" Margin="0,8,0,0"
-                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_arguments, Mode=OneWay}">
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_arguments, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ArgumentTemplateValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ArgumentTemplateValidationStatus, Mode=OneWay}">
               <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ArgumentTemplate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
                        AutomationProperties.AutomationId="RightClickProgramArguments" />
             </settings:SettingsField>
             <CheckBox Grid.Row="3" Margin="0,8,0,0"

@@ -2054,6 +2054,20 @@ public class Resources
     public static string RightClick_url => ResourceManager.GetString("RightClick_url", resourceCulture);
     public static string RightClick_name_required => ResourceManager.GetString("RightClick_name_required", resourceCulture);
     public static string RightClick_url_required => ResourceManager.GetString("RightClick_url_required", resourceCulture);
+    /// <summary>実行ファイル未選択時の検証メッセージを表示します。</summary>
+    public static string RightClick_executable_required => ResourceManager.GetString("RightClick_executable_required", resourceCulture);
+    /// <summary>実行ファイルが絶対パスでない場合の検証メッセージを表示します。</summary>
+    public static string RightClick_executable_absolute_required => ResourceManager.GetString("RightClick_executable_absolute_required", resourceCulture);
+    /// <summary>引数テンプレート未入力時の検証メッセージを表示します。</summary>
+    public static string RightClick_arguments_required => ResourceManager.GetString("RightClick_arguments_required", resourceCulture);
+    /// <summary>引数テンプレートに譜面パス placeholder がない場合の検証メッセージを表示します。</summary>
+    public static string RightClick_arguments_file_path_required => ResourceManager.GetString("RightClick_arguments_file_path_required", resourceCulture);
+    /// <summary>引数テンプレートに未知の placeholder がある場合の検証メッセージを表示します。</summary>
+    public static string RightClick_arguments_unknown_placeholder => ResourceManager.GetString("RightClick_arguments_unknown_placeholder", resourceCulture);
+    /// <summary>引数テンプレートの placeholder が対応していない場合の検証メッセージを表示します。</summary>
+    public static string RightClick_arguments_unbalanced_placeholder => ResourceManager.GetString("RightClick_arguments_unbalanced_placeholder", resourceCulture);
+    /// <summary>引数テンプレートの二重引用符が対応していない場合の検証メッセージを表示します。</summary>
+    public static string RightClick_arguments_unbalanced_quote => ResourceManager.GetString("RightClick_arguments_unbalanced_quote", resourceCulture);
     public static string RightClick_chart_kind => ResourceManager.GetString("RightClick_chart_kind", resourceCulture);
     public static string RightClick_enabled => ResourceManager.GetString("RightClick_enabled", resourceCulture);
     public static string RightClick_chart_kind_bms => ResourceManager.GetString("RightClick_chart_kind_bms", resourceCulture);

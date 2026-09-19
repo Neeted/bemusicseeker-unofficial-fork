@@ -300,6 +300,30 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     [TestMethod]
+    public async Task InvalidProgramDraftBlocksSaveUntilItsFieldsAreCorrected()
+    {
+        const string originalJson = "{\"webActions\":[],\"programActions\":[{\"id\":\"viewer\",\"name\":\"Viewer\",\"executablePath\":\"C:\\\\Tools\\\\viewer.exe\",\"argumentTemplate\":\"{filePath}\",\"enabled\":true}]}";
+        Settings settings = CreateStandaloneSettings(
+            @"C:\settings-behavior\right-click-invalid-program",
+            @"C:\settings-behavior\right-click-invalid-program");
+        settings.RightClickActionsJson = originalJson;
+        using SettingsDialogHarness harness = SettingsDialogHarness.Create(settings);
+
+        harness.Dialog.RightClickActionSettingsEditor.ProgramActions[0].ArgumentTemplate = "--fixed";
+        await harness.Dialog.SaveSettings();
+
+        Assert.AreEqual(0, harness.Session.SaveCount);
+        Assert.AreEqual(originalJson, harness.Session.Values.RightClickActionsJson);
+
+        harness.Dialog.RightClickActionSettingsEditor.ProgramActions[0].ArgumentTemplate = "{filePath}";
+        await harness.Dialog.SaveSettings();
+
+        Assert.AreEqual(1, harness.Session.SaveCount);
+        Assert.AreEqual(originalJson, harness.Session.Values.RightClickActionsJson);
+        Assert.IsFalse(harness.Dialog.RightClickActionSettingsEditor.IsDirty);
+    }
+
+    [TestMethod]
     public void SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest()
     {
         using (SettingsDialogHarness inactiveHarness = SettingsDialogHarness.Create(

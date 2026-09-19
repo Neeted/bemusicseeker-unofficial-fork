@@ -343,7 +343,11 @@ For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, o
 | 5 | STELLAVERSE IR | `https://ir.stellabms.xyz/charts/{md5}` | BMS / bmson |
 | 6 | Kaleid IR | `https://kaleidir.com/charts/{sha256}` | BMS / bmson |
 
-For owned charts, add entries to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. New entries use `{filePath}` as their default arguments. When browsing for an executable, a blank name is filled from the filename without its extension; an existing name is not overwritten. `{filePath}` is resolved as one argument token, so paths containing spaces remain safe, while additional options can be entered in the arguments field.
+For owned charts, add entries to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. Immediately after `Add`, the blank name and executable fields show errors. New entries use `{filePath}` as their default arguments. Select the executable with the browse button. A blank or whitespace-only name is filled from the filename without its extension; an existing name is preserved.
+
+The argument template must contain `{filePath}`. Empty input, unknown or unbalanced placeholders, and unbalanced double quotes show an explanation beside the affected field. Correcting the input clears the error. Disabled entries must also be valid before saving. Saving selects the first invalid program entry.
+
+Use double quotes to group arguments. The chart path is substituted after splitting the template into arguments, so spaces in the path do not split it. Options such as `--file="{filePath}"` are supported. Single quotes are literal characters, and braces other than `{filePath}` are not supported. The executable is launched directly, with its containing folder as the working directory.
 
 The same saved configuration is used by the normal list, unowned playlist rows, and Play Log. Hash-only rows expose `Open web pages` entries only; `Open with program` is available only when a local chart is resolved. A missing executable or chart, or a launch failure, shows an error.
 

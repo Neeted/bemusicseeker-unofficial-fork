@@ -1027,5 +1027,12 @@
   "Validation_OutputBasesOverlapFormat": "{0}と{1}には、同じフォルダや親子関係のフォルダを指定できません。",
   "Validation_OutputBaseInsideBmsRootFormat": "{0}には、登録済みBMSディレクトリの子フォルダを指定できません。\n出力先: {1}\n登録済み: {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "次の場所は、本アプリの楽曲検索対象から外れます。\n\n{0}",
-  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n続行しますか？"
+  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\n続行しますか？",
+  "RightClick_executable_required": "実行ファイルを選択してください。",
+  "RightClick_executable_absolute_required": "実行ファイルは絶対パスで指定してください。",
+  "RightClick_arguments_required": "引数テンプレートを入力してください。",
+  "RightClick_arguments_file_path_required": "引数テンプレートに {0} を含めてください。",
+  "RightClick_arguments_unknown_placeholder": "引数テンプレートに未対応の置換記号があります。",
+  "RightClick_arguments_unbalanced_placeholder": "引数テンプレートの置換記号が対応していません。",
+  "RightClick_arguments_unbalanced_quote": "引数テンプレートの二重引用符が対応していません。"
 }

@@ -97,7 +97,7 @@ public sealed class RightClickActionSettingsStoreTests
     public void SerializeRoundTripPreservesOrderAndDefinitions()
     {
         string payload = """
-        {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}/{sha256}","enabled":false,"chartKind":"BmsonOnly"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"--chart=\"{filePath}\"","enabled":true}]}
+        {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}/{sha256}","enabled":false,"chartKind":"BmsonOnly"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"--chart=\"{filePath}\"","enabled":true},{"id":"player","name":"Player","executablePath":"C:\\Tools\\player.exe","argumentTemplate":"{filePath} --mode=preview","enabled":false}]}
         """;
 
         RightClickActionSettingsParseResult parsed = RightClickActionSettingsSerializer.Parse(payload);
@@ -114,6 +114,11 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual("viewer", roundTrip.Settings.ProgramActions[0].Id);
         Assert.AreEqual(@"C:\Tools\viewer.exe", roundTrip.Settings.ProgramActions[0].ExecutablePath);
         Assert.AreEqual("--chart=\"{filePath}\"", roundTrip.Settings.ProgramActions[0].ArgumentTemplate);
+        Assert.AreEqual("player", roundTrip.Settings.ProgramActions[1].Id);
+        Assert.AreEqual("Player", roundTrip.Settings.ProgramActions[1].Name);
+        Assert.AreEqual(@"C:\Tools\player.exe", roundTrip.Settings.ProgramActions[1].ExecutablePath);
+        Assert.AreEqual("{filePath} --mode=preview", roundTrip.Settings.ProgramActions[1].ArgumentTemplate);
+        Assert.IsFalse(roundTrip.Settings.ProgramActions[1].Enabled);
     }
 
     [TestMethod]
@@ -207,7 +212,11 @@ public sealed class RightClickActionSettingsStoreTests
             """{"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{MD5}","enabled":true,"chartKind":"All"}],"programActions":[]}""",
             """{"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5","enabled":true,"chartKind":"All"}],"programActions":[]}""",
             """{"webActions":[],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"tools\\viewer.exe","argumentTemplate":"{filePath}","enabled":true}]}""",
+            """{"webActions":[],"programActions":[{"id":"viewer","name":"   ","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"{filePath}","enabled":true}]}""",
+            """{"webActions":[],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"   ","argumentTemplate":"{filePath}","enabled":true}]}""",
             """{"webActions":[],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"--unknown={other}","enabled":true}]}""",
+            """{"webActions":[],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"{filePath,{filePath} }","enabled":true}]}""",
+            """{"webActions":[],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"   ","enabled":true}]}""",
             """{"webActions":[],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"\"{filePath}","enabled":true}]}"""
         ];
 

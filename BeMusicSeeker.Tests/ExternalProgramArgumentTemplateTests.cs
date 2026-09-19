@@ -50,22 +50,38 @@ public sealed class ExternalProgramArgumentTemplateTests
     }
 
     [TestMethod]
+    public void ParseAllowsRepeatedFilePathPlaceholdersAndKeepsEachToken()
+    {
+        AssertExpanded(
+            "--before={filePath} --after=\"{filePath}\"",
+            @"C:\Songs\alpha chart.bms",
+            @"--before=C:\Songs\alpha chart.bms",
+            @"--after=C:\Songs\alpha chart.bms");
+    }
+
+    [TestMethod]
     public void ParseRejectsMissingUnknownAndUnbalancedPlaceholdersOrQuotes()
     {
-        string[] invalidTemplates =
+        (string Source, ExternalProgramArgumentTemplateErrorKind Cause)[] invalidTemplates =
         [
-            "--file",
-            "--file={FilePath}",
-            "--file={other}",
-            "--file={filePath",
-            "--file=filePath}",
-            "--file=\"{filePath}"
+            ("--file", ExternalProgramArgumentTemplateErrorKind.MissingFilePathPlaceholder),
+            ("--file={FilePath}", ExternalProgramArgumentTemplateErrorKind.UnknownPlaceholder),
+            ("--file={other}", ExternalProgramArgumentTemplateErrorKind.UnknownPlaceholder),
+            ("--file={filePath", ExternalProgramArgumentTemplateErrorKind.UnbalancedPlaceholder),
+            ("--file=filePath}", ExternalProgramArgumentTemplateErrorKind.UnbalancedPlaceholder),
+            ("--file={filePath,{filePath} }", ExternalProgramArgumentTemplateErrorKind.UnbalancedPlaceholder),
+            ("--file=\"{filePath}", ExternalProgramArgumentTemplateErrorKind.UnbalancedDoubleQuote)
         ];
 
-        foreach (string source in invalidTemplates)
+        foreach ((string source, ExternalProgramArgumentTemplateErrorKind expectedCause) in invalidTemplates)
         {
-            bool parsed = ExternalProgramArgumentTemplate.TryParse(source, out _, out string error);
+            bool parsed = ExternalProgramArgumentTemplate.TryParse(
+                source,
+                out _,
+                out ExternalProgramArgumentTemplateErrorKind actualCause,
+                out string error);
             Assert.IsFalse(parsed, source);
+            Assert.AreEqual(expectedCause, actualCause, source);
             Assert.IsFalse(string.IsNullOrWhiteSpace(error), source);
         }
     }

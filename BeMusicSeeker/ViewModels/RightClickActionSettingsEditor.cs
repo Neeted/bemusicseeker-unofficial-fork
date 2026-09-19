@@ -267,6 +267,11 @@ public sealed class RightClickActionSettingsEditor : ViewModel
             action.RefreshLocalizedValidationMessages();
         }
 
+        foreach (RightClickProgramActionEditorRow action in programActions)
+        {
+            action.RefreshLocalizedValidationMessages();
+        }
+
         chartKindOptions[0].DisplayName = Resources.RightClick_chart_kind_bms;
         chartKindOptions[1].DisplayName = Resources.RightClick_chart_kind_bmson;
         chartKindOptions[2].DisplayName = Resources.RightClick_chart_kind_both;
@@ -274,11 +279,11 @@ public sealed class RightClickActionSettingsEditor : ViewModel
     }
 
     /// <summary>
-    /// Validates and serializes the current draft without mutating application settings.
+    /// 現在の draft を検証して直列化します。設定は変更せず、不正なプログラム行があれば配列順で最初の行を選択します。
     /// </summary>
-    /// <param name="json">The canonical JSON on success.</param>
-    /// <param name="error">A localized validation message on failure.</param>
-    /// <returns><c>true</c> when the draft can be committed.</returns>
+    /// <param name="json">成功時の canonical JSON。</param>
+    /// <param name="error">失敗時の現在の言語による検証メッセージ。</param>
+    /// <returns>保存可能な draft の場合は <see langword="true"/>。</returns>
     public bool TryPrepareSave(out string json, out string error)
     {
         json = null;
@@ -304,6 +309,15 @@ public sealed class RightClickActionSettingsEditor : ViewModel
         var programDefinitions = new List<RightClickProgramActionDefinition>(programActions.Count);
         foreach (RightClickProgramActionEditorRow action in programActions)
         {
+            if (action.TryGetValidationError(
+                out RightClickProgramActionValidationErrorKind validationErrorKind))
+            {
+                SelectedProgramAction = action;
+                error = RightClickProgramActionEditorRow.GetValidationMessage(validationErrorKind);
+                SetValidationMessage(error);
+                return false;
+            }
+
             programDefinitions.Add(new RightClickProgramActionDefinition(
                 action.Id,
                 action.Name,
@@ -653,7 +667,7 @@ public sealed class RightClickWebActionEditorRow : ViewModel
     }
 }
 
-/// <summary>Editable external-program action row owned by the right-click settings editor.</summary>
+/// <summary>右クリック設定画面で編集する外部プログラム action の行です。</summary>
 public sealed class RightClickProgramActionEditorRow : ViewModel
 {
     private readonly Action changed;
@@ -678,13 +692,13 @@ public sealed class RightClickProgramActionEditorRow : ViewModel
         this.changed = changed ?? throw new ArgumentNullException(nameof(changed));
     }
 
-    /// <summary>Gets the stable persisted ID.</summary>
+    /// <summary>保存形式で使う安定 ID を取得します。</summary>
     public string Id { get; }
 
-    /// <summary>Gets or sets the action display name.</summary>
+    /// <summary>表示名を取得または設定します。</summary>
     public string Name
     {
-        get => name;
+        get => name ?? string.Empty;
         set
         {
             if (string.Equals(name, value, StringComparison.Ordinal))
@@ -694,17 +708,26 @@ public sealed class RightClickProgramActionEditorRow : ViewModel
             name = value;
             RaisePropertyChanged(nameof(Name));
             RaisePropertyChanged(nameof(DisplayName));
+            RaisePropertyChanged(nameof(NameValidationMessage));
+            RaisePropertyChanged(nameof(NameValidationStatus));
             changed();
         }
     }
 
-    /// <summary>Gets the list display name, falling back to the executable filename when named later.</summary>
-    public string DisplayName => name ?? string.Empty;
+    /// <summary>一覧へ表示する名前を取得します。</summary>
+    public string DisplayName => Name;
 
-    /// <summary>Gets or sets the absolute executable path.</summary>
+    /// <summary>名前入力欄の検証メッセージを取得します。</summary>
+    public string NameValidationMessage => GetValidationMessage(
+        RightClickProgramActionValidator.ValidateName(Name));
+
+    /// <summary>名前入力欄の検証状態を取得します。</summary>
+    public string NameValidationStatus => string.IsNullOrEmpty(NameValidationMessage) ? string.Empty : "Error";
+
+    /// <summary>絶対パスの実行ファイルを取得または設定します。</summary>
     public string ExecutablePath
     {
-        get => executablePath;
+        get => executablePath ?? string.Empty;
         set
         {
             if (string.Equals(executablePath, value, StringComparison.Ordinal))
@@ -713,14 +736,25 @@ public sealed class RightClickProgramActionEditorRow : ViewModel
             }
             executablePath = value;
             RaisePropertyChanged(nameof(ExecutablePath));
+            RaisePropertyChanged(nameof(ExecutablePathValidationMessage));
+            RaisePropertyChanged(nameof(ExecutablePathValidationStatus));
             changed();
         }
     }
 
-    /// <summary>Gets or sets the Windows argument template.</summary>
+    /// <summary>実行ファイル欄の検証メッセージを取得します。</summary>
+    public string ExecutablePathValidationMessage => GetValidationMessage(
+        RightClickProgramActionValidator.ValidateExecutablePath(ExecutablePath));
+
+    /// <summary>実行ファイル欄の検証状態を取得します。</summary>
+    public string ExecutablePathValidationStatus => string.IsNullOrEmpty(ExecutablePathValidationMessage)
+        ? string.Empty
+        : "Error";
+
+    /// <summary>Windows の引数テンプレートを取得または設定します。</summary>
     public string ArgumentTemplate
     {
-        get => argumentTemplate;
+        get => argumentTemplate ?? string.Empty;
         set
         {
             if (string.Equals(argumentTemplate, value, StringComparison.Ordinal))
@@ -729,11 +763,22 @@ public sealed class RightClickProgramActionEditorRow : ViewModel
             }
             argumentTemplate = value;
             RaisePropertyChanged(nameof(ArgumentTemplate));
+            RaisePropertyChanged(nameof(ArgumentTemplateValidationMessage));
+            RaisePropertyChanged(nameof(ArgumentTemplateValidationStatus));
             changed();
         }
     }
 
-    /// <summary>Gets or sets whether this program action is enabled.</summary>
+    /// <summary>引数テンプレート欄の検証メッセージを取得します。</summary>
+    public string ArgumentTemplateValidationMessage => GetValidationMessage(
+        RightClickProgramActionValidator.ValidateArgumentTemplate(ArgumentTemplate));
+
+    /// <summary>引数テンプレート欄の検証状態を取得します。</summary>
+    public string ArgumentTemplateValidationStatus => string.IsNullOrEmpty(ArgumentTemplateValidationMessage)
+        ? string.Empty
+        : "Error";
+
+    /// <summary>このプログラム action を有効にするかどうかを取得または設定します。</summary>
     public bool Enabled
     {
         get => enabled;
@@ -750,9 +795,9 @@ public sealed class RightClickProgramActionEditorRow : ViewModel
     }
 
     /// <summary>
-    /// Applies an accepted executable picker result and derives the name only when the name is blank.
+    /// 選択された実行ファイルのパスを適用し、名前が空白の場合だけファイル名から補完します。
     /// </summary>
-    /// <param name="path">The accepted absolute executable path.</param>
+    /// <param name="path">選択された実行ファイルの絶対パス。</param>
     public void SetExecutablePathFromPicker(string path)
     {
         ExecutablePath = path ?? string.Empty;
@@ -760,6 +805,66 @@ public sealed class RightClickProgramActionEditorRow : ViewModel
         {
             Name = Path.GetFileNameWithoutExtension(path) ?? string.Empty;
         }
+    }
+
+    /// <summary>
+    /// 保存時に表示する最初の欄別検証原因を、入力欄と同じ検証規則で取得します。
+    /// </summary>
+    internal bool TryGetValidationError(out RightClickProgramActionValidationErrorKind errorKind)
+    {
+        errorKind = RightClickProgramActionValidator.ValidateName(Name);
+        if (errorKind != RightClickProgramActionValidationErrorKind.None)
+        {
+            return true;
+        }
+
+        errorKind = RightClickProgramActionValidator.ValidateExecutablePath(ExecutablePath);
+        if (errorKind != RightClickProgramActionValidationErrorKind.None)
+        {
+            return true;
+        }
+
+        errorKind = RightClickProgramActionValidator.ValidateArgumentTemplate(ArgumentTemplate);
+        return errorKind != RightClickProgramActionValidationErrorKind.None;
+    }
+
+    /// <summary>型付き検証原因を現在の言語の欄別文言へ変換します。</summary>
+    internal static string GetValidationMessage(RightClickProgramActionValidationErrorKind errorKind)
+    {
+        return errorKind switch
+        {
+            RightClickProgramActionValidationErrorKind.NameRequired => Resources.RightClick_name_required,
+            RightClickProgramActionValidationErrorKind.ExecutablePathRequired
+                => Resources.RightClick_executable_required,
+            RightClickProgramActionValidationErrorKind.ExecutablePathNotAbsolute
+                => Resources.RightClick_executable_absolute_required,
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateRequired
+                => Resources.RightClick_arguments_required,
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateMissingFilePath
+                => string.Format(
+                    CultureInfo.CurrentCulture,
+                    Resources.RightClick_arguments_file_path_required,
+                    "{filePath}"),
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateUnknownPlaceholder
+                => Resources.RightClick_arguments_unknown_placeholder,
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateUnbalancedPlaceholder
+                => Resources.RightClick_arguments_unbalanced_placeholder,
+            RightClickProgramActionValidationErrorKind.ArgumentTemplateUnbalancedDoubleQuote
+                => Resources.RightClick_arguments_unbalanced_quote,
+            RightClickProgramActionValidationErrorKind.None => string.Empty,
+            _ => throw new ArgumentOutOfRangeException(nameof(errorKind), errorKind, "未知のプログラム action 検証原因です.")
+        };
+    }
+
+    /// <summary>言語変更後に欄別検証メッセージを再評価します。</summary>
+    internal void RefreshLocalizedValidationMessages()
+    {
+        RaisePropertyChanged(nameof(NameValidationMessage));
+        RaisePropertyChanged(nameof(NameValidationStatus));
+        RaisePropertyChanged(nameof(ExecutablePathValidationMessage));
+        RaisePropertyChanged(nameof(ExecutablePathValidationStatus));
+        RaisePropertyChanged(nameof(ArgumentTemplateValidationMessage));
+        RaisePropertyChanged(nameof(ArgumentTemplateValidationStatus));
     }
 }
 

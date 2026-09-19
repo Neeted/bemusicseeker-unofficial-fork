@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -136,13 +137,94 @@ public sealed class RightClickActionSettingsEditorTests
 
         Assert.AreEqual("{filePath}", action.ArgumentTemplate);
         Assert.AreEqual(string.Empty, action.Name);
+        Assert.AreEqual(Resources.RightClick_name_required, action.NameValidationMessage);
+        Assert.AreEqual("Error", action.NameValidationStatus);
+        Assert.AreEqual(Resources.RightClick_executable_required, action.ExecutablePathValidationMessage);
+        Assert.AreEqual("Error", action.ExecutablePathValidationStatus);
+        Assert.AreEqual(string.Empty, action.ArgumentTemplateValidationMessage);
+        Assert.AreEqual(string.Empty, action.ArgumentTemplateValidationStatus);
         action.SetExecutablePathFromPicker(Path.Combine(Path.GetTempPath(), "Chart Viewer.exe"));
         Assert.AreEqual("Chart Viewer", action.Name);
+        Assert.AreEqual(string.Empty, action.NameValidationMessage);
+        Assert.AreEqual(string.Empty, action.ExecutablePathValidationMessage);
 
         action.Name = "User name";
         action.SetExecutablePathFromPicker(Path.Combine(Path.GetTempPath(), "Other.exe"));
         Assert.AreEqual("User name", action.Name);
         Assert.IsTrue(editor.TryPrepareSave(out _, out string error), error);
+    }
+
+    [TestMethod]
+    public void ProgramActionValidationClearsEachFieldImmediatelyAndRejectsDisabledRows()
+    {
+        var editor = new RightClickActionSettingsEditor("{\"webActions\":[],\"programActions\":[]}");
+        editor.AddProgramAction();
+        RightClickProgramActionEditorRow action = editor.SelectedProgramAction;
+        action.Name = "Viewer";
+        action.ExecutablePath = @"C:\Tools\viewer.exe";
+
+        action.ArgumentTemplate = string.Empty;
+        Assert.AreEqual(Resources.RightClick_arguments_required, action.ArgumentTemplateValidationMessage);
+        action.ArgumentTemplate = "--fixed";
+        Assert.AreEqual(
+            string.Format(CultureInfo.CurrentCulture, Resources.RightClick_arguments_file_path_required, "{filePath}"),
+            action.ArgumentTemplateValidationMessage);
+        action.ArgumentTemplate = "{FilePath}";
+        Assert.AreEqual(Resources.RightClick_arguments_unknown_placeholder, action.ArgumentTemplateValidationMessage);
+        action.ArgumentTemplate = "{filePath";
+        Assert.AreEqual(Resources.RightClick_arguments_unbalanced_placeholder, action.ArgumentTemplateValidationMessage);
+        action.ArgumentTemplate = "\"{filePath}";
+        Assert.AreEqual(Resources.RightClick_arguments_unbalanced_quote, action.ArgumentTemplateValidationMessage);
+
+        action.ArgumentTemplate = "{filePath}";
+        Assert.AreEqual(string.Empty, action.ArgumentTemplateValidationMessage);
+        action.Name = "   ";
+        Assert.AreEqual(Resources.RightClick_name_required, action.NameValidationMessage);
+        action.Name = "Viewer";
+        action.ExecutablePath = "tools\\viewer.exe";
+        Assert.AreEqual(Resources.RightClick_executable_absolute_required, action.ExecutablePathValidationMessage);
+        action.ExecutablePath = @"C:\Tools\viewer.exe";
+        Assert.AreEqual(string.Empty, action.ExecutablePathValidationMessage);
+
+        action.Enabled = false;
+        action.ArgumentTemplate = "--fixed";
+        Assert.IsFalse(editor.TryPrepareSave(out _, out string error));
+        Assert.AreEqual(
+            string.Format(CultureInfo.CurrentCulture, Resources.RightClick_arguments_file_path_required, "{filePath}"),
+            error);
+    }
+
+    [TestMethod]
+    public void SaveSelectsFirstInvalidProgramRowInArrayOrderAndKeepsValidInputOrder()
+    {
+        const string source = """
+        {"webActions":[],"programActions":[
+          {"id":"first","name":"First","executablePath":"C:\\Tools\\first.exe","argumentTemplate":"{filePath}","enabled":true},
+          {"id":"second","name":"Second","executablePath":"C:\\Tools\\second.exe","argumentTemplate":"{filePath}","enabled":true},
+          {"id":"third","name":"Third","executablePath":"C:\\Tools\\third.exe","argumentTemplate":"{filePath}","enabled":false}]}
+        """;
+        var editor = new RightClickActionSettingsEditor(source);
+        editor.ProgramActions[1].Name = "   ";
+        editor.ProgramActions[2].ArgumentTemplate = "{other}";
+        editor.SelectedProgramAction = editor.ProgramActions[0];
+
+        Assert.IsFalse(editor.TryPrepareSave(out _, out string error));
+        Assert.AreSame(editor.ProgramActions[1], editor.SelectedProgramAction);
+        Assert.AreEqual(Resources.RightClick_name_required, error);
+
+        editor.ProgramActions[1].Name = "Second";
+        Assert.IsFalse(editor.TryPrepareSave(out _, out error));
+        Assert.AreSame(editor.ProgramActions[2], editor.SelectedProgramAction);
+        Assert.AreEqual(Resources.RightClick_arguments_unknown_placeholder, error);
+
+        editor.ProgramActions[2].ArgumentTemplate = "{filePath}";
+        Assert.IsTrue(editor.TryPrepareSave(out string json, out error), error);
+        RightClickActionSettingsParseResult parsed = RightClickActionSettingsSerializer.Parse(json);
+        Assert.IsTrue(parsed.Succeeded, parsed.Error?.ToString());
+        CollectionAssert.AreEqual(
+            new[] { "first", "second", "third" },
+            parsed.Settings.ProgramActions.Select(action => action.Id).ToArray());
+        Assert.IsFalse(parsed.Settings.ProgramActions[2].Enabled);
     }
 
     [TestMethod]

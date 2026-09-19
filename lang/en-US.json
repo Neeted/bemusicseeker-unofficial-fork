@@ -1027,5 +1027,12 @@
   "Validation_OutputBasesOverlapFormat": "{0} and {1} cannot be the same folder or parent and child folders.",
   "Validation_OutputBaseInsideBmsRootFormat": "{0} cannot be a child of a registered BMS directory.\nOutput location: {1}\nRegistered directory: {2}",
   "Confirm_CustomFolderOutputSearchRootsRemovedFormat": "The following locations will no longer be searched for songs by this application.\n\n{0}",
-  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\nContinue?"
+  "Confirm_CustomFolderOutputChangesFormat": "{0}\n\nContinue?",
+  "RightClick_executable_required": "Select an executable.",
+  "RightClick_executable_absolute_required": "Enter an absolute executable path.",
+  "RightClick_arguments_required": "Enter an argument template.",
+  "RightClick_arguments_file_path_required": "Include {0} in the argument template.",
+  "RightClick_arguments_unknown_placeholder": "The argument template contains an unknown placeholder.",
+  "RightClick_arguments_unbalanced_placeholder": "The argument template contains an unbalanced placeholder.",
+  "RightClick_arguments_unbalanced_quote": "The argument template contains an unbalanced double quote."
 }

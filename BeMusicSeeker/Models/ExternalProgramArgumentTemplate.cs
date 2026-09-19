@@ -6,6 +6,19 @@ using System.Text;
 namespace BeMusicSeeker.Models;
 
 /// <summary>
+/// 外部プログラム引数テンプレートの検証失敗原因です。
+/// </summary>
+internal enum ExternalProgramArgumentTemplateErrorKind
+{
+    None,
+    Required,
+    MissingFilePathPlaceholder,
+    UnknownPlaceholder,
+    UnbalancedPlaceholder,
+    UnbalancedDoubleQuote
+}
+
+/// <summary>
 /// Windows command-line 相当の argument template を parse 済み token として保持します。
 /// </summary>
 internal sealed class ExternalProgramArgumentTemplate
@@ -41,27 +54,35 @@ internal sealed class ExternalProgramArgumentTemplate
         out ExternalProgramArgumentTemplate template,
         out string error)
     {
+        return TryParse(source, out template, out _, out error);
+    }
+
+    /// <summary>
+    /// template を parse し、画面表示へ渡すための型付き失敗原因も返します。
+    /// </summary>
+    internal static bool TryParse(
+        string source,
+        out ExternalProgramArgumentTemplate template,
+        out ExternalProgramArgumentTemplateErrorKind errorKind,
+        out string error)
+    {
         template = null;
+        errorKind = ExternalProgramArgumentTemplateErrorKind.None;
         error = null;
         if (source == null)
         {
+            errorKind = ExternalProgramArgumentTemplateErrorKind.Required;
             error = "Argument template is required.";
             return false;
         }
 
-        if (!TryValidatePlaceholders(source, out error))
+        if (!TryValidatePlaceholders(source, out errorKind, out error))
         {
             return false;
         }
 
-        if (!TryTokenize(source, out IReadOnlyList<string> parsedTokens, out error))
+        if (!TryTokenize(source, out IReadOnlyList<string> parsedTokens, out errorKind, out error))
         {
-            return false;
-        }
-
-        if (!ContainsFilePathPlaceholder(source))
-        {
-            error = "Argument template must contain {filePath}.";
             return false;
         }
 
@@ -91,8 +112,12 @@ internal sealed class ExternalProgramArgumentTemplate
         return new ReadOnlyCollection<string>(expanded);
     }
 
-    private static bool TryValidatePlaceholders(string source, out string error)
+    private static bool TryValidatePlaceholders(
+        string source,
+        out ExternalProgramArgumentTemplateErrorKind errorKind,
+        out string error)
     {
+        errorKind = ExternalProgramArgumentTemplateErrorKind.None;
         error = null;
         bool foundFilePath = false;
         for (int index = 0; index < source.Length; index++)
@@ -100,6 +125,7 @@ internal sealed class ExternalProgramArgumentTemplate
             char current = source[index];
             if (current == '}')
             {
+                errorKind = ExternalProgramArgumentTemplateErrorKind.UnbalancedPlaceholder;
                 error = "Argument template contains an unbalanced placeholder.";
                 return false;
             }
@@ -111,6 +137,14 @@ internal sealed class ExternalProgramArgumentTemplate
             int closeIndex = source.IndexOf('}', index + 1);
             if (closeIndex < 0)
             {
+                errorKind = ExternalProgramArgumentTemplateErrorKind.UnbalancedPlaceholder;
+                error = "Argument template contains an unbalanced placeholder.";
+                return false;
+            }
+
+            if (source.IndexOf('{', index + 1, closeIndex - index - 1) >= 0)
+            {
+                errorKind = ExternalProgramArgumentTemplateErrorKind.UnbalancedPlaceholder;
                 error = "Argument template contains an unbalanced placeholder.";
                 return false;
             }
@@ -118,6 +152,7 @@ internal sealed class ExternalProgramArgumentTemplate
             string placeholder = source.Substring(index + 1, closeIndex - index - 1);
             if (!string.Equals(placeholder, FilePathPlaceholder, StringComparison.Ordinal))
             {
+                errorKind = ExternalProgramArgumentTemplateErrorKind.UnknownPlaceholder;
                 error = "Argument template contains an unknown placeholder: " + placeholder;
                 return false;
             }
@@ -128,6 +163,7 @@ internal sealed class ExternalProgramArgumentTemplate
 
         if (!foundFilePath)
         {
+            errorKind = ExternalProgramArgumentTemplateErrorKind.MissingFilePathPlaceholder;
             error = "Argument template must contain {filePath}.";
             return false;
         }
@@ -135,20 +171,17 @@ internal sealed class ExternalProgramArgumentTemplate
         return true;
     }
 
-    private static bool ContainsFilePathPlaceholder(string source)
-    {
-        return source.Contains("{" + FilePathPlaceholder + "}", StringComparison.Ordinal);
-    }
-
     private static bool TryTokenize(
         string source,
         out IReadOnlyList<string> tokens,
+        out ExternalProgramArgumentTemplateErrorKind errorKind,
         out string error)
     {
         var result = new List<string>();
         var token = new StringBuilder();
         bool insideQuotes = false;
         bool tokenStarted = false;
+        errorKind = ExternalProgramArgumentTemplateErrorKind.None;
 
         for (int index = 0; index < source.Length; index++)
         {
@@ -208,6 +241,7 @@ internal sealed class ExternalProgramArgumentTemplate
         if (insideQuotes)
         {
             tokens = [];
+            errorKind = ExternalProgramArgumentTemplateErrorKind.UnbalancedDoubleQuote;
             error = "Argument template contains an unbalanced double quote.";
             return false;
         }

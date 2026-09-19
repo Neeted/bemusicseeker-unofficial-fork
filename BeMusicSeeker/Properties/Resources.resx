@@ -3151,6 +3151,13 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="RightClick_url" xml:space="preserve"><value>URLテンプレート</value></data>
   <data name="RightClick_name_required" xml:space="preserve"><value>名前を入力してください。</value></data>
   <data name="RightClick_url_required" xml:space="preserve"><value>URLテンプレートを入力してください。</value></data>
+  <data name="RightClick_executable_required" xml:space="preserve"><value>実行ファイルを選択してください。</value></data>
+  <data name="RightClick_executable_absolute_required" xml:space="preserve"><value>実行ファイルは絶対パスで指定してください。</value></data>
+  <data name="RightClick_arguments_required" xml:space="preserve"><value>引数テンプレートを入力してください。</value></data>
+  <data name="RightClick_arguments_file_path_required" xml:space="preserve"><value>引数テンプレートに {0} を含めてください。</value></data>
+  <data name="RightClick_arguments_unknown_placeholder" xml:space="preserve"><value>引数テンプレートに未対応の置換記号があります。</value></data>
+  <data name="RightClick_arguments_unbalanced_placeholder" xml:space="preserve"><value>引数テンプレートの置換記号が対応していません。</value></data>
+  <data name="RightClick_arguments_unbalanced_quote" xml:space="preserve"><value>引数テンプレートの二重引用符が対応していません。</value></data>
   <data name="RightClick_chart_kind" xml:space="preserve"><value>対象の譜面種別</value></data>
   <data name="RightClick_enabled" xml:space="preserve"><value>有効</value></data>
   <data name="RightClick_chart_kind_bms" xml:space="preserve"><value>BMS</value></data>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -245,6 +246,124 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 owner.SettingDialog.Dispose();
             }
         });
+    }
+
+    [TestMethod]
+    public void RightClickPageShowsProgramValidationForAllFieldsAndRefreshesItAfterLanguageChange()
+    {
+        string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+        try
+        {
+            ResourceService.Current.ChangeCulture("en-US");
+            TestUiDispatcherHost.RunWindowTest(_ =>
+            {
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = Path.GetTempPath(),
+                    StandaloneBmsRootPaths = Path.GetTempPath(),
+                    BMSInstallDir = Path.GetTempPath(),
+                    ScanBmsFilesOnStartup = false,
+                    SkipInitPlaylistLoad = true,
+                    RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}"
+                });
+                var window = new SettingsWindow
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaybackPanel = owner.PlaybackPanel
+                };
+                try
+                {
+                    Materialize(window);
+                    ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                    ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                    navigation.SelectedItem = window.FindName("navigationRightClick");
+                    Materialize(window);
+
+                    var page = (RightClickSettingsPage)content.Content;
+                    Button programAddButton = FindLogicalDescendants<Button>(page).Single(button =>
+                        AutomationProperties.GetAutomationId(button) == "RightClickProgramAdd");
+                    programAddButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, programAddButton));
+                    Materialize(window);
+                    page = (RightClickSettingsPage)content.Content;
+                    TextBox nameEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                        AutomationProperties.GetAutomationId(textBox) == "RightClickProgramName");
+                    TextBox executableEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                        AutomationProperties.GetAutomationId(textBox) == "RightClickProgramExecutable");
+                    TextBox argumentsEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                        AutomationProperties.GetAutomationId(textBox) == "RightClickProgramArguments");
+
+                    Assert.AreEqual(Resources.RightClick_name_required, AutomationProperties.GetHelpText(nameEditor));
+                    Assert.AreEqual(Resources.RightClick_executable_required, AutomationProperties.GetHelpText(executableEditor));
+                    Assert.AreEqual(string.Empty, AutomationProperties.GetHelpText(argumentsEditor));
+                    Assert.AreEqual("Error", AutomationProperties.GetItemStatus(nameEditor));
+                    Assert.AreEqual("Error", AutomationProperties.GetItemStatus(executableEditor));
+                    Assert.IsTrue(executableEditor.IsReadOnly);
+
+                    nameEditor.Text = "Viewer";
+                    owner.SettingDialog.RightClickActionSettingsEditor.SelectedProgramAction
+                        .SetExecutablePathFromPicker(@"C:\Tools\viewer.exe");
+                    argumentsEditor.Text = "--fixed";
+                    Materialize(window);
+                    Assert.AreEqual(string.Empty, AutomationProperties.GetHelpText(nameEditor));
+                    Assert.AreEqual(string.Empty, AutomationProperties.GetHelpText(executableEditor));
+                    string expectedMissingPlaceholderMessage = string.Format(
+                        CultureInfo.CurrentCulture,
+                        Resources.RightClick_arguments_file_path_required,
+                        "{filePath}");
+                    Assert.AreEqual(expectedMissingPlaceholderMessage, AutomationProperties.GetHelpText(argumentsEditor));
+                    string englishArgumentMessage = AutomationProperties.GetHelpText(argumentsEditor);
+
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    Materialize(window);
+                    Assert.AreEqual(
+                        string.Format(
+                            CultureInfo.CurrentCulture,
+                            Resources.RightClick_arguments_file_path_required,
+                            "{filePath}"),
+                        AutomationProperties.GetHelpText(argumentsEditor));
+                    Assert.AreNotEqual(englishArgumentMessage, AutomationProperties.GetHelpText(argumentsEditor));
+
+                    navigation.SelectedItem = window.FindName("navigationGeneral");
+                    Materialize(window);
+                    navigation.SelectedItem = window.FindName("navigationRightClick");
+                    Materialize(window);
+                    page = (RightClickSettingsPage)content.Content;
+                    nameEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                        AutomationProperties.GetAutomationId(textBox) == "RightClickProgramName");
+                    executableEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                        AutomationProperties.GetAutomationId(textBox) == "RightClickProgramExecutable");
+                    argumentsEditor = FindLogicalDescendants<TextBox>(page).Single(textBox =>
+                        AutomationProperties.GetAutomationId(textBox) == "RightClickProgramArguments");
+
+                    Assert.AreEqual("Viewer", nameEditor.Text);
+                    Assert.AreEqual(@"C:\Tools\viewer.exe", executableEditor.Text);
+                    Assert.AreEqual("--fixed", argumentsEditor.Text);
+                    Assert.AreEqual(
+                        string.Format(
+                            CultureInfo.CurrentCulture,
+                            Resources.RightClick_arguments_file_path_required,
+                            "{filePath}"),
+                        AutomationProperties.GetHelpText(argumentsEditor));
+                    Assert.AreEqual("Error", AutomationProperties.GetItemStatus(argumentsEditor));
+
+                    argumentsEditor.Text = "{filePath}";
+                    Materialize(window);
+                    Assert.AreEqual("{filePath}", argumentsEditor.Text);
+                    Assert.AreEqual(string.Empty, AutomationProperties.GetHelpText(argumentsEditor));
+                    Assert.AreEqual(string.Empty, AutomationProperties.GetItemStatus(argumentsEditor));
+                }
+                finally
+                {
+                    window.CloseForOwnerShutdown();
+                    owner.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousCulture);
+        }
     }
 
     [TestMethod]
