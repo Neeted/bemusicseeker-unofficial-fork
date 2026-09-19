@@ -29,6 +29,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceDetailRefreshTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestInitialize]
     public void TestInitialize()
     {
@@ -375,8 +377,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             useCoalescingWindow: false,
             openReadiness: default);
 
-        await workspace.WaitForDetailRequestCompletionAsync(requestVersion)
-            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
+        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
+        await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
         Assert.AreEqual(requestVersion, workspace.DetailBuildState.RequestVersion);
         Assert.AreSame(table, workspace.DetailViewState.Source.CurrentTable);
         Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
@@ -820,8 +823,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             openReadiness: default);
 
         Assert.IsTrue(requestVersion > 0);
-        await workspace.WaitForDetailRequestCompletionAsync(requestVersion)
-            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
+        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
+        await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
         Assert.AreSame(currentTable, workspace.DetailViewState.Source.CurrentTable);
         Assert.AreEqual("CURRENT", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
     }
@@ -1030,7 +1034,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var second = new PlaylistBuildRequest { Identity = secondIdentity };
         PlaylistDetailBuildQueueCoordinator.RegisterRequest(
             state, second, currentViewIdentity: null, lastBuiltScoreSnapshotVersion: 0, isShutdownRequested: false);
-        await firstCompletion.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await firstCompletion.ConfigureAwait(false);
         Task secondCompletion = PlaylistDetailBuildQueueCoordinator.WaitForRequestCompletionAsync(
             state, second.RequestVersion);
         Task detailIdle = PlaylistDetailBuildQueueCoordinator.WaitForIdleAsync(state);
@@ -1038,10 +1042,10 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(detailIdle.IsCompleted);
 
         PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
-        await secondCompletion.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await secondCompletion.ConfigureAwait(false);
         Assert.IsFalse(detailIdle.IsCompleted);
         Assert.IsFalse(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out _));
-        await detailIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await detailIdle.ConfigureAwait(false);
 
         Assert.IsTrue(PlaylistDetailBuildQueueCoordinator
             .WaitForRequestCompletionAsync(state, first.RequestVersion).IsCompleted);
@@ -1075,19 +1079,31 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
         Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
 
+        Exception? primaryFailure = null;
         try
         {
-            await failureEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            await failureEntered.Task.ConfigureAwait(false);
             Assert.IsFalse(requestCompletion.IsCompleted);
             Assert.IsFalse(workerIdle.IsCompleted);
         }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
         finally
         {
+            // 本体の失敗を確定させた後、ゲートを開けて要求と worker の終端を回収する。
             failureRelease.TrySetResult(true);
+            try
+            {
+                await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            {
+                TestContext.WriteLine("detail worker cleanup: " + cleanupFailure);
+            }
         }
-
-        await Task.WhenAll(requestCompletion, workerIdle)
-            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
         Assert.IsTrue(workspace.IsDetailBuildIdle);
         Assert.IsNull(workspace.DetailViewState.Source.CurrentTable);
@@ -1111,7 +1127,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         PlaylistSourceRetirementRequest retirement = state.PrepareSourceRetirement();
 
-        await requestCompletion.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await requestCompletion.ConfigureAwait(false);
         Assert.IsTrue(PlaylistDetailBuildQueueCoordinator
             .WaitForRequestCompletionAsync(state, retirement.RequestVersion).IsCompleted);
     }
@@ -1147,8 +1163,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             useCoalescingWindow: false,
             openReadiness: default);
 
-        await workspace.WaitForDetailRequestCompletionAsync(requestVersion)
-            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
+        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
+        await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
 
         Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
         Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
@@ -1557,10 +1574,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     // Hold this owner-scoped typed port so the replacement task
                     // cannot complete before the test observes that boundary.
                     replacementRouteEntered.TrySetResult(true);
-                    releaseReplacementNotification.Task
-                        .WaitAsync(TimeSpan.FromSeconds(5))
-                        .GetAwaiter()
-                        .GetResult();
+                    // Action 型の通知キュー内では await できないため、外側の Task が解放を所有する。
+                    releaseReplacementNotification.Task.GetAwaiter().GetResult();
                 }
 
                 action();
@@ -1623,7 +1638,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     () =>
                     {
                         applyEntered.TrySetResult(true);
-                        releaseApply.Task.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+                        // 同期 callback の境界では、外側のテストが解放した結果を直接待つ。
+                        releaseApply.Task.GetAwaiter().GetResult();
                     }));
                 workspace.ApplyPlaylistEntriesHydrationCompleted(
                     requestedVersion,
@@ -1633,22 +1649,22 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     requestGeneration,
                     requestReceipt);
             });
-            await applyEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await applyEntered.Task.ConfigureAwait(false);
 
             currentLibrary = secondLibrary;
             Volatile.Write(ref replacementRouteExpected, 1);
             replacement = Task.Run(() => workspace.RefreshPlaylistTreeTables(secondPlaylist));
-            await replacementCallStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await replacementCallStarted.Task.ConfigureAwait(false);
             Assert.IsFalse(replacementRouteEntered.Task.IsCompleted);
             Assert.AreSame(firstPlaylist.BMSTables, workspace.PlaylistTreeTables);
 
             releaseApply.TrySetResult(true);
-            await replacementRouteEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await replacementRouteEntered.Task.ConfigureAwait(false);
             Assert.IsFalse(replacement.IsCompleted, "Store replacement must wait for the active terminal hydration apply.");
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             releaseReplacementNotification.TrySetResult(true);
             hydration = Task.Run(scheduledHydration!);
-            await Task.WhenAll(apply, replacement, hydration).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(apply, replacement, hydration).ConfigureAwait(false);
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             Assert.AreEqual(
                 firstPlaylist.PlaylistEntriesHydrationRequestedVersion,
@@ -1671,10 +1687,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
                 try
                 {
-                    await Task.WhenAll(pendingTasks).WaitAsync(TimeSpan.FromSeconds(5));
+                    await Task.WhenAll(pendingTasks).ConfigureAwait(false);
                 }
-                catch when (primaryFailure != null)
+                catch (Exception cleanupFailure) when (primaryFailure != null)
                 {
+                    TestContext.WriteLine("playlist tree replacement cleanup: " + cleanupFailure);
                 }
             }
             if (Directory.Exists(tempDirectory))

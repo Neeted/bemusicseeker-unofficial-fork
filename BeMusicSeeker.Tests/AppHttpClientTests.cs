@@ -122,22 +122,19 @@ public sealed class AppHttpClientTests
         Exception? primaryFailure = null;
         try
         {
-            // The request owns its deadline before headers. Advance virtual time only
-            // after each client-side phase, not while waiting for a pool thread or socket.
-            await handler.RequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // 要求側の失敗を phase 待ちに隠さず、各段階の通知を直接観測する。
+            await AwaitPhaseOrRequestAsync(handler.RequestStarted.Task, request, "request started");
             clock.Advance(TimeSpan.FromSeconds(20));
             Assert.IsFalse(handler.RequestCancellation.IsCancellationRequested);
             handler.ReleaseHeaders.TrySetResult();
-            await handler.Body.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await AwaitPhaseOrRequestAsync(handler.Body.ReadStarted.Task, request, "body read started");
             Assert.IsFalse(handler.Body.ReadCancellation.IsCancellationRequested);
 
             clock.Advance(TimeSpan.FromSeconds(10));
 
-            // A fresh body deadline, a missing read token, or a task-only timeout fails
-            // here without relying on how promptly an overloaded worker resumes.
             Assert.IsTrue(handler.Body.ReadCancellation.IsCancellationRequested,
                 "The original request deadline must cancel the actual pending body read.");
-            await AssertRequestCancelledAsync(request.WaitAsync(TimeSpan.FromSeconds(5)));
+            await AssertRequestCancelledAsync(request);
             Assert.IsTrue(handler.Body.IsDisposed, "Request completion must release the response stream.");
         }
         catch (Exception failure)
@@ -151,7 +148,7 @@ public sealed class AppHttpClientTests
             handler.Body.Release.TrySetResult(0);
             try
             {
-                await request.WaitAsync(TimeSpan.FromSeconds(5));
+                await request.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -181,12 +178,12 @@ public sealed class AppHttpClientTests
         {
             // ヘッダー直後と本文途中を signal で分ける。短い delay で race を推定しない。
             Task responsePhase = cancelBeforeBodyPrefix ? server.HeadersSent.Task : server.BodyPrefixSent.Task;
-            await server.WaitForPhaseAsync(responsePhase, cancelBeforeBodyPrefix ? "headers sent" : "body prefix sent", TimeSpan.FromSeconds(5));
+            await server.WaitForPhaseAsync(responsePhase, cancelBeforeBodyPrefix ? "headers sent" : "body prefix sent");
             cancellation.Cancel();
-            await AssertRequestCancelledAsync(request.WaitAsync(TimeSpan.FromSeconds(5)));
+            await AssertRequestCancelledAsync(request);
             // 待ち手の Task だけを切り離す実装や、prefix 書込み後に監視を始める fixture は通さない。
             // ReleaseBodyPrefix / ReleaseBody / DisposeAsync より前に、実際の peer 切断を観測する。
-            await server.WaitForPhaseAsync(server.ClientDisconnected.Task, "peer disconnected", TimeSpan.FromSeconds(5));
+            await server.WaitForPhaseAsync(server.ClientDisconnected.Task, "peer disconnected");
         }
         catch (Exception failure)
         {
@@ -198,7 +195,7 @@ public sealed class AppHttpClientTests
             cancellation.Cancel();
             server.ReleaseBodyPrefix.TrySetResult();
             server.ReleaseBody.TrySetResult();
-            try { await request.WaitAsync(TimeSpan.FromSeconds(5)); }
+            try { await request.ConfigureAwait(false); }
             catch (OperationCanceledException) { }
             catch (Exception cleanupFailure) when (primaryFailure != null)
             {
@@ -286,6 +283,19 @@ public sealed class AppHttpClientTests
         try { await request; }
         catch (OperationCanceledException) { return; }
         Assert.Fail("未受信本文を成功として返さず、期限またはキャンセルで中止する。");
+    }
+
+    private static async Task AwaitPhaseOrRequestAsync(Task phase, Task request, string phaseName)
+    {
+        // phase だけを待つと、要求の先行失敗が全体の監視期限まで隠れる。
+        Task completed = await Task.WhenAny(phase, request).ConfigureAwait(false);
+        if (completed == request)
+        {
+            await request.ConfigureAwait(false);
+            Assert.Fail("HTTP request completed before " + phaseName + ".");
+        }
+
+        await phase.ConfigureAwait(false);
     }
 
     private static byte[] CreateUtf8BomBytes(string text)

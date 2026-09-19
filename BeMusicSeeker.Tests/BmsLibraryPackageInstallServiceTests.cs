@@ -541,13 +541,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             BMSFile lastOwner = BMSFile.CreateBMSFileFromFile(lastOwnerSourcePath);
             Assert.AreEqual(selectedShared.hash, survivingShared.hash);
 
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
                 foreach (BMSFile file in new[] { failed, selectedShared, survivingShared, lastOwner })
                 {
                     seedSongDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                 }
-            }
+            });
 
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             var library = new TestBmsLibrary(
@@ -1471,7 +1471,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 File.WriteAllBytes(pendingResourcePath, [1, 2, 3]);
             }
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
                 seedSongDb.CreateTable<LR2SongDBExtended.install>();
                 seedSongDb.InsertOrReplace(installedChart, typeof(LR2SongDB.song));
@@ -1479,7 +1479,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 seedSongDb.Execute(
                     "CREATE TRIGGER fail_resource_overwrite_install_delete BEFORE DELETE ON install "
                     + "BEGIN SELECT RAISE(ABORT, 'resource-overwrite-canonical-marker'); END;");
-            }
+            });
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
@@ -1655,10 +1655,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
     /// <summary>
     /// resource-only 導入はcatalogの譜面件数を増やさず、既存のBMSON owner・snapshotを
     /// 保持したまま、実resource移動とpending install rowのdurable receiptを完了します。
+    /// 背景16件は全件列挙を検出する閾値を上回り、resource-only操作の局所更新を確認できます。
+    /// 背景件数による時間・仕事量比較はこの契約に含めません。
     /// </summary>
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void OverwritePendingInstalledOnlyPackagesResources_UsesWarmCatalogWithoutChartDelta(int backgroundCount)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1760,7 +1761,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     sha256 = (index + 1).ToString("x8") + new string('f', 56)
                 });
             }
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
                 seedSongDb.InsertOrReplace(
                     CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(firstStep.FirstInstalled),
@@ -1780,7 +1781,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(backgroundSong),
                     typeof(LR2SongDBExtended.bmson_song));
                 }
-            }
+            });
 
             var library = new TestBmsLibrary(songDbPath)
             {
@@ -2387,7 +2388,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
 
             BMSLibrary.InstalledPrimaryHashWarmupResult primaryWarmup =
-                library.WarmInstalledPrimaryHashLookup("u5c1_primary_only_before_install");
+                library.WarmInstalledPrimaryHashLookup("primary_only_before_install");
             Assert.AreEqual("installed_primary_hash", primaryWarmup.IndexName);
             Assert.IsFalse(primaryWarmup.FullDirectoryLookupInitialized);
             Assert.IsTrue(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
@@ -2415,7 +2416,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             // 実導入後のprimary所有と、導入前に捕捉したsnapshotの不変性を確認します。
             BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
-                library.WarmInstalledPrimaryHashLookup("u5c2_primary_only_after_install");
+                library.WarmInstalledPrimaryHashLookup("primary_only_after_install");
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.AreEqual(2, updatedPrimary.PrimaryHashCount);
@@ -2503,7 +2504,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
 
             BMSLibrary.InstalledPrimaryHashWarmupResult primaryWarmup =
-                library.WarmInstalledPrimaryHashLookup("u5c1_exact_target_before_install");
+                library.WarmInstalledPrimaryHashLookup("exact_target_before_install");
             Assert.IsFalse(primaryWarmup.FullDirectoryLookupInitialized);
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
             IPrimaryHashLookup oldPrimary =
@@ -2530,7 +2531,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(library.BMSFiles.Any(file => file.path == oldPath && file.hash == oldChart.hash));
             // 推定先導入の確定結果をprimary lookupとDBから確認します。
             BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
-                library.WarmInstalledPrimaryHashLookup("u5c2_exact_target_after_install");
+                library.WarmInstalledPrimaryHashLookup("exact_target_after_install");
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.AreEqual(2, updatedPrimary.PrimaryHashCount);
@@ -2668,7 +2669,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             // 同digestを別配置へ導入した後もprimary所有が維持されることを確認します。
             BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
-                library.WarmInstalledPrimaryHashLookup("u5c2_hash_only_after_install");
+                library.WarmInstalledPrimaryHashLookup("hash_only_after_install");
             Assert.AreEqual(1, updatedPrimary.PrimaryHashCount);
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
@@ -2703,27 +2704,27 @@ public sealed class BmsLibraryPackageInstallServiceTests
     /// <summary>
     /// 自動導入も推定／強制導入と同じ本番catalog入口へ到達し、
     /// preflightで確定したdestinationをFS・SQLite・lookup・通知へ渡します。
-    /// warmな背景件数を変えても、新規2譜面分の局所差分だけで反映します。
+    /// 背景16件は新規2譜面によるprimary hash更新（最大8件）を上回るため、
+    /// 全件列挙なしの実observerを検出できます。背景件数による時間・仕事量比較はこの契約に含めません。
     /// </summary>
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void InstallChartPackagesAuto_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
         AssertNormalInstallRouteUsesPreflightDestinationAndWarmDelta("auto", backgroundCount);
     }
 
+    // 推定先導入も同じ実catalog入口と局所差分を通るため、autoと同じ16件の背景で確認します。
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void InstallPendingPackagesToEstimatedDestinations_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
         AssertNormalInstallRouteUsesPreflightDestinationAndWarmDelta("estimated", backgroundCount);
     }
 
+    // 強制導入も同じ実catalog入口と局所差分を通るため、autoと同じ16件の背景で確認します。
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void ForceInstallPendingPackages_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
         AssertNormalInstallRouteUsesPreflightDestinationAndWarmDelta("force", backgroundCount);
@@ -2796,7 +2797,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     "#TITLE Background " + index);
                 backgroundFiles.Add(BMSFile.CreateBMSFileFromFile(backgroundPath));
             }
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
                 foreach (BMSFile backgroundFile in backgroundFiles)
                 {
@@ -2804,7 +2805,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         backgroundFile.CreateSongRowPersistenceCopy(),
                         typeof(LR2SongDB.song));
                 }
-            }
+            });
 
             var library = new TestBmsLibrary(
                 songDbPath,
@@ -2875,6 +2876,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
             string? expectedSourcePath = null;
             string? expectedSourceHash = null;
+            var readOnlySongDbGateway = new BmsLibraryDbGateway(songDbPath);
             int notificationCount = 0;
             Exception? notificationInspectionFailure = null;
             library.PropertyChanged += (_, args) =>
@@ -2888,7 +2890,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 {
                     BMSFile notifiedFirst = library.BMSFiles.Single(file => file.hash == expectedSourceHash);
                     Assert.IsFalse(string.Equals(notifiedFirst.path, expectedSourcePath, StringComparison.OrdinalIgnoreCase));
-                    using var notifiedSongDb = new LR2SongDBExtended(songDbPath);
+                    // 通知の観測はSELECTだけなので、writer接続を使わず共有writer lockの保持を避けます。
+                    using var notifiedSongDb = readOnlySongDbGateway.OpenSongDbReadOnly();
                     Assert.AreEqual(
                         1,
                         notifiedSongDb.ExecuteScalar<int>(
@@ -2972,7 +2975,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     .Single(entry => entry.Chart.Md5 == step.FirstSource.hash);
                 Assert.AreEqual(firstDestinationPath, installedEntry.Chart.Path);
 
-                using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+                // 結果検証もSELECTだけなので、writer接続を使わず同じread-only経路を使います。
+                using (var verifySongDb = readOnlySongDbGateway.OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", firstDestinationPath));
                     Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", secondDestinationPath));
@@ -2983,7 +2987,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 OwnedChartHashIndexVersionedSnapshot updatedHash = library.GetOwnedChartHashIndexSnapshot();
                 OwnedChartHashIndexVersionedSnapshot cachedHash = library.GetOwnedChartHashIndexSnapshot();
                 BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
-                    library.WarmInstalledPrimaryHashLookup("u5c2_preflight_primary_after_install_" + stepIndex);
+                    library.WarmInstalledPrimaryHashLookup("preflight_primary_after_install_" + stepIndex);
                 IPrimaryHashLookup currentPrimary =
                     OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
                 Assert.AreEqual(backgroundCount + ((stepIndex + 1) * 2), updatedPrimary.PrimaryHashCount);
@@ -4984,14 +4988,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 package.delete_parent = false;
                 packages.Add(package);
             }
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
                 seedSongDb.CreateTable<LR2SongDBExtended.install>();
                 foreach (ChartPackage package in packages)
                 {
                     seedSongDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
                 }
-            }
+            });
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
@@ -6740,13 +6744,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            }
+            });
             testAction(songDbPath, tempRootPath);
         }
         finally

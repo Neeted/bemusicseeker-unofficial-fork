@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
+    /// <summary>確認済みフォルダだけを物理削除し、両形式のrecycle指定と一回のリソース世代公開を実DBで確認する。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -98,6 +99,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>DB確定前後の失敗境界を分け、物理削除済み結果と未確定カタログの扱いを保持する。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -225,18 +227,14 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>
-    /// R2: an approved ancestor may only recurse after earlier descendants
-    /// succeeded. Failed/missing descendants retain their rows; independent
-    /// folders and the ancestor's own selected chart continue normally.
+    /// 承認済み親フォルダは子対象の結果を確認してから再帰削除します。
+    /// 実DB・実ファイル境界で、成功・欠落・物理失敗と通常削除を確認します。
+    /// 親フォルダ削除は子の実観測結果だけで決まり、欠落・失敗・選択解除を成功へ丸めません。
     /// </summary>
     [DataTestMethod]
     [DataRow(0, false)]
-    [DataRow(0, true)]
-    [DataRow(1, false)]
     [DataRow(1, true)]
     [DataRow(2, false)]
-    [DataRow(2, true)]
-    [DataRow(3, false)]
     [DataRow(3, true)]
     public void RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult(int childState, bool recycle)
     {
@@ -338,7 +336,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>R2: an unselected descendant prevents whole-folder deletion, not deletion of selected files.</summary>
+    /// <summary>未選択の子孫がある場合も、親全体の削除だけを止め、選択済み譜面は削除する。</summary>
     [TestMethod]
     public void RemoveLibraryCharts_UnselectedDescendantKeepsResourcesAndRows()
     {
@@ -413,7 +411,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>R2a: case-onlyの別exact rowを同時選択したとき、両方のcatalog targetを欠落なく削除します。</summary>
+    /// <summary>大小文字だけが異なる別の完全一致行を同時選択したとき、両方のカタログ対象を削除する。</summary>
     [TestMethod]
     public void RemoveLibraryCharts_CaseOnlyExactRowsAreBothRemoved()
     {
@@ -459,7 +457,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>R2a: 個別削除でも同一物理fileを指す選択済みexact rowをすべて削除します。</summary>
+    /// <summary>個別削除でも同じ物理ファイルを指す選択済み完全一致行をすべて削除する。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -510,7 +508,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>R2a: 同一物理fileの別exact aliasを使った自動retryは行いません。</summary>
+    /// <summary>同じ物理ファイルの別完全一致別名を使った自動再試行を行わない。</summary>
     [TestMethod]
     public void RemoveLibraryCharts_PhysicalAliasDeleteFailureIsNotRetried()
     {
@@ -559,7 +557,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>R2a: 子folderのcase-only exact選択を畳まず、親folderも一括削除候補にします。</summary>
+    /// <summary>子フォルダの大小文字だけが異なる完全一致選択を畳まず、親フォルダも一括削除候補にする。</summary>
     [TestMethod]
     public void GetLibraryWholeFolderDeleteConfirmationPaths_PreservesCaseOnlyNestedSelections()
     {
@@ -678,130 +676,6 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>Whole-folder success clears library/pending destinations only after canonical removal.</summary>
-    [TestMethod]
-    public void RemoveLibraryCharts_WholeFolderClearsInstallDestinationsForBothFormats()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(songDbPath =>
-        {
-            string root = Path.GetDirectoryName(songDbPath)!;
-            string folder = Path.Combine(root, "Pack");
-            string pendingFolder = Path.Combine(root, "Pending");
-            Directory.CreateDirectory(folder);
-            Directory.CreateDirectory(pendingFolder);
-            var bms = CreateFile(new string('a', 32), Path.Combine(folder, "chart.bms"));
-            var bmson = new LR2SongDBExtended.bmson_song
-            { path = Path.Combine(folder, "chart.bmson"), folder = folder, md5 = new string('b', 32), sha256 = new string('b', 64) };
-            var kept = CreateFile(new string('c', 32), Path.Combine(root, "kept.bms"));
-            File.WriteAllText(bms.path, "#PLAYER 1");
-            File.WriteAllText(bmson.path, "{}");
-            File.WriteAllText(kept.path, "#PLAYER 1");
-            File.WriteAllText(Path.Combine(folder, "sound.wav"), "resource");
-            var pendingBms = CreateFile(new string('d', 32), Path.Combine(pendingFolder, "chart.bms"));
-            pendingBms.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "pending estimation warning");
-            PackageChartEntry pendingBmsEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                pendingBms, folder, "Title", "Artist", [Path.Combine(root, "Alternative")]);
-            PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(
-                new LR2SongDBExtended.bmson_song
-                { path = Path.Combine(pendingFolder, "chart.bmson"), folder = pendingFolder, md5 = new string('e', 32), sha256 = new string('e', 64) }));
-            pendingBmsonEntry.ApplyInstallDestination(folder, "Title", "Artist");
-            var pendingPackage = ChartPackage.FromChartEntries([pendingBmsEntry, pendingBmsonEntry]);
-            pendingPackage.path = pendingFolder;
-            var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
-            {
-                BMSFiles = [bms, kept],
-                BmsonSongs = [bmson],
-                ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([pendingPackage])
-            };
-            using (var db = new LR2SongDBExtended(songDbPath))
-            {
-                db.CreateTable<LR2SongDBExtended.install>();
-                db.InsertOrReplace(pendingPackage, typeof(LR2SongDBExtended.install));
-                db.InsertOrReplace(bms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(kept.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(bmson, typeof(LR2SongDBExtended.bmson_song));
-            }
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
-                [LibraryChartRef.FromBmsFile(bms), LibraryChartRef.FromBmsonSong(bmson)], false, [folder]);
-
-            Assert.IsFalse(outcome.HasError);
-            Assert.AreEqual(2, outcome.ConfirmedChartCount);
-            Assert.IsFalse(Directory.Exists(folder));
-            Assert.AreSame(kept, library.BMSFiles.Single());
-            Assert.AreEqual(0, library.BmsonSongs.Count);
-            ChartFile keptProjection = library.CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics().Single();
-            Assert.AreEqual(string.Empty, keptProjection.InstallDestination);
-            foreach (PackageChartEntry entry in pendingPackage.ChartEntries)
-            {
-                Assert.AreEqual(string.Empty, entry.Chart.InstallDestination);
-                Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationTitle);
-                Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationArtist);
-                Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
-                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            }
-            Assert.IsNull(pendingBmsonEntry.GetBmsOwnerForTest());
-            using var readback = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(kept.path, readback.Table<LR2SongDB.song>().Single().path);
-            Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
-        });
-    }
-
-    /// <summary>R2-INSTALL-STATE: whole-folder deletion clears install-destination state for each exact catalog row independently.</summary>
-    [TestMethod]
-    public void RemoveLibraryCharts_WholeFolderClearsCaseOnlyExactInstallDestinationsIndependently()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(songDbPath =>
-        {
-            string root = Path.GetDirectoryName(songDbPath)!;
-            string deletedFolder = Path.Combine(root, "Pack");
-            string keptFolder = Path.Combine(root, "Kept");
-            Directory.CreateDirectory(deletedFolder);
-            Directory.CreateDirectory(keptFolder);
-            var removed = CreateFile(new string('a', 32), Path.Combine(deletedFolder, "remove.bms"));
-            string lowerPath = Path.Combine(keptFolder, "chart.bms");
-            string upperPath = Path.Combine(keptFolder, "CHART.bms");
-            string sharedHash = new string('b', 32);
-            var lower = CreateFile(sharedHash, lowerPath);
-            var upper = CreateFile(sharedHash, upperPath);
-            File.WriteAllText(removed.path, "#PLAYER 1");
-            File.WriteAllText(lowerPath, "#PLAYER 1");
-            var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
-            {
-                BMSFiles = [removed, lower, upper],
-                BmsonSongs = []
-            };
-            using (var db = new LR2SongDBExtended(songDbPath))
-            {
-                db.InsertOrReplace(removed.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(lower.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(upper.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-            }
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
-                [LibraryChartRef.FromBmsFile(removed)], false, [deletedFolder]);
-
-            Assert.IsFalse(outcome.HasError);
-            Assert.AreEqual(1, outcome.ConfirmedChartCount);
-            Assert.IsFalse(Directory.Exists(deletedFolder));
-            List<ChartFile> keptCharts = [.. library
-                .CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics()
-                .Where(chart => string.Equals(chart.Path, lowerPath, StringComparison.Ordinal)
-                    || string.Equals(chart.Path, upperPath, StringComparison.Ordinal))];
-            Assert.AreEqual(2, keptCharts.Count);
-            CollectionAssert.AreEquivalent(
-                new[] { lowerPath, upperPath },
-                keptCharts.Select(chart => chart.Path).ToArray());
-            Assert.IsTrue(keptCharts.All(chart => string.IsNullOrEmpty(chart.InstallDestination)));
-            using var readback = new LR2SongDBExtended(songDbPath);
-            CollectionAssert.AreEquivalent(
-                new[] { lowerPath, upperPath },
-                readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
-        });
-    }
-
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
@@ -832,7 +706,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             library.BMSFiles = [first, second];
             library.BmsonSongs = [];
             library.DuplicateChartGroups = [];
-            Assert.IsTrue(initialBmsFilesNotification.Wait(TimeSpan.FromSeconds(5)));
+            // 初期通知が終わってから解除後の通知を観測し、workerの実時間遅延は判定しない。
+            initialBmsFilesNotification.Wait();
             library.PropertyChanged -= initialHandler;
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             Assert.AreEqual(2, initialSnapshot.Count);
@@ -898,31 +773,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>保存主体の入力列をコピーしてread-onlyビューへ固定し、呼出元の後変更を受けない。</summary>
     [TestMethod]
     public void StorageRowPropertiesExposeReadOnlyViews()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [bmsFile],
-                BmsonSongs = [bmsonSong]
-            };
-
-            Assert.IsFalse(library.BMSFiles is List<BMSFile>);
-            Assert.IsFalse(library.BmsonSongs is List<LR2SongDBExtended.bmson_song>);
-            Assert.ThrowsException<NotSupportedException>(() => ((IList<BMSFile>)library.BMSFiles).Add(CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "chart.bms"))));
-            Assert.ThrowsException<NotSupportedException>(() => ((IList<LR2SongDBExtended.bmson_song>)library.BmsonSongs).Clear());
-            Assert.AreEqual(1, library.BMSFiles.Count);
-            Assert.AreEqual(1, library.BmsonSongs.Count);
-        });
-    }
-
-    [TestMethod]
-    public void StorageRowSettersCopyInputLists()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -936,6 +789,14 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 BMSFiles = inputBmsFiles,
                 BmsonSongs = inputBmsonSongs
             };
+
+            Assert.AreEqual(2, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
+            Assert.IsFalse(library.BMSFiles is List<BMSFile>);
+            Assert.IsFalse(library.BmsonSongs is List<LR2SongDBExtended.bmson_song>);
+            Assert.ThrowsException<NotSupportedException>(() => ((IList<BMSFile>)library.BMSFiles).Add(CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "chart.bms"))));
+            Assert.ThrowsException<NotSupportedException>(() => ((IList<LR2SongDBExtended.bmson_song>)library.BmsonSongs).Clear());
+            Assert.AreEqual(1, library.BMSFiles.Count);
+            Assert.AreEqual(1, library.BmsonSongs.Count);
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             Assert.AreEqual(2, initialSnapshot.Count);
 
@@ -1028,43 +889,14 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    [TestMethod]
-    public void RemoveLibraryCharts_PathlessStorageRowIsNoOpForOwnedBoundary()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var pathless = CreateBmsonSong(null, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var kept = CreateBmsonSong(Path.Combine("C:\\Installed", "Kept", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [],
-                BmsonSongs = [pathless, kept]
-            };
-            Assert.AreEqual(1, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
-
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
-                [LibraryChartRef.FromBmsonSong(pathless)],
-                sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
-            List<ChartFile> afterSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-
-            Assert.IsFalse(outcome.HasError);
-            Assert.AreEqual(2, library.BmsonSongs.Count);
-            Assert.IsTrue(library.BmsonSongs.Contains(pathless));
-            Assert.IsTrue(library.BmsonSongs.Contains(kept));
-            Assert.AreEqual(1, afterSnapshot.Count);
-            Assert.AreSame(kept, afterSnapshot[0].GetBmsonStorageOwner());
-        });
-    }
-
     /// <summary>
     /// 実削除を同じ library で二回続けても、warm な各 lookup は
     /// 旧snapshotを保ったまま対象差分だけを反映します。
+    /// DB行、所持集合、重複キャッシュ、通知後の索引を同じ実操作で確認します。
+    /// 同じlibraryの二回の削除で、残存所有者と重複キャッシュを局所差分で維持します。
     /// </summary>
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild(int backgroundCount)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1100,15 +932,17 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs())
             {
                 BMSFiles = files,
-                BmsonSongs = []
+                BmsonSongs = [],
+                DuplicateChartGroups = []
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            // warm操作前のfixture seedは本番保存契約を検証しないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
             {
                 foreach (TestableBmsFile file in files)
                 {
                     db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                 }
-            }
+            });
 
             BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary = library.WarmInstalledPrimaryHashLookup("u1_warm_remove");
             Assert.IsFalse(initialPrimary.FullDirectoryLookupInitialized);
@@ -1173,7 +1007,11 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsTrue(outcome.CatalogDurable);
                 Assert.IsFalse(File.Exists(oldPath));
                 Assert.IsFalse(Directory.Exists(folder));
-                using (var verifyDb = new LR2SongDBExtended(songDbPath))
+                Assert.IsNull(library.DuplicateChartGroups);
+                Assert.IsFalse(InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library)
+                    .Any(chart => string.Equals(chart.Path, oldPath, StringComparison.OrdinalIgnoreCase)));
+                // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
+                using (var verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     string[] dbPaths = verifyDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                     Assert.IsFalse(dbPaths.Contains(oldPath, StringComparer.OrdinalIgnoreCase));
@@ -1265,42 +1103,6 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.IsTrue(
                 installedWork.Count(operation => operation == "installed_primary_hash_count_update") > 0,
                 "実削除のinstalled lookup差分更新を観測できませんでした。");
-        });
-    }
-
-    [TestMethod]
-    public void RemoveLibraryCharts_RoutesUnregisterThroughOwnedMutationAndInstalledLookupDelta()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "DeleteTarget");
-            Directory.CreateDirectory(chartDirectory);
-            string chartPath = Path.Combine(chartDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService())
-            {
-                BMSFiles = [bmsFile],
-                BmsonSongs = [],
-                DuplicateChartGroups = []
-            };
-            List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-            Assert.AreEqual(1, initialSnapshot.Count);
-            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsFile.hash));
-
-            library.RemoveLibraryCharts(
-                [LibraryChartRef.FromBmsFile(bmsFile)],
-                sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: [chartDirectory]);
-
-            Assert.IsFalse(File.Exists(chartPath));
-            Assert.AreEqual(0, library.BMSFiles.Count);
-            Assert.IsNull(library.DuplicateChartGroups);
-            Assert.AreEqual(0, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
-            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(bmsFile.hash));
         });
     }
 

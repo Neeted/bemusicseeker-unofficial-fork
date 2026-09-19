@@ -271,7 +271,6 @@ public sealed class ShellShutdownWorkflowOwnerTests
             markShutdown: _ => shutdownEntered.TrySetResult(true));
 
         Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
-        Task<ShellShutdownWorkflowCompletionReceipt>? closeCompletion = null;
         ExceptionDispatchInfo? bodyFailure = null;
         Exception? cleanupFailure = null;
         try
@@ -280,8 +279,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             {
                 close = owner.RequestWindowCloseAsync();
 
-                await shutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                await interactionBlocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await shutdownEntered.Task;
+                await interactionBlocked.Task;
                 Assert.IsTrue(owner.IsShutdownPreparationStarted);
                 Assert.IsTrue(owner.IsShutdownPreparationRunning);
                 Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
@@ -289,8 +288,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 Assert.IsFalse(owner.IsShutdownPrepared);
                 regularChartStopRelease.TrySetResult(true);
 
-                closeCompletion = close.WaitAsync(TimeSpan.FromSeconds(5));
-                ShellShutdownWorkflowCompletionReceipt receipt = await closeCompletion;
+                ShellShutdownWorkflowCompletionReceipt receipt = await close;
 
                 Assert.IsTrue(receipt.PreparationSucceeded);
                 Assert.IsTrue(receipt.CloseAllowed);
@@ -311,9 +309,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             {
                 try
                 {
-                    // Wait on the underlying operation again rather than reusing a
-                    // timed-out wrapper; WaitAsync does not cancel the shutdown.
-                    await close.WaitAsync(TimeSpan.FromSeconds(5));
+                    // 受付済みの shutdown を解放後まで回収し、次のテストへ処理を残さない。
+                    await close;
                 }
                 catch (Exception exception)
                 {
@@ -378,7 +375,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
 
-        Assert.IsTrue(drainEntered.Wait(TimeSpan.FromSeconds(5)));
+        drainEntered.Wait();
         Assert.IsFalse(close.IsCompleted);
 
         drainRelease.SetResult(true);
@@ -429,7 +426,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
 
         Assert.IsTrue(startupUpdate.Start());
-        Assert.IsTrue(checkEntered.Wait(TimeSpan.FromSeconds(5)));
+        checkEntered.Wait();
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
         Assert.IsFalse(close.IsCompleted);
@@ -489,12 +486,12 @@ public sealed class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, startupUpdate: startupUpdate);
         Assert.IsTrue(startupUpdate.Start());
-        Assert.IsTrue(startEntered.Wait(TimeSpan.FromSeconds(5)));
+        startEntered.Wait();
         Assert.IsFalse(owner.IsShutdownPreparationStarted);
 
         startRelease.SetResult(true);
-        await startupUpdate.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
-        await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await startupUpdate.WaitForIdleAsync();
+        await startupUpdate.WaitForTerminalAsync();
         Assert.IsTrue(owner.IsShutdownPrepared);
 
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
@@ -539,8 +536,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
         modeRequestRelease.SetResult(true);
 
-        Assert.IsFalse(await modeRequest.WaitAsync(TimeSpan.FromSeconds(5)));
-        ShellShutdownWorkflowCompletionReceipt receipt = await close.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(await modeRequest);
+        ShellShutdownWorkflowCompletionReceipt receipt = await close;
 
         Assert.IsTrue(receipt.PreparationSucceeded);
         Assert.AreEqual(0, settingsSession.SaveCount);
@@ -571,7 +568,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         owner.OperationModeRestartRequested += () => Assert.Fail("先に受理した更新終了を置き換えてはいけません。");
 
         Assert.IsTrue(startupUpdate.Start());
-        await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await startupUpdate.WaitForTerminalAsync();
         Assert.IsTrue(startupUpdate.IsShutdownPreparationStarted);
         Assert.IsFalse(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(true, "later-mode")));
         Assert.AreEqual(0, settingsSession.SaveCount);
@@ -629,7 +626,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         try
         {
             Assert.IsTrue(startupUpdate.Start());
-            await launchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await launchEntered.Task;
             Assert.IsTrue(await owner.RequestOperationModeRestartAsync(
                 new OperationModeRestartRequest(true, "history-mode-wins")));
             Assert.IsNotNull(close);
@@ -637,11 +634,11 @@ public sealed class ShellShutdownWorkflowOwnerTests
         finally
         {
             launchRelease.TrySetResult(true);
-            await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await startupUpdate.WaitForTerminalAsync();
         }
-        await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
-        ShellShutdownWorkflowCompletionReceipt receipt = await close!.WaitAsync(TimeSpan.FromSeconds(5));
-        await owner.CompleteTerminalShutdownAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await startupUpdate.WaitForTerminalAsync();
+        ShellShutdownWorkflowCompletionReceipt receipt = await close!;
+        await owner.CompleteTerminalShutdownAsync();
         owner.RequestTerminalApplicationShutdown();
 
         Assert.IsTrue(receipt.PreparationSucceeded);
@@ -724,25 +721,66 @@ public sealed class ShellShutdownWorkflowOwnerTests
             isShutdownRequested: false));
         Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
         Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("detail_worker");
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        ShutdownPreparationResult? preparationResult = null;
 
         try
         {
             await workspace.WaitForDetailRequestCompletionAsync(request.RequestVersion)
-                .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                .ConfigureAwait(false);
             Assert.IsFalse(workerIdle.IsCompleted);
             Assert.IsFalse(preparation.IsCompleted);
         }
+        catch (Exception exception)
+        {
+            bodyFailure = ExceptionDispatchInfo.Capture(exception);
+        }
         finally
         {
-            PlaylistDetailBuildQueueCoordinator.CompleteIteration(
-                workspace.DetailBuildState,
-                buildCancellation,
-                activeRequest);
-            PlaylistDetailBuildQueueCoordinator.FinishWorkerAfterFailure(workspace.DetailBuildState);
+            try
+            {
+                PlaylistDetailBuildQueueCoordinator.CompleteIteration(
+                    workspace.DetailBuildState,
+                    buildCancellation,
+                    activeRequest);
+                PlaylistDetailBuildQueueCoordinator.FinishWorkerAfterFailure(workspace.DetailBuildState);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+            }
+
+            try
+            {
+                // 取消後の要求終端と worker idle を、ゲート解放後に必ず回収する。
+                await Task.WhenAll(workerIdle, preparation).ConfigureAwait(false);
+                preparationResult = preparation.Result;
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= exception;
+            }
         }
 
-        await workerIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-        ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The detail shutdown assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+
+        ShutdownPreparationResult result = preparationResult
+            ?? throw new AssertFailedException("Shutdown preparation did not complete.");
         Assert.IsFalse(result.SlowWaitLogged);
         Assert.AreEqual(0, warnings.Count);
     }
@@ -764,20 +802,61 @@ public sealed class ShellShutdownWorkflowOwnerTests
             playlistWorkspace: workspace,
             logShutdownWarning: warnings.Add);
         Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("summary_build");
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        ShutdownPreparationResult? preparationResult = null;
 
         try
         {
-            await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            await cancellationObserved.Task.ConfigureAwait(false);
             Assert.IsFalse(summaryIdle.IsCompleted);
             Assert.IsFalse(preparation.IsCompleted);
         }
+        catch (Exception exception)
+        {
+            bodyFailure = ExceptionDispatchInfo.Capture(exception);
+        }
         finally
         {
-            workspace.CompletePlaylistSummaryDataBuild(buildRequest);
+            try
+            {
+                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+            }
+
+            try
+            {
+                // summary の cancellation 通知後に、idle と shutdown preparation を所有する。
+                await Task.WhenAll(summaryIdle, preparation).ConfigureAwait(false);
+                preparationResult = preparation.Result;
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= exception;
+            }
         }
 
-        await summaryIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-        ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The summary shutdown assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+
+        ShutdownPreparationResult result = preparationResult
+            ?? throw new AssertFailedException("Shutdown preparation did not complete.");
         Assert.IsFalse(result.SlowWaitLogged);
         Assert.AreEqual(0, warnings.Count);
     }
@@ -821,23 +900,56 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 },
                 logShutdownWarning: warnings.Add);
             Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
-            await dispatcherEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            await dispatcherEntered.Task.ConfigureAwait(false);
             Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
             Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("reload_cleanup");
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
+            ShutdownPreparationResult? preparationResult = null;
 
             try
             {
-                await shutdownMarked.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                await shutdownMarked.Task.ConfigureAwait(false);
                 Assert.IsFalse(cleanupIdle.IsCompleted);
                 Assert.IsFalse(preparation.IsCompleted);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
             }
             finally
             {
                 dispatcherRelease.TrySetResult(true);
+                try
+                {
+                    // reload cleanup の gate 解放後に、idle と preparation を同じ finally で回収する。
+                    await Task.WhenAll(cleanupIdle, preparation).ConfigureAwait(false);
+                    preparationResult = preparation.Result;
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = exception;
+                }
             }
 
-            await cleanupIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    throw new AggregateException(
+                        "The reload cleanup assertion failed and cleanup also failed.",
+                        bodyFailure.SourceException,
+                        cleanupFailure);
+                }
+                bodyFailure.Throw();
+            }
+            if (cleanupFailure != null)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            }
+
+            ShutdownPreparationResult result = preparationResult
+                ?? throw new AssertFailedException("Shutdown preparation did not complete.");
             Assert.IsFalse(result.SlowWaitLogged);
             Assert.AreEqual(0, garbageCollectionCount);
             Assert.AreEqual(0, warnings.Count);
@@ -874,7 +986,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
                 {
                     installEntered.Set();
-                    Assert.IsTrue(releaseInstall.Wait(5000), "The package install was not released.");
+                    releaseInstall.Wait();
                     return [];
                 }),
                 action =>
@@ -892,13 +1004,13 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 logShutdownWarning: warnings.Add);
             owner.AttachLibrary(library);
             packageInstall.Enqueue([Path.Combine(root, "pending.zip")]);
-            Assert.IsTrue(installEntered.Wait(5000), "The package install did not start.");
+            installEntered.Wait();
 
             Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("package_install");
             Assert.IsFalse(preparation.IsCompleted, "Preparation must wait for the package receipt.");
             releaseInstall.Set();
 
-            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+            ShutdownPreparationResult result = await preparation;
             Assert.IsFalse(result.SlowWaitLogged);
             Assert.AreEqual(0, warnings.Count);
         }
@@ -946,14 +1058,14 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
             maintenance.AttachLibrary(library);
             Assert.IsTrue((await maintenance.RequestStartAsync()).Started);
-            Assert.IsTrue(maintenanceEntered.Wait(TimeSpan.FromSeconds(5)));
+            maintenanceEntered.Wait();
 
             Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("maintenance_receipt");
             Assert.IsFalse(preparation.IsCompleted, "Preparation must wait for the maintenance receipt.");
 
             maintenanceRelease.TrySetResult(true);
-            await maintenance.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+            await maintenance.WaitForIdleAsync();
+            ShutdownPreparationResult result = await preparation;
             Assert.AreEqual("maintenance_receipt", result.Reason);
             Assert.IsFalse(result.SlowWaitLogged);
         }
@@ -996,14 +1108,14 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
             folder.AttachLibrary(library);
             await folder.RequestStartAllAsync(root);
-            Assert.IsTrue(folderEntered.Wait(TimeSpan.FromSeconds(5)));
+            folderEntered.Wait();
 
             Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("folder_receipt");
             Assert.IsFalse(preparation.IsCompleted, "Preparation must wait for the folder receipt.");
 
             folderRelease.TrySetResult(true);
-            await folder.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+            await folder.WaitForIdleAsync();
+            ShutdownPreparationResult result = await preparation;
             Assert.AreEqual("folder_receipt", result.Reason);
             Assert.IsFalse(result.SlowWaitLogged);
         }

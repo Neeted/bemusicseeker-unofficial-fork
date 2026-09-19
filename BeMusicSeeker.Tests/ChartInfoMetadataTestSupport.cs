@@ -490,6 +490,10 @@ internal static class ChartInfoMetadataTestSupport
         Action<ChartInfoStorageCommitPublication>? storageCommitPublished = null,
         IReadOnlyDictionary<string, LR2SongDBExtended.chart_info>? existingRowsSnapshot = null)
     {
+        var mutationOwner = new CatalogMutationOwner(
+            new CatalogStorageRowsOwner(),
+            new CatalogOwnedCollectionOwner(),
+            gateway);
         return service.BackfillChartInfos(
             gateway,
             CreateChartSnapshot(currentFiles, currentBmsonSongs),
@@ -498,61 +502,7 @@ internal static class ChartInfoMetadataTestSupport
             logInstallPerformanceWarn,
             storageCommitPublished,
             existingRowsSnapshot,
-            request => ApplyChartInfoStorageRequest(gateway, request));
-    }
-
-    internal static CatalogChartInfoStorageWriteReceipt ApplyChartInfoStorageRequest(
-        BmsLibraryDbGateway gateway,
-        CatalogChartInfoStorageWriteRequest request,
-        Action<LR2SongDBExtended>? afterWrites = null)
-    {
-        if (request == null || !request.HasChanges)
-        {
-            return CatalogChartInfoStorageWriteReceipt.NotApplied;
-        }
-        Lr2ChartInfoSongProjectionWriteResult songProjectionResult =
-            Lr2ChartInfoSongProjectionWriteResult.Empty;
-        gateway.ExecuteSongDbTransaction(songDb =>
-        {
-            if (request.BmsRows.Count > 0)
-            {
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
-                Lr2SongDbWriter.UpsertGeneratedSongs(songDb, request.BmsRows);
-            }
-            if (request.ChartInfoSongProjections.Count > 0)
-            {
-                songProjectionResult = Lr2SongDbWriter.UpdateChartInfoSongProjections(
-                    songDb,
-                    request.ChartInfoSongProjections);
-            }
-            if (request.BmsonRows.Count > 0)
-            {
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                foreach (LR2SongDBExtended.bmson_song row in request.BmsonRows)
-                {
-                    songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
-                }
-            }
-            BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
-                songDb,
-                request.ChartInfo.DigestEntries,
-                request.ChartInfo.ChartInfoRows,
-                request.ChartInfo.ParseFailureRows,
-                request.ChartInfo.ParseFailureDeleteMd5s);
-            afterWrites?.Invoke(songDb);
-        });
-        return new CatalogChartInfoStorageWriteReceipt(
-            applied: true,
-            request.BmsRows.Count,
-            request.BmsonRows.Count,
-            new CatalogChartInfoWriteReceipt(
-                applied: request.ChartInfo.HasChanges,
-                request.ChartInfo.DigestEntries.Count,
-                request.ChartInfo.ChartInfoRows.Count,
-                request.ChartInfo.ParseFailureRows.Count,
-                request.ChartInfo.ParseFailureDeleteMd5s.Count),
-            songProjectionResult);
+            mutationOwner.ApplyChartInfoStorageWrite);
     }
 
     internal static List<ChartFile> CreateChartSnapshot(

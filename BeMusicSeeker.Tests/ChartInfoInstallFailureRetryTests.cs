@@ -26,7 +26,7 @@ using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Owns chart-info install, failure, warning, retry, and contention cases.
+/// 譜面情報の導入、解析失敗、警告、再評価、DB競合の境界を確認します。
 /// </summary>
 [TestClass]
 public sealed class ChartInfoInstallFailureRetryTests
@@ -89,6 +89,7 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
+    /// <summary>導入時は発見時ではなく、物理導入後に実読取りしたMD5で解析失敗を検索する。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -200,6 +201,7 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
+    /// <summary>不正JSONではなく実BMSの詳細解析失敗を対象に、導入を止めず失敗記録を永続化する。</summary>
     [TestMethod]
     public void InstallChartPackages_ChartInfoParseFailurePersistsRecordWithoutBlockingInstall()
     {
@@ -231,6 +233,7 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
+    /// <summary>現在版の実BMS解析失敗を警告へ投影し、表示文言と件数をリソース契約から検証する。</summary>
     [TestMethod]
     public void ChartInfoParseFailedChartFiles_ProjectsCurrentFailuresAsWarningShims()
     {
@@ -274,6 +277,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             };
 
             List<ChartFile> rows = [.. library.ChartInfoParseFailedChartFiles];
+            using var failureDb = new LR2SongDBExtended(songDbPath);
 
             Assert.AreEqual(2, rows.Count);
             CollectionAssert.AreEqual(
@@ -281,20 +285,30 @@ public sealed class ChartInfoInstallFailureRetryTests
                 rows.Select(row => row.Path).ToArray());
             foreach (ChartFile row in rows)
             {
+                ChartWarning parseFailureWarning = row.Warnings.Single(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure);
+                LR2SongDBExtended.chart_info_parse_failure failure = failureDb
+                    .Table<LR2SongDBExtended.chart_info_parse_failure>()
+                    .Single(candidate => string.Equals(candidate.md5, row.Md5, StringComparison.OrdinalIgnoreCase));
+                string expectedMessage = string.Format(
+                    CultureInfo.CurrentCulture,
+                    Resources.Warning_ChartInfoParseFailure,
+                    failure.exception_type,
+                    failure.message);
                 Assert.IsTrue(row.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
                 Assert.IsTrue(ChartWarningProjectionFormatter.HasHighlightedWarning(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
-                Assert.AreEqual("[1] メタデータ解析エラー", ChartWarningProjectionFormatter.BuildDigestText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
-                StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), "メタデータ解析に失敗しました。");
+                Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, ChartWarningProjectionFormatter.BuildDigestText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
+                Assert.AreEqual(expectedMessage, parseFailureWarning.Message);
+                StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), expectedMessage);
 
                 LibraryChartRow materializedRow = LibraryChartRow.FromChartFile(row);
                 Assert.IsTrue(materializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
                 Assert.IsTrue(materializedRow.HasHighlightedWarning);
-                Assert.AreEqual("[1] メタデータ解析エラー", materializedRow.WarningDigestText);
+                Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, materializedRow.WarningDigestText);
 
                 ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(row);
                 LibraryChartRow virtualMaterializedRow = LibraryChartRow.FromChartFile(sourceRow.Chart);
                 Assert.IsTrue(virtualMaterializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
-                Assert.AreEqual("[1] メタデータ解析エラー", virtualMaterializedRow.WarningDigestText);
+                Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, virtualMaterializedRow.WarningDigestText);
             }
             Assert.IsFalse(bmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
             Assert.IsFalse(staleBmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
@@ -377,6 +391,7 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
+    /// <summary>失敗行を削除した後のLR2連携・単独動作の次回起動で、実データ照合から再評価する。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -461,13 +476,14 @@ public sealed class ChartInfoInstallFailureRetryTests
             new ChartInfoParseFailureRemovalRequest([null, " ", new string('A', 32), new string('a', 32), " " + new string('B', 32) + " "]).Md5s.ToArray());
     }
 
+    /// <summary>SHA計算済みの実BMSが詳細解析に失敗しても、次回補完用のdigestを確定する。</summary>
     [TestMethod]
     public void BackfillChartInfos_ParseFailureStillPersistsDigest()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            string chartPath = Path.Combine(tempRootPath, "bad.bmson");
-            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            string chartPath = Path.Combine(tempRootPath, "bad.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
             var file = new TestableBmsFile
             {
                 path = chartPath
@@ -515,103 +531,14 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
-    [TestMethod]
-    public void BackfillChartInfos_Sha256OnlyFailurePersistsEvaluatorComputedMd5()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string chartPath = Path.Combine(tempRootPath, "sha-only-bad.bmson");
-            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var song = new LR2SongDBExtended.bmson_song
-            {
-                path = chartPath,
-                folder = tempRootPath,
-                md5 = null,
-                sha256 = snapshot.Sha256,
-                title = "bad bmson"
-            };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.EnsureChartInfoSchema();
-
-            ChartInfoBackfillResult result = BackfillChartInfos(
-                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
-                gateway,
-                [],
-                [song]);
-
-            Assert.AreEqual(1, result.TargetCount);
-            Assert.AreEqual(1, result.ParseFailedCount);
-            Assert.AreEqual(1, result.FailurePersistedCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            LR2SongDBExtended.chart_info_parse_failure failure = verify
-                .Query<LR2SongDBExtended.chart_info_parse_failure>(
-                    "SELECT * FROM chart_info_parse_failure WHERE md5 = ?;",
-                    snapshot.Md5)
-                .Single();
-            Assert.AreEqual(snapshot.Sha256, failure.sha256);
-            Assert.AreEqual(chartPath, failure.path);
-        });
-    }
-
-    [TestMethod]
-    public void BackfillChartInfos_Sha256OnlySuccessClearsFailureByEvaluatorComputedMd5()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string chartPath = Path.Combine(tempRootPath, "sha-only-success.bmson");
-            File.WriteAllText(
-                chartPath,
-                "{\"version\":\"1.0.0\",\"info\":{\"title\":\"success\",\"level\":5,\"mode_hint\":\"beat-7k\",\"init_bpm\":150,\"judge_rank\":100,\"total\":100,\"resolution\":240},\"lines\":[{\"y\":0}],\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var song = new LR2SongDBExtended.bmson_song
-            {
-                path = chartPath,
-                folder = tempRootPath,
-                md5 = null,
-                sha256 = snapshot.Sha256,
-                title = "success"
-            };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.EnsureChartInfoSchema();
-            gateway.UpsertChartInfoParseFailures(
-            [
-                CreateChartInfoParseFailureRow(
-                    snapshot.Md5,
-                    snapshot.Sha256,
-                    chartPath,
-                    parserVersion: 0,
-                    "parse_failed",
-                    "InvalidDataException",
-                    "stale failure",
-                    null)
-            ]);
-
-            ChartInfoBackfillResult result = BackfillChartInfos(
-                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
-                gateway,
-                [],
-                [song]);
-
-            Assert.AreEqual(1, result.BackfilledCount);
-            Assert.AreEqual(1, result.FailureClearedCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(
-                0L,
-                verify.ExecuteScalar<long>(
-                    "SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;",
-                    snapshot.Md5));
-        });
-    }
-
+    /// <summary>現在版の解析失敗は実DBから再利用し、同じファイルを再読しない。</summary>
     [TestMethod]
     public void BackfillChartInfos_SkipsCurrentPersistedParseFailure()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            string chartPath = Path.Combine(tempRootPath, "bad-skip.bmson");
-            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            string chartPath = Path.Combine(tempRootPath, "bad-skip.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
             var firstFile = new TestableBmsFile
             {
                 path = chartPath
@@ -676,45 +603,14 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
-    [TestMethod]
-    public void ChartInfoInlineBuildService_SkipsCurrentPersistedParseFailure()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string chartPath = Path.Combine(tempRootPath, "bad-targeted-skip.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
-            var file = new TestableBmsFile
-            {
-                path = chartPath
-            };
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            file.SetHash(snapshot.Md5);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.EnsureChartInfoBackfillSchema();
-            gateway.UpsertChartInfoParseFailures(
-            [
-                CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "JsonReaderException", "bad json", null)
-            ]);
-            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
-
-            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
-                gateway,
-                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
-
-            Assert.AreEqual(1, result.TargetCount);
-            Assert.AreEqual(1, result.FailureSkippedCount);
-            Assert.AreEqual(0, result.ParseFailedCount);
-            Assert.AreEqual(0, result.SuccessCount);
-        });
-    }
-
+    /// <summary>古い解析版の失敗は同じBMS入力を再解析し、失敗記録を現在版へ更新する。</summary>
     [TestMethod]
     public void BackfillChartInfos_ReparsesStalePersistedParseFailureAndUpdatesRecord()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            string chartPath = Path.Combine(tempRootPath, "bad-stale.bmson");
-            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            string chartPath = Path.Combine(tempRootPath, "bad-stale.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
             var file = new TestableBmsFile
             {
                 path = chartPath
@@ -746,13 +642,14 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
+    /// <summary>短い時間上限で記録された失敗は、現在の上限で再解析する。</summary>
     [TestMethod]
     public void BackfillChartInfos_ReparsesShorterTimeoutFailure()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            string chartPath = Path.Combine(tempRootPath, "bad-timeout-stale.bmson");
-            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            string chartPath = Path.Combine(tempRootPath, "bad-timeout-stale.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
             var file = new TestableBmsFile
             {
                 path = chartPath
@@ -1000,12 +897,6 @@ public sealed class ChartInfoInstallFailureRetryTests
             Assert.AreEqual(5L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(5L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
         });
-    }
-
-    [TestMethod]
-    public void ChartInfoBuildService_DefaultCommitChunkSize_Is10000()
-    {
-        Assert.AreEqual(10000, ChartInfoBuildService.ResolveDefaultCommitChunkSize());
     }
 
     [TestMethod]

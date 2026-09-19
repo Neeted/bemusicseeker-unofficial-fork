@@ -958,7 +958,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsFalse(idle.IsCompleted);
         workspace.CompletePlaylistSummaryDataBuild(second);
 
-        await idle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await idle.ConfigureAwait(false);
     }
 
     [TestMethod]
@@ -2156,6 +2156,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         Task? dropTask = null;
+        Exception? primaryFailure = null;
         using var releaseSynchronization = new ManualResetEventSlim(false);
         try
         {
@@ -2220,7 +2221,14 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 [LibraryChartRow.FromChartFile(chart)],
                 table,
                 PlaylistFolderNode.CreateFolder("Imported"));
-            await synchronizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // 到達前に導入が失敗した場合も観測し、実時間の制限では同期順序を判定しない。
+            Task reached = await Task.WhenAny(synchronizationStarted.Task, dropTask);
+            if (reached == dropTask)
+            {
+                await dropTask;
+                Assert.IsTrue(synchronizationStarted.Task.IsCompletedSuccessfully);
+            }
+            await synchronizationStarted.Task;
 
             await workspace.RenameFolderAsync(
                 table,
@@ -2235,7 +2243,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
 
             releaseSynchronization.Set();
-            await dropTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            await dropTask!;
             await workspace.RenameFolderAsync(
                 table,
                 PlaylistFolderNode.CreateFolder("Imported"),
@@ -2243,12 +2251,24 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Renamed"));
         }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
         finally
         {
             releaseSynchronization.Set();
             if (dropTask != null)
             {
-                await dropTask!.WaitAsync(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await dropTask;
+                }
+                catch (Exception cleanupFailure) when (primaryFailure is not null)
+                {
+                    Trace.WriteLine("導入通知の後片付け失敗: " + cleanupFailure);
+                }
             }
             if (Directory.Exists(tempDirectory))
             {

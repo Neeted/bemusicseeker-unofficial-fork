@@ -26,7 +26,7 @@ using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Owns chart-info schema, bundle, importer, and catalog-mutation behavior.
+/// 譜面情報のスキーマ、bundle、起動時取込み、カタログ反映の境界を確認します。
 /// </summary>
 [TestClass]
 public sealed class ChartInfoMetadataSchemaExportImportTests
@@ -323,6 +323,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>不足・古い行と失敗行を同じbundle取込みで更新し、同一bundleの再投入を無変更で終える。</summary>
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures()
     {
@@ -371,9 +372,14 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 songDb.InsertOrReplace(CreateChartInfoParseFailureRow(unrelatedFailureMd5, unrelatedFailureSha, "unrelated.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null), typeof(LR2SongDBExtended.chart_info_parse_failure));
             }
 
-            ChartInfoMetadataBundleImportResult result = new BmsLibraryDbGateway(songDbPath).ImportChartInfoMetadataBundle(bundlePath, BMSFile.GetSHA256Hash(bundlePath));
+            string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartInfoMetadataBundleImportResult result = gateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
+            ChartInfoMetadataBundleImportResult repeated = gateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
 
             Assert.IsFalse(result.Skipped);
+            Assert.IsTrue(repeated.Skipped);
+            Assert.AreEqual("already_imported", repeated.SkipReason);
             Assert.AreEqual(3, result.SourceChartInfoCount);
             Assert.AreEqual(5, result.SourceDigestCount);
             Assert.AreEqual(2, result.ImportedChartInfoCount);
@@ -389,31 +395,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", existingDigestMd5, bundleDigestSha));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 IN (?, ?);", missingMd5, currentMd5));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", unrelatedFailureMd5));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_import_history WHERE bundle_sha256 = ? AND parser_version = ?;", BMSFile.GetSHA256Hash(bundlePath), BmsLibraryDbGateway.CurrentChartInfoParserVersion));
-        });
-    }
-
-    [TestMethod]
-    public void ImportChartInfoMetadataBundle_SkipsAlreadyImportedBundle()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string md5 = new('a', 32);
-            string sha = new('1', 64);
-            string bundlePath = CreateChartInfoMetadataBundle(
-                tempRootPath,
-                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
-            string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-
-            ChartInfoMetadataBundleImportResult first = gateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
-            ChartInfoMetadataBundleImportResult second = gateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
-
-            Assert.IsFalse(first.Skipped);
-            Assert.IsTrue(second.Skipped);
-            Assert.AreEqual("already_imported", second.SkipReason);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_import_history;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_import_history WHERE bundle_sha256 = ? AND parser_version = ?;", bundleSha256, BmsLibraryDbGateway.CurrentChartInfoParserVersion));
         });
     }
 
@@ -477,6 +459,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>DB bundleをarchiveより優先し、移動後に同じDBを再配置しても再取込みしない。</summary>
     [TestMethod]
     public void StartupImporter_PrefersDatabaseBundleOverArchive()
     {
@@ -507,10 +490,17 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 });
 
             Assert.AreEqual(0, extractCount);
+            string archivedDbPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName);
+            File.Copy(archivedDbPath, appDbPath);
+            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(
+                appBaseDirectory,
+                new BmsLibraryDbGateway(songDbPath),
+                logs.Add);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
             Assert.IsFalse(File.Exists(appDbPath));
-            Assert.IsTrue(File.Exists(Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName)));
+            Assert.IsTrue(File.Exists(archivedDbPath));
+            Assert.AreEqual(1, Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedDbPath)!).Length);
             Assert.IsTrue(File.Exists(appArchivePath), "The unused archive should stay in the app root because the db bundle has priority.");
             Assert.IsTrue(logs.Any(message => message.Contains("bundleType=db")));
             Assert.IsFalse(logs.Any(message => message.Contains("bundleType=7z")));
@@ -518,37 +508,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
-    [TestMethod]
-    public void StartupImporter_AlreadyImportedDatabaseIsMoved()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string appBaseDirectory = Path.Combine(tempRootPath, "app");
-            Directory.CreateDirectory(appBaseDirectory);
-            string md5 = new('a', 32);
-            string sha = new('1', 64);
-            string dbBundlePath = CreateChartInfoMetadataBundle(
-                tempRootPath,
-                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
-            string appDbPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName);
-            File.Copy(dbBundlePath, appDbPath);
-            List<string> logs = [];
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-
-            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add);
-            string archivedPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName);
-            File.Copy(archivedPath, appDbPath);
-            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add);
-
-            Assert.IsFalse(File.Exists(appDbPath));
-            Assert.IsTrue(File.Exists(archivedPath));
-            string[] importedEntries = Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedPath)!);
-            Assert.AreEqual(1, importedEntries.Length);
-            Assert.AreEqual(archivedPath, importedEntries[0]);
-            Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import skipped reason=already_imported") && message.Contains("bundleType=db")));
-        });
-    }
-
+    /// <summary>archiveを一度だけ抽出してDBへ取込み、入力・temp・imported cacheのライフサイクルを確認する。</summary>
     [TestMethod]
     public void StartupImporter_ImportsArchiveBundleAndMovesImportedArchive()
     {
@@ -561,6 +521,10 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             string dbBundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
                 [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+            string importedDirectoryPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName);
+            Directory.CreateDirectory(importedDirectoryPath);
+            File.WriteAllText(Path.Combine(importedDirectoryPath, "chart-info-metadata.old.7z"), "old archive", Encoding.ASCII);
+            Directory.CreateDirectory(Path.Combine(importedDirectoryPath, "old-directory"));
             string archivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
             File.WriteAllText(archivePath, "archive identity", Encoding.ASCII);
             string archiveSha256 = BMSFile.GetSHA256Hash(archivePath);
@@ -586,98 +550,27 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             var gateway = new BmsLibraryDbGateway(songDbPath);
             ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add, extractArchive, createTempDirectory);
             ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add, extractArchive, createTempDirectory);
+            string archivedPath = Path.Combine(importedDirectoryPath, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
+            File.Copy(archivedPath, archivePath);
+            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add, extractArchive, createTempDirectory);
 
             Assert.AreEqual(1, extractCount);
             CollectionAssert.AllItemsAreUnique(tempDirectories);
             Assert.IsTrue(tempDirectories.All(directoryPath => !Directory.Exists(directoryPath)));
             Assert.IsFalse(File.Exists(archivePath));
-            Assert.IsTrue(File.Exists(Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName)));
+            Assert.IsTrue(File.Exists(archivedPath));
+            string[] importedEntries = Directory.GetFileSystemEntries(importedDirectoryPath);
+            Assert.AreEqual(1, importedEntries.Length);
+            Assert.AreEqual(archivedPath, importedEntries[0]);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_import_history WHERE bundle_sha256 = ? AND parser_version = ?;", archiveSha256, BmsLibraryDbGateway.CurrentChartInfoParserVersion));
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import done") && message.Contains("bundleType=7z") && message.Contains("extractMs=")));
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import skipped reason=missing_bundle")));
+            Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import skipped reason=already_imported")
+                && message.Contains("bundleType=7z")
+                && !message.Contains("extractedDbPath=")));
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_bundle_archive moved") && message.Contains("bundleType=7z")));
-        });
-    }
-
-    [TestMethod]
-    public void StartupImporter_AlreadyImportedArchiveIsMovedWithoutExtraction()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string appBaseDirectory = Path.Combine(tempRootPath, "app");
-            Directory.CreateDirectory(appBaseDirectory);
-            string md5 = new('a', 32);
-            string sha = new('1', 64);
-            string dbBundlePath = CreateChartInfoMetadataBundle(
-                tempRootPath,
-                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
-            string archivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
-            File.WriteAllText(archivePath, "archive identity", Encoding.ASCII);
-            List<string> logs = [];
-            int extractCount = 0;
-
-            IReadOnlyList<ArchiveEntryMetadata> extractArchive(string sourceArchivePath, string destinationDirectoryPath)
-            {
-                extractCount++;
-                File.Copy(dbBundlePath, Path.Combine(destinationDirectoryPath, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName));
-                return [];
-            }
-
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add, extractArchive);
-            string archivedPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
-            File.Copy(archivedPath, archivePath);
-            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, gateway, logs.Add, extractArchive);
-
-            Assert.AreEqual(1, extractCount);
-            Assert.IsFalse(File.Exists(archivePath));
-            Assert.IsTrue(File.Exists(archivedPath));
-            string[] importedEntries = Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedPath)!);
-            Assert.AreEqual(1, importedEntries.Length);
-            Assert.AreEqual(archivedPath, importedEntries[0]);
-            Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import skipped reason=already_imported") && message.Contains("bundleType=7z") && !message.Contains("extractedDbPath=")));
-        });
-    }
-
-    [TestMethod]
-    public void StartupImporter_ReplacesImportedMetadataCacheWithLatestBundle()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string appBaseDirectory = Path.Combine(tempRootPath, "app");
-            Directory.CreateDirectory(appBaseDirectory);
-            string importedDirectoryPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName);
-            Directory.CreateDirectory(importedDirectoryPath);
-            File.WriteAllText(Path.Combine(importedDirectoryPath, "chart-info-metadata.old.7z"), "old archive", Encoding.ASCII);
-            Directory.CreateDirectory(Path.Combine(importedDirectoryPath, "old-directory"));
-
-            string md5 = new('a', 32);
-            string sha = new('1', 64);
-            string dbBundlePath = CreateChartInfoMetadataBundle(
-                tempRootPath,
-                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
-            string archivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
-            File.WriteAllText(archivePath, "latest archive", Encoding.ASCII);
-
-            IReadOnlyList<ArchiveEntryMetadata> extractArchive(string sourceArchivePath, string destinationDirectoryPath)
-            {
-                File.Copy(dbBundlePath, Path.Combine(destinationDirectoryPath, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName));
-                return [];
-            }
-
-            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(
-                appBaseDirectory,
-                new BmsLibraryDbGateway(songDbPath),
-                null,
-                extractArchive);
-
-            string archivedPath = Path.Combine(importedDirectoryPath, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
-            string[] importedEntries = Directory.GetFileSystemEntries(importedDirectoryPath);
-            Assert.AreEqual(1, importedEntries.Length);
-            Assert.AreEqual(archivedPath, importedEntries[0]);
-            Assert.AreEqual("latest archive", File.ReadAllText(archivedPath, Encoding.ASCII));
         });
     }
 

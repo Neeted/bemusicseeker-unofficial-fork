@@ -78,16 +78,15 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// 指定 phase、サーバー完了、watchdog のいずれかを待ちます。
+    /// 指定 phase またはサーバー完了を待ちます。
     /// </summary>
     /// <param name="phase">確認する phase signal。</param>
     /// <param name="name">失敗時に表示する phase 名。</param>
-    /// <param name="watchdog">phase 未通知を検出する時間。</param>
-    public async Task WaitForPhaseAsync(Task phase, string name, TimeSpan watchdog)
+    public async Task WaitForPhaseAsync(Task phase, string name)
     {
         try
         {
-            Task completed = await Task.WhenAny(phase, serverTask).WaitAsync(watchdog).ConfigureAwait(false);
+            Task completed = await Task.WhenAny(phase, serverTask).ConfigureAwait(false);
             await completed.ConfigureAwait(false);
             Assert.IsTrue(phase.IsCompletedSuccessfully, "HTTP server ended before " + name + ".");
         }
@@ -111,7 +110,8 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
         acceptedClient?.Dispose();
         try
         {
-            await serverTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            // serverTaskのfinallyが切断監視も回収するため、その終結まで所有する。
+            await serverTask.ConfigureAwait(false);
         }
         finally
         {
@@ -179,14 +179,14 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
             {
                 Record("peer closed during write: " + failure);
                 // 書込み失敗を握りつぶしたり、server 自身の Dispose を切断成功と数えたりしない。
-                await disconnectTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                await disconnectTask.ConfigureAwait(false);
                 Assert.IsTrue(ClientDisconnected.Task.IsCompletedSuccessfully, "The peer disconnect was not observed.");
             }
             finally
             {
                 // ローカル close による EOF / abort を peer の切断と誤認しない。
                 observationCancellation.Cancel();
-                await disconnectTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                await disconnectTask.ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)

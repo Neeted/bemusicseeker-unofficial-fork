@@ -44,7 +44,9 @@ public sealed class ApplicationSettingsLifecycleTests
             Settings.Default.AssemblyVersion = currentVersion;
             Settings.Default.Lang = "invalid-language";
             Settings.Default["AppearanceTheme"] = "invalid-theme";
-            var lifecycle = new ApplicationSettingsLifecycle((availableCultures, currentCultureName) => migrationCallCount++);
+            var lifecycle = new ApplicationSettingsLifecycle(
+                (availableCultures, currentCultureName) => migrationCallCount++,
+                normalizeSettings: () => { });
 
             lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US");
             bool observedFirstStartup = true;
@@ -84,7 +86,9 @@ public sealed class ApplicationSettingsLifecycleTests
             Settings.Default.AssemblyVersion = new SerializableVersion(1, 2, 3, 4);
             Settings.Default.Lang = "invalid-language";
             Settings.Default["AppearanceTheme"] = "invalid-theme";
-            var lifecycle = new ApplicationSettingsLifecycle((availableCultures, currentCultureName) => { });
+            var lifecycle = new ApplicationSettingsLifecycle(
+                (availableCultures, currentCultureName) => { },
+                normalizeSettings: () => { });
             bool observedFirstStartup = false;
 
             ApplicationSettingsInitializationResult result = lifecycle.Initialize(
@@ -120,7 +124,8 @@ public sealed class ApplicationSettingsLifecycleTests
             var lifecycle = new ApplicationSettingsLifecycle(
                 (availableCultures, currentCultureName) => { },
                 () => events.Add("upgrade"),
-                () => events.Add("save"));
+                () => events.Add("save"),
+                normalizeSettings: () => { });
 
             ApplicationSettingsInitializationResult result = lifecycle.Initialize(
                 ["ja-JP", "en-US"],
@@ -149,7 +154,8 @@ public sealed class ApplicationSettingsLifecycleTests
             Language = "invalid-language",
             AppearanceTheme = "invalid-theme"
         };
-        var lifecycle = new ApplicationSettingsLifecycle(settingsStore: store);
+        // メモリ上のライフサイクルを検証する。実ファイルの正規化は専用の一時ファイル試験で扱う。
+        var lifecycle = new ApplicationSettingsLifecycle(settingsStore: store, normalizeSettings: () => { });
 
         ApplicationSettingsInitializationResult result = lifecycle.Initialize(
             ["ja-JP", "en-US"],

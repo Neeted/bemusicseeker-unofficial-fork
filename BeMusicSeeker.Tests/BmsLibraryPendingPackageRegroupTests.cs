@@ -1978,12 +1978,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     private static void SeedPendingPackages(BMSLibrary library, string songDbPath, params ChartPackage[] packages)
     {
         library.ChartPackagesPending = CreatePackageCollection(packages);
-        using var songDb = new LR2SongDBExtended(songDbPath);
-        songDb.CreateTable<LR2SongDBExtended.install>();
-        foreach (ChartPackage package in packages)
+        // pending packageのschemaとseedだけを一つのtransactionへまとめ、本番の保存契約は変更せずfixtureのautocommit反復を減らす。
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
         {
-            songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
-        }
+            songDb.CreateTable<LR2SongDBExtended.install>();
+            foreach (ChartPackage package in packages)
+            {
+                songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+            }
+        });
     }
 
     private static DirectoryResourceLookupCache BuildDirectoryLookupCache(params string[] directories)
@@ -2011,8 +2014,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static string[] LoadInstallPaths(string songDbPath)
     {
-        using var songDb = new LR2SongDBExtended(songDbPath);
-        songDb.CreateTable<LR2SongDBExtended.install>();
+        // 全呼出し元はSeedPendingPackagesでinstall表を準備済みなので、SELECT専用read-only接続で観測する。
+        using var songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
         return [.. songDb.Query<InstallRowRecord>("SELECT path FROM install")
             .Select(row => row.path)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];

@@ -50,20 +50,24 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 
 ### 通常テストの分割と並列実行
 
-論理的なテスト集合を一回検出し、実際の実行に使う6プロセス分の計画を検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。
+コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う6プロセス分の計画を同じメタデータから生成・検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
 
 | プロセス | 並列数・範囲 | 担当 |
 | --- | --- | --- |
-| `portable-settings` | 1、`ClassLevel` | `PlayerPanelStateSettingsCompatibilityTests` |
-| `bass-collectible` | 1、`ClassLevel` | `BassCollectibleLoadContextTests` |
-| `serial-state-a` | 1、`ClassLevel` | 設定、前面操作、プレイリスト設定、ネイティブログなどの共有状態。 |
-| `serial-state-b` | 1、`ClassLevel` | LR2、コンパイル済みWPF、クラス全体を直列にする必要がある共有状態。 |
-| `remaining-bms-library` | `ProcessorCount`、`ClassLevel` | 専用対象を除く `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary`。 |
-| `remaining` | `ProcessorCount`、`ClassLevel` | 専用対象と前記接頭辞を除く残り。 |
+| `portable-settings` | 1、`MethodLevel` | `PlayerPanelStateSettingsCompatibilityTests` の全テスト。 |
+| `bass-collectible` | 1、`MethodLevel` | `BassCollectibleLoadContextTests`。ポータブル設定完了後に独立して実行する。 |
+| `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をソートし、前面操作の4メソッドをここへ固定したうえで、その他を交互割当したA側。 |
+| `shared-state-b` | 1、`MethodLevel` | 前面操作以外の`DoNotParallelize`を完全修飾名順で交互割当したB側。 |
+| `parallel-a` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で偶数番目に交互割当した集合。 |
+| `parallel-b` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で奇数番目に交互割当した集合。 |
 
-クラスの厳密な所属は `verify-refactor.ps1` の実行計画を正本とします。論理集合を重複・漏れなく一回ずつ実行し、メタデータだけの別一覧や代替経路は持ちません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
+クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストはOrdinal順の偶奇で二つのホストへ交互に割り当て、`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。専用クラス、共有状態、通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
 
-`BassCollectibleLoadContextTests` はWPFのホスト・リソースを解決しない専用プロセスで、回収可能なロードコンテキストと、BASSの静的初期化がネイティブDLLをロードしない条件を確認します。譜面情報の保存・解析・補完を扱う5テスト群は専用の選択規則を作らず、残りのクラス単位実行を使用します。
+`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の交互割当は負荷分散の規則です。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホスト、専用ホストで保ちます。
+
+テストアセンブリの`AssemblyInitialize`では、既存のIO完了ポート下限を保持したまま、worker下限を `max(既存値, 7 * ProcessorCount + ProcessorCount)` に設定します。7は小規模fixtureで同時に占有される既知のパイプライン主体（テスト本体、reader、parser、post-parse、2つのcollector、writer）の数であり、本番の最大値や厳密な上限ではありません。各通常ホストの最大ProcessorCount並列に継続処理用のProcessorCount分を加え、同期的なテスト待機によるworker補充遅延を避けるテスト環境専用の設定です。設定に失敗した場合は検証を失敗として扱います。この設定はテストアセンブリだけに適用し、本番のスレッドプール設定や上限・監視は変更しません。
+
+`BassCollectibleLoadContextTests` はWPFのホスト・リソースを解決しない専用プロセスで、回収可能なロードコンテキストと、BASSの静的初期化がネイティブDLLをロードしない条件を確認します。通常テストの譜面情報の保存・解析・補完を含むテスト群は専用の接頭辞分割を作らず、`parallel-a` / `parallel-b` のメソッド単位実行を使用します。
 
 ### テスト区分
 
@@ -96,7 +100,7 @@ WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcher
 
 既定は `NonActivating` です。表示直前に手動配置、タスクバー非表示、非アクティブ表示を適用し、全モニターの外へ置きます。HWND生成時には既存の拡張スタイルを保って `WS_EX_NOACTIVATE` を設定・再読取りします。前面でないことと矩形も確認し、Popupにも開く境界で同じ規則を適用します。ネイティブAPIの失敗や表示観測の失敗は、テスト本体とは独立して保持します。
 
-前面での入力・フォーカス・ヒット判定・モーダル起動を確認する例外は、`SettingsForegroundInteractionTests` の次の4メソッドだけです。`serial-state-a` が所有し、`ForegroundInteraction` を明示します。
+前面での入力・フォーカス・ヒット判定・モーダル起動を確認する例外は、`SettingsForegroundInteractionTests` の次の4メソッドだけです。`shared-state-a` が所有し、`ForegroundInteraction` を明示します。
 
 ```text
 SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll

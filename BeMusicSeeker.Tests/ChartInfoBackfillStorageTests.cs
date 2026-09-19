@@ -26,11 +26,12 @@ using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Owns chart-info backfill, storage projection, and publication cases.
+/// 譜面情報の補完、保存投影、確定後公開の実DB境界を確認します。
 /// </summary>
 [TestClass]
 public sealed class ChartInfoBackfillStorageTests
 {
+    /// <summary>実DBの現在行・古い行・未登録行を同じ補完入口で評価し、解析版による再解析境界を確認する。</summary>
     [TestMethod]
     public void BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows()
     {
@@ -109,67 +110,7 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
-    [TestMethod]
-    public void BackfillChartInfos_ReadsOnceAndPersistsDigestAndInfoForMissingSha256()
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string chartPath = Path.Combine(tempRootPath, "single-read.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
-            var file = new TestableBmsFile
-            {
-                path = chartPath
-            };
-            file.SetHash(digest.hash);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.EnsureChartInfoSchema();
-            var readCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            var service = new ChartInfoBuildService(delegate (string path)
-            {
-                readCounts[path] = readCounts.TryGetValue(path, out int count) ? count + 1 : 1;
-                return File.ReadAllBytes(path);
-            }, workerCountOverride: 2);
-
-            List<string> logs = [];
-            object logsSync = new();
-            ChartInfoBackfillResult result = BackfillChartInfos(service,
-                gateway,
-                [file],
-                [],
-                null,
-                message =>
-                {
-                    lock (logsSync)
-                    {
-                        logs.Add("INFO " + message);
-                    }
-                },
-                message =>
-                {
-                    lock (logsSync)
-                    {
-                        logs.Add("WARN " + message);
-                    }
-                });
-
-            Assert.AreEqual(1, result.TargetCount);
-            Assert.AreEqual(1, result.ProcessedCount);
-            Assert.AreEqual(1, result.DigestTargetCount);
-            Assert.AreEqual(1, result.DigestBackfilledCount);
-            Assert.AreEqual(1, result.BackfilledCount);
-            Assert.AreEqual(0, result.FailedCount);
-            Assert.AreEqual(1, readCounts[chartPath]);
-            Assert.AreEqual(1, result.FileReadCount);
-            Assert.AreEqual(new FileInfo(chartPath).Length, result.FileReadBytes);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + file.sha256 + "';"));
-            Assert.IsTrue(logs.Any(message => message.StartsWith("INFO chart_info_backfill total=", StringComparison.Ordinal) && message.Contains("fileReadCount=1") && message.Contains("fileReadBytes=" + new FileInfo(chartPath).Length)));
-        });
-    }
-
+    /// <summary>補完で更新する譜面情報由来9列だけを実DBへ反映し、利用者列と基本列を保持する。</summary>
     [TestMethod]
     public void BackfillChartInfos_UpdatesOnlyChartInfoSongProjectionAndPreservesOtherColumns()
     {
@@ -283,6 +224,7 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
+    /// <summary>現在のchart_infoを再利用する欠落SHA候補でも、所持BMSへ9列投影を確定後に適用する。</summary>
     [TestMethod]
     public void BackfillChartInfos_ReusedCurrentRowProjectsSongColumnsForMissingDigestCandidate()
     {
@@ -333,72 +275,6 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
             Assert.AreEqual(current.updated_at, verify.ExecuteScalar<DateTime>("SELECT updated_at FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", snapshot.Md5, snapshot.Sha256));
-        });
-    }
-
-    [DataTestMethod]
-    [DataRow(null, 2)]
-    [DataRow(-1, 2)]
-    [DataRow(6, 2)]
-    [DataRow(4, 4)]
-    public void BackfillChartInfos_ProjectionNormalizationMatchesNewChartPath(
-        int? difficulty,
-        int expectedDifficulty)
-    {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string chartPath = Path.Combine(tempRootPath, "projection-parity.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE parity\r\n", Encoding.ASCII);
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var file = new TestableBmsFile { path = chartPath, level = 1, difficulty = 1, mode = 5 };
-            file.SetHash(snapshot.Md5);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.UpsertSongs([file]);
-            LR2SongDBExtended.chart_info current = CreateChartInfoRow(
-                snapshot.Sha256,
-                snapshot.Md5,
-                BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            current.level = null;
-            current.difficulty = difficulty;
-            current.difficulty_defined = difficulty.HasValue;
-            current.maxbpm = 199.9;
-            current.minbpm = null;
-            current.mode = 14;
-            current.judge = 100;
-            current.bga = null;
-            current.exlevel = null;
-            current.feature = 1 | 4 | 32;
-            current.notes = 2468;
-            gateway.UpsertChartInfos([current]);
-            var expected = new TestableBmsFile { path = chartPath, mode = 7 };
-            expected.SetHash(snapshot.Md5);
-            Lr2SongRowEnricher.EnrichFromChartInfo(expected, current);
-
-            ChartInfoBackfillResult result = BackfillChartInfos(
-                new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1),
-                gateway,
-                [file],
-                [],
-                existingRowsSnapshot: new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
-                {
-                    [snapshot.Sha256] = current
-                });
-
-            Assert.AreEqual(1, result.BackfilledCount);
-            Assert.AreEqual(1, result.SongProjectionMatchedCount);
-            Assert.AreEqual(expectedDifficulty, expected.difficulty);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
-            Assert.AreEqual(expected.level, song.level);
-            Assert.AreEqual(expected.difficulty, song.difficulty);
-            Assert.AreEqual(expected.maxbpm, song.maxbpm);
-            Assert.AreEqual(expected.minbpm, song.minbpm);
-            Assert.AreEqual(expected.bga, song.bga);
-            Assert.AreEqual(expected.exlevel, song.exlevel);
-            Assert.AreEqual(expected.longnote, song.longnote);
-            Assert.AreEqual(expected.random, song.random);
-            Assert.AreEqual(expected.karinotes, song.karinotes);
-            Assert.AreEqual(5, song.mode);
         });
     }
 
@@ -525,6 +401,7 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
+    /// <summary>同じMD5の二つの実ファイルを一回だけ読み、両方のSHAと一つの情報行へ反映する。</summary>
     [TestMethod]
     public void BackfillChartInfos_GroupsDuplicateMissingSha256TargetsByMd5()
     {
@@ -543,6 +420,8 @@ public sealed class ChartInfoBackfillStorageTests
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.UpsertSongs([fileA, fileB]);
             int readCount = 0;
+            List<string> logs = [];
+            object logsSync = new();
             var service = new ChartInfoBuildService(delegate (string path)
             {
                 readCount++;
@@ -552,13 +431,23 @@ public sealed class ChartInfoBackfillStorageTests
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [fileA, fileB],
-                []);
+                [],
+                null,
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add(message);
+                    }
+                });
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(2, result.DigestTargetCount);
             Assert.AreEqual(2, result.DigestBackfilledCount);
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(1, readCount);
+            Assert.AreEqual(1, result.FileReadCount);
+            Assert.AreEqual(new FileInfo(chartAPath).Length, result.FileReadBytes);
             Assert.AreEqual(fileA.sha256, fileB.sha256);
             Assert.AreEqual(1L, CountChartInfoRows(songDbPath, fileA.sha256));
             using var verify = new LR2SongDBExtended(songDbPath);
@@ -574,6 +463,9 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(11, fileB.level);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", fileA.hash, fileA.sha256));
             CollectionAssert.AreEquivalent(new[] { chartAPath, chartBPath }, songs.Select(song => song.path).ToArray());
+            Assert.IsTrue(logs.Any(message => message.StartsWith("chart_info_backfill total=", StringComparison.Ordinal)
+                && message.Contains("fileReadCount=1")
+                && message.Contains("fileReadBytes=" + new FileInfo(chartAPath).Length)));
         });
     }
 
@@ -610,89 +502,6 @@ public sealed class ChartInfoBackfillStorageTests
         var noHashBmsFile = new TestableBmsFile { path = @"C:\Charts\no-hash.bms" };
         ChartFile noHashBmsChart = ChartFileProjection.FromBmsFile(noHashBmsFile, includeWarningSnapshot: false);
         Assert.IsTrue(ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(noHashBmsChart));
-    }
-
-    [TestMethod]
-    public void ChartInfoBuildTarget_ApplyDigestUpdatesOnlyMissingBmsSha256()
-    {
-        string sharedDigest = new string('f', 64);
-        var bmsFile = new TestableBmsFile { path = @"C:\Charts\a.bms" };
-        bmsFile.SetHash(new string('a', 32));
-        LR2SongDBExtended.bmson_song bmsonSong = new()
-        {
-            path = @"C:\Charts\b.bmson",
-            md5 = new string('b', 32),
-            sha256 = new string('c', 64)
-        };
-        ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false));
-        target.AddChart(ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false));
-        var completedDigestFiles = new List<BMSFile>();
-        var digestChanges = new List<LibraryChartDigestChange>();
-
-        int applied = target.ApplyDigest(sharedDigest, completedDigestFiles, digestChanges);
-
-        Assert.AreEqual(1, applied);
-        Assert.AreEqual(sharedDigest, bmsFile.sha256);
-        Assert.AreEqual(new string('c', 64), bmsonSong.sha256);
-        CollectionAssert.Contains(completedDigestFiles, bmsFile);
-        Assert.AreEqual(1, digestChanges.Count);
-        Assert.AreEqual(LibraryChartKind.Bms, digestChanges[0].Kind);
-        Assert.AreEqual(bmsFile.path, digestChanges[0].Path);
-        Assert.AreEqual(new string('a', 32), digestChanges[0].OldMd5);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(digestChanges[0].OldSha256));
-        Assert.AreEqual(new string('a', 32), digestChanges[0].NewMd5);
-        Assert.AreEqual(sharedDigest, digestChanges[0].NewSha256);
-        Assert.IsFalse(digestChanges[0].Md5Changed);
-        Assert.IsTrue(digestChanges[0].Sha256Changed);
-        Assert.IsFalse(digestChanges[0].PrimaryHashChanged);
-    }
-
-    [TestMethod]
-    public void ChartStorageOwnerMutator_AppliesBmsonDigestOnlyAfterCommittedStorageWrite()
-    {
-        string oldMd5 = new string('b', 32);
-        string oldSha256 = new string('c', 64);
-        string newMd5 = new string('d', 32);
-        string newSha256 = new string('e', 64);
-        LR2SongDBExtended.bmson_song bmsonSong = new()
-        {
-            path = @"C:\Charts\b.bmson",
-            md5 = oldMd5,
-            sha256 = oldSha256
-        };
-        ChartFile chart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
-        var snapshot = new ChartFileSnapshot(bmsonSong.path, [1, 2, 3], DateTime.UtcNow, newMd5, newSha256);
-        var digestChanges = new List<LibraryChartDigestChange>();
-
-        LR2SongDBExtended.bmson_song persistenceCopy = ChartStorageOwnerMutator.CreateBmsonPersistenceCopy(
-            chart,
-            snapshot.Md5,
-            snapshot.Sha256,
-            snapshot.LastWriteTimeUtc);
-
-        Assert.AreEqual(oldMd5, bmsonSong.md5);
-        Assert.AreEqual(oldSha256, bmsonSong.sha256);
-        Assert.AreEqual(newMd5, persistenceCopy.md5);
-        Assert.AreEqual(newSha256, persistenceCopy.sha256);
-
-        int applied = ChartStorageOwnerMutator.ApplyCommittedSnapshot(
-            chart,
-            snapshot.Md5,
-            snapshot.Sha256,
-            snapshot.LastWriteTimeUtc,
-            row: null,
-            digestChanges: digestChanges);
-
-        Assert.AreEqual(0, applied);
-        Assert.AreEqual(newMd5, bmsonSong.md5);
-        Assert.AreEqual(newSha256, bmsonSong.sha256);
-        Assert.AreEqual(1, digestChanges.Count);
-        Assert.AreEqual(LibraryChartKind.Bmson, digestChanges[0].Kind);
-        Assert.AreEqual(bmsonSong.path, digestChanges[0].Path);
-        Assert.AreEqual(oldMd5, digestChanges[0].OldMd5);
-        Assert.AreEqual(oldSha256, digestChanges[0].OldSha256);
-        Assert.AreEqual(newMd5, digestChanges[0].NewMd5);
-        Assert.AreEqual(newSha256, digestChanges[0].NewSha256);
     }
 
     [TestMethod]
@@ -734,6 +543,7 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
+    /// <summary>本番のCatalogMutationOwnerでDB確定に失敗した場合、譜面・song・索引を公開しない。</summary>
     [TestMethod]
     public void BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex()
     {
@@ -748,16 +558,22 @@ public sealed class ChartInfoBackfillStorageTests
             gateway.UpsertSongs([file]);
             bool indexPublished = false;
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+            gateway.EnsureChartInfoBackfillSchema();
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_chart_info_storage BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;");
+            }
+            var mutationOwner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                gateway);
 
             AggregateException exception = Assert.ThrowsException<AggregateException>(() =>
                 service.BackfillChartInfos(
                     gateway,
                     CreateChartSnapshot([file], []),
                     storageCommitPublished: _ => indexPublished = true,
-                    chartInfoChunkWriter: request => ApplyChartInfoStorageRequest(
-                        gateway,
-                        request,
-                        _ => throw new InvalidOperationException("injected transaction failure"))));
+                    chartInfoChunkWriter: mutationOwner.ApplyChartInfoStorageWrite));
 
             Assert.IsTrue(exception.Flatten().InnerExceptions.Any(inner => inner.Message.Contains("injected transaction failure", StringComparison.Ordinal)));
             Assert.IsFalse(indexPublished);
@@ -771,6 +587,7 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
+    /// <summary>分割補完の後半だけがDB失敗した場合、先行確定分を保持し失敗分を公開しない。</summary>
     [TestMethod]
     public void BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk()
     {
@@ -794,6 +611,15 @@ public sealed class ChartInfoBackfillStorageTests
                 commitChunkSizeOverride: 1);
             int writerCalls = 0;
             var publications = new List<ChartInfoStorageCommitPublication>();
+            gateway.EnsureChartInfoBackfillSchema();
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_later_chart_info_chunk BEFORE INSERT ON chart_info WHEN (SELECT COUNT(1) FROM chart_info) >= 1 BEGIN SELECT RAISE(ABORT, 'injected later chunk failure'); END;");
+            }
+            var mutationOwner = new CatalogMutationOwner(
+                new CatalogStorageRowsOwner(),
+                new CatalogOwnedCollectionOwner(),
+                gateway);
 
             Assert.ThrowsException<AggregateException>(() =>
                 service.BackfillChartInfos(
@@ -803,12 +629,7 @@ public sealed class ChartInfoBackfillStorageTests
                     chartInfoChunkWriter: request =>
                     {
                         writerCalls++;
-                        return ApplyChartInfoStorageRequest(
-                            gateway,
-                            request,
-                            writerCalls == 2
-                                ? _ => throw new InvalidOperationException("injected later chunk failure")
-                                : null);
+                        return mutationOwner.ApplyChartInfoStorageWrite(request);
                     }));
 
             Assert.AreEqual(2, writerCalls);

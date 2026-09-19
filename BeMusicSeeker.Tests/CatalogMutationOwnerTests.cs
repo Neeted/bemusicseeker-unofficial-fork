@@ -634,7 +634,8 @@ public sealed class CatalogMutationOwnerTests
             TestableBmsFile[] allBmsRows = [targetBmsShared, targetBmsOrphan, .. backgroundBmsRows];
             LR2SongDBExtended.bmson_song[] allBmsonRows = [targetBmson, .. backgroundBmsonRows];
 
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            // schemaとfixture投入は本番の保存経路を検証する箇所ではないため、一つのtransactionにまとめてautocommit反復による共通DBロックの保持時間を減らす。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, setup =>
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(setup);
                 BmsLibraryDbGateway.EnsureMaintenanceSchema(setup);
@@ -666,7 +667,7 @@ public sealed class CatalogMutationOwnerTests
                         new LR2SongDBExtended.chart_digest_map { md5 = md5, sha256 = sha256 },
                         typeof(LR2SongDBExtended.chart_digest_map));
                 }
-            }
+            });
 
             var storageRowsOwner = new CatalogStorageRowsOwner();
             CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
@@ -711,7 +712,8 @@ public sealed class CatalogMutationOwnerTests
             CollectionAssert.AreEquivalent(
                 expectedOwnedPaths,
                 ownedCollectionOwner.Collection.CreatePathSnapshot());
-            using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+            // ここはSELECT専用の観測なので、writer接続を保持せず既存のread-only入口を使う。
+            using (var verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 List<LR2SongDB.song> remainingBmsRows = [.. verifySongDb.Table<LR2SongDB.song>()];
                 List<LR2SongDBExtended.bmson_song> remainingBmsonRows = [.. verifySongDb.Table<LR2SongDBExtended.bmson_song>()];

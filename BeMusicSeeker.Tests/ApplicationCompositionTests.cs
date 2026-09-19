@@ -1446,7 +1446,9 @@ public sealed class ApplicationCompositionTests
         Assert.AreEqual("all", values.PlayHistorySelectedDisplayTargetIdentity);
     }
 
+    // 実終了経路はプロセス全体のLR2 DBロック・音声・一時領域を扱うため、同一hostの通常処理と並行させない。
     [TestMethod]
+    [DoNotParallelize]
     public async Task CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
     {
         var values = new BeMusicSeeker.Properties.Settings

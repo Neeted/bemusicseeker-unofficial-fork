@@ -15,7 +15,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    // 値の変更だけを試すfixtureなので、他のtesthostの実設定ファイルは読み込まない。
+    private readonly BeMusicSeeker.Properties.Settings testSettings =
+        PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
+            Path.GetTempPath(),
+            "InstallEstimationSettings-" + Guid.NewGuid().ToString("N"),
+            "user.config"));
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]

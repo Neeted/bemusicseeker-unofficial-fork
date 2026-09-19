@@ -178,8 +178,9 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
             Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
 
             Task next = viewModel.ReloadScoresOnlyAsync();
-            Assert.AreEqual(2, reloadCount);
+            // 失敗完了直後の再要求が実処理まで完了することを確認し、非同期の開始時機は固定しない。
             await next;
+            Assert.AreEqual(2, reloadCount);
         }
         finally
         {

@@ -326,9 +326,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
             Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
 
-            Task next = viewModel.ReloadFileDiffAsync();
+            // 再受付した非同期処理の完了を待ち、workerの開始順を同期呼出しの契約にしない。
+            await viewModel.ReloadFileDiffAsync();
             Assert.AreEqual(2, reloadCount);
-            await next;
 
             Assert.AreEqual(2, requests.Count);
             Assert.IsTrue(requests[1].OperationToken > requests[0].OperationToken);

@@ -364,7 +364,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BMSFiles = [file];
-                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                // 初期の保管行通知を待つ。通常の到達確認に実時間の制限は設けない。
+                await bmsFilesPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 library.DuplicateChartGroups = [];
                 int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
@@ -578,11 +579,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>実フォルダ変更後のBMS範囲事実だけを局所取得し、背景件数に比例した全走査を行わないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(16, false)]
-    [DataRow(128, false)]
     [DataRow(16, true)]
-    [DataRow(128, true)]
     public void RenameIngress_CapturesOnlyLocalBmsRangeFacts(int backgroundChartCount, bool autoRename)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -647,16 +647,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     BMSFiles = files
                 };
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                // warm操作前のfixture seedは本番保存契約を検証しないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
                 {
                     foreach (TestableBmsFile file in files)
                     {
                         songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                     }
-                }
+                });
 
                 BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary =
-                    library.WarmInstalledPrimaryHashLookup("U2配置変更初期primary");
+                    library.WarmInstalledPrimaryHashLookup("配置変更初期primary");
                 Assert.IsFalse(initialPrimary.FullDirectoryLookupInitialized);
                 OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
                 InstalledChartLookupIndexSnapshot initialInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
@@ -689,7 +690,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         ? "[Target Artist 2] Target Title 2"
                         : "Renamed2", 0)
                 };
-                var before = library.WarmOwnedRealPathDirectoryView("U2配置変更warmup前");
+                var before = library.WarmOwnedRealPathDirectoryView("配置変更warmup前");
                 foreach ((TestableBmsFile target, string sourceDirectoryPath, string destinationName, int favorite) in operations)
                 {
                     string oldChartPath = target.path;
@@ -708,7 +709,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Assert.IsTrue(receipt.DurableCommit);
                     }
 
-                    var after = library.WarmOwnedRealPathDirectoryView("U2配置変更warmup後");
+                    var after = library.WarmOwnedRealPathDirectoryView("配置変更warmup後");
                     int countQueryDelta = after.BmsCountQueryCount - before.BmsCountQueryCount;
                     int rangeQueryDelta = after.BmsRangeQueryCount - before.BmsRangeQueryCount;
                     int visitedReferenceDelta =
@@ -728,7 +729,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Assert.IsTrue(File.Exists(destinationChartPath));
                     Assert.AreEqual(destinationChartPath, target.path);
 
-                    using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+                    // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
+                    using (var verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                     {
                         string[] dbPaths = verifySongDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                         Assert.IsFalse(dbPaths.Contains(oldChartPath, StringComparer.OrdinalIgnoreCase));
@@ -749,9 +751,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     InstalledChartLookupIndexSnapshot updatedInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
                     InstalledChartLookupIndexSnapshot cachedInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
                     BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
-                        library.WarmInstalledPrimaryHashLookup("U2配置変更primary");
+                        library.WarmInstalledPrimaryHashLookup("配置変更primary");
                     BMSLibrary.InstalledPrimaryHashWarmupResult cachedPrimary =
-                        library.WarmInstalledPrimaryHashLookup("U2配置変更primary");
+                        library.WarmInstalledPrimaryHashLookup("配置変更primary");
                     PlaylistLibraryResolveIndexSnapshot updatedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
                         CancellationToken.None,
                         out bool updatedPlaylistCacheHit,
@@ -1456,7 +1458,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BMSFiles = [file];
-                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsFilesPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1518,7 +1520,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BmsonSongs = [song];
-                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsonSongsPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
@@ -1776,7 +1778,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BmsonSongs = [song];
-                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsonSongsPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
@@ -1857,9 +1859,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BMSFiles = [file];
-                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsFilesPublished.Task;
                 library.BmsonSongs = [song];
-                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsonSongsPublished.Task;
                 Interlocked.Exchange(ref ownedCollectionPublicationCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
@@ -2263,9 +2265,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     /// <summary>
-    /// R1: repair must recompute missing-resource health at the new location,
-    /// persist it, and publish only after releasing its existing reservation.
-    /// A maintenance DB failure remains an error after the path move succeeds.
+    /// 修正後の場所で不足リソースの健全性を再計算・保存し、既存の予約を解放してから公開します。
+    /// パス移動が成功しても保守DBの失敗はエラーとして残します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false, false)]
@@ -3029,7 +3030,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Increment(ref filePropertyChangedCount);
             };
             library.BMSFiles = [file];
-            await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await bmsFilesPublished.Task;
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
             Interlocked.Exchange(ref filePropertyChangedCount, 0);
             library.RefreshReferenceDisplayForTable(table);
@@ -3483,12 +3484,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            // fixture schemaは初期化処理の検証対象ではないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-            }
+            });
             testAction(songDbPath);
         }
         finally
@@ -3508,12 +3510,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            // asyncテスト用fixture schemaも本番処理の検証対象ではないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-            }
+            });
             await testAction(songDbPath).ConfigureAwait(false);
         }
         finally

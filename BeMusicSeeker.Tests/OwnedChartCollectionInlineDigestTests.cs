@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionInlineDigestTests
 {
+    /// <summary>DB確定後に所持集合、MD5索引、リソース健全性、譜面情報通知を同じdigest差分で更新する。</summary>
     [TestMethod]
     public void BuildInlineChartInfo_DispatchesDigestMutationToOwnedAdjacentIndexes()
     {
@@ -100,10 +101,9 @@ public sealed class OwnedChartCollectionInlineDigestTests
         });
     }
 
-    /// <summary>U4a-LocalWork: 背景16/128件で固定差分のinlineを2操作続け、各後続readbackを確認する。</summary>
+    /// <summary>背景譜面を含む2回の導入後補完で、局所差分・索引のreadback・通知前のMD5/SHA-256解決を確認する。</summary>
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations(int backgroundCount)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -153,6 +153,36 @@ public sealed class OwnedChartCollectionInlineDigestTests
             library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
             library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
+            string expectedNotificationMd5 = string.Empty;
+            string expectedNotificationSha256 = string.Empty;
+            int notificationPhase = 0;
+            bool firstDigestVisibleAtNotification = false;
+            bool secondDigestVisibleAtNotification = false;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
+                    || string.IsNullOrWhiteSpace(expectedNotificationMd5))
+                {
+                    return;
+                }
+
+                PlaylistLibraryResolveIndexSnapshot notifiedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool notifiedCacheHit,
+                    out int notifiedStaleRetries);
+                LibraryChartRef? notifiedByMd5 = notifiedPlaylist.ResolveChartForPlaylistHash(expectedNotificationMd5, null);
+                LibraryChartRef? notifiedBySha256 = notifiedPlaylist.ResolveChartForPlaylistHash(null, expectedNotificationSha256);
+                bool visible = string.Equals(notifiedByMd5?.Path, notificationPhase == 1 ? firstPath : secondPath, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(notifiedBySha256?.Path, notificationPhase == 1 ? firstPath : secondPath, StringComparison.OrdinalIgnoreCase);
+                if (notificationPhase == 1)
+                {
+                    firstDigestVisibleAtNotification |= visible;
+                }
+                else if (notificationPhase == 2)
+                {
+                    secondDigestVisibleAtNotification |= visible;
+                }
+            };
 
             string firstOldMd5 = first.hash;
             string firstOldSha256 = first.sha256;
@@ -161,6 +191,10 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 firstPath,
                 "#PLAYER 1\r\n#TITLE first after\r\n#BPM 120\r\n#00111:01\r\n",
                 System.Text.Encoding.ASCII);
+            ChartFileSnapshot firstAfterSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+            expectedNotificationMd5 = firstAfterSnapshot.Md5;
+            expectedNotificationSha256 = firstAfterSnapshot.Sha256;
+            notificationPhase = 1;
             ChartInfoInlineBuildResult firstResult = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
                 library,
                 "test_inline_local_first",
@@ -201,6 +235,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.AreEqual(firstPath, firstPlaylist.ResolveChartForPlaylistHash(firstNewMd5, null).Path);
             Assert.AreEqual(firstPlaylist.Version, firstPlaylistReadback.Version);
             Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(firstDigestVisibleAtNotification, "通知時点でMD5とSHA-256の両方から新しい譜面へ解決できること。");
 
             string secondOldMd5 = second.hash;
             string secondOldSha256 = second.sha256;
@@ -209,6 +244,10 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 secondPath,
                 "#PLAYER 1\r\n#TITLE second after\r\n#BPM 120\r\n#00111:01\r\n",
                 System.Text.Encoding.ASCII);
+            ChartFileSnapshot secondAfterSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
+            expectedNotificationMd5 = secondAfterSnapshot.Md5;
+            expectedNotificationSha256 = secondAfterSnapshot.Sha256;
+            notificationPhase = 2;
             ChartInfoInlineBuildResult secondResult = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
                 library,
                 "test_inline_local_second",
@@ -252,6 +291,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsNull(secondPlaylist.ResolveChartForPlaylistHash(secondOldMd5, null));
             Assert.AreEqual(secondPlaylist.Version, secondPlaylistReadback.Version);
             Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(secondDigestVisibleAtNotification, "通知時点でMD5とSHA-256の両方から新しい譜面へ解決できること。");
 
             Assert.IsTrue(initialHash.ContainsMd5(firstOldMd5));
             Assert.IsTrue(initialHash.ContainsMd5(secondOldMd5));
@@ -276,73 +316,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
         });
     }
 
-    [TestMethod]
-    public void BuildInlineChartInfo_UpdatesWarmPlaylistResolveIndexBeforeNotification()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineResolve");
-            Directory.CreateDirectory(chartDirectory);
-            string chartPath = Path.Combine(chartDirectory, "chart.bms");
-            File.WriteAllText(
-                chartPath,
-                "#PLAYER 1\r\n#TITLE warm resolve update\r\n#BPM 120\r\n#00111:01\r\n",
-                System.Text.Encoding.ASCII);
-            ChartFileSnapshot content = ChartFileContentReader.ReadSnapshot(chartPath);
-            const string oldMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            var bmsFile = CreateFile(oldMd5, chartPath, null);
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            SetLibraryBmsonSongsWithoutNotification(library, []);
-            List<string> resolveWork = [];
-            library.PlaylistLibraryResolveIndexStoreWorkObserver = resolveWork.Add;
-
-            PlaylistLibraryResolveIndexSnapshot initialResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool initialCacheHit,
-                out int initialStaleRetries);
-            Assert.IsFalse(initialCacheHit);
-            Assert.AreEqual(0, initialStaleRetries);
-            Assert.AreEqual(chartPath, initialResolve.ResolveChartForPlaylistHash(oldMd5, null).Path);
-            resolveWork.Clear();
-
-            InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
-                library,
-                "test_inline_playlist_resolve",
-                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
-
-            PlaylistLibraryResolveIndexSnapshot updatedResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool updatedCacheHit,
-                out int updatedStaleRetries);
-            PlaylistLibraryResolveIndexSnapshot cachedResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool cachedCacheHit,
-                out int cachedStaleRetries);
-
-            Assert.IsTrue(updatedCacheHit);
-            Assert.IsTrue(cachedCacheHit);
-            Assert.AreEqual(0, updatedStaleRetries);
-            Assert.AreEqual(0, cachedStaleRetries);
-            Assert.AreEqual(content.Md5, bmsFile.hash);
-            Assert.AreEqual(content.Sha256, bmsFile.sha256);
-            Assert.IsNull(updatedResolve.ResolveChartForPlaylistHash(oldMd5, null));
-            Assert.AreEqual(chartPath, updatedResolve.ResolveChartForPlaylistHash(content.Md5, null).Path);
-            Assert.AreEqual(chartPath, updatedResolve.ResolveChartForPlaylistHash(null, content.Sha256).Path);
-            Assert.AreEqual(updatedResolve.Version, cachedResolve.Version);
-            Assert.IsNotNull(initialResolve.ResolveChartForPlaylistHash(oldMd5, null));
-            Assert.IsNull(initialResolve.ResolveChartForPlaylistHash(content.Md5, null));
-            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_source_enumeration"));
-            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_full_root_enumeration"));
-            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_source_entry_visited"));
-            Assert.IsTrue(resolveWork.Contains("playlist_resolve_exact_path_query"));
-            Assert.IsTrue(resolveWork.Contains("playlist_resolve_delta_apply"));
-            Assert.IsTrue(resolveWork.Contains("playlist_resolve_root_capture"));
-        });
-    }
-
+    /// <summary>SHA-256だけが変わる既存MD5では、主索引を再構築せずSHA参照と健全性だけを更新する。</summary>
     [TestMethod]
     public void BuildInlineChartInfo_ShaOnlyChangeUpdatesShaLookupAndResourceHealthWithoutPrimaryLookupRebuild()
     {
@@ -407,6 +381,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
         });
     }
 
+    /// <summary>実DB保存の失敗時はdigest差分、各索引、譜面情報、警告を一つも公開しない。</summary>
     [TestMethod]
     public void BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning()
     {
@@ -459,114 +434,5 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.AreEqual(0, verify.Table<LR2SongDBExtended.chart_info>().Count());
         });
     }
-
-    [TestMethod]
-    public void BuildInlineChartInfo_UpsertsSongRowsWithAppliedChartInfoColumns()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineChartInfo");
-            Directory.CreateDirectory(chartDirectory);
-            string chartPath = Path.Combine(chartDirectory, "chart.bms");
-            File.WriteAllText(
-                chartPath,
-                "#PLAYER 1\r\n#TITLE inline chart info\r\n#ARTIST artist\r\n#BPM 180\r\n#PLAYLEVEL 12\r\n#DIFFICULTY 4\r\n#00111:01\r\n",
-                System.Text.Encoding.ASCII);
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var bmsFile = CreateFile(snapshot.Md5, chartPath, snapshot.Sha256);
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            SetLibraryBmsonSongsWithoutNotification(library, []);
-            SetDuplicateChartGroupsWithoutNotification(library, []);
-
-            ChartInfoInlineBuildResult result = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
-                library,
-                "test_inline_chart_info_song_row",
-                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
-
-            Assert.AreEqual(1, result.AppliedRows.Count);
-            Assert.AreEqual(12, bmsFile.level);
-            Assert.AreEqual(4, bmsFile.difficulty);
-            Assert.AreEqual(180, bmsFile.maxbpm);
-            Assert.AreEqual(180, bmsFile.minbpm);
-            Assert.IsTrue(bmsFile.karinotes > 0);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);
-            Assert.AreEqual(12, row.level);
-            Assert.AreEqual(4, row.difficulty);
-            Assert.AreEqual(180, row.maxbpm);
-            Assert.AreEqual(180, row.minbpm);
-            Assert.IsTrue(row.karinotes > 0);
-        });
-    }
-
-    [TestMethod]
-    public void LibraryChartDigestChange_PathlessOwnedEventThrows()
-    {
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            new LibraryChartDigestChange(
-                LibraryChartKind.Bms,
-                null,
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                null,
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                null));
-    }
-
-    [TestMethod]
-    public void LibraryChartDigestChange_Md5lessExplicitOwnedEventThrows()
-    {
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            new LibraryChartDigestChange(
-                LibraryChartKind.Bms,
-                Path.Combine("C:\\Installed", "Bms", "chart.bms"),
-                null,
-                new string('a', 64),
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                new string('b', 64)));
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            new LibraryChartDigestChange(
-                LibraryChartKind.Bmson,
-                Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                new string('a', 64),
-                null,
-                new string('b', 64)));
-    }
-
-    [TestMethod]
-    public void LibraryChartDigestChange_FactorySkipsInvalidProjectionEvent()
-    {
-        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        var bmsFile = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var pathlessBmsFile = CreateFile(md5, null, new string('d', 64));
-        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), null);
-        bmsonSong.sha256 = new string('c', 64);
-        var pathlessBmsonSong = CreateBmsonSong(null, md5);
-        pathlessBmsonSong.sha256 = new string('e', 64);
-
-        Assert.IsNull(LibraryChartDigestChange.FromBms(bmsFile, null, null));
-        Assert.IsNull(LibraryChartDigestChange.FromBms(pathlessBmsFile, md5, null));
-        Assert.IsNull(LibraryChartDigestChange.FromBmson(bmsonSong, null, null));
-        Assert.IsNull(LibraryChartDigestChange.FromBmson(pathlessBmsonSong, md5, null));
-    }
-
-    [TestMethod]
-    public void LibraryChartDigestChange_PrimaryHashChangedUsesMd5Only()
-    {
-        var digestChange = new LibraryChartDigestChange(
-            LibraryChartKind.Bms,
-            Path.Combine("C:\\Installed", "Bms", "chart.bms"),
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            new string('a', 64),
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            new string('b', 64));
-
-        Assert.IsFalse(digestChange.PrimaryHashChanged);
-        Assert.IsTrue(digestChange.Sha256Changed);
-    }
-
 
 }

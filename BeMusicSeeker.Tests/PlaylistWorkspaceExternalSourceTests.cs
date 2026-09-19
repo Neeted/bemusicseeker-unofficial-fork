@@ -764,7 +764,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
         Assert.IsFalse(loadTask.IsCompleted);
         workspace.CancelExternalTableCollectionLoadForShutdown();
-        await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        // 取消の伝播を通知で確認する。workerの割当て時間は取消契約に含めない。
+        await cancellationObserved.Task.ConfigureAwait(false);
         await loadTask.ConfigureAwait(false);
 
         Assert.IsNull(workspace.BMSExternalTableListExt);

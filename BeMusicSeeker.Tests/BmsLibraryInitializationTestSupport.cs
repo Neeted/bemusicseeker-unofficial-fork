@@ -61,6 +61,30 @@ internal static class BmsLibraryInitializationTestSupport
         }
     }
 
+    /// <summary>
+    /// ライブラリ機能テストのDBスキーマまたはfixtureデータを一つのトランザクションで準備します。
+    /// </summary>
+    /// <remarks>
+    /// fixture準備のautocommit反復による共通DBロックを減らします。本番の保存経路やtransaction契約は変更しません。
+    /// </remarks>
+    internal static void ExecuteSongDbFixtureTransaction(
+        string songDbPath,
+        Action<LR2SongDBExtended> setup)
+    {
+        using var songDb = new LR2SongDBExtended(songDbPath);
+        songDb.BeginTransaction();
+        try
+        {
+            setup(songDb);
+            songDb.Commit();
+        }
+        catch
+        {
+            songDb.Rollback();
+            throw;
+        }
+    }
+
     internal static string CreateBmsonJson(string title, string subtitle, string chartName, string artist, string genre, int level, string modeHint)
     {
         return "{"

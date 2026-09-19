@@ -32,6 +32,7 @@ $functionalReportingTargetSeconds = 180
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
 . (Join-Path $PSScriptRoot 'verification-test-outcomes.ps1')
+. (Join-Path $PSScriptRoot 'verification-test-discovery.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
 
 function Get-RepositoryFormatArguments {
@@ -77,165 +78,190 @@ $functionalBassCollectibleLoadContextClass =
     'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
 $functionalSettingsForegroundInteractionClass =
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests'
-$functionalSerialStateAClasses = @(
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests'
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests'
-    'BeMusicSeeker.Tests.SettingsWindowPresentationTests'
-    'BeMusicSeeker.Tests.ApplicationCompositionTests'
-    'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests'
-    'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests'
-    'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests'
-    'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests'
-    'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests'
-    'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests'
-    'BeMusicSeeker.Tests.PlayerSettingsGatewayTests'
-    'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests'
-    'BeMusicSeeker.Tests.ResourceIconContractTests'
-    'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests'
-    'BeMusicSeeker.Tests.SettingDialogOpenCommandTests'
-    'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests'
-    'BeMusicSeeker.Tests.StartupSettingsSnapshotTests'
-    'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests'
-    'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests'
-    'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests'
-    'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests'
-    'BeMusicSeeker.Tests.BassNativeRuntimeTests'
-    'BeMusicSeeker.Tests.NLogWrapperTests')
-$functionalSerialStateBClasses = @(
-    'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests'
-    'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests'
-    'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests'
-    'BeMusicSeeker.Tests.MainWindowPackageMaintenanceWpfTests'
-    'BeMusicSeeker.Tests.MainWindowPlaybackWpfTests'
-    'BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests'
-    'BeMusicSeeker.Tests.MainWindowPlaylistWorkspaceWpfTests'
-    'BeMusicSeeker.Tests.MainWindowProgressStatusBarWpfTests'
-    'BeMusicSeeker.Tests.MainWindowSelectedChartContextMenuWpfTests'
-    'BeMusicSeeker.Tests.MainWindowTreePresentationWpfTests'
-    'BeMusicSeeker.Tests.MainWindowViewHostTests'
-    'BeMusicSeeker.Tests.SettingsWindowCompiledBehaviorTests'
-    'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests'
-    'BeMusicSeeker.Tests.PlaybackPanelViewModelTests'
-    'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests'
-    'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests'
-    'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests'
-    'BeMusicSeeker.Tests.MainWindowExternalShellTests'
-    'BeMusicSeeker.Tests.PlayHistoryReadModelTests'
-    'BeMusicSeeker.Tests.ApplicationStartupCompositionOwnerTests')
 $functionalSettingsForegroundInteractionMethods = @(
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow')
-$functionalBmsLibrarySelector =
-    'FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary'
-$functionalRemainingShardWorkers = [Math]::Max(
+$functionalTestAssemblyPath = Join-Path `
+    $repoRoot `
+    'BeMusicSeeker.Tests\bin\x64\Release\net10.0-windows\BeMusicSeeker.Tests.dll'
+$functionalParallelWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
 $functionalHostNames = @(
     'portable-settings'
     'bass-collectible'
-    'serial-state-a'
-    'serial-state-b'
-    'remaining-bms-library'
-    'remaining')
+    'shared-state-a'
+    'shared-state-b'
+    'parallel-a'
+    'parallel-b')
+
+function New-FunctionalTestCaseFilter {
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseFilter,
+
+        [string[]]$IncludeFullyQualifiedNames = @()
+    )
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+    [void]$parts.Add("($BaseFilter)")
+    if (@($IncludeFullyQualifiedNames).Count -gt 0) {
+        $include = @($IncludeFullyQualifiedNames |
+            ForEach-Object { "FullyQualifiedName=$($_)" }) -join '|'
+        [void]$parts.Add("($include)")
+    }
+    return $parts -join '&'
+}
 
 function New-FunctionalShardPlan {
-    $assignedClasses = @(
+    $metadata = @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath)
+    if ($metadata.Count -eq 0) {
+        throw "Compiled test assembly contains no MSTest test methods: $functionalTestAssemblyPath"
+    }
+
+    $dedicatedClassNames = [string[]]@(
         $functionalPortableSettingsClass
-        $functionalBassCollectibleLoadContextClass
-        $functionalSerialStateAClasses
-        $functionalSerialStateBClasses)
-    $remainingClassFilter = ($assignedClasses |
-        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-    $remainingBaseFilter = "($functionalFilter)&($remainingClassFilter)"
-    $hostDefinitions = @(
-        [pscustomobject]@{
+        $functionalBassCollectibleLoadContextClass)
+    $dedicatedTests = @($metadata | Where-Object {
+            $dedicatedClassNames -contains [string]$_.ClassName
+        })
+    $regularTests = @($metadata | Where-Object {
+            $dedicatedClassNames -notcontains [string]$_.ClassName
+        })
+    $serialTests = @($regularTests | Where-Object { [bool]$_.DoNotParallelize })
+    $parallelTests = @($regularTests | Where-Object { -not [bool]$_.DoNotParallelize })
+    $parallelATests = @()
+    $parallelBTests = @()
+    for ($index = 0; $index -lt $parallelTests.Count; $index++) {
+        if (($index % 2) -eq 0) {
+            $parallelATests += $parallelTests[$index]
+        }
+        else {
+            $parallelBTests += $parallelTests[$index]
+        }
+    }
+    if ($parallelATests.Count -eq 0 -or $parallelBTests.Count -eq 0) {
+        throw 'Functional non-DoNotParallelize metadata must produce two nonempty parallel queues.'
+    }
+    $foregroundMethods = [string[]]@($functionalSettingsForegroundInteractionMethods)
+    $foregroundSet = [System.Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal)
+    foreach ($method in $foregroundMethods) {
+        if (-not $method.StartsWith(
+                "$functionalSettingsForegroundInteractionClass.",
+                [StringComparison]::Ordinal)) {
+            throw 'Foreground interaction methods must all belong to SettingsForegroundInteractionTests.'
+        }
+        [void]$foregroundSet.Add($method)
+    }
+
+    $serialStateA = @()
+    $serialStateB = @()
+    $alternateIndex = 0
+    foreach ($test in $serialTests) {
+        if ($foregroundSet.Contains([string]$test.FullyQualifiedName) -or
+            ($alternateIndex % 2) -eq 0) {
+            $serialStateA += $test
+        }
+        else {
+            $serialStateB += $test
+        }
+        if (-not $foregroundSet.Contains([string]$test.FullyQualifiedName)) {
+            $alternateIndex++
+        }
+    }
+
+    if ($serialStateA.Count -eq 0 -or $serialStateB.Count -eq 0) {
+        throw 'Functional DoNotParallelize metadata must produce two nonempty shared-state queues.'
+    }
+    $serialStateANames = [string[]]@($serialStateA | ForEach-Object { $_.FullyQualifiedName })
+    $serialStateBNames = [string[]]@($serialStateB | ForEach-Object { $_.FullyQualifiedName })
+
+    $portableTests = @($metadata | Where-Object {
+            $_.ClassName -ceq $functionalPortableSettingsClass
+        })
+    $bassTests = @($metadata | Where-Object {
+            $_.ClassName -ceq $functionalBassCollectibleLoadContextClass
+        })
+    if ($portableTests.Count -eq 0) {
+        throw 'Portable settings host must contain at least one test method from its dedicated class.'
+    }
+
+    $shards = @(
+        [pscustomobject][ordered]@{
             Name = 'portable-settings'
             Workers = 1
-            Scope = 'ClassLevel'
+            Scope = 'MethodLevel'
             Classes = [string[]]@($functionalPortableSettingsClass)
-        }
-        [pscustomobject]@{
-            Name = 'bass-collectible'
-            Workers = 1
-            Scope = 'ClassLevel'
-            Classes = [string[]]@($functionalBassCollectibleLoadContextClass)
-        }
-        [pscustomobject]@{
-            Name = 'serial-state-a'
-            Workers = 1
-            Scope = 'ClassLevel'
-            Classes = [string[]]@($functionalSerialStateAClasses)
-        }
-        [pscustomobject]@{
-            Name = 'serial-state-b'
-            Workers = 1
-            Scope = 'ClassLevel'
-            Classes = [string[]]@($functionalSerialStateBClasses)
-        }
-        [pscustomobject]@{
-            Name = 'remaining-bms-library'
-            Workers = $functionalRemainingShardWorkers
-            Scope = 'ClassLevel'
-            Classes = [string[]]@()
-            ExcludedClasses = [string[]]$assignedClasses
-            SelectorPolarity = 'Positive'
-            Routing = 'logical-prefix'
-        }
-        [pscustomobject]@{
-            Name = 'remaining'
-            Workers = $functionalRemainingShardWorkers
-            Scope = 'ClassLevel'
-            Classes = [string[]]@()
-            ExcludedClasses = [string[]]$assignedClasses
-            SelectorPolarity = 'Negative'
-            Routing = 'logical-prefix'
-        })
-    $shards = @($hostDefinitions | ForEach-Object {
-        $classes = [string[]]@($_.Classes)
-        $hasLogicalPrefixSelector = $_.PSObject.Properties.Name -contains 'SelectorPolarity'
-        $selectorFilter = if (-not $hasLogicalPrefixSelector) {
-            [string]::Empty
-        }
-        elseif ([string]$_.SelectorPolarity -ceq 'Positive') {
-            $functionalBmsLibrarySelector
-        }
-        else {
-            $functionalBmsLibrarySelector.Replace('~', '!~', [StringComparison]::Ordinal)
-        }
-        $filter = if ($hasLogicalPrefixSelector) {
-            "($remainingBaseFilter)&($selectorFilter)"
-        }
-        elseif ($classes.Count -eq 0) {
-            [string]::Empty
-        }
-        else {
-            $classFilter = ($classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-            "($functionalFilter)&($classFilter)"
+            TestNames = [string[]]@($portableTests | ForEach-Object { $_.FullyQualifiedName })
+            Filter = New-FunctionalTestCaseFilter `
+                -BaseFilter $functionalFilter `
+                -IncludeFullyQualifiedNames @($portableTests | ForEach-Object { $_.FullyQualifiedName })
         }
         [pscustomobject][ordered]@{
-            Name = $_.Name
-            Workers = [int]$_.Workers
-            Scope = [string]$_.Scope
-            Classes = $classes
-            BaseFilter = if ($hasLogicalPrefixSelector) { $remainingBaseFilter } else { [string]::Empty }
-            Selector = if ($hasLogicalPrefixSelector) { $functionalBmsLibrarySelector } else { [string]::Empty }
-            SelectorPolarity = if ($hasLogicalPrefixSelector) { [string]$_.SelectorPolarity } else { [string]::Empty }
-            SelectorFilter = $selectorFilter
-            Routing = if ($hasLogicalPrefixSelector) { [string]$_.Routing } else { [string]::Empty }
-            Filter = $filter
-            ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') {
-                [string[]]$_.ExcludedClasses
-            }
-            else {
-                [string[]]@()
-            }
+            Name = 'bass-collectible'
+            Workers = 1
+            Scope = 'MethodLevel'
+            Classes = [string[]]@($functionalBassCollectibleLoadContextClass)
+            TestNames = [string[]]@($bassTests | ForEach-Object { $_.FullyQualifiedName })
+            Filter = New-FunctionalTestCaseFilter `
+                -BaseFilter $functionalFilter `
+                -IncludeFullyQualifiedNames @($bassTests | ForEach-Object { $_.FullyQualifiedName })
         }
-    })
+        [pscustomobject][ordered]@{
+            Name = 'shared-state-a'
+            Workers = 1
+            Scope = 'MethodLevel'
+            Classes = [string[]]@()
+            TestNames = $serialStateANames
+            Filter = New-FunctionalTestCaseFilter `
+                -BaseFilter $functionalFilter `
+                -IncludeFullyQualifiedNames $serialStateANames
+        }
+        [pscustomobject][ordered]@{
+            Name = 'shared-state-b'
+            Workers = 1
+            Scope = 'MethodLevel'
+            Classes = [string[]]@()
+            TestNames = $serialStateBNames
+            Filter = New-FunctionalTestCaseFilter `
+                -BaseFilter $functionalFilter `
+                -IncludeFullyQualifiedNames $serialStateBNames
+        }
+        [pscustomobject][ordered]@{
+            Name = 'parallel-a'
+            Workers = $functionalParallelWorkers
+            Scope = 'MethodLevel'
+            Classes = [string[]]@()
+            TestNames = [string[]]@($parallelATests | ForEach-Object { $_.FullyQualifiedName })
+            Filter = New-FunctionalTestCaseFilter `
+                -BaseFilter $functionalFilter `
+                -IncludeFullyQualifiedNames @($parallelATests | ForEach-Object { $_.FullyQualifiedName })
+        }
+        [pscustomobject][ordered]@{
+            Name = 'parallel-b'
+            Workers = $functionalParallelWorkers
+            Scope = 'MethodLevel'
+            Classes = [string[]]@()
+            TestNames = [string[]]@($parallelBTests | ForEach-Object { $_.FullyQualifiedName })
+            Filter = New-FunctionalTestCaseFilter `
+                -BaseFilter $functionalFilter `
+                -IncludeFullyQualifiedNames @($parallelBTests | ForEach-Object { $_.FullyQualifiedName })
+        })
+
     return [pscustomobject][ordered]@{
         Shards = [object[]]$shards
-        ForegroundInteractionMethods = [string[]]$functionalSettingsForegroundInteractionMethods
+        Metadata = [object[]]$metadata
+        DedicatedTests = [object[]]$dedicatedTests
+        SerialTests = [object[]]$serialTests
+        ParallelTests = [object[]]$parallelTests
+        ParallelATests = [object[]]$parallelATests
+        ParallelBTests = [object[]]$parallelBTests
+        SharedStateATests = [object[]]$serialStateA
+        SharedStateBTests = [object[]]$serialStateB
+        ForegroundInteractionMethods = $foregroundMethods
     }
 }
 
@@ -245,164 +271,136 @@ function Assert-FunctionalShardConfiguration {
         [object]$Plan
     )
 
-    if ($null -eq $Plan.Shards -or
-        $null -eq $Plan.ForegroundInteractionMethods) {
-        throw 'Functional launch plan must contain one executable shard array and the foreground allowlist.'
+    if ($null -eq $Plan.Shards -or $null -eq $Plan.Metadata) {
+        throw 'Functional launch plan must contain executable shards and compiled test metadata.'
     }
-
     $shards = @($Plan.Shards)
-    if ($shards.Count -ne $functionalHostNames.Count) {
-        throw 'Functional launch plan must contain portable, BASS, serial A, serial B, BmsLibrary remaining, and remaining exactly once.'
-    }
     $names = @($shards | ForEach-Object { [string]$_.Name })
-    if (@($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or
-        ($names | Sort-Object -Unique).Count -ne $names.Count) {
-        throw 'Functional launch host names must be nonempty and unique.'
+    if (@(Compare-Object -ReferenceObject $functionalHostNames -DifferenceObject $names -CaseSensitive).Count -ne 0 -or
+        ($functionalHostNames -join '|') -cne ($names -join '|')) {
+        throw 'Functional launch hosts must be portable, BASS, shared-state A, shared-state B, and parallel A/B in that order.'
     }
-    if (@(Compare-Object -ReferenceObject $functionalHostNames -DifferenceObject $names -CaseSensitive).Count -ne 0) {
-        throw 'Functional launch hosts must use the exact portable/BASS/serial A/serial B/BmsLibrary remaining/remaining names.'
-    }
-    if (($functionalHostNames -join '|') -cne ($names -join '|')) {
-        throw 'Functional launch hosts must preserve portable-first then Bass/A/B/BmsLibrary remaining/remaining order.'
-    }
-
-    $remainingPartitionNames = @('remaining-bms-library', 'remaining')
-    $assignedClasses = @()
     foreach ($shard in $shards) {
-        $classes = [string[]]@($shard.Classes)
-        if ($remainingPartitionNames -contains [string]$shard.Name) {
-            if ($classes.Count -ne 0) {
-                throw "Functional $($shard.Name) host must rely on logical-prefix routing rather than class selectors."
-            }
-            continue
-        }
-        if (@($shard.ExcludedClasses).Count -ne 0) {
-            throw "Functional host '$($shard.Name)' must not carry remaining-only exclusions."
-        }
-        if ($classes.Count -eq 0 -or
-            @($classes | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-            throw "Functional host '$($shard.Name)' must contain nonempty class selectors."
-        }
-        $assignedClasses += $classes
-        $classFilter = ($classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-        $expectedFilter = "($functionalFilter)&($classFilter)"
-        if ($shard.Filter -cne $expectedFilter) {
-            throw "Functional host '$($shard.Name)' must carry the exact executable class filter."
+        if ($shard.Workers -lt 1 -or $shard.Scope -cne 'MethodLevel' -or
+            [string]::IsNullOrWhiteSpace([string]$shard.Filter) -or
+            -not ([string]$shard.Filter).StartsWith(
+                "($functionalFilter)",
+                [StringComparison]::Ordinal)) {
+            throw "Functional host '$($shard.Name)' must use a nonempty MethodLevel filter retaining the common category exclusions."
         }
     }
 
-    $expectedAssignedClasses = @(
-        $functionalPortableSettingsClass
-        $functionalBassCollectibleLoadContextClass
-        $functionalSerialStateAClasses
-        $functionalSerialStateBClasses)
-    if ($assignedClasses.Count -ne 45 -or
-        $expectedAssignedClasses.Count -ne 45 -or
-        @(Compare-Object -ReferenceObject $expectedAssignedClasses -DifferenceObject $assignedClasses -CaseSensitive).Count -ne 0) {
-        throw 'Functional assigned selectors must be the exact portable/BASS/serial A/serial B set of 45 classes.'
+    $metadata = @($Plan.Metadata)
+    $metadataNames = @($metadata | ForEach-Object { [string]$_.FullyQualifiedName })
+    if (($metadataNames | Sort-Object -Unique).Count -ne $metadataNames.Count) {
+        throw 'Compiled test metadata contains duplicate fully qualified names.'
     }
-    if (($assignedClasses | Sort-Object -Unique).Count -ne $assignedClasses.Count) {
-        throw 'Functional assigned selectors must be unique and logically disjoint.'
-    }
-    for ($leftIndex = 0; $leftIndex -lt $assignedClasses.Count; $leftIndex++) {
-        for ($rightIndex = $leftIndex + 1; $rightIndex -lt $assignedClasses.Count; $rightIndex++) {
-            $left = $assignedClasses[$leftIndex]
-            $right = $assignedClasses[$rightIndex]
-            if ($left.Contains($right, [StringComparison]::Ordinal) -or
-                $right.Contains($left, [StringComparison]::Ordinal)) {
-                throw "Functional test class selectors overlap: '$left' and '$right'."
-            }
+    $portableShard = @($shards | Where-Object Name -ceq 'portable-settings')[0]
+    $bassShard = @($shards | Where-Object Name -ceq 'bass-collectible')[0]
+    $serialA = @($shards | Where-Object Name -ceq 'shared-state-a')[0]
+    $serialB = @($shards | Where-Object Name -ceq 'shared-state-b')[0]
+    $parallelA = @($shards | Where-Object Name -ceq 'parallel-a')[0]
+    $parallelB = @($shards | Where-Object Name -ceq 'parallel-b')[0]
+    $serialMetadata = @($Plan.SerialTests)
+    for ($index = 1; $index -lt $serialMetadata.Count; $index++) {
+        if ([StringComparer]::Ordinal.Compare(
+                [string]$serialMetadata[$index - 1].FullyQualifiedName,
+                [string]$serialMetadata[$index].FullyQualifiedName) -gt 0) {
+            throw 'Functional DoNotParallelize metadata must be ordered by ordinal fully qualified name.'
         }
     }
-
-    $remainingExclusionFilter = ($expectedAssignedClasses |
-        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-    $remainingBaseFilter = "($functionalFilter)&($remainingExclusionFilter)"
-    $remainingPartitions = @($shards | Where-Object {
-        $remainingPartitionNames -contains [string]$_.Name
-    })
-    if ($remainingPartitions.Count -ne 2) {
-        throw 'Functional remaining must be exactly the two logical-prefix partition hosts.'
-    }
-    $positiveSelectorFilter = $functionalBmsLibrarySelector
-    $negativeSelectorFilter = $functionalBmsLibrarySelector.Replace('~', '!~', [StringComparison]::Ordinal)
-    $positivePartition = @($remainingPartitions | Where-Object { $_.SelectorPolarity -ceq 'Positive' })
-    $negativePartition = @($remainingPartitions | Where-Object { $_.SelectorPolarity -ceq 'Negative' })
-    if ($positivePartition.Count -ne 1 -or $negativePartition.Count -ne 1) {
-        throw 'Functional BmsLibrary remaining partitions must have one positive and one negative selector.'
-    }
-    foreach ($partition in $remainingPartitions) {
-        if ($partition.BaseFilter -cne $remainingBaseFilter -or
-            $partition.Selector -cne $functionalBmsLibrarySelector -or
-            $partition.Routing -cne 'logical-prefix' -or
-            $partition.Workers -ne $functionalRemainingShardWorkers -or
-            $partition.Scope -ne 'ClassLevel' -or
-            @($partition.Classes).Count -ne 0 -or
-            @($partition.ExcludedClasses).Count -ne 45 -or
-            @(Compare-Object -ReferenceObject $expectedAssignedClasses -DifferenceObject @($partition.ExcludedClasses) -CaseSensitive).Count -ne 0) {
-            throw "Functional BmsLibrary partition '$($partition.Name)' must share R, use ProcessorCount/ClassLevel, and have no exact class allowlist."
+    $parallelMetadata = @($Plan.ParallelTests)
+    for ($index = 1; $index -lt $parallelMetadata.Count; $index++) {
+        if ([StringComparer]::Ordinal.Compare(
+                [string]$parallelMetadata[$index - 1].FullyQualifiedName,
+                [string]$parallelMetadata[$index].FullyQualifiedName) -gt 0) {
+            throw 'Functional regular metadata must be ordered by ordinal fully qualified name.'
         }
     }
-    if ($positivePartition[0].SelectorFilter -cne $positiveSelectorFilter -or
-        $negativePartition[0].SelectorFilter -cne $negativeSelectorFilter -or
-        $positivePartition[0].SelectorFilter -ceq $negativePartition[0].SelectorFilter -or
-        $positivePartition[0].SelectorPolarity -ceq $negativePartition[0].SelectorPolarity) {
-        throw 'Functional BmsLibrary partitions must use the common selector with opposite polarity.'
-    }
-    foreach ($partition in $remainingPartitions) {
-        if ($partition.Filter -cne "($remainingBaseFilter)&($($partition.SelectorFilter))") {
-            throw "Functional BmsLibrary partition '$($partition.Name)' must be generated from the shared exclusion base and selector predicate."
-        }
-    }
-    # The shared base plus one positive and one negative predicate is the complete,
-    # disjoint logical partition of R; no exact BmsLibrary class allowlist can widen it.
-    if ($positivePartition[0].BaseFilter -cne $negativePartition[0].BaseFilter) {
-        throw 'Functional BmsLibrary partitions must have a disjoint union over one shared R base filter.'
-    }
-
-    $portableShard = @($shards | Where-Object { $_.Name -ceq 'portable-settings' })[0]
-    $bassShard = @($shards | Where-Object { $_.Name -ceq 'bass-collectible' })[0]
-    $serialA = @($shards | Where-Object { $_.Name -ceq 'serial-state-a' })[0]
-    $serialB = @($shards | Where-Object { $_.Name -ceq 'serial-state-b' })[0]
-    if ($portableShard.Workers -ne 1 -or $portableShard.Scope -ne 'ClassLevel' -or
+    if ($portableShard.Workers -ne 1 -or
         @($portableShard.Classes).Count -ne 1 -or
-        $portableShard.Classes[0] -ne $functionalPortableSettingsClass) {
-        throw 'Functional portable settings host must own its exact single class with one ClassLevel worker.'
+        $portableShard.Classes[0] -ne $functionalPortableSettingsClass -or
+        @($Plan.DedicatedTests | Where-Object ClassName -ceq $functionalPortableSettingsClass).Count -eq 0) {
+        throw 'Functional portable settings host must own every test method from its nonempty dedicated class.'
     }
-    if ($bassShard.Workers -ne 1 -or $bassShard.Scope -ne 'ClassLevel' -or
+    if ($bassShard.Workers -ne 1 -or
         @($bassShard.Classes).Count -ne 1 -or
-        $bassShard.Classes[0] -ne $functionalBassCollectibleLoadContextClass) {
-        throw 'Functional BASS host must own its exact single class with one ClassLevel worker.'
+        $bassShard.Classes[0] -ne $functionalBassCollectibleLoadContextClass -or
+        @($Plan.DedicatedTests | Where-Object ClassName -ceq $functionalBassCollectibleLoadContextClass).Count -eq 0) {
+        throw 'Functional BASS host must own every test method from its nonempty independent class.'
     }
-    foreach ($pair in @(
-            [pscustomobject]@{ Name = 'serial-state-a'; Shard = $serialA; Classes = $functionalSerialStateAClasses }
-            [pscustomobject]@{ Name = 'serial-state-b'; Shard = $serialB; Classes = $functionalSerialStateBClasses })) {
-        if ($pair.Shard.Workers -ne 1 -or $pair.Shard.Scope -ne 'ClassLevel' -or
-            @($pair.Shard.Classes).Count -ne @($pair.Classes).Count -or
-            @(Compare-Object -ReferenceObject @($pair.Classes) -DifferenceObject @($pair.Shard.Classes) -CaseSensitive).Count -ne 0) {
-            throw "Functional $($pair.Name) must preserve its exact Unit4e class selectors with one ClassLevel worker."
-        }
+    $portableNames = [string[]]@($Plan.DedicatedTests |
+        Where-Object ClassName -ceq $functionalPortableSettingsClass |
+        ForEach-Object { $_.FullyQualifiedName })
+    $bassNames = [string[]]@($Plan.DedicatedTests |
+        Where-Object ClassName -ceq $functionalBassCollectibleLoadContextClass |
+        ForEach-Object { $_.FullyQualifiedName })
+    if (@(Compare-Object -ReferenceObject $portableNames -DifferenceObject $portableShard.TestNames -CaseSensitive).Count -ne 0 -or
+        @(Compare-Object -ReferenceObject $bassNames -DifferenceObject $bassShard.TestNames -CaseSensitive).Count -ne 0 -or
+        $portableShard.Filter -cne (New-FunctionalTestCaseFilter `
+            -BaseFilter $functionalFilter `
+            -IncludeFullyQualifiedNames $portableNames) -or
+        $bassShard.Filter -cne (New-FunctionalTestCaseFilter `
+            -BaseFilter $functionalFilter `
+            -IncludeFullyQualifiedNames $bassNames)) {
+        throw 'Dedicated Functional filters must cover their complete nonempty classes and retain the common category filter.'
+    }
+    if ($serialA.Workers -ne 1 -or $serialB.Workers -ne 1 -or
+        @($serialA.Classes).Count -ne 0 -or @($serialB.Classes).Count -ne 0 -or
+        $parallelA.Workers -ne $functionalParallelWorkers -or
+        $parallelB.Workers -ne $functionalParallelWorkers -or
+        @($parallelA.Classes).Count -ne 0 -or @($parallelB.Classes).Count -ne 0) {
+        throw 'Functional shared-state hosts must use one worker and each parallel host must use ProcessorCount workers.'
     }
 
     $foregroundMethods = [string[]]@($Plan.ForegroundInteractionMethods)
-    if ($foregroundMethods.Count -ne 4 -or
-        @(Compare-Object -ReferenceObject $functionalSettingsForegroundInteractionMethods -DifferenceObject $foregroundMethods -CaseSensitive).Count -ne 0) {
-        throw 'Functional foreground interaction allowlist must contain the exact four current SettingsForegroundInteractionTests methods.'
+    if (@(Compare-Object -ReferenceObject $functionalSettingsForegroundInteractionMethods `
+            -DifferenceObject $foregroundMethods -CaseSensitive).Count -ne 0) {
+        throw 'Functional foreground interaction methods must be the exact four approved methods.'
     }
-    foreach ($method in $foregroundMethods) {
-        if (-not $method.StartsWith(
-                "$functionalSettingsForegroundInteractionClass.",
-                [StringComparison]::Ordinal)) {
-            throw 'Functional foreground interaction methods must all belong to SettingsForegroundInteractionTests.'
+    $serialANames = [string[]]@($Plan.SharedStateATests | ForEach-Object { $_.FullyQualifiedName })
+    $serialBNames = [string[]]@($Plan.SharedStateBTests | ForEach-Object { $_.FullyQualifiedName })
+    $serialNames = [string[]]@($Plan.SerialTests | ForEach-Object { $_.FullyQualifiedName })
+    if (@($serialANames | Where-Object { $serialBNames -contains $_ }).Count -ne 0 -or
+        @($serialANames + $serialBNames | Where-Object { $foregroundMethods -contains $_ }).Count -ne 4 -or
+        @(Compare-Object -ReferenceObject $serialNames -DifferenceObject ($serialANames + $serialBNames) -CaseSensitive).Count -ne 0) {
+        throw 'Functional DoNotParallelize metadata must be assigned once across shared-state A/B, with all foreground methods in A.'
+    }
+    foreach ($foregroundMethod in $foregroundMethods) {
+        if ($serialANames -notcontains $foregroundMethod) {
+            throw "Foreground interaction method was not assigned to shared-state-a: $foregroundMethod"
         }
     }
-    if (@($serialA.Classes) -notcontains $functionalSettingsForegroundInteractionClass) {
-        throw 'Functional serial-state-a must own the foreground interaction fixture.'
+    if ($serialA.Filter -cne (New-FunctionalTestCaseFilter -BaseFilter $functionalFilter -IncludeFullyQualifiedNames $serialANames) -or
+        $serialB.Filter -cne (New-FunctionalTestCaseFilter -BaseFilter $functionalFilter -IncludeFullyQualifiedNames $serialBNames)) {
+        throw 'Shared-state filters must be generated from their assigned metadata names.'
     }
-    foreach ($shard in $shards | Where-Object { $_.Name -cne 'serial-state-a' }) {
-        if (@($shard.Classes) -contains $functionalSettingsForegroundInteractionClass) {
-            throw "Foreground interaction fixture leaked into host '$($shard.Name)'."
-        }
+    $expectedParallelNames = [string[]]@($Plan.ParallelTests | ForEach-Object { $_.FullyQualifiedName })
+    $expectedParallelANames = [string[]]@($Plan.ParallelATests | ForEach-Object { $_.FullyQualifiedName })
+    $expectedParallelBNames = [string[]]@($Plan.ParallelBTests | ForEach-Object { $_.FullyQualifiedName })
+    $parallelNames = [string[]]@($parallelA.TestNames + $parallelB.TestNames)
+    if (@($expectedParallelNames | Where-Object { $serialNames -contains $_ }).Count -ne 0 -or
+        @($expectedParallelNames | Where-Object { $metadataNames -notcontains $_ }).Count -ne 0 -or
+        @(Compare-Object -ReferenceObject $parallelA.TestNames -DifferenceObject $expectedParallelANames -CaseSensitive).Count -ne 0 -or
+        @(Compare-Object -ReferenceObject $parallelB.TestNames -DifferenceObject $expectedParallelBNames -CaseSensitive).Count -ne 0 -or
+        @($parallelA.TestNames | Where-Object { $parallelB.TestNames -contains $_ }).Count -ne 0 -or
+        @(Compare-Object -ReferenceObject $parallelNames -DifferenceObject $expectedParallelNames -CaseSensitive).Count -ne 0) {
+        throw 'Parallel A/B metadata must partition every non-DoNotParallelize test outside the dedicated hosts exactly once.'
+    }
+    if ($parallelA.Filter -cne (New-FunctionalTestCaseFilter `
+            -BaseFilter $functionalFilter `
+            -IncludeFullyQualifiedNames $expectedParallelANames) -or
+        $parallelB.Filter -cne (New-FunctionalTestCaseFilter `
+            -BaseFilter $functionalFilter `
+            -IncludeFullyQualifiedNames $expectedParallelBNames)) {
+        throw 'Parallel A/B filters must be generated from their assigned metadata names.'
+    }
+
+    $dedicatedNames = [string[]]@($Plan.DedicatedTests | ForEach-Object { $_.FullyQualifiedName })
+    $partitionNames = @($dedicatedNames + $serialANames + $serialBNames + $parallelNames)
+    if (($partitionNames | Sort-Object -Unique).Count -ne $partitionNames.Count -or
+        @(Compare-Object -ReferenceObject $metadataNames -DifferenceObject $partitionNames -CaseSensitive).Count -ne 0) {
+        throw 'Functional metadata partitions must cover every compiled test method exactly once.'
     }
 }
 
@@ -752,20 +750,31 @@ function Write-MSTestParallelRunSettings {
         [int]$Workers,
 
         [ValidateSet('ClassLevel', 'MethodLevel')]
-        [string]$Scope = 'ClassLevel'
+        [string]$Scope = 'MethodLevel',
+
+        [string]$TestCaseFilter
     )
 
     $document = [System.Xml.XmlDocument]::new()
-    $document.LoadXml(@"
-<RunSettings>
-  <MSTest>
-    <Parallelize>
-      <Workers>$Workers</Workers>
-      <Scope>$Scope</Scope>
-    </Parallelize>
-  </MSTest>
-</RunSettings>
-"@)
+    $runSettings = $document.CreateElement('RunSettings')
+    [void]$document.AppendChild($runSettings)
+    if (-not [string]::IsNullOrWhiteSpace($TestCaseFilter)) {
+        $runConfiguration = $document.CreateElement('RunConfiguration')
+        $testCaseFilterElement = $document.CreateElement('TestCaseFilter')
+        $testCaseFilterElement.InnerText = $TestCaseFilter
+        [void]$runConfiguration.AppendChild($testCaseFilterElement)
+        [void]$runSettings.AppendChild($runConfiguration)
+    }
+    $mstest = $document.CreateElement('MSTest')
+    $parallelize = $document.CreateElement('Parallelize')
+    $workersElement = $document.CreateElement('Workers')
+    $workersElement.InnerText = [string]$Workers
+    $scopeElement = $document.CreateElement('Scope')
+    $scopeElement.InnerText = $Scope
+    [void]$parallelize.AppendChild($workersElement)
+    [void]$parallelize.AppendChild($scopeElement)
+    [void]$mstest.AppendChild($parallelize)
+    [void]$runSettings.AppendChild($mstest)
     $writerSettings = [System.Xml.XmlWriterSettings]::new()
     $writerSettings.Encoding = [System.Text.UTF8Encoding]::new($false)
     $writerSettings.Indent = $true
@@ -780,7 +789,6 @@ function Write-MSTestParallelRunSettings {
 
 function Get-TestArguments {
     param(
-        [Parameter(Mandatory)]
         [string]$Filter,
 
         [Parameter(Mandatory)]
@@ -803,9 +811,10 @@ function Get-TestArguments {
         'trx;LogFileName=results.trx',
         '--logger',
         'console;verbosity=normal',
-        '--blame-crash',
-        '--filter',
-        $Filter)
+        '--blame-crash')
+    if (-not [string]::IsNullOrWhiteSpace($Filter)) {
+        $arguments += @('--filter', $Filter)
+    }
     if (-not [string]::IsNullOrWhiteSpace($RunSettingsPath)) {
         $arguments += @('--settings', $RunSettingsPath)
     }
@@ -868,8 +877,9 @@ function Start-FunctionalShardProcess {
         [string]$RunSettingsPath
     )
 
+    # FQNの列挙はrunsettingsへ置き、Windowsのコマンドライン長制限を受けないようにする。
     $arguments = Get-TestArguments `
-        -Filter $Shard.Filter `
+        -Filter ([string]::Empty) `
         -DiagnosticsDirectory $DiagnosticsDirectory `
         -RunSettingsPath $RunSettingsPath `
         -NoBuild
@@ -1018,8 +1028,7 @@ function Invoke-ParallelFunctionalTestShards {
         [int]$TimeoutSeconds
     )
 
-    # Build once, validate once, and keep every descriptor as the object consumed by
-    # the launch loops. There is no metadata-only fanout or second allowlist route.
+    # コンパイル済みメタデータから一度だけ計画を作り、検査済みの同じ記述子を起動へ渡す。
     $shardPlan = New-FunctionalShardPlan
     Assert-FunctionalShardConfiguration -Plan $shardPlan
     $shards = @($shardPlan.Shards)
@@ -1047,7 +1056,11 @@ function Invoke-ParallelFunctionalTestShards {
     foreach ($shard in $shards) {
         $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
         $runSettingsPath = Join-Path $shardDirectory 'parallel.runsettings'
-        Write-MSTestParallelRunSettings -Path $runSettingsPath -Workers $shard.Workers -Scope $shard.Scope
+        Write-MSTestParallelRunSettings `
+            -Path $runSettingsPath `
+            -Workers $shard.Workers `
+            -Scope $shard.Scope `
+            -TestCaseFilter $shard.Filter
         $shardRunSettingsPaths[$shard.Name] = $runSettingsPath
     }
     $portableDirectory = Join-Path $DiagnosticsDirectory $portableShard.Name

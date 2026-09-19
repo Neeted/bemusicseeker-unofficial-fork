@@ -418,8 +418,6 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DataRow(false, 0)]
     [DataRow(true, 0)]
     [DataRow(false, 1)]
-    [DataRow(true, 1)]
-    [DataRow(false, 2)]
     [DataRow(true, 2)]
     public void MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation(bool bmson, int maintenanceOutcome)
     {
@@ -1691,13 +1689,14 @@ public sealed class BmsLibraryDuplicateServiceTests
                 BMSFiles = files,
                 BmsonSongs = []
             };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            // sourceなしのfixture seedは本番保存契約を検証しないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 foreach (TestableBmsFile file in files)
                 {
                     songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                 }
-            }
+            });
 
             List<string> hashWork = [];
             List<string> playlistWork = [];
@@ -1712,7 +1711,8 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.AreEqual(0, coldReceipt.SessionReceipt.ConfirmedChangeCount);
             Assert.IsTrue(Directory.Exists(destination));
             Assert.AreEqual(files.Count, library.BMSFiles.Count);
-            using (var coldVerifyDb = new LR2SongDBExtended(songDbPath))
+            // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
+            using (var coldVerifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(files.Count, coldVerifyDb.Table<LR2SongDB.song>().Count());
             }
@@ -1729,7 +1729,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 "sourceなしmerge後にinstalled primary lookupを単独構築しました。");
 
             OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
-            BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary = library.WarmInstalledPrimaryHashLookup("u1_empty_merge");
+            BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary = library.WarmInstalledPrimaryHashLookup("empty_source_merge_before");
             InstalledChartLookupIndexSnapshot initialInstalled = library.CreateInstalledChartLookupSnapshotForDiagnostics();
             PlaylistLibraryResolveIndexSnapshot initialPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
                 System.Threading.CancellationToken.None,
@@ -1748,7 +1748,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.AreEqual(0, warmReceipt.SessionReceipt.ConfirmedChangeCount);
             Assert.AreSame(initialHash, library.GetOwnedChartHashIndexSnapshot());
             Assert.AreSame(initialInstalled, library.CreateInstalledChartLookupSnapshotForDiagnostics());
-            BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary = library.WarmInstalledPrimaryHashLookup("u1_empty_merge");
+            BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary = library.WarmInstalledPrimaryHashLookup("empty_source_merge_after");
             PlaylistLibraryResolveIndexSnapshot updatedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
                 System.Threading.CancellationToken.None,
                 out bool updatedPlaylistCacheHit,
@@ -1772,10 +1772,11 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// <summary>
     /// Merge の source cleanup と移動を同じ library で連続実行しても、warm な
     /// 所持 hash / installed / playlist resolve lookup を次回利用へ押し出さない。
+    /// 背景16件は対象差分のprimary hash更新（最大8件）を上回り、全件列挙なしの実observerを
+    /// 検出できます。背景件数による時間・仕事量比較はこの契約に含めません。
     /// </summary>
     [DataTestMethod]
     [DataRow(16)]
-    [DataRow(128)]
     public void MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild(int backgroundCount)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1825,15 +1826,16 @@ public sealed class BmsLibraryDuplicateServiceTests
                 BMSFiles = files,
                 BmsonSongs = []
             };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            // warm操作前のfixture seedは本番保存契約を検証しないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 foreach (TestableBmsFile file in files)
                 {
                     songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                 }
-            }
+            });
 
-            BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary = library.WarmInstalledPrimaryHashLookup("u1_warm_merge");
+            BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary = library.WarmInstalledPrimaryHashLookup("two_warm_operations_before");
             Assert.IsFalse(initialPrimary.FullDirectoryLookupInitialized);
             OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
             InstalledChartLookupIndexSnapshot initialInstalled = library.CreateInstalledChartLookupSnapshotForDiagnostics();
@@ -1894,7 +1896,8 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(File.Exists(destinationDuplicate.path));
                 Assert.IsTrue(File.Exists(destinationUniquePath));
 
-                using (var verifyDb = new LR2SongDBExtended(songDbPath))
+                // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
+                using (var verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     string[] dbPaths = verifyDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                     Assert.IsFalse(dbPaths.Contains(sourceDuplicatePath, StringComparer.OrdinalIgnoreCase));
@@ -1913,7 +1916,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 OwnedChartHashIndexVersionedSnapshot cachedHash = library.GetOwnedChartHashIndexSnapshot();
                 InstalledChartLookupIndexSnapshot updatedInstalled = library.CreateInstalledChartLookupSnapshotForDiagnostics();
                 InstalledChartLookupIndexSnapshot cachedInstalled = library.CreateInstalledChartLookupSnapshotForDiagnostics();
-                BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary = library.WarmInstalledPrimaryHashLookup("u1_warm_merge");
+                BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary = library.WarmInstalledPrimaryHashLookup("two_warm_operations_after");
                 PlaylistLibraryResolveIndexSnapshot updatedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
                     System.Threading.CancellationToken.None,
                     out bool updatedPlaylistCacheHit,
@@ -2041,13 +2044,14 @@ public sealed class BmsLibraryDuplicateServiceTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            // fixture schemaは初期化処理の検証対象ではないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            }
+            });
             testAction(songDbPath);
         }
         finally

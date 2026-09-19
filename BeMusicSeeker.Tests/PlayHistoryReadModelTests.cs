@@ -1729,7 +1729,7 @@ public sealed class PlayHistoryReadModelTests
         viewModel.PlaylistWorkspace.RequestSummarySelection();
         TestUiDispatcherHost.Drain();
         await viewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync()
-            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            .ConfigureAwait(false);
         TestUiDispatcherHost.Drain();
 
         Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);
@@ -2110,7 +2110,7 @@ public sealed class PlayHistoryReadModelTests
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
         viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
-        MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task;
         Assert.AreEqual(nameof(BMSFile.Title), regularReceipt.ColumnName);
 
         ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
@@ -2131,7 +2131,7 @@ public sealed class PlayHistoryReadModelTests
         viewModel.PlayHistory.SortChanged += (_, request) => playHistorySortChanged.TrySetResult(request);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
-        MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task;
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
         ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
@@ -2160,7 +2160,7 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-        MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task;
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
         ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
@@ -2189,7 +2189,7 @@ public sealed class PlayHistoryReadModelTests
                 playHistorySort.ColumnsName,
                 playHistorySort.Direction),
             MainChartListSortTarget.PlayHistory);
-        MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task;
         Assert.AreEqual(nameof(BMSFile.Title), regularReceipt.ColumnName);
 
         ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
@@ -2281,7 +2281,8 @@ public sealed class PlayHistoryReadModelTests
             nameof(PlayHistoryRow.Title),
             ListSortDirection.Ascending,
             MainChartListSortTarget.PlayHistory));
-        await firstRefreshEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // 最初の refresh 通知を観測してから更新を集中させ、解放後に最新 revision の通知を待つ。
+        await firstRefreshEntered.Task;
         try
         {
             for (int index = 1; index < 40; index++)
@@ -2297,7 +2298,7 @@ public sealed class PlayHistoryReadModelTests
         {
             firstRefreshRelease.TrySetResult(true);
         }
-        await finalRefreshPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await finalRefreshPublished.Task;
 
         lock (refreshed)
         {
@@ -2331,14 +2332,14 @@ public sealed class PlayHistoryReadModelTests
             nameof(PlayHistoryRow.Title),
             ListSortDirection.Ascending,
             MainChartListSortTarget.PlayHistory));
-        Assert.IsTrue(firstAttempt.Wait(TimeSpan.FromSeconds(5)));
+        firstAttempt.Wait();
 
         owner.QueueSort(new MainChartListSortRequestedEventArgs(
             nameof(PlayHistoryRow.PlayedAt),
             ListSortDirection.Descending,
             MainChartListSortTarget.PlayHistory));
 
-        Assert.IsTrue(recovered.Wait(TimeSpan.FromSeconds(5)));
+        recovered.Wait();
         Assert.AreEqual(2, Volatile.Read(ref attempt));
     }
 
@@ -2356,7 +2357,7 @@ public sealed class PlayHistoryReadModelTests
                 nameof(BMSFile.Title),
                 ListSortDirection.Ascending,
                 MainChartListSortTarget.Regular)));
-        Assert.IsTrue(regularRefreshed.Wait(TimeSpan.FromSeconds(5)));
+        regularRefreshed.Wait();
 
         var playHistoryOwner = new PlayHistoryWorkflowOwner();
         using var playHistoryRefreshed = new ManualResetEventSlim();
@@ -2368,7 +2369,7 @@ public sealed class PlayHistoryReadModelTests
                 nameof(PlayHistoryRow.Title),
                 ListSortDirection.Ascending,
                 MainChartListSortTarget.PlayHistory)));
-        Assert.IsTrue(playHistoryRefreshed.Wait(TimeSpan.FromSeconds(5)));
+        playHistoryRefreshed.Wait();
     }
 
     [TestMethod]
@@ -3594,7 +3595,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(keywordIdle.IsCompleted, "The display-target worker still owns active work.");
         owner.CompleteDisplayTargetRefresh(displayRequest.DisplayTargetRevision);
 
-        await keywordIdle.WaitAsync(TimeSpan.FromSeconds(5));
+        await keywordIdle;
         Assert.IsTrue(owner.AreRefreshQueuesIdle);
         Assert.AreEqual(keywordRequest.KeywordFilterRevision, owner.KeywordRevision);
         Assert.AreEqual(displayRequest.DisplayTargetRevision, owner.DisplayTargetRevision);
@@ -3625,7 +3626,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, keywordReservations);
         owner.CompleteKeywordRefresh(concurrentRequest!.KeywordFilterRevision);
         Assert.ThrowsException<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRequest.KeywordFilterRevision));
-        await owner.WaitForRefreshQueuesIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await owner.WaitForRefreshQueuesIdleAsync();
 
         Assert.IsTrue(owner.TryBeginKeywordRefresh("stale-current", advanceRevision: true, out PlayHistoryViewRequest staleRequest));
         Assert.IsTrue(owner.TryBeginKeywordRefresh("stale-current", advanceRevision: true, out PlayHistoryViewRequest currentRequest));
@@ -3633,7 +3634,7 @@ public sealed class PlayHistoryReadModelTests
         owner.CompleteKeywordRefresh(staleRequest.KeywordFilterRevision);
         Assert.IsFalse(requeuedIdle.IsCompleted, "Completing a stale worker must retain the current queued revision.");
         owner.CompleteKeywordRefresh(currentRequest.KeywordFilterRevision);
-        await requeuedIdle.WaitAsync(TimeSpan.FromSeconds(5));
+        await requeuedIdle;
     }
 
     [TestMethod]
@@ -3656,8 +3657,8 @@ public sealed class PlayHistoryReadModelTests
 
         owner.QueueKeywordFilterRefresh(string.Empty, advanceRevision: false);
 
-        Assert.IsTrue(refreshed.Wait(TimeSpan.FromSeconds(5)));
-        await owner.WaitForRefreshQueuesIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        refreshed.Wait();
+        await owner.WaitForRefreshQueuesIdleAsync();
         lock (requests)
         {
             Assert.AreEqual(1, requests.Count);
@@ -3877,8 +3878,8 @@ public sealed class PlayHistoryReadModelTests
                 PlayHistoryDisplayTargetItem.All));
 
         Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
-        Assert.IsTrue(refreshed.Wait(TimeSpan.FromSeconds(5)));
-        await owner.WaitForRefreshQueuesIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        refreshed.Wait();
+        await owner.WaitForRefreshQueuesIdleAsync();
         Assert.IsNotNull(refreshRequest);
         Assert.AreEqual(owner.DisplayTargetRevision, refreshRequest.DisplayTargetRevision);
         Assert.AreEqual(latestTarget.Identity, owner.CurrentDisplayTargetIdentity);

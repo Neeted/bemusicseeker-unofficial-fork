@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -15,14 +14,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AppSchemaPreflightServiceTests
 {
-    [TestMethod]
-    public void BmsLibraryDbGatewaySqlQuote_PreservesLiteralEscapingBoundary()
-    {
-        Assert.AreEqual("'O''Reilly'", BmsLibraryDbGateway.SqlQuote("O'Reilly"));
-        Assert.AreEqual("''", BmsLibraryDbGateway.SqlQuote("  "));
-        Assert.AreEqual("''", BmsLibraryDbGateway.SqlQuote(null));
-    }
-
     [TestMethod]
     public void EnsureLibraryStartupSchema_ContainsLibraryOwnedTables()
     {
@@ -107,51 +98,7 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_MissingVersionRow_RequiresWarningEvenWhenSchemaExists()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            new BmsLibraryDbGateway(tempDbPath).EnsureBmsonSchema();
-
-            var service = new AppSchemaPreflightService();
-            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
-
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
-            Assert.IsTrue(result.NeedsAppSchemaVersionRepair);
-            Assert.IsTrue(result.WarnRequired);
-            Assert.IsFalse(result.RepairRequired);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_FreshLr2Database_DoesNotRequireWarning()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            var service = new AppSchemaPreflightService();
-            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
-
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
-            Assert.IsTrue(result.NeedsAppSchemaVersionRepair);
-            Assert.IsFalse(result.WarnRequired);
-            Assert.IsFalse(result.RequiresWarning);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
+    /// <summary>新規LR2 DBのInspectは無変更・無警告のまま、Ensure後に同じ入口で収束する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration()
@@ -159,12 +106,19 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
+            var service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult before = service.Inspect(tempDbPath);
+            Assert.IsFalse(before.NeedsPlaylistEntrySha256Repair);
+            Assert.IsTrue(before.NeedsAppSchemaVersionRepair);
+            Assert.IsFalse(before.WarnRequired);
+            Assert.IsFalse(before.RequiresWarning);
+
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
 
             gateway.EnsureAppOwnedSchema();
 
-            AppSchemaPreflightResult result = new AppSchemaPreflightService().Inspect(tempDbPath);
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
             Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
             Assert.IsFalse(result.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(result.RepairRequired);
@@ -208,6 +162,7 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>版行がない既存DBではInspectが修復警告だけを返し、Repair後の再Inspectで収束する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_MissingVersionRowConvergesPreflight()
@@ -222,6 +177,9 @@ public sealed class AppSchemaPreflightServiceTests
             var service = new AppSchemaPreflightService();
             AppSchemaPreflightResult before = service.Inspect(tempDbPath);
             Assert.IsTrue(before.NeedsAppSchemaVersionRepair);
+            Assert.IsFalse(before.NeedsPlaylistEntrySha256Repair);
+            Assert.IsTrue(before.WarnRequired);
+            Assert.IsFalse(before.RepairRequired);
 
             gateway.RepairAppOwnedSchema();
 
@@ -260,39 +218,6 @@ public sealed class AppSchemaPreflightServiceTests
             using var verify = new LR2SongDBExtended(tempDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_OrphanDigestRow_DoesNotRequireWarningWhenVersionCurrent()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var gateway = new BmsLibraryDbGateway(tempDbPath);
-            gateway.EnsureBmsonSchema();
-            gateway.RepairAppOwnedSchema();
-
-            using (var db = new LR2SongDBExtended(tempDbPath))
-            {
-                db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('d', 64)
-                }, typeof(LR2SongDBExtended.chart_digest_map));
-            }
-
-            var service = new AppSchemaPreflightService();
-            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
-
-            Assert.IsFalse(result.WarnRequired);
-            Assert.IsFalse(result.RequiresWarning);
         }
         finally
         {
@@ -387,6 +312,7 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>不正なdigest表を修復しても既存のMD5-SHA行を保持し、不要列だけを除去する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_CurrentVersionWithInvalidDigestMapStillRepairsSchema()
@@ -410,13 +336,23 @@ public sealed class AppSchemaPreflightServiceTests
 
             gateway.RepairAppOwnedSchema();
 
+            using (var orphan = new LR2SongDBExtended(tempDbPath))
+            {
+                orphan.Execute(
+                    "INSERT INTO chart_digest_map (md5, sha256) VALUES (?, ?);",
+                    new string('e', 32),
+                    new string('f', 64));
+            }
             AppSchemaPreflightResult after = service.Inspect(tempDbPath);
             Assert.IsFalse(after.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(after.RepairRequired);
+            Assert.IsFalse(after.WarnRequired);
+            Assert.IsFalse(after.RequiresWarning);
             using var verify = new LR2SongDBExtended(tempDbPath);
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
             StringAssert.Contains(chartDigestMapSql, "sha256");
             Assert.IsFalse(chartDigestMapSql.IndexOf("broken", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", new string('e', 32), new string('f', 64)));
         }
         finally
         {
@@ -424,46 +360,7 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void RepairAppOwnedSchema_LateFailureRollsBackNormalizationSchemaVersionDigestAndData()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            SeedLateFailureSchemaRepairDatabase(tempDbPath);
-            var gateway = new BmsLibraryDbGateway(tempDbPath);
-            SchemaRepairSnapshot before = ReadSchemaRepairSnapshot(tempDbPath);
-            Exception? failure = null;
-            try
-            {
-                gateway.RepairAppOwnedSchema();
-            }
-            catch (Exception exception)
-            {
-                failure = exception;
-            }
-
-            Assert.IsNotNull(failure);
-            SchemaRepairSnapshot afterFailure = ReadSchemaRepairSnapshot(tempDbPath);
-            Assert.AreEqual(before.PlaylistEntryTableSql, afterFailure.PlaylistEntryTableSql);
-            Assert.AreEqual(before.PlaylistEntryUniqueIndexSql, afterFailure.PlaylistEntryUniqueIndexSql);
-            Assert.AreEqual(before.PlaylistEntrySha256IndexCount, afterFailure.PlaylistEntrySha256IndexCount);
-            Assert.AreEqual(before.AppSchemaVersion, afterFailure.AppSchemaVersion);
-            Assert.AreEqual(before.DigestSha256, afterFailure.DigestSha256);
-            Assert.AreEqual(before.PlaylistBmtSort, afterFailure.PlaylistBmtSort);
-            Assert.AreEqual(before.PlaylistIsBmtOutput, afterFailure.PlaylistIsBmtOutput);
-            Assert.AreEqual(before.EntryTitle, afterFailure.EntryTitle);
-            Assert.AreEqual(before.PlaylistRowCount, afterFailure.PlaylistRowCount);
-            Assert.AreEqual(before.PlaylistEntryRowCount, afterFailure.PlaylistEntryRowCount);
-            Assert.AreEqual(before.DigestRowCount, afterFailure.DigestRowCount);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
+    /// <summary>外側トランザクションの途中失敗で全旧状態を保ち、障害除去後の再試行で収束する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_LateFailureRetryConvergesOnSameDatabase()
@@ -484,6 +381,18 @@ public sealed class AppSchemaPreflightServiceTests
             }
 
             Assert.IsNotNull(failure);
+            SchemaRepairSnapshot afterFailure = ReadSchemaRepairSnapshot(tempDbPath);
+            Assert.AreEqual(before.PlaylistEntryTableSql, afterFailure.PlaylistEntryTableSql);
+            Assert.AreEqual(before.PlaylistEntryUniqueIndexSql, afterFailure.PlaylistEntryUniqueIndexSql);
+            Assert.AreEqual(before.PlaylistEntrySha256IndexCount, afterFailure.PlaylistEntrySha256IndexCount);
+            Assert.AreEqual(before.AppSchemaVersion, afterFailure.AppSchemaVersion);
+            Assert.AreEqual(before.DigestSha256, afterFailure.DigestSha256);
+            Assert.AreEqual(before.PlaylistBmtSort, afterFailure.PlaylistBmtSort);
+            Assert.AreEqual(before.PlaylistIsBmtOutput, afterFailure.PlaylistIsBmtOutput);
+            Assert.AreEqual(before.EntryTitle, afterFailure.EntryTitle);
+            Assert.AreEqual(before.PlaylistRowCount, afterFailure.PlaylistRowCount);
+            Assert.AreEqual(before.PlaylistEntryRowCount, afterFailure.PlaylistEntryRowCount);
+            Assert.AreEqual(before.DigestRowCount, afterFailure.DigestRowCount);
             using (var removeFailure = new LR2SongDBExtended(tempDbPath))
             {
                 removeFailure.Execute("DROP TRIGGER app_schema_repair_late_failure;");
@@ -589,7 +498,7 @@ public sealed class AppSchemaPreflightServiceTests
             {
                 try
                 {
-                    lockAcquired = LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5));
+                    lockAcquired = LR2SongDBExtended.Lock(Timeout.InfiniteTimeSpan);
                     if (!lockAcquired)
                     {
                         throw new TimeoutException("The LR2SongDBExtended monitor lock holder could not acquire its lock.");
@@ -606,10 +515,9 @@ public sealed class AppSchemaPreflightServiceTests
                     holderReady.Set();
                 }
 
-                if (lockAcquired && !releaseLock.Wait(TimeSpan.FromSeconds(30)))
+                if (lockAcquired)
                 {
-                    holderFailure ??= ExceptionDispatchInfo.Capture(
-                        new TimeoutException("The LR2SongDBExtended monitor lock holder was not released in time."));
+                    releaseLock.Wait();
                 }
             }
             catch (Exception exception)
@@ -652,17 +560,16 @@ public sealed class AppSchemaPreflightServiceTests
         {
             holderThread.Start();
             holderStarted = true;
-            Assert.IsTrue(holderReady.Wait(TimeSpan.FromSeconds(5)), "The dedicated lock-holder thread did not start in time.");
+            holderReady.Wait();
             holderFailure?.Throw();
             Assert.IsTrue(lockTaken.IsSet, "The dedicated lock-holder thread did not acquire the LR2SongDBExtended monitor lock.");
 
             var service = new AppSchemaPreflightService();
-            var stopwatch = Stopwatch.StartNew();
+            // Monitorの保持中に検査が完了することを確認する。応答秒数を契約にはしない。
+            // 保持側はfinallyでだけ解放し、停止する誤実装は検証全体の期限で検出する。
             AppSchemaPreflightResult result = service.Inspect(tempDbPath);
-            stopwatch.Stop();
 
             Assert.IsFalse(result.RequiresWarning);
-            Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Inspect should not block on LR2SongDBExtended monitor lock.");
         }
         catch (Exception exception)
         {

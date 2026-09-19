@@ -81,35 +81,39 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupReadyOperable_StartsSchedulerAfterLatchingBackgroundPresentation()
     {
-        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-        try
+        TestUiDispatcherHost.Invoke(() =>
         {
-            StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
-            long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
-            progress.ApplyPresentation(false, null, null, 0.0, 1.0);
-            owner.ProgressHub.PropertyChanged += (_, args) =>
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            try
             {
-                if (args.PropertyName == nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive))
+                StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
+                long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+                progress.ApplyPresentation(false, null, null, 0.0, 1.0);
+                owner.ProgressHub.PropertyChanged += (_, args) =>
                 {
-                    throw new InvalidOperationException("background presentation observer failed");
-                }
-            };
-            SetPrivateField(owner, "startupReadyUiReached", true);
-            SetPrivateField(owner, "startupReadyOperableStopwatch", Stopwatch.StartNew());
+                    if (args.PropertyName == nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive))
+                    {
+                        throw new InvalidOperationException("background presentation observer failed");
+                    }
+                };
+                // owner の生成から通知購読、private 境界、後始末まで同じ UI dispatcher で観測する。
+                SetPrivateField(owner, "startupReadyUiReached", true);
+                SetPrivateField(owner, "startupReadyOperableStopwatch", Stopwatch.StartNew());
 
-            InvokePrivate(owner, "TryLogStartupReadyOperable", [(object)operationToken]);
+                InvokePrivate(owner, "TryLogStartupReadyOperable", [(object)operationToken]);
 
-            StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
-                owner,
-                "startupBackgroundTaskScheduler");
-            Assert.IsTrue(scheduler.IsStarted);
-            progress.ApplyPresentation(false, null, null, 0.0, 1.0);
-            Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
-        }
-        finally
-        {
-            owner.SettingDialog.Dispose();
-        }
+                StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
+                    owner,
+                    "startupBackgroundTaskScheduler");
+                Assert.IsTrue(scheduler.IsStarted);
+                progress.ApplyPresentation(false, null, null, 0.0, 1.0);
+                Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
     }
 
     [TestMethod]

@@ -228,28 +228,37 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
         Task<bool> staleSchedule = StartLongRunning(() => owner.Schedule(
             new StartupPostInitializationWarmupRequest("old", 24L, 10L)));
-        Assert.IsTrue(harness.LeaseAcquireEntered.Wait(TimeSpan.FromSeconds(5)));
+        try
+        {
+            harness.LeaseAcquireEntered.Wait();
 
-        owner.Reset("new_generation");
-        Assert.AreEqual(1, harness.Completions.Count);
-        harness.ReleaseLeaseAcquisition.Set();
+            owner.Reset("new_generation");
+            Assert.AreEqual(1, harness.Completions.Count);
+            harness.ReleaseLeaseAcquisition.Set();
 
-        Assert.IsFalse(await staleSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(0, harness.QueueCount);
-        Assert.AreEqual(1, harness.CancelLeaseCount);
-        Assert.IsTrue(harness.Lease.Completion.IsCompleted);
-        Assert.AreEqual(1, harness.Completions.Count);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Cancelled, harness.Completions[0].Kind);
-        Assert.AreEqual(0, harness.StageOrder.Count);
+            Assert.IsFalse(await staleSchedule);
+            Assert.AreEqual(0, harness.QueueCount);
+            Assert.AreEqual(1, harness.CancelLeaseCount);
+            Assert.IsTrue(harness.Lease.Completion.IsCompleted);
+            Assert.AreEqual(1, harness.Completions.Count);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Cancelled, harness.Completions[0].Kind);
+            Assert.AreEqual(0, harness.StageOrder.Count);
 
-        harness.GateLeaseAcquisition = false;
-        Assert.IsTrue(owner.Schedule(new StartupPostInitializationWarmupRequest("new", 26L, 11L)));
-        await harness.RunQueuedAsync();
-        Assert.AreEqual(2, harness.Completions.Count);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, harness.Completions[1].Kind);
-        CollectionAssert.AreEqual(
-            new[] { "real_path", "overlay", "primary", "playlist_hash", "virtual" },
-            harness.StageOrder);
+            harness.GateLeaseAcquisition = false;
+            Assert.IsTrue(owner.Schedule(new StartupPostInitializationWarmupRequest("new", 26L, 11L)));
+            await harness.RunQueuedAsync();
+            Assert.AreEqual(2, harness.Completions.Count);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, harness.Completions[1].Kind);
+            CollectionAssert.AreEqual(
+                new[] { "real_path", "overlay", "primary", "playlist_hash", "virtual" },
+                harness.StageOrder);
+        }
+        finally
+        {
+            // 途中の表明失敗でも、予約 callback と所有 schedule を解放して終端まで回収する。
+            harness.ReleaseLeaseAcquisition.Set();
+            await staleSchedule;
+        }
     }
 
     [TestMethod]
@@ -263,21 +272,35 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
         Task<bool> staleSchedule = StartLongRunning(() => owner.Schedule(
             new StartupPostInitializationWarmupRequest("old", 25L, 11L)));
-        Assert.IsTrue(harness.QueueEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task reset = null;
+        try
+        {
+            harness.QueueEntered.Wait();
 
-        Task reset = StartLongRunning(() => owner.Reset("new_generation"));
-        Assert.IsTrue(harness.CancelMissObserved.Wait(TimeSpan.FromSeconds(5)));
-        harness.ReleaseQueue.Set();
+            reset = StartLongRunning(() => owner.Reset("new_generation"));
+            harness.CancelMissObserved.Wait();
+            harness.ReleaseQueue.Set();
 
-        Assert.IsFalse(await staleSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        harness.ReleaseFirstCancel.Set();
-        await reset.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.AreEqual(1, harness.QueueCount);
-        Assert.AreEqual(2, harness.CancelQueuedCount);
-        Assert.AreEqual(1, harness.CancelLeaseCount);
-        Assert.AreEqual(1, harness.Completions.Count);
-        Assert.AreEqual(0, harness.StageOrder.Count);
-        Assert.IsFalse(harness.HasQueuedWork);
+            Assert.IsFalse(await staleSchedule);
+            harness.ReleaseFirstCancel.Set();
+            await reset;
+            Assert.AreEqual(1, harness.QueueCount);
+            Assert.AreEqual(2, harness.CancelQueuedCount);
+            Assert.AreEqual(1, harness.CancelLeaseCount);
+            Assert.AreEqual(1, harness.Completions.Count);
+            Assert.AreEqual(0, harness.StageOrder.Count);
+            Assert.IsFalse(harness.HasQueuedWork);
+        }
+        finally
+        {
+            harness.ReleaseQueue.Set();
+            harness.ReleaseFirstCancel.Set();
+            await staleSchedule;
+            if (reset != null)
+            {
+                await reset;
+            }
+        }
     }
 
     [TestMethod]
@@ -292,32 +315,51 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
         Task<bool> staleSchedule = StartLongRunning(() => owner.Schedule(
             new StartupPostInitializationWarmupRequest("old", 31L, 0L)));
-        Assert.IsTrue(harness.QueueEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task reset = null;
+        Task<bool> newSchedule = null;
+        try
+        {
+            harness.QueueEntered.Wait();
 
-        Task reset = StartLongRunning(() => owner.Reset("new_generation"));
-        Assert.IsTrue(harness.CancelMissObserved.Wait(TimeSpan.FromSeconds(5)));
-        harness.SchedulerGeneration = 1L;
-        harness.ReleaseQueue.Set();
-        Assert.IsFalse(await staleSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        harness.QueueEntered.Reset();
-        harness.ReleaseQueue.Reset();
+            reset = StartLongRunning(() => owner.Reset("new_generation"));
+            harness.CancelMissObserved.Wait();
+            harness.SchedulerGeneration = 1L;
+            harness.ReleaseQueue.Set();
+            Assert.IsFalse(await staleSchedule);
+            harness.QueueEntered.Reset();
+            harness.ReleaseQueue.Reset();
 
-        Task<bool> newSchedule = StartLongRunning(() => owner.Schedule(
-            new StartupPostInitializationWarmupRequest("new", 32L, 1L)));
-        Assert.IsTrue(harness.QueueEntered.Wait(TimeSpan.FromSeconds(5)));
-        harness.ReleaseFirstCancel.Set();
-        await reset.WaitAsync(TimeSpan.FromSeconds(5));
+            newSchedule = StartLongRunning(() => owner.Schedule(
+                new StartupPostInitializationWarmupRequest("new", 32L, 1L)));
+            harness.QueueEntered.Wait();
+            harness.ReleaseFirstCancel.Set();
+            await reset;
 
-        harness.ReleaseQueue.Set();
-        Assert.IsTrue(await newSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        await harness.RunQueuedAsync();
+            harness.ReleaseQueue.Set();
+            Assert.IsTrue(await newSchedule);
+            await harness.RunQueuedAsync();
 
-        Assert.AreEqual(2, harness.Completions.Count);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Cancelled, harness.Completions[0].Kind);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, harness.Completions[1].Kind);
-        Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
-        Assert.AreEqual(1, harness.OwnedCancellations[1].DisposeCount);
-        Assert.AreEqual(0, harness.CancelQueuedCount % 2, "Both stale cancellation attempts must remain reservation-scoped.");
+            Assert.AreEqual(2, harness.Completions.Count);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Cancelled, harness.Completions[0].Kind);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, harness.Completions[1].Kind);
+            Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
+            Assert.AreEqual(1, harness.OwnedCancellations[1].DisposeCount);
+            Assert.AreEqual(0, harness.CancelQueuedCount % 2, "Both stale cancellation attempts must remain reservation-scoped.");
+        }
+        finally
+        {
+            harness.ReleaseQueue.Set();
+            harness.ReleaseFirstCancel.Set();
+            await staleSchedule;
+            if (reset != null)
+            {
+                await reset;
+            }
+            if (newSchedule != null)
+            {
+                await newSchedule;
+            }
+        }
     }
 
     [TestMethod]
@@ -328,30 +370,41 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         harness.ReserveExternalLock = progressLikeLock;
         harness.GateNextReservation = true;
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
-        Task<bool> staleSchedule;
-        Task reset;
-
-        lock (progressLikeLock)
+        Task<bool> staleSchedule = null;
+        Task reset = null;
+        try
         {
-            staleSchedule = StartLongRunning(() => owner.Schedule(
-                new StartupPostInitializationWarmupRequest("late", 33L, 0L)));
-            Assert.IsTrue(harness.ReserveEntered.Wait(TimeSpan.FromSeconds(5)));
+            lock (progressLikeLock)
+            {
+                staleSchedule = StartLongRunning(() => owner.Schedule(
+                    new StartupPostInitializationWarmupRequest("late", 33L, 0L)));
+                harness.ReserveEntered.Wait();
 
-            reset = StartLongRunning(() => owner.Reset("progress_reset"));
-            Assert.IsTrue(
-                reset.Wait(TimeSpan.FromSeconds(5)),
-                "Reset must not wait for the scheduler reservation callback while the progress lock is held.");
+                reset = StartLongRunning(() => owner.Reset("progress_reset"));
+                reset.Wait();
+            }
+
+            Assert.IsFalse(await staleSchedule);
+            await reset;
+            Assert.AreEqual(0, harness.AcquireCount);
+            Assert.AreEqual(0, harness.QueueCount);
+            Assert.AreEqual(1, harness.CancelQueuedCount);
+            Assert.AreEqual(1, harness.Completions.Count);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Failed, harness.Completions[0].Kind);
+            Assert.AreEqual("reservation", harness.Completions[0].FailedStage);
+            Assert.AreEqual(0, harness.StageOrder.Count);
         }
-
-        Assert.IsFalse(await staleSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        await reset.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.AreEqual(0, harness.AcquireCount);
-        Assert.AreEqual(0, harness.QueueCount);
-        Assert.AreEqual(1, harness.CancelQueuedCount);
-        Assert.AreEqual(1, harness.Completions.Count);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Failed, harness.Completions[0].Kind);
-        Assert.AreEqual("reservation", harness.Completions[0].FailedStage);
-        Assert.AreEqual(0, harness.StageOrder.Count);
+        finally
+        {
+            if (staleSchedule != null)
+            {
+                await staleSchedule;
+            }
+            if (reset != null)
+            {
+                await reset;
+            }
+        }
     }
 
     [TestMethod]
@@ -362,34 +415,45 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         harness.ReserveExternalLock = progressLikeLock;
         harness.GateNextReservation = true;
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
-        Task<bool> oldSchedule;
-        Task<bool> newSchedule;
-
-        lock (progressLikeLock)
+        Task<bool> oldSchedule = null;
+        Task<bool> newSchedule = null;
+        try
         {
-            oldSchedule = StartLongRunning(() => owner.Schedule(
-                new StartupPostInitializationWarmupRequest("old", 34L, 0L)));
-            Assert.IsTrue(harness.ReserveEntered.Wait(TimeSpan.FromSeconds(5)));
+            lock (progressLikeLock)
+            {
+                oldSchedule = StartLongRunning(() => owner.Schedule(
+                    new StartupPostInitializationWarmupRequest("old", 34L, 0L)));
+                harness.ReserveEntered.Wait();
 
-            newSchedule = StartLongRunning(() => owner.Schedule(
-                new StartupPostInitializationWarmupRequest("new", 35L, 0L)));
-            Assert.IsTrue(
-                newSchedule.Wait(TimeSpan.FromSeconds(5)),
-                "A newer schedule must be able to advance the owner revision while an older reserve callback is blocked.");
-            Assert.IsTrue(newSchedule.Result);
+                newSchedule = StartLongRunning(() => owner.Schedule(
+                    new StartupPostInitializationWarmupRequest("new", 35L, 0L)));
+                newSchedule.Wait();
+                Assert.IsTrue(newSchedule.Result);
+            }
+
+            Assert.IsFalse(await oldSchedule);
+            Assert.AreEqual(1, harness.QueueCount);
+            Assert.AreEqual(0, harness.CancelQueuedCount);
+
+            await harness.RunQueuedAsync();
+
+            Assert.AreEqual(2, harness.Completions.Count);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Rejected, harness.Completions[0].Kind);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, harness.Completions[1].Kind);
+            Assert.AreEqual(1, harness.OwnedCancellations.Count);
+            Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
         }
-
-        Assert.IsFalse(await oldSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(1, harness.QueueCount);
-        Assert.AreEqual(0, harness.CancelQueuedCount);
-
-        await harness.RunQueuedAsync();
-
-        Assert.AreEqual(2, harness.Completions.Count);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Rejected, harness.Completions[0].Kind);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, harness.Completions[1].Kind);
-        Assert.AreEqual(1, harness.OwnedCancellations.Count);
-        Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
+        finally
+        {
+            if (oldSchedule != null)
+            {
+                await oldSchedule;
+            }
+            if (newSchedule != null)
+            {
+                await newSchedule;
+            }
+        }
     }
 
     [TestMethod]
@@ -406,40 +470,55 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
         var oldRequest = new StartupPostInitializationWarmupRequest("old", 36L, 0L);
         var newRequest = new StartupPostInitializationWarmupRequest("new", 37L, 0L);
-        Task<bool> oldSchedule;
-        Task<bool> newSchedule;
+        Task<bool> oldSchedule = null;
+        Task<bool> newSchedule = null;
 
-        lock (progressLikeLock)
+        try
         {
-            oldSchedule = StartLongRunning(() => owner.Schedule(oldRequest));
-            Assert.IsTrue(harness.ReserveEntered.Wait(TimeSpan.FromSeconds(5)));
+            lock (progressLikeLock)
+            {
+                oldSchedule = StartLongRunning(() => owner.Schedule(oldRequest));
+                harness.ReserveEntered.Wait();
 
-            newSchedule = StartLongRunning(() => owner.Schedule(newRequest));
-            Assert.IsTrue(harness.LeaseAcquireEntered.Wait(TimeSpan.FromSeconds(5)));
+                newSchedule = StartLongRunning(() => owner.Schedule(newRequest));
+                harness.LeaseAcquireEntered.Wait();
+            }
+
+            Assert.IsFalse(await oldSchedule);
+            Assert.AreEqual(1, harness.AcquireCount);
+            Assert.AreEqual(0, harness.QueueCount);
+            Assert.AreEqual(0, harness.CancelQueuedCount);
+
+            harness.ReleaseLeaseAcquisition.Set();
+            Assert.IsTrue(await newSchedule);
+            Assert.AreEqual(1, harness.QueueCount);
+
+            await harness.RunQueuedAsync();
+
+            Assert.AreEqual(2, harness.Completions.Count);
+            StartupPostInitializationWarmupCompletion oldCompletion =
+                harness.Completions.Find(completion => ReferenceEquals(completion.Request, oldRequest));
+            StartupPostInitializationWarmupCompletion newCompletion =
+                harness.Completions.Find(completion => ReferenceEquals(completion.Request, newRequest));
+            Assert.IsNotNull(oldCompletion);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Rejected, oldCompletion.Kind);
+            Assert.IsNotNull(newCompletion);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, newCompletion.Kind);
+            Assert.AreEqual(1, harness.OwnedCancellations.Count);
+            Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
         }
-
-        Assert.IsFalse(await oldSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(1, harness.AcquireCount);
-        Assert.AreEqual(0, harness.QueueCount);
-        Assert.AreEqual(0, harness.CancelQueuedCount);
-
-        harness.ReleaseLeaseAcquisition.Set();
-        Assert.IsTrue(await newSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(1, harness.QueueCount);
-
-        await harness.RunQueuedAsync();
-
-        Assert.AreEqual(2, harness.Completions.Count);
-        StartupPostInitializationWarmupCompletion oldCompletion =
-            harness.Completions.Find(completion => ReferenceEquals(completion.Request, oldRequest));
-        StartupPostInitializationWarmupCompletion newCompletion =
-            harness.Completions.Find(completion => ReferenceEquals(completion.Request, newRequest));
-        Assert.IsNotNull(oldCompletion);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Rejected, oldCompletion.Kind);
-        Assert.IsNotNull(newCompletion);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, newCompletion.Kind);
-        Assert.AreEqual(1, harness.OwnedCancellations.Count);
-        Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
+        finally
+        {
+            harness.ReleaseLeaseAcquisition.Set();
+            if (oldSchedule != null)
+            {
+                await oldSchedule;
+            }
+            if (newSchedule != null)
+            {
+                await newSchedule;
+            }
+        }
     }
 
     [TestMethod]
@@ -450,37 +529,55 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         var oldRequest = new StartupPostInitializationWarmupRequest("old", 38L, 0L);
         var newRequest = new StartupPostInitializationWarmupRequest("new", 39L, 0L);
 
-        Task<bool> oldSchedule = StartLongRunning(() => owner.Schedule(oldRequest));
-        Assert.IsTrue(harness.ReservationOneAccepted.Wait(TimeSpan.FromSeconds(5)));
+        Task<bool> oldSchedule = null;
+        Task<bool> newSchedule = null;
+        try
+        {
+            oldSchedule = StartLongRunning(() => owner.Schedule(oldRequest));
+            harness.ReservationOneAccepted.Wait();
 
-        Task<bool> newSchedule = StartLongRunning(() => owner.Schedule(newRequest));
-        Assert.IsTrue(harness.ReservationTwoAccepted.Wait(TimeSpan.FromSeconds(5)));
+            newSchedule = StartLongRunning(() => owner.Schedule(newRequest));
+            harness.ReservationTwoAccepted.Wait();
 
-        harness.ReleaseReservationOne.Set();
-        Assert.IsFalse(await oldSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(1, harness.QueueCount);
-        Assert.AreEqual(1, harness.CancelQueuedCount);
+            harness.ReleaseReservationOne.Set();
+            Assert.IsFalse(await oldSchedule);
+            Assert.AreEqual(1, harness.QueueCount);
+            Assert.AreEqual(1, harness.CancelQueuedCount);
 
-        harness.ReleaseReservationTwo.Set();
-        Assert.IsTrue(await newSchedule.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(2, harness.QueueCount);
-        Assert.IsTrue(harness.HasQueuedWork);
+            harness.ReleaseReservationTwo.Set();
+            Assert.IsTrue(await newSchedule);
+            Assert.AreEqual(2, harness.QueueCount);
+            Assert.IsTrue(harness.HasQueuedWork);
 
-        await harness.RunQueuedAsync();
+            await harness.RunQueuedAsync();
 
-        Assert.AreEqual(2, harness.Completions.Count);
-        StartupPostInitializationWarmupCompletion oldCompletion =
-            harness.Completions.Find(completion => ReferenceEquals(completion.Request, oldRequest));
-        StartupPostInitializationWarmupCompletion newCompletion =
-            harness.Completions.Find(completion => ReferenceEquals(completion.Request, newRequest));
-        Assert.IsNotNull(oldCompletion);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Rejected, oldCompletion.Kind);
-        Assert.IsNotNull(newCompletion);
-        Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, newCompletion.Kind);
-        Assert.AreEqual(1, harness.CancelLeaseCount);
-        Assert.AreEqual(2, harness.OwnedCancellations.Count);
-        Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
-        Assert.AreEqual(1, harness.OwnedCancellations[1].DisposeCount);
+            Assert.AreEqual(2, harness.Completions.Count);
+            StartupPostInitializationWarmupCompletion oldCompletion =
+                harness.Completions.Find(completion => ReferenceEquals(completion.Request, oldRequest));
+            StartupPostInitializationWarmupCompletion newCompletion =
+                harness.Completions.Find(completion => ReferenceEquals(completion.Request, newRequest));
+            Assert.IsNotNull(oldCompletion);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Rejected, oldCompletion.Kind);
+            Assert.IsNotNull(newCompletion);
+            Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Completed, newCompletion.Kind);
+            Assert.AreEqual(1, harness.CancelLeaseCount);
+            Assert.AreEqual(2, harness.OwnedCancellations.Count);
+            Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
+            Assert.AreEqual(1, harness.OwnedCancellations[1].DisposeCount);
+        }
+        finally
+        {
+            harness.ReleaseReservationOne.Set();
+            harness.ReleaseReservationTwo.Set();
+            if (oldSchedule != null)
+            {
+                await oldSchedule;
+            }
+            if (newSchedule != null)
+            {
+                await newSchedule;
+            }
+        }
     }
 
     private static Task StartLongRunning(Action action)
@@ -568,10 +665,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
                     if (GateLeaseAcquisition)
                     {
                         LeaseAcquireEntered.Set();
-                        if (!ReleaseLeaseAcquisition.Wait(TimeSpan.FromSeconds(5)))
-                        {
-                            throw new TimeoutException("Lease acquisition gate was not released.");
-                        }
+                        ReleaseLeaseAcquisition.Wait();
                     }
                     var cancellation = new CancellationTokenSource();
                     Lease = new RegularChartListPrewarmLease(AcquireCount, cancellation.Token, null);
@@ -651,10 +745,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
                         if (accepted != null && release != null)
                         {
                             accepted.Set();
-                            if (!release.Wait(TimeSpan.FromSeconds(5)))
-                            {
-                                throw new TimeoutException("Reservation acceptance gate was not released.");
-                            }
+                            release.Wait();
                         }
                     }
                     return acceptedReservation;
@@ -671,10 +762,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
                     if (GateQueue)
                     {
                         QueueEntered.Set();
-                        if (!ReleaseQueue.Wait(TimeSpan.FromSeconds(5)))
-                        {
-                            throw new TimeoutException("Queue gate was not released.");
-                        }
+                        ReleaseQueue.Wait();
                     }
                     if (!AcceptQueue)
                     {
@@ -707,10 +795,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
                             && Interlocked.CompareExchange(ref firstCancelMissGated, 1, 0) == 0)
                         {
                             CancelMissObserved.Set();
-                            if (!ReleaseFirstCancel.Wait(TimeSpan.FromSeconds(5)))
-                            {
-                                throw new TimeoutException("First cancel miss gate was not released.");
-                            }
+                            ReleaseFirstCancel.Wait();
                         }
                         return false;
                     }
