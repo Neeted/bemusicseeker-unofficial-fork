@@ -6,7 +6,11 @@ param(
 
     [string]$LedgerPath,
 
-    [string]$DescendantScriptPath
+    [string]$DescendantScriptPath,
+
+    [string]$ReadyEventName,
+
+    [string]$ReleaseEventName
 )
 
 function Write-LifecycleLedgerEntry {
@@ -51,7 +55,18 @@ switch ($Scenario) {
     'late-success' {
         [Console]::Out.Write('late-success-stdout')
         [Console]::Out.Flush()
-        Start-Sleep -Seconds 2
+        if (-not [string]::IsNullOrEmpty($ReadyEventName)) {
+            $ready = [System.Threading.EventWaitHandle]::OpenExisting($ReadyEventName)
+            $release = [System.Threading.EventWaitHandle]::OpenExisting($ReleaseEventName)
+            try {
+                [void]$ready.Set()
+                [void]$release.WaitOne()
+            }
+            finally {
+                $ready.Dispose()
+                $release.Dispose()
+            }
+        }
         exit 0
     }
     'descendant-root' {

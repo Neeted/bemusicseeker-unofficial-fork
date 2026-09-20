@@ -151,6 +151,22 @@ public static class VerificationLifecycleProbeTasks
         });
     }
 
+    /// <summary>通知済みの子を実行期限より後に解放し、起動負荷によらず遅い終了を作ります。</summary>
+    /// <param name="gate">呼出元が所有し、返されたTaskの完了後に破棄する終了gate。</param>
+    /// <param name="deadlineUtcTicks">維持する実行期限のUTC ticks。</param>
+    /// <returns>終了gateを解放したことを表すTask。</returns>
+    public static Task ReleaseEventAfter(EventWaitHandle gate, long deadlineUtcTicks)
+    {
+        return Task.Run(async () =>
+        {
+            while (DateTime.UtcNow.Ticks <= deadlineUtcTicks)
+            {
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+            gate.Set();
+        });
+    }
+
     public static Task ReleaseGateWhen(ManualResetEventSlim trigger, ManualResetEventSlim gate)
     {
         return Task.Run(() =>
@@ -528,6 +544,12 @@ if ($Scenario -ceq 'functional-completed-success') {
         StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
         StandardErrorTask = $process.StandardError.ReadToEndAsync()
     }
+    # wrapperへ渡す前に成功と両ストリームの完了を確定し、子の起動時間を検証対象から分離する。
+    Wait-ProbeRootExitBounded -Process $process -TimeoutMilliseconds 30000
+    if (-not [System.Threading.Tasks.Task]::WaitAll(
+            [System.Threading.Tasks.Task[]]@($entry.StandardOutputTask, $entry.StandardErrorTask), 30000)) {
+        throw 'The completed-success wrapper streams did not complete within the probe watchdog.'
+    }
     $executionDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
     $cleanupDeadlineUtc = $executionDeadlineUtc.AddSeconds(10)
     $functionalCleanup = Invoke-VerificationFunctionalCleanup `
@@ -670,33 +692,101 @@ if ($Scenario -ceq 'nonzero-descendant') {
 
 $root = [System.Diagnostics.Process]::new()
 $root.StartInfo = $rootInfo
-if (-not $root.Start()) {
-    throw 'Unable to start the lifecycle root probe.'
+$ready = $null
+$release = $null
+$releaseTask = $null
+$lateExitTimeUtc = $null
+$rootStarted = $false
+$preparationFailure = $null
+if ($Scenario -ceq 'late-success') {
+    $eventPrefix = 'BeMusicSeeker-Lifecycle-' + [Guid]::NewGuid().ToString('N')
+    $ready = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, "$eventPrefix-ready")
+    $release = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, "$eventPrefix-release")
+    foreach ($argument in @('-ReadyEventName', "$eventPrefix-ready", '-ReleaseEventName', "$eventPrefix-release")) {
+        [void]$rootInfo.ArgumentList.Add($argument)
+    }
 }
-Write-LifecycleLedgerEntry -Process $root
-$ledgerReadyDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
-if ($Scenario -ceq 'expired-residual') {
-    # Do not enter the bounded lifecycle until the child launch has produced its exact
-    # sidecar identity.  This makes the residual case deterministic without making the
-    # production lifecycle discover ownership from the ledger.
-    while ([DateTime]::UtcNow -lt $ledgerReadyDeadlineUtc) {
-        if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -ge 2) {
-            break
+try {
+    if (-not $root.Start()) {
+        throw 'Unable to start the lifecycle root probe.'
+    }
+    $rootStarted = $true
+    Write-LifecycleLedgerEntry -Process $root
+    $ledgerReadyDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
+    if ($Scenario -ceq 'expired-residual') {
+        # Do not enter the bounded lifecycle until the child launch has produced its exact
+        # sidecar identity.  This makes the residual case deterministic without making the
+        # production lifecycle discover ownership from the ledger.
+        while ([DateTime]::UtcNow -lt $ledgerReadyDeadlineUtc) {
+            if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -ge 2) {
+                break
+            }
+            Start-Sleep -Milliseconds 20
         }
-        Start-Sleep -Milliseconds 20
+        if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -lt 2) {
+            throw 'The expired residual probe did not observe the child launch ledger entry.'
+        }
+        $ledgerEntries = @(Get-Content -LiteralPath $ledgerPath |
+                ForEach-Object { $_ | ConvertFrom-Json })
+        $primitiveObserverState.ResidualProcessId = [int]$ledgerEntries[-1].pid
     }
-    if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -lt 2) {
-        throw 'The expired residual probe did not observe the child launch ledger entry.'
+    $sourceOutputTask = $root.StandardOutput.ReadToEndAsync()
+    $sourceErrorTask = $root.StandardError.ReadToEndAsync()
+    $sourceObservationScope = [VerificationProcessTaskObservationScope]::new()
+    $standardOutputTask = $sourceOutputTask
+    $standardErrorTask = $sourceErrorTask
+    if ($Scenario -in @('descendant-root', 'nonzero-descendant')) {
+        # 実際の子孫生成とroot終了を準備で確定する。子孫の停止は本体の所有者へ残す。
+        Wait-ProbeRootExitBounded -Process $root -TimeoutMilliseconds 30000
+        $descendantEntries = @(Get-Content -LiteralPath $ledgerPath | ForEach-Object { $_ | ConvertFrom-Json })
+        if ($descendantEntries.Count -ne 2 -or
+            -not (Test-ProbeExactIdentityAlive -ProcessId $descendantEntries[1].pid -CreationIdentity $descendantEntries[1].creationIdentity)) {
+            throw 'The descendant probe did not prepare its exact live child before root exit.'
+        }
     }
-    $ledgerEntries = @(Get-Content -LiteralPath $ledgerPath |
-            ForEach-Object { $_ | ConvertFrom-Json })
-    $primitiveObserverState.ResidualProcessId = [int]$ledgerEntries[-1].pid
+    if ($Scenario -ceq 'late-success') {
+        # flush後の通知を待ってから既存の1秒期限を開始し、その期限後だけ終了gateを開く。
+        $readyWatchdog = [DateTime]::UtcNow.AddSeconds(30)
+        while (-not $ready.WaitOne(100)) {
+            if ($root.HasExited -or [DateTime]::UtcNow -ge $readyWatchdog) {
+                throw 'The late-success child did not signal flushed output before the probe watchdog.'
+            }
+        }
+        $lateExecutionDeadlineUtc = [DateTime]::UtcNow.AddSeconds(1)
+        $releaseTask = [VerificationLifecycleProbeTasks]::ReleaseEventAfter($release, $lateExecutionDeadlineUtc.Ticks)
+        Wait-ProbeRootExitBounded -Process $root -TimeoutMilliseconds 30000
+        $lateExitTimeUtc = $root.ExitTime.ToUniversalTime()
+        [void]$releaseTask.GetAwaiter().GetResult()
+    }
 }
-$sourceOutputTask = $root.StandardOutput.ReadToEndAsync()
-$sourceErrorTask = $root.StandardError.ReadToEndAsync()
-$sourceObservationScope = [VerificationProcessTaskObservationScope]::new()
-$standardOutputTask = $sourceOutputTask
-$standardErrorTask = $sourceErrorTask
+catch {
+    $preparationFailure = $_
+    throw
+}
+finally {
+    if ($null -ne $release) {
+        [void]$release.Set()
+        try {
+            if ($rootStarted -and $null -eq $lateExitTimeUtc -and -not $root.HasExited) {
+                $root.Kill($true)
+                Wait-ProbeRootExitBounded -Process $root -TimeoutMilliseconds 30000
+            }
+            if ($null -ne $releaseTask) {
+                [void]$releaseTask.GetAwaiter().GetResult()
+            }
+        }
+        catch {
+            if ($null -eq $preparationFailure) {
+                throw
+            }
+            $preparationFailure.Exception.Data['ProbeCleanupFailure'] = $_.Exception.Message
+        }
+        finally {
+            $ready.Dispose()
+            $release.Dispose()
+        }
+    }
+}
 if ($Scenario -in @('stream-timeout', 'asymmetric-stdout-complete', 'asymmetric-stderr-complete')) {
     # The retained source reads remain observed independently so inherited handles do not
     # create an unobserved task fault.  Root exit is confirmed before the lifecycle
@@ -750,7 +840,7 @@ if ($Scenario -eq 'terminal-flush-failure') {
 $processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 10 } elseif ($Scenario -ceq 'late-success') { 1 } else { 2 }
 $phaseStartUtc = [DateTime]::UtcNow
 $processDeadlineUtc = if ($Scenario -ceq 'late-success') {
-    $phaseStartUtc.AddSeconds($processBudgetSeconds)
+    $lateExecutionDeadlineUtc
 }
 elseif ($Scenario -ceq 'expired-residual') {
     # Start this failure probe with an already-expired execution deadline while retaining
@@ -780,6 +870,7 @@ $result = Invoke-BoundedProcessLifecycle `
     -DiagnosticsDirectory $DiagnosticsDirectory `
     -ProcessDeadlineUtc $processDeadlineUtc `
     -CleanupDeadlineUtc $phaseDeadlineUtc `
+    -RetainedExitTimeUtc $(if ($null -ne $lateExitTimeUtc) { $lateExitTimeUtc } else { [DateTime]::MinValue }) `
     -PrimitiveObserver $primitiveObserver `
     -LifecycleName $Scenario
 
@@ -818,6 +909,8 @@ $serializedResult = [ordered]@{
     cleanupTransitionCount = $result.CleanupTransitionCount
     cleanupDeadlineUtc = $result.CleanupDeadlineUtc
     cleanupDeadlineUtcTicks = $result.CleanupDeadlineUtc.Ticks
+    executionDeadlineUtcTicks = $processDeadlineUtc.Ticks
+    actualExitTimeUtcTicks = if ($null -ne $lateExitTimeUtc) { $lateExitTimeUtc.Ticks } else { $null }
     cleanupCutoffUtcTicks = $result.CleanupCutoffUtc.Ticks
     terminalOperationsDeadlineUtcTicks = $result.TerminalOperationsDeadlineUtc.Ticks
     primitiveEvents = @($primitiveEvents.ToArray())

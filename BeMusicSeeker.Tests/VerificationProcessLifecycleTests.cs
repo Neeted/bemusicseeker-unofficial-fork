@@ -78,6 +78,7 @@ public sealed class VerificationProcessLifecycleTests
     {
         using JsonDocument result = RunProbe("nonzero-descendant");
         Assert.AreEqual(7, result.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.IsFalse(result.RootElement.GetProperty("processTimedOut").GetBoolean());
         Assert.AreEqual("nonzero-exit", result.RootElement.GetProperty("primaryFailureKind").GetString());
         Assert.AreEqual("primary-stderr", result.RootElement.GetProperty("stderr").GetString());
         CollectionAssert.AreEqual(
@@ -102,6 +103,9 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual("timeout", result.RootElement.GetProperty("primaryFailureKind").GetString());
         Assert.AreEqual("late-success-stdout", result.RootElement.GetProperty("stdout").GetString());
         DateTime cleanupDeadlineUtc = result.RootElement.GetProperty("cleanupDeadlineUtc").GetDateTime();
+        long executionDeadlineTicks = result.RootElement.GetProperty("executionDeadlineUtcTicks").GetInt64();
+        Assert.IsTrue(result.RootElement.GetProperty("actualExitTimeUtcTicks").GetInt64() > executionDeadlineTicks);
+        Assert.AreEqual(executionDeadlineTicks + TimeSpan.FromSeconds(10).Ticks, cleanupDeadlineUtc.Ticks);
         Assert.AreEqual(
             cleanupDeadlineUtc.Ticks,
             result.RootElement.GetProperty("cleanupCutoffUtcTicks").GetInt64(),
@@ -248,8 +252,14 @@ public sealed class VerificationProcessLifecycleTests
             ReadBooleanArray(result.RootElement.GetProperty("skippedAfterDeadline")));
         PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
         long sharedDeadline = result.RootElement.GetProperty("sharedCleanupDeadlineUtcTicks").GetInt64();
+        AssertCleanupTransitionPrecedesPersistenceAndDispose(events);
         foreach (PrimitiveEvent primitiveEvent in events)
         {
+            // 状態遷移の診断はI/O・native操作・待機の開始ではない。未知のイベントは期限検査に残す。
+            if (primitiveEvent.Operation is "cleanup-transition" or "late-task-fault")
+            {
+                continue;
+            }
             Assert.IsTrue(
                 primitiveEvent.UtcTicks <= sharedDeadline,
                 $"Primitive {primitiveEvent.Operation} started after the shared cleanup deadline.");

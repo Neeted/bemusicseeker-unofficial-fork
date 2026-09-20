@@ -18,6 +18,9 @@ dist
 !third_party/licenses/*.txt
 !version.txt
 
+# LR2互換テストが必要とする元のカテゴリ情報。
+!BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/**/folderinfo.txt
+
 # Temporary files
 *.tmp
 *.bak

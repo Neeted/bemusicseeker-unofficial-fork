@@ -58,10 +58,6 @@
         "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_ShutdownTerminalizesWaiterAndImportQueue"
       },
       {
-        "contractId": "DB-OUTER-ROLLBACK",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.AppSchemaPreflightServiceTests.RepairAppOwnedSchema_LateFailureRollsBackNormalizationSchemaVersionDigestAndData"
-      },
-      {
         "contractId": "DB-RETRY",
         "fullyQualifiedName": "BeMusicSeeker.Tests.AppSchemaPreflightServiceTests.RepairAppOwnedSchema_LateFailureRetryConvergesOnSameDatabase"
       },
