@@ -292,5 +292,3 @@ GitHub リリース準備状況におけるアクション・サマリー
 - 現行リリースは非商用・非収益のエンドユーザー向けです。
 - 将来、商用または収益化する場合はアップストリーム条項を再確認します。
   これは現行のYELLOW理由ではありません。
-- 過去のretired managed wrapperのregistration materialは別の外部security
-  gateです。ここではregistration valueを復号、再構成、表示しません。

@@ -293,6 +293,3 @@ Current release policy:
 - The current release is non-commercial, non-revenue end-user software.
 - Future commercial or monetized distribution triggers a new upstream license
   review; it is not a current YELLOW condition.
-- Historical registration material from the retired managed wrapper is a
-  separate external security gate. No registration value is decrypted,
-  reconstructed, or displayed here.

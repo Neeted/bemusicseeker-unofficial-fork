@@ -4,6 +4,7 @@
 
 | 計画 | 残る作業 |
 | --- | --- |
+| [公開リポジトリへの一本化](repository-unification-plan.md) | 開発履歴の移行、dev/mainの運用、単一リポジトリでの配布手順・資料の整備。 |
 | [安全性の改善](safety-improvements-plan.md) | 保存・受付・失敗報告・入力制限の不足確認と限定修正。 |
 | [起動からLR2同期までの順序統合](lr2-startup-procedural-orchestration-plan.md) | 必須処理の直接待機、型付き結果の引渡し、閲覧と変更受付の分離。 |
 | [LR2同期の確定パスを処理対象から除外する](lr2-song-db-receipt-target-filter-plan.md) | 証票対象の投入前除外、除外後の件数による進捗・状態の統一、不要なパイプライン内スキップの削除。 |
