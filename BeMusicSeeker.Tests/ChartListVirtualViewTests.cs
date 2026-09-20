@@ -167,6 +167,47 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualChartSubsetRow_RefreshesRealizedRowAfterTransientStateChanges()
+    {
+        BMSFile file = CreateFile(
+            @"D:\Charts\InstallDestination\refresh.bms",
+            "Refresh",
+            "Install",
+            hash: "cccccccccccccccccccccccccccccccc");
+        var projectionOwner = new MainChartRowProjectionOwner();
+        ChartFile initialChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            @"C:\Installed\Initial",
+            "Initial",
+            "Artist",
+            []);
+        projectionOwner.UpdateTransientStates([initialChart], forceInstallDestinationProjection: true);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+            [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)],
+            ChartListSourceProjectionMode.OwnerBacked,
+            chartTransientStateProvider: projectionOwner.GetTransientState);
+        Assert.IsTrue(ChartListOrder.TryCreate(
+            sourceRows,
+            nameof(LibraryChartRow.instl_dst),
+            ListSortDirection.Ascending,
+            out ChartListOrder order));
+        var view = new ChartListVirtualView(
+            sourceRows,
+            order,
+            row => projectionOwner.CreateSubsetRow(null, row, includeResourceHealth: false));
+
+        var realizedRow = (LibraryChartRow)view[0];
+        Assert.AreEqual(@"C:\Installed\Initial", realizedRow.instl_dst);
+
+        projectionOwner.UpdateTransientStates(
+            [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)],
+            forceInstallDestinationProjection: true);
+        realizedRow.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination);
+
+        Assert.AreEqual(string.Empty, realizedRow.instl_dst);
+    }
+
+    [TestMethod]
     public void RowProjectionTransientState_UsesExactPathAndCaseInsensitiveHash()
     {
         const string path = @"D:\Charts\InstallDestination\Chart.bms";
@@ -296,7 +337,10 @@ public sealed class ChartListVirtualViewTests
             viewModel.MainChartList.RowProjection.UpdateTransientStates(
                 [transientEntry.Chart],
                 forceInstallDestinationProjection: true);
-            var sourceRow = ChartListSourceRow.FromChartFile(playableChart);
+            var sourceRow = ChartListSourceRow.FromChartFile(
+                playableChart,
+                ChartListSourceProjectionMode.OwnerBacked,
+                chartTransientStateProvider: viewModel.MainChartList.RowProjection.GetTransientState);
             LibraryChartRow viewRow = viewModel.MainChartList.RowProjection.CreateSubsetRow(
                 library,
                 sourceRow,

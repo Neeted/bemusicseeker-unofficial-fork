@@ -61,6 +61,10 @@ internal sealed class MainChartRowProjectionOwner
         return row;
     }
 
+    /// <summary>
+    /// 対象集合の表示行を入力行の現在値へ接続します。
+    /// 導入先の再投影とパッケージ項目の変更通知を、生成時の値で固定しません。
+    /// </summary>
     internal LibraryChartRow CreateSubsetRow(
         BMSLibrary library,
         ChartListSourceRow sourceRow,
@@ -70,11 +74,7 @@ internal sealed class MainChartRowProjectionOwner
         {
             return null;
         }
-        LibraryChartRow row = sourceRow.PackageEntry != null
-            ? LibraryChartRow.FromPackageChartEntry(sourceRow.PackageEntry)
-            : LibraryChartRow.FromChartFile(
-                sourceRow.Chart,
-                sourceRow.HideResourceHealthDigestWhenInstallDestinationSet);
+        var row = LibraryChartRow.FromSourceRow(sourceRow);
         if (includeResourceHealth)
         {
             row?.SetResourceHealthProjectionProvider(candidate => ResolveResourceHealth(library, candidate));

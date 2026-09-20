@@ -2300,31 +2300,39 @@ public partial class MainWindowViewModel : ViewModel,
                 BeginUiUpdateSuppression(refreshMask);
                 break;
             case PendingPackageMutationAppliedEventArgs mutationApplied:
-                if (mutationApplied.ChangedCharts.Count > 0)
+                if (!TryDispatchPackageInstallUi(() => ApplyPendingPackageMutation(mutationApplied)))
                 {
-                    MainChartList.RowProjection.UpdateTransientStates(
-                        mutationApplied.ChangedCharts,
-                        forceInstallDestinationProjection: true);
-                }
-                if (mutationApplied.InstallDestinationStateChanged)
-                {
-                    InvalidateNormalLibrarySortDependency(
-                        MainViewDataDependency.InstallDestination,
-                        NormalLibraryInstallDestinationChangedReason);
-                }
-                if (mutationApplied.IdentitySortKeyChanged)
-                {
-                    RefreshLibraryMainViewForDataDependency(
-                        MainViewDataDependency.IdentitySortKey,
-                        NormalLibraryInstallDestinationChangedReason);
-                }
-                if (mutationApplied.DisplayStateChanged)
-                {
-                    MainChartList.RequestDisplayRefresh();
+                    ReportPackageInstallWorkflowNotificationFailure(
+                        new InvalidOperationException("Pending-package workflow UI publication was rejected."));
                 }
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(e), e, "Unsupported pending-package workflow change.");
+        }
+    }
+
+    private void ApplyPendingPackageMutation(PendingPackageMutationAppliedEventArgs mutationApplied)
+    {
+        MainChartList.RowProjection.UpdateTransientStates(
+            mutationApplied.ChangedCharts,
+            forceInstallDestinationProjection: true);
+        if (mutationApplied.InstallDestinationStateChanged)
+        {
+            InvalidateNormalLibrarySortDependency(
+                MainViewDataDependency.InstallDestination,
+                NormalLibraryInstallDestinationChangedReason);
+        }
+        if (mutationApplied.InstallDestinationStateChanged || mutationApplied.IdentitySortKeyChanged)
+        {
+            RefreshLibraryMainViewForDataDependency(
+                mutationApplied.IdentitySortKeyChanged
+                    ? MainViewDataDependency.IdentitySortKey
+                    : MainViewDataDependency.InstallDestination,
+                NormalLibraryInstallDestinationChangedReason);
+        }
+        else if (mutationApplied.DisplayStateChanged)
+        {
+            MainChartList.RequestDisplayRefresh();
         }
     }
 

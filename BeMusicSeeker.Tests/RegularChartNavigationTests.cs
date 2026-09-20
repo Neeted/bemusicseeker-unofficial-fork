@@ -95,8 +95,8 @@ public sealed class RegularChartNavigationTests
         Assert.AreSame(entry, store.LastPendingRequest!.PackageEntry);
         Assert.AreSame(entry, store.LastPendingRequest.GetOrCreateChartEntry());
         Assert.AreEqual(destination, store.LastDestinationDirectory);
-        Assert.AreEqual(1, applied.ChangedCharts.Count);
-        Assert.AreSame(file, applied.ChangedCharts[0].GetBmsStorageOwner());
+        Assert.IsTrue(applied.InstallDestinationStateChanged);
+        Assert.AreEqual(0, applied.ChangedCharts.Count);
     }
 
 

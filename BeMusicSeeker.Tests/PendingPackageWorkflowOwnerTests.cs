@@ -645,26 +645,83 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task SearchPendingAsync_AppliesMutationAndTerminalRefreshInOrder()
+    public async Task SearchPendingAsync_PackageEntryRemainsCanonicalAndPublishesTerminalRefresh()
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
-        var store = new RecordingStore(events) { ChangedCharts = [chart] };
+        var store = new RecordingStore(events) { ChangedCharts = [] };
         PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs());
+        PendingPackageMutationAppliedEventArgs? completion = null;
+        owner.WorkflowChanged += (_, args) =>
+        {
+            if (args is PendingPackageMutationAppliedEventArgs mutation)
+            {
+                completion = mutation;
+            }
+        };
         var request =
             PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateTarget(chart)]);
 
         await owner.SearchPendingAsync(request);
 
+        Assert.IsNotNull(completion);
+        Assert.AreEqual(0, completion!.ChangedCharts.Count);
         CollectionAssert.AreEqual(
             new[]
             {
                 "activity-start",
                 "suppression-start",
                 "store-search-pending",
-                "transient",
                 "suppression-end",
                 "activity-end",
+                "invalidate",
+                "identity-refresh"
+            },
+            events);
+    }
+
+    [TestMethod]
+    public async Task SearchPendingAsync_LooseTargetPublishesTransientProjectionAfterGateRelease()
+    {
+        var events = new List<string>();
+        ChartFile chart = CreateChart();
+        var store = new RecordingStore(events) { ChangedCharts = [chart] };
+        var gate = new ChartFileOperationSynchronizer();
+        PendingPackageWorkflowOwner owner = CreateOwner(
+            CreateLibrary,
+            events,
+            store,
+            AcceptedDialogs(),
+            chartFileOperations: gate);
+        int completionCount = 0;
+        bool gateAvailableAtCompletion = false;
+        owner.WorkflowChanged += (_, args) =>
+        {
+            if (args is not PendingPackageMutationAppliedEventArgs mutationApplied)
+            {
+                return;
+            }
+            completionCount++;
+            gateAvailableAtCompletion = gate.TryEnter(out IDisposable lease);
+            lease?.Dispose();
+            Assert.AreEqual(1, mutationApplied.ChangedCharts.Count);
+            Assert.AreSame(chart, mutationApplied.ChangedCharts[0]);
+        };
+
+        await owner.SearchPendingAsync(
+            PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([CreateLooseTarget(chart)]));
+
+        Assert.AreEqual(1, completionCount);
+        Assert.IsTrue(gateAvailableAtCompletion);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "activity-start",
+                "suppression-start",
+                "store-search-pending",
+                "suppression-end",
+                "activity-end",
+                "transient",
                 "invalidate",
                 "identity-refresh"
             },
@@ -754,7 +811,6 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "activity-start",
                 "suppression-start",
                 "store-clear-packages",
-                "transient",
                 "suppression-end",
                 "activity-end",
                 "invalidate"
@@ -763,7 +819,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task SearchCorrectAsync_ProjectsAndInvalidatesBeforeSuppressionEnds()
+    public async Task SearchCorrectAsync_PublishesAfterMutationBoundary()
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
@@ -781,10 +837,9 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "activity-start",
                 "suppression-start",
                 "store-search-correct",
-                "transient",
-                "invalidate",
                 "suppression-end",
-                "activity-end"
+                "activity-end",
+                "invalidate"
             },
             events);
     }
@@ -811,9 +866,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "store-set",
                 "suppression-end",
                 "activity-end",
-                "transient",
-                "invalidate",
-                "display-refresh"
+                "invalidate"
             },
             events);
     }
@@ -2121,6 +2174,20 @@ public sealed class PendingPackageWorkflowOwnerTests
             isPlaylistMissing: false,
             capabilities,
             PackageChartEntry.FromChart(chart));
+    }
+
+    private static ChartOperationTarget CreateLooseTarget(
+        ChartFile chart,
+        ChartOperationCapabilities capabilities = ChartOperationCapabilities.UpdateInstallDestination)
+    {
+        return new ChartOperationTarget(
+            chart,
+            null,
+            ChartOperationSourceScope.PendingPackage,
+            isOwned: false,
+            isPending: true,
+            isPlaylistMissing: false,
+            capabilities);
     }
 
     private sealed class RecordingPresentation

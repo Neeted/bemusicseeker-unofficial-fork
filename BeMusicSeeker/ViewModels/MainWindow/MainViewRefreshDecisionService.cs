@@ -60,7 +60,8 @@ internal static class MainViewRefreshDecisionService
     internal const string NormalLibraryWarningChangedReason = "warning_changed";
 
     /// <summary>
-    /// Builds the refresh action for a data dependency change in the current main view.
+    /// 現在の表示の依存関係から、表示値だけの更新か並べ替え・絞込みの再構築かを判断します。
+    /// 導入先だけの変更では、所属が変わらず検索・並べ替えにも影響しない一覧を保持します。
     /// </summary>
     /// <param name="currentMode">Current tree or request mode shown by the main view.</param>
     /// <param name="folderFilterApplied">Whether a folder-level virtual normal-library filter is applied.</param>
@@ -82,6 +83,21 @@ internal static class MainViewRefreshDecisionService
         string reason)
     {
         MainViewDataDependency sortDependency = GetSortColumnDependency(sortColumnName);
+        // 導入先と推定警告の変更は、既存ファイル・保留項目の所属やモードを変えない。
+        // キーワード検索と依存する並べ替えだけが表示集合の再評価を必要とする。
+        if (dependency == MainViewDataDependency.InstallDestination
+            && !isPlaylistDetailView
+            && string.IsNullOrWhiteSpace(keywordFilter)
+            && currentMode is MainViewUpdateMode.FolderFilterSelected
+                or MainViewUpdateMode.FullScanAllChartsFilterSelected
+                or MainViewUpdateMode.FileMissingFilterSelected
+                or MainViewUpdateMode.FileMissingIgnoredFilterSelected
+                or MainViewUpdateMode.NewlyInstalledFolderSelected
+                or MainViewUpdateMode.PendingInstallFolderSelected
+            && IsDisplayRefreshEnough(sortDependency, dependency))
+        {
+            return new MainViewRefreshDecision(MainViewRefreshAction.RefreshDisplay, dependency, sortDependency, reason, "install_destination_update_does_not_affect_current_sort_or_filter");
+        }
         bool fullNormalLibraryView = currentMode == MainViewUpdateMode.FolderFilterSelected
             && !folderFilterApplied
             && string.IsNullOrWhiteSpace(keywordFilter)

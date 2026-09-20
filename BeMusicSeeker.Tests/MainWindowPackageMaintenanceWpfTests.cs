@@ -330,6 +330,180 @@ public sealed class MainWindowPackageMaintenanceWpfTests
     }
 
     [TestMethod]
+    public void CorrectInstallDestinationSearchAndClearPreserveFullScanPresentation()
+    {
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CorrectPresentation_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "000Source");
+        string candidateADirectory = Path.Combine(root, "InstalledA");
+        string candidateBDirectory = Path.Combine(root, "InstalledB");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(candidateADirectory);
+        Directory.CreateDirectory(candidateBDirectory);
+        string sourcePath = Path.Combine(sourceDirectory, "source.bms");
+        string candidateAPath = Path.Combine(candidateADirectory, "installed-a.bms");
+        string candidateBPath = Path.Combine(candidateBDirectory, "installed-b.bms");
+        const string chartText = "#PLAYER 1\r\n#TITLE A Repair Target\r\n#ARTIST Repair Artist\r\n#WAVAA sound.wav\r\n#00111:AA\r\n";
+        File.WriteAllText(sourcePath, chartText);
+        File.WriteAllText(candidateAPath, chartText);
+        File.WriteAllText(candidateBPath, chartText);
+        File.WriteAllText(Path.Combine(candidateADirectory, "sound.wav"), "candidate");
+        File.WriteAllText(Path.Combine(candidateBDirectory, "sound.wav"), "candidate");
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var settings = new Settings { StartupSelectInstallPending = false };
+        MainWindowViewModel? preparedViewModel = null;
+        Task<bool>? navigationTask = null;
+        var maintenanceTreeTerminal = new MainWindowMaintenanceTreeTerminal(
+            (mode, parameter) =>
+            {
+                navigationTask = preparedViewModel!.RegularChartList.NavigateMaintenanceAsync(mode, parameter);
+                return navigationTask;
+            });
+        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
+        var scanner = CapturedChartFileScanner.FromFixture(
+            [sourcePath, candidateAPath, candidateBPath],
+            new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [sourceDirectory] = [],
+                [candidateADirectory] = ["sound.wav"],
+                [candidateBDirectory] = ["sound.wav"]
+            },
+            [root]);
+        var library = new TestBmsLibrary(
+            songDbPath,
+            getLR2Config: null,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => options,
+            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+            chartFileScanner: scanner)
+        {
+            SearchTargets = [root],
+            StartupBackgroundTaskScheduler = (_, _, _, _) => false
+        };
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                settings,
+                (viewModel, window) =>
+                {
+                    var rowsApplied = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    viewModel.MainChartList.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(MainChartListViewModel.Rows))
+                        {
+                            rowsApplied.TrySetResult(null);
+                        }
+                    };
+                    var fullScanItem = (TreeViewItem)window.FindName("treeViewItemFullScanCheckAllCharts")!;
+                    fullScanItem.RaiseEvent(new RoutedEventArgs(TreeViewItem.SelectedEvent, fullScanItem));
+                    Assert.IsNotNull(navigationTask);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(navigationTask!, "full-scan all charts navigation");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsApplied.Task, "full-scan all charts rows");
+                    rowsApplied = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    viewModel.MainChartList.RequestSort(nameof(LibraryChartRow.path), System.ComponentModel.ListSortDirection.Ascending);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsApplied.Task, "full-scan path sort");
+
+                    Assert.IsInstanceOfType(viewModel.MainChartList.Rows, typeof(ChartListVirtualView));
+                    var rows = (ChartListVirtualView)viewModel.MainChartList.Rows;
+                    Assert.AreEqual(3, rows.Count);
+                    Assert.AreEqual(0, rows.RealizedRowCount);
+                    var realizedRow = (LibraryChartRow)rows[0];
+                    Assert.AreEqual(sourcePath, realizedRow.path);
+                    Assert.AreEqual(1, rows.RealizedRowCount);
+                    viewModel.MainChartList.SelectedIndex = 0;
+                    Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(realizedRow, out ChartOperationTarget target));
+                    Assert.AreEqual(ChartOperationSourceScope.Library, target.SourceScope);
+                    Assert.IsFalse(target.IsPending);
+                    Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+                    Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([target], out RepairInstalledLocationRequest searchRequest));
+
+                    var displayApplied = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    PendingPackageMutationAppliedEventArgs? searchCompletion = null;
+                    viewModel.MainChartList.DisplayRefreshRequested += (_, _) => displayApplied.TrySetResult(null);
+                    viewModel.PendingPackages.WorkflowChanged += (_, args) =>
+                    {
+                        if (args is PendingPackageMutationAppliedEventArgs mutation)
+                        {
+                            searchCompletion = mutation;
+                        }
+                    };
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.PendingPackages.SearchCorrectAsync(searchRequest),
+                        "correct install destination search");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(displayApplied.Task, "correct search display refresh");
+
+                    Assert.IsNotNull(searchCompletion);
+                    Assert.AreEqual(1, searchCompletion!.ChangedCharts.Count);
+                    Assert.IsTrue(searchCompletion.InstallDestinationStateChanged);
+                    Assert.IsTrue(searchCompletion.ChangedCharts.All(chart =>
+                        string.Equals(chart.Path, target.Chart.Path, StringComparison.OrdinalIgnoreCase)));
+                    Assert.AreSame(rows, viewModel.MainChartList.Rows);
+                    Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
+                    Assert.AreEqual(1, rows.RealizedRowCount);
+                    Assert.AreEqual(string.Empty, realizedRow.instl_dst);
+                    Assert.AreEqual("A Repair Target", realizedRow.InstallDestinationTitle);
+                    Assert.AreEqual("Repair Artist", realizedRow.InstallDestinationArtist);
+                    CollectionAssert.AreEquivalent(
+                        new[] { candidateADirectory, candidateBDirectory },
+                        realizedRow.Chart.InstallDestinationSuggestions.ToArray());
+                    Assert.IsTrue(realizedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+
+                    displayApplied = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    PendingPackageMutationAppliedEventArgs? clearCompletion = null;
+                    LibraryChartRow rowBeforeClear = realizedRow;
+                    Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(realizedRow, out ChartOperationTarget clearTarget));
+                    Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([clearTarget], out RepairInstalledLocationRequest clearRequest));
+                    viewModel.PendingPackages.WorkflowChanged += (_, args) =>
+                    {
+                        if (args is PendingPackageMutationAppliedEventArgs mutation)
+                        {
+                            clearCompletion = mutation;
+                        }
+                    };
+                    viewModel.MainChartList.DisplayRefreshRequested += (_, _) => displayApplied.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.PendingPackages.ClearCorrectAsync(clearRequest),
+                        "correct install destination clear");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(displayApplied.Task, "correct clear display refresh");
+
+                    Assert.IsNotNull(clearCompletion);
+                    Assert.AreEqual(1, clearCompletion!.ChangedCharts.Count);
+                    Assert.IsTrue(clearCompletion.InstallDestinationStateChanged);
+                    Assert.AreSame(rows, viewModel.MainChartList.Rows);
+                    Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
+                    Assert.AreEqual(1, rows.RealizedRowCount);
+                    Assert.AreSame(rowBeforeClear, rows[0]);
+                    Assert.AreEqual(string.Empty, realizedRow.instl_dst);
+                    Assert.AreEqual(string.Empty, realizedRow.InstallDestinationTitle);
+                    Assert.AreEqual(string.Empty, realizedRow.InstallDestinationArtist);
+                    Assert.AreEqual(0, realizedRow.Chart.InstallDestinationSuggestions.Count);
+                    Assert.IsFalse(realizedRow.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+                    Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(realizedRow, out ChartOperationTarget nextTarget));
+                    Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([nextTarget], out RepairInstalledLocationRequest nextRequest));
+                    Assert.IsFalse(nextRequest.HasInstallDestination);
+                    Assert.AreEqual(0, nextRequest.RepairCharts.Single().InstallDestinationSuggestions.Count);
+                },
+                maintenanceTreeTerminal: maintenanceTreeTerminal,
+                prepareViewModel: viewModel =>
+                {
+                    preparedViewModel = viewModel;
+                    ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                });
+        }
+        finally
+        {
+            library.RequestShutdown("correct-install-destination-presentation-test");
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void CompiledTreeMenusPreservePackageSectionsAndPendingOperations()
     {
         var catalogCalls = new List<(string Action, PackageCatalogSection Section, ChartPackage? Package)>();
@@ -1123,6 +1297,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
         MainWindowFolderAutoRenameTerminal? folderAutoRenameTerminal = null,
         MainWindowDuplicateMaintenanceTerminal? duplicateMaintenanceTerminal = null,
         MainWindowMaintenanceRescanTerminal? maintenanceRescanTerminal = null,
+        MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal = null,
         MainWindowPackageCatalogTerminal? packageCatalogTerminal = null,
         MainWindowPendingInstallEstimationTerminal? pendingInstallEstimationTerminal = null,
         MainWindowPendingInstallationTerminal? pendingInstallationTerminal = null,
@@ -1164,7 +1339,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     settingsWindowCreated: null,
                     libraryReloadMenuTerminal: null,
                     regularLibraryTreeTerminal: null,
-                    maintenanceTreeTerminal: null,
+                    maintenanceTreeTerminal: maintenanceTreeTerminal,
                     installTreeTerminal: null,
                     zeroNoteRecheckTerminal: null,
                     columnResetTerminal: null,

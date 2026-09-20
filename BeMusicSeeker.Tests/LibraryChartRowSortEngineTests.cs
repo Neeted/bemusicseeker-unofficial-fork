@@ -544,12 +544,33 @@ public sealed class LibraryChartRowSortEngineTests
             isPlaylistDetailView: false,
             dependency: MainViewDataDependency.InstallDestination,
             reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision fullScanTitleSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision fullScanWarningSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.WarningDigestText),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
 
         Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, titleSortDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, fullScanTitleSortDecision.Action);
         Assert.AreEqual(MainViewRefreshAction.Refresh, installDestinationSortDecision.Action);
         Assert.AreEqual(MainViewDataDependency.InstallDestination, installDestinationSortDecision.SortDependency);
         Assert.AreEqual(MainViewRefreshAction.Refresh, warningSortDecision.Action);
         Assert.AreEqual(MainViewDataDependency.Warning, warningSortDecision.SortDependency);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, fullScanWarningSortDecision.Action);
+        Assert.AreEqual(MainViewDataDependency.Warning, fullScanWarningSortDecision.SortDependency);
     }
 
     [TestMethod]

@@ -199,6 +199,22 @@ internal sealed class LibraryChartRow : NotificationObject
             packageEntry: entry);
     }
 
+    /// <summary>
+    /// 対象集合の入力行から表示行を作り、再評価時にも入力行の現在の投影を使います。
+    /// パッケージの変更通知と、導入先・警告の明示的なクリアを維持します。
+    /// </summary>
+    /// <param name="sourceRow">現在値とパッケージ項目を提供する入力行。</param>
+    /// <returns>入力行に接続した表示行。入力がない場合は null。</returns>
+    internal static LibraryChartRow FromSourceRow(ChartListSourceRow sourceRow)
+    {
+        return sourceRow == null ? null : new LibraryChartRow(
+            sourceRow.Chart,
+            hasSourceChartProjection: true,
+            chartProvider: () => sourceRow.Chart,
+            packageEntry: sourceRow.PackageEntry,
+            hideResourceHealthDigestWhenInstallDestinationSet: sourceRow.HideResourceHealthDigestWhenInstallDestinationSet);
+    }
+
     internal void UpdateSourceProjection(ChartFile chart)
     {
         if (chart == null)

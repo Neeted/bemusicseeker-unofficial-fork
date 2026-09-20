@@ -42,6 +42,10 @@ internal sealed class PendingPackageRefreshSuppressionChangedEventArgs : Pending
 
 internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWorkflowChangedEventArgs
 {
+    /// <summary>
+    /// 導入先操作の完了時に、単独譜面の投影と一覧への影響をまとめて渡します。
+    /// パッケージ項目はそれ自身を正本とするため、投影用の譜面集合には含めません。
+    /// </summary>
     internal PendingPackageMutationAppliedEventArgs(
         IEnumerable<ChartFile> changedCharts = null,
         bool installDestinationStateChanged = false,
@@ -54,6 +58,7 @@ internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWor
         DisplayStateChanged = displayStateChanged;
     }
 
+    /// <summary>一覧の一時状態へ反映する変更済みの単独譜面。</summary>
     internal IReadOnlyList<ChartFile> ChangedCharts { get; }
 
     internal bool InstallDestinationStateChanged { get; }
@@ -393,6 +398,7 @@ internal sealed class PendingPackageWorkflowOwner
         _ = externalShellGateway.OpenFileAndSelect(packagePath);
     }
 
+    /// <summary>保留パッケージの導入先を推定し、受付解放後に一覧への影響をまとめて通知します。</summary>
     internal Task SearchPackagesAsync(
         PendingInstallDestinationSearchKind kind,
         IEnumerable<ChartPackage> packages)
@@ -409,17 +415,15 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return RunSearchAsync(kind, () =>
         {
-            if (Execute(
-                library => store.SearchPackages(library, kind, packageSnapshot),
-                acquiredOperationGate: operationGate))
+            ExecuteInstallDestinationMutation(library =>
             {
-                PublishMutationApplied(
-                    installDestinationStateChanged: true,
-                    identitySortKeyChanged: true);
-            }
+                store.SearchPackages(library, kind, packageSnapshot);
+                return [];
+            }, operationGate, identitySortKeyChanged: true);
         }, operationGate);
     }
 
+    /// <summary>保留の選択対象を推定し、単独譜面の変更状態と一覧への影響をまとめて通知します。</summary>
     internal Task SearchPendingAsync(PendingInstallDestinationSearchRequest request)
     {
         if (request == null)
@@ -433,19 +437,14 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return RunSearchAsync(request.Kind, () =>
         {
-            if (Execute(library =>
-            {
-                IReadOnlyList<ChartFile> changedCharts = store.SearchPending(library, request);
-                PublishChangedCharts(changedCharts);
-            }, acquiredOperationGate: operationGate))
-            {
-                PublishMutationApplied(
-                    installDestinationStateChanged: true,
-                    identitySortKeyChanged: true);
-            }
+            ExecuteInstallDestinationMutation(
+                library => store.SearchPending(library, request),
+                operationGate,
+                identitySortKeyChanged: true);
         }, operationGate);
     }
 
+    /// <summary>パッケージ項目を正本として導入先を解除し、受付解放後に一覧の更新を通知します。</summary>
     internal Task ClearPackagesAsync(IEnumerable<ChartPackage> packages)
     {
         if (packages == null)
@@ -459,24 +458,15 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(() =>
         {
-            try
+            ExecuteInstallDestinationMutation(_ =>
             {
-                if (Execute(library =>
-                {
-                    IReadOnlyList<ChartFile> changedCharts = store.ClearPackages(packageSnapshot);
-                    PublishChangedCharts(changedCharts);
-                }, requiresLibrary: false, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false))
-                {
-                    PublishMutationApplied(installDestinationStateChanged: true);
-                }
-            }
-            finally
-            {
-                operationGate.Dispose();
-            }
+                store.ClearPackages(packageSnapshot);
+                return [];
+            }, operationGate, requiresLibrary: false);
         });
     }
 
+    /// <summary>保留の選択対象の導入先を解除し、明示的な空値を含む結果を一覧へ通知します。</summary>
     internal Task ClearPendingAsync(PendingInstallDestinationClearRequest request)
     {
         if (request == null)
@@ -490,24 +480,13 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(() =>
         {
-            try
-            {
-                if (Execute(library =>
-                {
-                    IReadOnlyList<ChartFile> changedCharts = store.ClearPending(library, request);
-                    PublishChangedCharts(changedCharts);
-                }, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false))
-                {
-                    PublishMutationApplied(installDestinationStateChanged: true);
-                }
-            }
-            finally
-            {
-                operationGate.Dispose();
-            }
+            ExecuteInstallDestinationMutation(
+                library => store.ClearPending(library, request),
+                operationGate);
         });
     }
 
+    /// <summary>選択した導入済み譜面の再導入先を推定し、共通の導入先変更結果として通知します。</summary>
     internal Task SearchCorrectAsync(RepairInstalledLocationRequest request)
     {
         if (request == null)
@@ -521,22 +500,13 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(() =>
         {
-            try
-            {
-                Execute(library =>
-                {
-                    IReadOnlyList<ChartFile> changedCharts = store.SearchCorrect(library, request);
-                    PublishChangedCharts(changedCharts);
-                    PublishMutationApplied(installDestinationStateChanged: true);
-                }, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false);
-            }
-            finally
-            {
-                operationGate.Dispose();
-            }
+            ExecuteInstallDestinationMutation(
+                library => SelectChangedChartsForTransientProjection(store.SearchCorrect(library, request), request.Targets),
+                operationGate);
         });
     }
 
+    /// <summary>選択した譜面の再導入先を解除し、共通の導入先変更結果として通知します。</summary>
     internal Task ClearCorrectAsync(RepairInstalledLocationRequest request)
     {
         if (request == null)
@@ -550,24 +520,13 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(() =>
         {
-            try
-            {
-                if (Execute(library =>
-                {
-                    IReadOnlyList<ChartFile> changedCharts = store.ClearCorrect(library, request);
-                    PublishChangedCharts(changedCharts);
-                }, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false))
-                {
-                    PublishMutationApplied(installDestinationStateChanged: true);
-                }
-            }
-            finally
-            {
-                operationGate.Dispose();
-            }
+            ExecuteInstallDestinationMutation(
+                library => SelectChangedChartsForTransientProjection(store.ClearCorrect(library, request), request.Targets),
+                operationGate);
         });
     }
 
+    /// <summary>導入先の手動編集結果を通知し、編集が拒否された場合も確定済みの表示へ戻します。</summary>
     internal Task SetPendingAsync(
         PendingInstallDestinationEditRequest request,
         string destinationDirectory)
@@ -582,27 +541,11 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(() =>
         {
-            try
+            ExecuteInstallDestinationMutation(library =>
             {
-                ChartFile changedChart = null;
-                if (!Execute(library => changedChart = store.SetPending(library, request, destinationDirectory),
-                    acquiredOperationGate: operationGate,
-                    releaseAcquiredOperationGate: false))
-                {
-                    return;
-                }
-                if (changedChart != null)
-                {
-                    PublishChangedCharts([changedChart]);
-                }
-                PublishMutationApplied(
-                    installDestinationStateChanged: changedChart != null,
-                    displayStateChanged: true);
-            }
-            finally
-            {
-                operationGate.Dispose();
-            }
+                ChartFile changedChart = store.SetPending(library, request, destinationDirectory);
+                return changedChart == null ? null : request.PackageEntry == null ? [changedChart] : [];
+            }, operationGate, refreshRejectedEdit: true);
         });
     }
 
@@ -1586,9 +1529,41 @@ internal sealed class PendingPackageWorkflowOwner
             new PendingPackageRefreshSuppressionChangedEventArgs(isSuppressed, refreshScope));
     }
 
-    private void PublishChangedCharts(IEnumerable<ChartFile> changedCharts)
+    /// <summary>
+    /// 導入先変更の排他・更新抑制を終えた後に、一つの完了通知を公開します。
+    /// null は編集拒否、空集合はパッケージ正本だけを変更した結果を表します。
+    /// </summary>
+    private void ExecuteInstallDestinationMutation(
+        Func<BMSLibrary, IReadOnlyList<ChartFile>> mutation,
+        IDisposable operationGate,
+        bool requiresLibrary = true,
+        bool identitySortKeyChanged = false,
+        bool refreshRejectedEdit = false)
     {
-        PublishMutationApplied(changedCharts: changedCharts);
+        IReadOnlyList<ChartFile> changedCharts = null;
+        if (Execute(
+            library => changedCharts = mutation(library),
+            requiresLibrary: requiresLibrary,
+            acquiredOperationGate: operationGate))
+        {
+            PublishMutationApplied(
+                changedCharts,
+                installDestinationStateChanged: changedCharts != null,
+                identitySortKeyChanged: identitySortKeyChanged,
+                displayStateChanged: changedCharts == null && refreshRejectedEdit);
+        }
+    }
+
+    private static IReadOnlyList<ChartFile> SelectChangedChartsForTransientProjection(
+        IEnumerable<ChartFile> changedCharts,
+        IReadOnlyList<ChartOperationTarget> targets)
+    {
+        var packageKeys = new HashSet<string>(targets
+            .Where(target => target.PackageEntry != null)
+            .Select(target => ChartFileRuntimeStateKey.Create(target.Chart)), StringComparer.Ordinal);
+        return [.. (changedCharts ?? [])
+            .Where(chart => chart != null
+                && !packageKeys.Contains(ChartFileRuntimeStateKey.Create(chart)))];
     }
 
     private void PublishMutationApplied(
