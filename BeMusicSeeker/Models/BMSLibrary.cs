@@ -6940,16 +6940,17 @@ public partial class BMSLibrary : ObservableObject
 
 
     /// <summary>
-    /// chart_info の不足分構築をバックグラウンドへ要求します。
+    /// 導入した譜面の chart_info と派生索引を反映し、入力変更区間の解放後に通知します。
+    /// 外側の変更予約がある場合は、その解放後の通知先へ公開処理を渡します。
     /// </summary>
-    /// <param name="reason">ログに残す要求理由。</param>
-
-
-
-
+    /// <param name="reason">ログと通知の理由。</param>
+    /// <param name="charts">導入した譜面。</param>
+    /// <param name="postLeaseNotificationObserver">外側の変更予約の解放後に実行する通知の受取先。</param>
+    /// <returns>構築結果と確定した digest facts。</returns>
     internal ChartInfoInlineBuildResult BuildAndPersistInlineChartInfoForInstalledCharts(
         string reason,
-        IEnumerable<ChartFile> charts)
+        IEnumerable<ChartFile> charts,
+        Action<Action> postLeaseNotificationObserver = null)
     {
         ChartInfoInlineBuildResult result = null;
         List<Action> publicationEffects = [];
@@ -6961,7 +6962,14 @@ public partial class BMSLibrary : ObservableObject
             }
             foreach (Action publicationEffect in publicationEffects)
             {
-                publicationEffect?.Invoke();
+                if (postLeaseNotificationObserver != null)
+                {
+                    postLeaseNotificationObserver(publicationEffect);
+                }
+                else
+                {
+                    publicationEffect?.Invoke();
+                }
             }
             return result;
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -213,6 +214,119 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Directory.Delete(root, true);
             }
         });
+    }
+
+    [TestMethod]
+    public void ResourceHealthMaintenanceNotificationRefreshesRealizedNormalRowBeforeDisplay()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), "resource-health-wpf-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var settings = new Settings { StartupSelectInstallPending = false };
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                settings,
+                (viewModel, _) =>
+                {
+                    string sourceDirectory = Path.Combine(root, "resource-health-source");
+                    string destinationDirectory = Path.Combine(root, "resource-health-destination");
+                    Directory.CreateDirectory(sourceDirectory);
+                    Directory.CreateDirectory(destinationDirectory);
+                    string chartPath = Path.Combine(sourceDirectory, "resource-health.bms");
+                    File.WriteAllText(
+                        chartPath,
+                        "#PLAYER 1\r\n#TITLE Resource health UI\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+                    var chart = BMSFile.CreateBMSFileFromFile(chartPath);
+                    BMSFileMaintenanceInfo initialMaintenance = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(
+                        ChartFileProjection.FromBmsFile(chart, includeWarningSnapshot: false));
+                    chart.SetMaintenanceInfo(initialMaintenance, suppressPropertyChanged: true);
+                    string songDbPath = Path.Combine(root, "song.db");
+                    using (var songDb = new LR2SongDBExtended(songDbPath))
+                    {
+                        songDb.CreateTable<LR2SongDB.song>();
+                        songDb.CreateTable<LR2SongDB.folder>();
+                        songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                        songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                    }
+
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+                    library.BMSFiles = [];
+                    ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+
+                    library.BMSFiles = [chart];
+                    TestUiDispatcherHost.Drain();
+                    Assert.AreEqual(1, library.BMSFiles.Count);
+                    Assert.IsTrue(library.NormalLibraryRefreshNotificationVersion > 0);
+                    Assert.IsNotNull(viewModel.MainChartList.LastCompletion);
+                    IList rowsBeforeMerge = viewModel.MainChartList.Rows;
+                    var row = (LibraryChartRow)rowsBeforeMerge[0]!;
+                    StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
+                    StringAssert.Contains(row.WarningTooltipText, "WAV");
+                    IList? rowsAfterSourceRefresh = null;
+                    IList? rowsAfterPresentationRefresh = null;
+                    bool presentationRefreshObserved = false;
+                    EventHandler<NormalLibraryRefreshAppliedEventArgs> refreshApplied = (_, args) =>
+                    {
+                        if (args.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+                        {
+                            rowsAfterSourceRefresh = viewModel.MainChartList.Rows;
+                        }
+                        else if (args.NotificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged)
+                            || args.NotificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
+                        {
+                            rowsAfterPresentationRefresh = viewModel.MainChartList.Rows;
+                            presentationRefreshObserved = true;
+                        }
+                    };
+                    // merge の集合通知を保守処理より先に表示する、本番で成立する順序を再現します。
+                    // 後続の Defer 通知は SourceChanged を含まず、表示だけの更新になります。
+                    System.ComponentModel.PropertyChangedEventHandler flushSourceRefresh = (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
+                            && rowsAfterSourceRefresh == null)
+                        {
+                            TestUiDispatcherHost.Drain();
+                        }
+                    };
+                    viewModel.RegularChartList.NormalLibraryRefreshApplied += refreshApplied;
+                    library.PropertyChanged += flushSourceRefresh;
+
+                    try
+                    {
+                        DuplicateMergeMaintenanceReceipt merge = library.MergeChartDirectory(
+                            sourceDirectory,
+                            destinationDirectory,
+                            operationId: 1);
+                        Assert.IsTrue(merge.MergeApplied, merge.SessionReceipt.PrimaryFailure?.ToString());
+                        Assert.IsTrue(merge.ResourceHealthIndexDeferred);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsNotNull(rowsAfterSourceRefresh);
+                        Assert.IsTrue(presentationRefreshObserved);
+                        Assert.AreSame(rowsAfterSourceRefresh, rowsAfterPresentationRefresh);
+                        Assert.AreSame(rowsAfterSourceRefresh, viewModel.MainChartList.Rows);
+                        Assert.AreEqual(1, library.BMSFiles.Count);
+                        Assert.AreEqual(1, viewModel.MainChartList.Rows.Count);
+                        var refreshedRow = (LibraryChartRow)viewModel.MainChartList.Rows[0]!;
+                        StringAssert.Contains(refreshedRow.WarningDigestText, Resources.WarningDigest_ResourceMissing);
+                        StringAssert.Contains(refreshedRow.WarningTooltipText, "WAV");
+                        ResourceHealthIndexSnapshot snapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+                        Assert.AreNotSame(ResourceHealthIndexSnapshot.Empty, snapshot);
+                        BMSFile installed = library.BMSFiles.Single();
+                        Assert.IsTrue(snapshot.GetProjection(ChartFileKind.Bms, installed.path, installed.hash).Warnings.Any(
+                            warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+                    }
+                    finally
+                    {
+                        library.PropertyChanged -= flushSourceRefresh;
+                        viewModel.RegularChartList.NormalLibraryRefreshApplied -= refreshApplied;
+                    }
+                });
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     [TestMethod]

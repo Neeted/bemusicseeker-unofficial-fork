@@ -95,21 +95,35 @@ internal sealed partial class LibraryMutationOwner
         catalogOwnedCollectionOwner.Invalidate();
     }
 
-    /// <summary>所持譜面の確定 version と派生索引を公開します。</summary>
-    internal int NotifyOwnedChartCollectionChanged(
-        int committedVersion = 0,
-        bool rebasePlaylistResolveIndex = false)
+    /// <summary>
+    /// 確定済みの所持集合世代を内部状態へ適用します。
+    /// 世代を進める場合も、catalog writer が先に確定した世代は再利用します。
+    /// 公開イベントはこの処理の後、排他権を解放してから行います。
+    /// </summary>
+    private void ApplyOwnedChartCollectionState(OwnedChartCollectionMutationResult result)
     {
-        int version = committedVersion > 0
-            ? committedVersion
-            : catalogOwnedCollectionOwner.IncrementVersion();
-        catalogOwnedCollectionOwner.RebaseHashIndexSnapshot();
-        if (rebasePlaylistResolveIndex)
+        if (result == null || !result.OwnedCollectionChanged)
         {
-            catalogOwnedCollectionOwner.RebasePlaylistLibraryResolveIndexSnapshot(catalogStorageRowsOwner);
+            if (result != null)
+            {
+                result.OwnedCollectionVersion = catalogOwnedCollectionOwner.CollectionVersion;
+            }
+            return;
         }
-        raiseOwnedCollectionVersionChanged();
-        return version;
+
+        if (result.OwnedCollectionVersionAlreadyAdvanced)
+        {
+            if (result.OwnedCollectionVersion <= 0)
+            {
+                result.OwnedCollectionVersion = catalogOwnedCollectionOwner.CollectionVersion;
+            }
+            return;
+        }
+
+        // catalog writer が世代を確定していない mutation は、索引反映より先に
+        // owner の世代を一度だけ進め、後段の公開通知では再度進めません。
+        result.OwnedCollectionVersion = catalogOwnedCollectionOwner.IncrementVersion();
+        result.OwnedCollectionVersionAlreadyAdvanced = true;
     }
 
     /// <summary>
@@ -158,6 +172,7 @@ internal sealed partial class LibraryMutationOwner
             }
             int ownedCollectionVersion = replacementReceipt.OwnedCollectionVersion;
             catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
+            catalogOwnedCollectionOwner.InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
             InvalidateInstalledDirectoryIndex();
             InvalidateParentFolderListCache();
             if (bmsonRowsChanged)
@@ -174,8 +189,7 @@ internal sealed partial class LibraryMutationOwner
             bool notifiesBmsonSongs = notifyBmsonRows && bmsonRowsChanged;
             publishReplacementEffects = () =>
             {
-                int publishedOwnedCollectionVersion = NotifyOwnedChartCollectionChanged(ownedCollectionVersion);
-                catalogOwnedCollectionOwner.InvalidatePlaylistLibraryResolveIndexSnapshot(publishedOwnedCollectionVersion);
+                raiseOwnedCollectionVersionChanged();
                 if (notifiesBmsFiles || notifiesBmsonSongs)
                 {
                     PublishExternalReplacementNormalLibraryRefreshNotification(
@@ -219,8 +233,6 @@ internal sealed partial class LibraryMutationOwner
 
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
-        public bool InstalledLookupMutationApplied { get; set; }
-
         public bool OwnedHashIndexMutationApplied { get; set; }
 
         /// <summary>今回のmutation factsをplaylist resolve rootへ適用済みか。</summary>
@@ -228,11 +240,7 @@ internal sealed partial class LibraryMutationOwner
 
         public bool PlaylistResolveIndexInvalidated { get; set; }
 
-        public bool InstallMetadataCacheInvalidated { get; set; }
-
         public InstallDestinationRuntimeStateMutation InstallDestinationRuntimeStateMutation { get; } = new();
-
-        public bool InstallDestinationRuntimeStateApplied { get; set; }
 
         public IReadOnlyList<ChartFile> InstallDestinationChangedCharts => InstallDestinationRuntimeStateMutation.AppliedCharts;
 
@@ -357,8 +365,17 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="result">catalog mutationの結果。</param>
     private void ApplyOwnedChartHashIndexMutation(OwnedChartCollectionMutationResult result)
     {
-        if (result == null || result.OwnedHashIndexMutationApplied)
+        if (result == null)
         {
+            return;
+        }
+        if (result.OwnedHashIndexMutationApplied)
+        {
+            // ハッシュの反映後に所持世代を確定する経路でも、公開前に世代を揃える。
+            if (result.OwnedCollectionChanged)
+            {
+                catalogOwnedCollectionOwner.RebaseHashIndexSnapshot();
+            }
             return;
         }
 
@@ -508,36 +525,12 @@ internal sealed partial class LibraryMutationOwner
         string dispatchReason = string.IsNullOrWhiteSpace(replacementEvent.Reason)
             ? "file_scan"
             : "file_scan_" + replacementEvent.Reason;
-        Action duplicateChartGroupsPostLeaseNotification = DispatchOwnedChartCollectionMutation(
+        Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
             mutationResult,
-            dispatchReason,
-            publishNormalRefreshNotification: false,
-            publishOwnedCollectionNotifications: false,
-            deferDuplicateChartGroupsNotification: true);
-        return () =>
-        {
-            TryInvokePostLeaseNotification(
-                duplicateChartGroupsPostLeaseNotification,
-                "file_scan_duplicate_chart_groups_notification_failed");
-            if (mutationResult.ParentFolderInvalidated)
-            {
-                TryInvokePostLeaseNotification(
-                    NotifyParentFolderListCacheChanged,
-                    "file_scan_parent_folder_notification_failed");
-            }
-            if (mutationResult.OwnedCollectionChanged)
-            {
-                TryInvokePostLeaseNotification(
-                    () => PublishOwnedCollectionChangeNotification(mutationResult),
-                    "file_scan_owned_collection_notification_failed");
-            }
-            TryInvokePostLeaseNotification(
-                () => PublishNormalLibraryRefreshNotification(mutationResult),
-                "file_scan_normal_refresh_publication_failed");
-            TryInvokePostLeaseNotification(
-                () => RaiseNormalLibraryRefreshNotificationVersionChanged(mutationResult),
-                "file_scan_normal_refresh_notification_failed");
-        };
+            dispatchReason);
+        return () => PublishOwnedChartCollectionMutation(
+            mutationResult,
+            duplicateChartGroupsPostLeaseNotification);
     }
 
     /// <summary>
@@ -573,15 +566,12 @@ internal sealed partial class LibraryMutationOwner
         string dispatchReason = string.IsNullOrWhiteSpace(residualEvent.Reason)
             ? "file_scan_residual"
             : "file_scan_residual_" + residualEvent.Reason;
-        Action duplicateChartGroupsPostLeaseNotification = null;
+        Action duplicateChartGroupsPostLeaseNotification;
         try
         {
-            duplicateChartGroupsPostLeaseNotification = DispatchOwnedChartCollectionMutation(
+            duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
                 mutationResult,
-                dispatchReason,
-                publishNormalRefreshNotification: false,
-                publishOwnedCollectionNotifications: false,
-                deferDuplicateChartGroupsNotification: true);
+                dispatchReason);
         }
         catch
         {
@@ -595,18 +585,9 @@ internal sealed partial class LibraryMutationOwner
             ClearNormalLibraryRefreshNotification(mutationResult);
             throw;
         }
-        return () =>
-        {
-            TryInvokePostLeaseNotification(
-                duplicateChartGroupsPostLeaseNotification,
-                "file_scan_residual_duplicate_chart_groups_notification_failed");
-            TryInvokePostLeaseNotification(
-                () => PublishNormalLibraryRefreshNotification(mutationResult),
-                "file_scan_residual_normal_refresh_publication_failed");
-            TryInvokePostLeaseNotification(
-                () => RaiseNormalLibraryRefreshNotificationVersionChanged(mutationResult),
-                "file_scan_residual_normal_refresh_notification_failed");
-        };
+        return () => PublishOwnedChartCollectionMutation(
+            mutationResult,
+            duplicateChartGroupsPostLeaseNotification);
     }
 
     /// <summary>
@@ -634,7 +615,6 @@ internal sealed partial class LibraryMutationOwner
         string lookupReason,
         LibraryFileMutationCapability mutationCapability,
         ref LibraryMutationSessionApplyCounts applyCounts,
-        Action<string> logOverride = null,
         IEnumerable<string> installPathsToDelete = null,
         IEnumerable<ChartPackage> installRowsToUpsert = null)
     {
@@ -689,7 +669,6 @@ internal sealed partial class LibraryMutationOwner
                 installedTargetReceipt,
                 deferredFailureFact,
                 lookupReason,
-                logOverride,
                 failureFallbackRequired: false,
                 failure: null);
         }
@@ -704,7 +683,6 @@ internal sealed partial class LibraryMutationOwner
                 installedTargetReceipt,
                 deferredFailureFact,
                 lookupReason,
-                logOverride,
                 failureFallbackRequired,
                 ExceptionDispatchInfo.Capture(exception));
         }
@@ -739,47 +717,15 @@ internal sealed partial class LibraryMutationOwner
                     receipt.MutationResult.OwnedCollectionVersion),
                 receipt.LookupReason ?? "install_package",
                 mutationCapability);
-            ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
+            receipt.PostLeaseDuplicateChartGroupsNotification = ApplyOwnedChartCollectionMutation(
                 receipt.MutationResult,
-                receipt.LookupReason,
-                receipt.LogOverride);
+                receipt.LookupReason);
         }
         catch (Exception exception)
         {
             receipt.RecordCompletionFailure(exception);
             throw;
         }
-    }
-
-    private void ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
-        OwnedChartCollectionMutationResult result,
-        string reason,
-        Action<string> logOverride)
-    {
-        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
-        {
-            installDestinationStateOwner.Apply(result.InstallDestinationRuntimeStateMutation);
-        }
-        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
-        {
-            installDestinationStateOwner.PruneToCurrentOwnedCharts();
-        }
-        result.InstallDestinationRuntimeStateApplied = true;
-        if (result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup)
-        {
-            InvalidateInstallEstimationMetadataProfileCache();
-            result.InstallMetadataCacheInvalidated = true;
-        }
-        if (result.ShouldDispatchInstalledLookup)
-        {
-            ApplyInstalledChartLookupMutation(
-                result.InstalledLookupMutation,
-                reason,
-                logOverride);
-            result.InstalledLookupMutationApplied = true;
-        }
-        ApplyOwnedChartHashIndexMutation(result);
-        ApplyPlaylistLibraryResolveIndexMutation(result);
     }
 
     private void PublishInstalledChartStorageTargetsAfterGuard(
@@ -811,12 +757,9 @@ internal sealed partial class LibraryMutationOwner
             // filesystem failure already carried by the durable receipt.
             return;
         }
-        TryInvokePostLeaseNotification(
-            () => PublishOwnedCollectionChangeNotification(receipt.MutationResult),
-            "installed_chart_storage_target_collection_notification_failed");
-        TryInvokePostLeaseNotification(
-            () => DispatchOwnedChartCollectionMutation(receipt.MutationResult, receipt.LookupReason),
-            "installed_chart_storage_target_dispatch_failed");
+        PublishOwnedChartCollectionMutation(
+            receipt.MutationResult,
+            receipt.PostLeaseDuplicateChartGroupsNotification);
     }
 
     private sealed class InstalledChartStorageTargetsApplyReceipt(
@@ -824,12 +767,10 @@ internal sealed partial class LibraryMutationOwner
         CatalogInstalledTargetUpsertReceipt installedTargetReceipt,
         CatalogWriteFailureFact deferredFailureFact,
         string lookupReason,
-        Action<string> logOverride,
         bool failureFallbackRequired,
         ExceptionDispatchInfo failure)
     {
         internal static InstalledChartStorageTargetsApplyReceipt Empty { get; } = new(
-            null,
             null,
             null,
             null,
@@ -845,11 +786,11 @@ internal sealed partial class LibraryMutationOwner
 
         internal string LookupReason { get; } = lookupReason;
 
-        internal Action<string> LogOverride { get; } = logOverride;
-
         internal bool FailureFallbackRequired { get; private set; } = failureFallbackRequired;
 
         internal ExceptionDispatchInfo Failure { get; private set; } = failure;
+
+        internal Action PostLeaseDuplicateChartGroupsNotification { get; set; }
 
         internal void RecordCompletionFailure(Exception exception)
         {
@@ -1314,19 +1255,19 @@ internal sealed partial class LibraryMutationOwner
     private OwnedChartCollectionMutationResult ApplyCatalogMaintenanceMutation(
         CatalogMaintenanceOperationReceipt receipt,
         out MaintenanceWorkflowResult workflowResult,
-        out ResourceHealthIndexMutation resourceHealthMutation)
+        out ResourceHealthIndexMutation resourceHealthMutation,
+        out Action duplicateChartGroupsPostLeaseNotification)
     {
+        duplicateChartGroupsPostLeaseNotification = null;
         workflowResult = receipt?.WorkflowResult?.ToMutable() ?? new MaintenanceWorkflowResult();
         resourceHealthMutation = receipt?.ResourceHealthMutation?.ToMutation()
             ?? new ResourceHealthIndexMutation();
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
             resourceHealthMutation,
             workflowResult.HasUpdates);
-        DispatchOwnedChartCollectionMutation(
+        duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
             mutationResult,
-            receipt?.Reason ?? "maintenance",
-            publishNormalRefreshNotification: false,
-            publishOwnedCollectionNotifications: false);
+            receipt?.Reason ?? "maintenance");
         return mutationResult;
     }
 
@@ -1349,12 +1290,17 @@ internal sealed partial class LibraryMutationOwner
         destination.InvalidateIfDeltaFails = source.InvalidateIfDeltaFails;
     }
 
-    private Action DispatchOwnedChartCollectionMutation(
+    /// <summary>
+    /// 所持集合 mutation の内部状態と派生索引を反映します。
+    /// このメソッドは parent/duplicate/collection/refresh の公開通知を実行せず、
+    /// 呼び出し側が排他権を解放した後に返却 action を公開処理へ渡します。
+    /// </summary>
+    /// <param name="result">確定済み mutation facts。</param>
+    /// <param name="reason">反映・診断理由。</param>
+    /// <returns>duplicate 群の公開が必要な場合に、解放後に実行する action。</returns>
+    private Action ApplyOwnedChartCollectionMutation(
         OwnedChartCollectionMutationResult result,
-        string reason,
-        bool publishNormalRefreshNotification = true,
-        bool publishOwnedCollectionNotifications = true,
-        bool deferDuplicateChartGroupsNotification = false)
+        string reason)
     {
         if (result == null)
         {
@@ -1363,31 +1309,12 @@ internal sealed partial class LibraryMutationOwner
 
         var stopwatch = Stopwatch.StartNew();
         bool collectDispatchDetails = result.HasLoggableChanges;
-        long installDestinationMs = 0;
         long digestMs = 0;
         long parentFolderMs = 0;
         long duplicateMs = 0;
-        long playlistSummaryMs = 0;
-        long ownedCollectionNotifyMs = 0;
         long resourceHealthMs = 0;
-        long installMetadataMs = 0;
-        long installedLookupMs = 0;
-        long normalRefreshMs = 0;
         bool duplicateChartGroupsInvalidated = false;
-        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges
-            && !result.InstallDestinationRuntimeStateApplied)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            installDestinationStateOwner.Apply(result.InstallDestinationRuntimeStateMutation);
-            installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts
-            && !result.InstallDestinationRuntimeStateApplied)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            installDestinationStateOwner.PruneToCurrentOwnedCharts();
-            installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
+        ApplyOwnedChartCollectionState(result);
         if (result.DigestChangedCount > 0 && !result.DigestMutationApplied)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
@@ -1400,38 +1327,41 @@ internal sealed partial class LibraryMutationOwner
             result.DigestMutationApplied = true;
             digestMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
+        Stopwatch semanticLookupStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
+        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
         {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            ApplyOwnedChartHashIndexMutation(result);
-            ApplyPlaylistLibraryResolveIndexMutation(result);
-            playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
+            installDestinationStateOwner.Apply(result.InstallDestinationRuntimeStateMutation);
         }
+        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
+        {
+            installDestinationStateOwner.PruneToCurrentOwnedCharts();
+        }
+        if (result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup)
+        {
+            InvalidateInstallEstimationMetadataProfileCache();
+        }
+        if (result.ShouldDispatchInstalledLookup)
+        {
+            ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
+        }
+        ApplyOwnedChartHashIndexMutation(result);
+        ApplyPlaylistLibraryResolveIndexMutation(result);
+        long semanticLookupMs = StopPerformanceStepStopwatch(semanticLookupStopwatch);
         if (result.ParentFolderInvalidated)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            if (publishOwnedCollectionNotifications)
-            {
-                InvalidateParentFolderListCacheAndNotify();
-            }
-            else
-            {
-                InvalidateParentFolderListCache();
-            }
+            InvalidateParentFolderListCache();
             parentFolderMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.DuplicateCacheInvalidated)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             duplicateChartGroupsInvalidated = InvalidateDuplicateChartGroupsCache(
-                publishNotification: !deferDuplicateChartGroupsNotification);
+                publishNotification: false);
             duplicateMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (result.OwnedCollectionChanged && publishOwnedCollectionNotifications)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            PublishOwnedCollectionChangeNotification(result);
-            ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
+        bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated
+            || result.ShouldDispatchInstalledLookup;
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             if (result.ResourceHealthMutation.RebuildFull && result.OwnedCollectionChanged)
@@ -1445,26 +1375,6 @@ internal sealed partial class LibraryMutationOwner
         if (!result.ResourceHealthMutation.HasChanges && result.OwnedCollectionChanged)
         {
             resourceHealthOwner.RebaseCurrentVersion(GetCurrentResourceHealthIndexVersion());
-        }
-        bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
-        if (installMetadataProfileCacheInvalidated && !result.InstallMetadataCacheInvalidated)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            InvalidateInstallEstimationMetadataProfileCache();
-            installMetadataMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (result.ShouldDispatchInstalledLookup && !result.InstalledLookupMutationApplied)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
-            installedLookupMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (publishNormalRefreshNotification)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            PublishNormalLibraryRefreshNotification(result);
-            RaiseNormalLibraryRefreshNotificationVersionChanged(result);
-            normalRefreshMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         stopwatch.Stop();
 
@@ -1489,21 +1399,52 @@ internal sealed partial class LibraryMutationOwner
                 + " maintenancePresentation=" + ToInvalidateLogValue(result.MaintenancePresentationChanged)
                 + " bmsStorageRows=" + ToInvalidateLogValue(result.BmsFilesStorageRowsChanged)
                 + " bmsonStorageRows=" + ToInvalidateLogValue(result.BmsonSongsStorageRowsChanged)
-                + " installDestinationMs=" + installDestinationMs
+                + " semanticLookupMs=" + semanticLookupMs
                 + " digestMs=" + digestMs
                 + " parentFolderMs=" + parentFolderMs
                 + " duplicateMs=" + duplicateMs
-                + " playlistSummaryMs=" + playlistSummaryMs
-                + " ownedCollectionNotifyMs=" + ownedCollectionNotifyMs
                 + " resourceHealthMs=" + resourceHealthMs
-                + " installMetadataMs=" + installMetadataMs
-                + " installedLookupMs=" + installedLookupMs
-                + " normalRefreshMs=" + normalRefreshMs
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
-        return deferDuplicateChartGroupsNotification && duplicateChartGroupsInvalidated
+        return duplicateChartGroupsInvalidated
             ? raiseDuplicateChartGroupsChanged
             : null;
+    }
+
+    /// <summary>
+    /// 内部反映が完了し、呼び出し側の排他権が解放された後に公開通知を行います。
+    /// </summary>
+    /// <param name="result">内部反映済み mutation facts。</param>
+    /// <param name="duplicateChartGroupsPostLeaseNotification">duplicate 群の公開 action。</param>
+    private void PublishOwnedChartCollectionMutation(
+        OwnedChartCollectionMutationResult result,
+        Action duplicateChartGroupsPostLeaseNotification)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        TryInvokePostLeaseNotification(
+            duplicateChartGroupsPostLeaseNotification,
+            "owned_collection_duplicate_chart_groups_notification_failed");
+        if (result.ParentFolderInvalidated)
+        {
+            TryInvokePostLeaseNotification(
+                NotifyParentFolderListCacheChanged,
+                "owned_collection_parent_folder_notification_failed");
+        }
+        if (result.OwnedCollectionChanged)
+        {
+            TryInvokePostLeaseNotification(
+                () => PublishOwnedCollectionChangeNotification(result),
+                "owned_collection_collection_notification_failed");
+        }
+        TryInvokePostLeaseNotification(
+            () => PublishNormalLibraryRefreshNotification(result),
+            "owned_collection_refresh_publication_failed");
+        TryInvokePostLeaseNotification(
+            () => RaiseNormalLibraryRefreshNotificationVersionChanged(result),
+            "owned_collection_refresh_version_notification_failed");
     }
 
     private static Stopwatch StartPerformanceStepStopwatch(bool enabled)
@@ -1522,66 +1463,36 @@ internal sealed partial class LibraryMutationOwner
     }
 
     /// <summary>
-    /// durable 済み digest facts を semantic index へ反映し、digest window 解放後に実行する公開 action を返します。
+    /// durable 済み digest facts を入力変更区間内で全ての派生索引へ反映し、
+    /// 入力変更区間と外側の変更予約の解放後に実行する公開 action を返します。
     /// </summary>
     /// <param name="digestChanges">catalog writer が確定した digest 変更。</param>
     /// <param name="reason">反映・診断理由。</param>
-    /// <returns>呼び出し側が digest window 解放後に実行する公開 action。</returns>
+    /// <returns>呼び出し側が入力変更区間と変更予約の解放後に実行する公開 action。</returns>
     internal Action PrepareOwnedChartDigestPublication(
         IReadOnlyList<LibraryChartDigestChange> digestChanges,
         string reason)
     {
         OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
             digestChanges);
-        mutationResult.OwnedCollectionVersion = catalogOwnedCollectionOwner.CollectionVersion;
         // CatalogMutationOwner.ApplyDigestMutation が先に正本へ適用している。
         mutationResult.DigestMutationApplied = true;
         mutationResult.OwnedHashIndexMutationApplied = true;
-        ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
-            mutationResult,
-            reason,
-            LogInstallPerformance);
-        return () => DispatchOwnedChartCollectionMutationWithResourceHealthLease(mutationResult, reason);
-    }
-
-    private void DispatchOwnedChartCollectionMutationWithResourceHealthLease(
-        OwnedChartCollectionMutationResult mutationResult,
-        string reason)
-    {
-        if (IsOwnedDigestMutationWindowActive())
-        {
-            try
-            {
-                DispatchOwnedChartCollectionMutation(mutationResult, reason);
-            }
-            catch
-            {
-                resourceHealthOwner.ForceInvalidate((reason ?? "owned_chart_mutation") + "_failed");
-                throw;
-            }
-            return;
-        }
-
-        if (mutationResult?.ResourceHealthMutation?.HasChanges != true)
-        {
-            DispatchOwnedChartCollectionMutation(mutationResult, reason);
-            return;
-        }
-
-        ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = resourceHealthOwner.BeginInputMutation();
+        Action duplicateChartGroupsPostLeaseNotification;
         try
         {
-            DispatchOwnedChartCollectionMutation(mutationResult, reason);
+            duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
+                mutationResult,
+                reason);
         }
         catch
         {
             resourceHealthOwner.ForceInvalidate((reason ?? "owned_chart_mutation") + "_failed");
             throw;
         }
-        finally
-        {
-            resourceHealthMutation.Dispose();
-        }
+        return () => PublishOwnedChartCollectionMutation(
+            mutationResult,
+            duplicateChartGroupsPostLeaseNotification);
     }
 
     private void PublishOwnedCollectionChangeNotification(OwnedChartCollectionMutationResult result)
@@ -1599,14 +1510,11 @@ internal sealed partial class LibraryMutationOwner
         {
             return;
         }
-        bool rebasePlaylistResolveIndex = result.PlaylistResolveIndexMutationApplied
-            && !result.PlaylistResolveIndexInvalidated;
-        result.OwnedCollectionVersion = result.OwnedCollectionVersionAlreadyAdvanced
-            ? NotifyOwnedChartCollectionChanged(
-                result.OwnedCollectionVersion,
-                rebasePlaylistResolveIndex)
-            : NotifyOwnedChartCollectionChanged(
-                rebasePlaylistResolveIndex: rebasePlaylistResolveIndex);
+        result.OwnedCollectionVersion = result.OwnedCollectionVersion > 0
+            ? result.OwnedCollectionVersion
+            : catalogOwnedCollectionOwner.CollectionVersion;
+        // 内部反映で確定した世代を、lease 解放後に購読者へ公開する。
+        raiseOwnedCollectionVersionChanged();
         result.OwnedCollectionChangeNotified = true;
     }
 
@@ -1921,10 +1829,12 @@ internal sealed partial class LibraryMutationOwner
         currentMaintenanceTargetCharts = [.. maintenanceTargets.Charts];
         resourceHealthMutationReason = receipt.Reason;
         ResourceHealthIndexMutation resourceHealthMutation;
+        Action duplicateChartGroupsPostLeaseNotification;
         OwnedChartCollectionMutationResult mutationResult = ApplyCatalogMaintenanceMutation(
             receipt,
             out workflowResult,
-            out resourceHealthMutation);
+            out resourceHealthMutation,
+            out duplicateChartGroupsPostLeaseNotification);
         postCommitEffect = () =>
         {
             TryInvokePostLeaseNotification(
@@ -1936,13 +1846,9 @@ internal sealed partial class LibraryMutationOwner
             TryInvokePostLeaseNotification(
                 () =>
                 {
-                    if (mutationResult.ParentFolderInvalidated)
-                    {
-                        NotifyParentFolderListCacheChanged();
-                    }
-                    PublishOwnedCollectionChangeNotification(mutationResult);
-                    PublishNormalLibraryRefreshNotification(mutationResult);
-                    RaiseNormalLibraryRefreshNotificationVersionChanged(mutationResult);
+                    PublishOwnedChartCollectionMutation(
+                        mutationResult,
+                        duplicateChartGroupsPostLeaseNotification);
                 },
                 "catalog_maintenance_publication_failed");
             ResourceHealthIndexDispatchResult resourceHealthDispatch =
@@ -2218,11 +2124,9 @@ internal sealed partial class LibraryMutationOwner
                 mutationCapability);
             timings.Lr2NormalFolderSyncMs = StopPerformanceStepStopwatch(lr2NormalFolderSyncStopwatch);
             Stopwatch dispatchStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
-            DispatchOwnedChartCollectionMutation(
+            Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
                 mutationResult,
-                defaultReason,
-                publishOwnedCollectionNotifications: false,
-                publishNormalRefreshNotification: false);
+                defaultReason);
             timings.DispatchMs = StopPerformanceStepStopwatch(dispatchStopwatch);
 
             Action publishNotifications = () =>
@@ -2230,22 +2134,11 @@ internal sealed partial class LibraryMutationOwner
                 Stopwatch publishNotificationStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
                 TryInvokePostLeaseNotification(() =>
                 {
-                    if (mutationResult.ParentFolderInvalidated)
-                    {
-                        NotifyParentFolderListCacheChanged();
-                    }
+                    PublishOwnedChartCollectionMutation(
+                        mutationResult,
+                        duplicateChartGroupsPostLeaseNotification);
                 }, "library_mutation_parent_folder_notification_failed");
-                TryInvokePostLeaseNotification(
-                    () => PublishOwnedCollectionChangeNotification(mutationResult),
-                    "library_mutation_collection_notification_failed");
                 timings.PublishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
-                TryInvokePostLeaseNotification(
-                    () =>
-                    {
-                        PublishNormalLibraryRefreshNotification(mutationResult);
-                        RaiseNormalLibraryRefreshNotificationVersionChanged(mutationResult);
-                    },
-                    "library_mutation_refresh_notification_failed");
                 if (collectPerformanceLog)
                 {
                     timings.ElapsedMs = StopPerformanceStepStopwatch(totalStopwatch);
@@ -2688,12 +2581,16 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="reason">dispatch 理由。</param>
     internal void DispatchWarningPresentationChanged(string reason)
     {
-        DispatchOwnedChartCollectionMutation(
-            new OwnedChartCollectionMutationResult
-            {
-                WarningPresentationChanged = true
-            },
+        var mutationResult = new OwnedChartCollectionMutationResult
+        {
+            WarningPresentationChanged = true
+        };
+        Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
+            mutationResult,
             reason);
+        PublishOwnedChartCollectionMutation(
+            mutationResult,
+            duplicateChartGroupsPostLeaseNotification);
     }
 
     /// <summary>
@@ -2715,7 +2612,12 @@ internal sealed partial class LibraryMutationOwner
                 || resourceHealthMutation.HasChanges
         };
         CopyResourceHealthIndexMutation(resourceHealthMutation, mutationResult.ResourceHealthMutation);
-        DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
+        Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
+            mutationResult,
+            "maintenance_hydration");
+        PublishOwnedChartCollectionMutation(
+            mutationResult,
+            duplicateChartGroupsPostLeaseNotification);
         return mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L;
     }
 
@@ -2732,7 +2634,12 @@ internal sealed partial class LibraryMutationOwner
             receipt?.ResourceHealthMutation?.ToMutation(),
             receipt?.WorkflowResult?.HasUpdates == true);
         mutationResult.MaintenancePresentationChanged = false;
-        DispatchOwnedChartCollectionMutation(mutationResult, reason);
+        Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(
+            mutationResult,
+            reason);
+        PublishOwnedChartCollectionMutation(
+            mutationResult,
+            duplicateChartGroupsPostLeaseNotification);
     }
 
     /// <summary>
@@ -2774,13 +2681,15 @@ internal sealed partial class LibraryMutationOwner
                 postCommitEffectsObserver: action => catalogPostCommitEffects = action);
             MaintenanceWorkflowResult workflowResult;
             ResourceHealthIndexMutation resourceHealthMutation;
+            Action duplicateChartGroupsPostLeaseNotification;
             OwnedChartCollectionMutationResult mutationResult;
             try
             {
                 mutationResult = ApplyCatalogMaintenanceMutation(
                     ownerReceipt,
                     out workflowResult,
-                    out resourceHealthMutation);
+                    out resourceHealthMutation,
+                    out duplicateChartGroupsPostLeaseNotification);
             }
             catch
             {
@@ -2805,14 +2714,9 @@ internal sealed partial class LibraryMutationOwner
                     catalogPostCommitEffects,
                     "estimated_install_catalog_property_notification_failed");
                 TryInvokePostLeaseNotification(
-                    () => PublishOwnedCollectionChangeNotification(mutationResult),
-                    "estimated_install_collection_notification_failed");
-                TryInvokePostLeaseNotification(
-                    () =>
-                    {
-                        PublishNormalLibraryRefreshNotification(mutationResult);
-                        RaiseNormalLibraryRefreshNotificationVersionChanged(mutationResult);
-                    },
+                    () => PublishOwnedChartCollectionMutation(
+                        mutationResult,
+                        duplicateChartGroupsPostLeaseNotification),
                     "estimated_install_refresh_notification_failed");
                 LogAndReturnMaintenanceWorkflowResult(
                     workflowResult,

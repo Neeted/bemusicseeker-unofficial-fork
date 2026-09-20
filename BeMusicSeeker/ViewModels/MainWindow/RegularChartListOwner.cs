@@ -2632,6 +2632,14 @@ internal sealed class RegularChartListOwner : IDisposable
             folderRowsOverride = [];
         }
 
+        if (!virtualSubsetRequiredFailure)
+        {
+            PrepareResourceHealthIndexForView(
+                request.Library,
+                request.CurrentTreeMode,
+                "normal_library_view");
+        }
+
         RegularMaterializedChartListApplyResult materialized = TryApplyMaterialized(
             new RegularMaterializedChartListApplyRequest
             {
@@ -2746,6 +2754,31 @@ internal sealed class RegularChartListOwner : IDisposable
         return treeMode == MainViewUpdateMode.FileMissingFilterSelected
             || treeMode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
             || treeMode == MainViewUpdateMode.NewlyInstalledFolderSelected;
+    }
+
+    /// <summary>
+    /// ResourceHealth を投影する一覧の入力境界で、現在の索引を準備します。
+    /// 行の getter は構築を行わないため、行・並べ替え・cache の採用より前に
+    /// 一覧の管理主体がこの境界を通します。
+    /// </summary>
+    /// <param name="library">表示対象のライブラリ。</param>
+    /// <param name="treeMode">現在のツリー表示モード。</param>
+    /// <param name="reason">索引準備の診断理由。</param>
+    internal void PrepareResourceHealthIndexForView(
+        BMSLibrary library,
+        MainViewUpdateMode treeMode,
+        string reason)
+    {
+        if (library == null
+            || (treeMode != MainViewUpdateMode.FolderFilterSelected
+                && treeMode != MainViewUpdateMode.FullScanAllChartsFilterSelected
+                && !ShouldApplyResourceHealthProjection(treeMode)))
+        {
+            return;
+        }
+
+        library.GetResourceHealthIndexSnapshotForView(
+            string.IsNullOrWhiteSpace(reason) ? "normal_library_view" : reason);
     }
 
     private static bool TryResolveSubsetSource(
@@ -3138,6 +3171,12 @@ internal sealed class RegularChartListOwner : IDisposable
             return RegularVirtualNormalLibraryApplyResult.NotCommitted();
         }
         request.DetailSourceRetirement = detailSourceRetirement;
+        PrepareResourceHealthIndexForView(
+            request.Library,
+            MainViewUpdateMode.FolderFilterSelected,
+            string.IsNullOrWhiteSpace(request.Reason)
+                ? "normal_library"
+                : request.Reason);
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
         var performanceInteraction =
@@ -3311,6 +3350,13 @@ internal sealed class RegularChartListOwner : IDisposable
             return default;
         }
         request.DetailSourceRetirement = detailSourceRetirement;
+        if (request.ApplyResourceHealthProjection)
+        {
+            request.Library?.GetResourceHealthIndexSnapshotForView(
+                string.IsNullOrWhiteSpace(request.SubsetName)
+                    ? "normal_library_subset"
+                    : "normal_library_subset_" + request.SubsetName);
+        }
 
         Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
         mainChartList.RowProjection.CaptureVersions(request.Library);

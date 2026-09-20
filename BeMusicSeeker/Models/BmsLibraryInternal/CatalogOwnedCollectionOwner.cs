@@ -263,8 +263,8 @@ internal sealed partial class CatalogOwnedCollectionOwner
     }
 
     /// <summary>
-    /// owned collection versionだけを進めます。hash factsの適用とsnapshotのsource version更新は、
-    /// mutation dispatchのpublication境界で一体に行います。
+    /// 所持集合の世代だけを進めます。ハッシュの差分反映と索引の入力世代更新は、
+    /// 変更主体が公開通知より前の内部反映で一体に行います。
     /// </summary>
     /// <returns>進めた owned collection version。</returns>
     internal int IncrementVersion()

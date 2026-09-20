@@ -250,6 +250,174 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
 
     [TestMethod]
+    public void ApplyMainLibraryView_PreparesColdResourceHealthBeforeVirtualRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "resource-health-warning.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE Resource health warning\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 1,
+                wav_files_existing = 0
+            }, suppressPropertyChanged: true);
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new OwnedChartCollectionTestSupport.TestFileMutationService(),
+                new PlaylistSummaryAggregationTestSupport.RecordingDialogService());
+            OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [file]);
+            Assert.IsTrue(OwnedChartCollectionTestSupport.HasNoCurrentResourceHealthIndex(library));
+
+            var table = new MainChartListViewModel();
+            PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(table);
+            using RegularChartListOwner owner = CreateOwner(table, workspace);
+            var route = new ChartListRefreshRoute(
+                ChartListRefreshRouteKind.ContinueMainLibrary,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                isPlaylistTreeActive: false,
+                includeBmsonRows: false);
+
+            RegularChartListEntryResult result = owner.ApplyMainLibraryView(
+                route,
+                library,
+                parameter: null,
+                treeParameter: null,
+                preserveSummary: false,
+                Stopwatch.StartNew());
+
+            Assert.IsTrue(result.WasCommitted);
+            Assert.IsFalse(OwnedChartCollectionTestSupport.HasNoCurrentResourceHealthIndex(library));
+            Assert.AreEqual(1, table.Rows.Count);
+            var row = (LibraryChartRow)table.Rows[0]!;
+            StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
+        });
+    }
+
+
+    [TestMethod]
+    public void ApplyMainLibraryView_PreparesResourceHealthBeforeWarningSortAndReusesRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string missingPath = Path.Combine(root, "warning-sort-missing.bms");
+            string healthyPath = Path.Combine(root, "warning-sort-healthy.bms");
+            File.WriteAllText(
+                missingPath,
+                "#PLAYER 1\r\n#TITLE Zeta healthy-name\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+            File.WriteAllText(
+                healthyPath,
+                "#PLAYER 1\r\n#TITLE Alpha warning-name\r\n#WAV01 present.wav\r\n#00111:01\r\n");
+            File.WriteAllBytes(Path.Combine(root, "present.wav"), [1, 2, 3]);
+            var missing = BMSFile.CreateBMSFileFromFile(missingPath);
+            missing.SetMaintenanceInfo(new BMSFileMaintenanceInfo(missing)
+            {
+                hash = missing.hash,
+                wav_files_defined = 1,
+                wav_files_existing = 0
+            }, suppressPropertyChanged: true);
+            var healthy = BMSFile.CreateBMSFileFromFile(healthyPath);
+            healthy.SetMaintenanceInfo(new BMSFileMaintenanceInfo(healthy)
+            {
+                hash = healthy.hash,
+                wav_files_defined = 1,
+                wav_files_existing = 1
+            }, suppressPropertyChanged: true);
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new OwnedChartCollectionTestSupport.TestFileMutationService(),
+                new PlaylistSummaryAggregationTestSupport.RecordingDialogService());
+            OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [missing, healthy]);
+            Assert.IsTrue(OwnedChartCollectionTestSupport.HasNoCurrentResourceHealthIndex(library));
+
+            var table = new MainChartListViewModel();
+            PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(table);
+            using RegularChartListOwner owner = CreateOwner(table, workspace);
+            owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                nameof(LibraryChartRow.WarningDigestText),
+                ListSortDirection.Descending,
+                MainChartListSortTarget.Regular));
+            var route = new ChartListRefreshRoute(
+                ChartListRefreshRouteKind.ContinueMainLibrary,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                isPlaylistTreeActive: false,
+                includeBmsonRows: false);
+
+            RegularChartListEntryResult first = owner.ApplyMainLibraryView(
+                route,
+                library,
+                parameter: null,
+                treeParameter: null,
+                preserveSummary: false,
+                Stopwatch.StartNew());
+
+            Assert.IsTrue(first.WasCommitted);
+            Assert.IsFalse(OwnedChartCollectionTestSupport.HasNoCurrentResourceHealthIndex(library));
+            Assert.AreEqual(2, table.Rows.Count);
+            var firstRow = (LibraryChartRow)table.Rows[0]!;
+            var secondRow = (LibraryChartRow)table.Rows[1]!;
+            Assert.IsTrue(firstRow.WarningDigestText.Length > secondRow.WarningDigestText.Length);
+            StringAssert.Contains(firstRow.WarningDigestText, Resources.WarningDigest_ResourceMissing);
+            Assert.IsFalse(secondRow.WarningDigestText.Contains(
+                Resources.WarningDigest_ResourceMissing,
+                StringComparison.Ordinal));
+            ResourceHealthIndexSnapshot firstSnapshot =
+                library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.IsTrue(firstSnapshot.GetProjection(
+                ChartFileProjection.FromBmsFile(missing)).HasIssues);
+
+            var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+            RegularVirtualNormalLibraryApplyResult second = owner.TryApplyVirtualNormalLibrary(new RegularVirtualNormalLibraryApplyRequest
+            {
+                Library = library,
+                IncludeBmsonRows = false,
+                TreeFilter = null,
+                KeywordFilter = string.Empty,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = nameof(LibraryChartRow.WarningDigestText),
+                SortDirection = ListSortDirection.Descending,
+                ExternalVersions = new RegularChartListExternalVersions(
+                    library.ScoreSnapshotVersion,
+                    library.ChartInfoIndexVersion,
+                    library.MaintenanceHydrationCompletedVersion),
+                ColumnSelection = new MainChartListColumnSelection(
+                    settings,
+                    reused: false,
+                    elapsedMs: 0L,
+                    MainViewUpdateMode.FolderFilterSelected,
+                    Visibility.Collapsed,
+                    new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FolderFilterSelected,
+                Stopwatch = Stopwatch.StartNew(),
+                RetireDetailSource = true,
+                Reason = "warning_sort_cached"
+            });
+
+            Assert.IsTrue(second.WasCommitted);
+            Assert.IsTrue(second.SourceRowsCacheHit);
+            Assert.IsTrue(second.SortCacheHit);
+            Assert.AreSame(second.RowsView, table.Rows);
+            Assert.AreSame(firstSnapshot, library.TryGetCurrentResourceHealthIndexSnapshotForView());
+            StringAssert.Contains(((LibraryChartRow)table.Rows[0]!).WarningDigestText, Resources.WarningDigest_ResourceMissing);
+        });
+    }
+
+
+    [TestMethod]
     public void TryApplyMaterialized_TransientSortRetainsResolvedPendingOperationContext()
     {
         var table = new MainChartListViewModel();

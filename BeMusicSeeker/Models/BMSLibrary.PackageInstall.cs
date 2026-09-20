@@ -711,7 +711,8 @@ public partial class BMSLibrary
             SetBMSScore(installedTargets.BmsFiles);
             BuildAndPersistInlineChartInfoForInstalledCharts(
                 "install_package_inline",
-                installedTargets.Charts);
+                installedTargets.Charts,
+                postLeaseEffects.Add);
         });
     }
 

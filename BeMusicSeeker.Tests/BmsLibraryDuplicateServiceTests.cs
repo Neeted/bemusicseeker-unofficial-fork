@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -10,6 +11,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
@@ -475,7 +477,8 @@ public sealed class BmsLibraryDuplicateServiceTests
                 BMSFiles = bmsFile == null ? [] : [bmsFile],
                 BmsonSongs = bmsonSong == null ? [] : [bmsonSong]
             };
-            Assert.AreEqual(1, library.GetResourceHealthIndexSnapshotForView("merge_health_before").TargetCount);
+            ResourceHealthIndexSnapshot beforeSnapshot = library.GetResourceHealthIndexSnapshotForView("merge_health_before");
+            Assert.AreEqual(1, beforeSnapshot.TargetCount);
             bool notifiedWithCurrentHealth = false;
             bool notifiedWhileReserved = false;
             LibraryFileMutationLease? competingReservation = null;
@@ -532,8 +535,10 @@ public sealed class BmsLibraryDuplicateServiceTests
             LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
             Assert.AreEqual(1, persisted.wav_files_defined);
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
-            using LibraryFileMutationLease afterMerge = library.TryBeginLibraryFileMutation("merge_health_completion_probe");
-            Assert.IsNotNull(afterMerge);
+            using (LibraryFileMutationLease afterMerge = library.TryBeginLibraryFileMutation("merge_health_completion_probe"))
+            {
+                Assert.IsNotNull(afterMerge);
+            }
             if (maintenanceOutcome != 0)
             {
                 Assert.IsTrue(receipt.HasDurableFinalizationFailure);
@@ -558,6 +563,36 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.IsFalse(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(installed)
                 .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.AreEqual(1, persisted.wav_files_existing);
+            Assert.AreSame(ResourceHealthIndexSnapshot.Empty, library.TryGetCurrentResourceHealthIndexSnapshotForView());
+
+            var table = new MainChartListViewModel();
+            PlaylistWorkspaceViewModel workspace = RegularChartListOwnerTestSupport.CreateWorkspaceForOwner(table);
+            using RegularChartListOwner owner = RegularChartListOwnerTestSupport.CreateOwner(table, workspace);
+            var route = new ChartListRefreshRoute(
+                ChartListRefreshRouteKind.ContinueMainLibrary,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                isPlaylistTreeActive: false,
+                includeBmsonRows: bmson);
+            RegularChartListEntryResult firstView = owner.ApplyMainLibraryView(
+                route, library, parameter: null, treeParameter: null, preserveSummary: false, Stopwatch.StartNew());
+
+            Assert.IsTrue(firstView.WasCommitted);
+            Assert.AreEqual(1, table.Rows.Count);
+            ResourceHealthIndexSnapshot rebuiltSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.AreNotSame(ResourceHealthIndexSnapshot.Empty, rebuiltSnapshot);
+            Assert.AreNotSame(beforeSnapshot, rebuiltSnapshot);
+            Assert.AreEqual(1, rebuiltSnapshot.TargetCount);
+            Assert.IsFalse(rebuiltSnapshot.GetProjection(installed.Kind, installed.Path, installed.Md5).HasIssues);
+            var displayedRow = (LibraryChartRow)table.Rows[0]!;
+            Assert.IsFalse(displayedRow.WarningDigestText.Contains(Resources.WarningDigest_ResourceMissing, StringComparison.Ordinal));
+            Assert.IsFalse(displayedRow.WarningTooltipText.Contains("WAV", StringComparison.OrdinalIgnoreCase));
+
+            RegularChartListEntryResult cachedView = owner.ApplyMainLibraryView(
+                route, library, parameter: null, treeParameter: null, preserveSummary: false, Stopwatch.StartNew());
+            Assert.IsTrue(cachedView.WasCommitted);
+            Assert.AreSame(rebuiltSnapshot, library.TryGetCurrentResourceHealthIndexSnapshotForView());
         });
     }
 

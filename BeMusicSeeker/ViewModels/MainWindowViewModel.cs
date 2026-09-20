@@ -1933,9 +1933,31 @@ public partial class MainWindowViewModel : ViewModel,
 
     private bool TryRefreshMainViewDisplayForDataDependency(MainViewDataDependency dependency)
     {
+        if (dependency == MainViewDataDependency.Warning
+            || dependency == MainViewDataDependency.Maintenance)
+        {
+            if (TryDeferStartupPresentationRefresh(
+                UiRefreshChannel.LibraryMainView,
+                dependency == MainViewDataDependency.Maintenance
+                    ? "normal_library_maintenance_display"
+                    : "normal_library_warning_display"))
+            {
+                return true;
+            }
+        }
         if (MainChartList.Rows is not ChartListVirtualView virtualView)
         {
             return false;
+        }
+        if (dependency == MainViewDataDependency.Warning
+            || dependency == MainViewDataDependency.Maintenance)
+        {
+            regularChartListOwner.PrepareResourceHealthIndexForView(
+                files,
+                treeViewFilterTypeSelected,
+                dependency == MainViewDataDependency.Maintenance
+                    ? "normal_library_maintenance_display"
+                    : "normal_library_warning_display");
         }
         virtualView.ForEachRealizedRow(row => row.RefreshDisplayForDataDependency(dependency));
         MainChartList.RequestDisplayRefresh();
@@ -5595,14 +5617,14 @@ public partial class MainWindowViewModel : ViewModel,
         }
         Action refresh = delegate
         {
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, filterReason))
+            {
+                return;
+            }
             if (treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingFilterSelected
                 || treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingIgnoredFilterSelected
                 || treeViewFilterTypeSelected == MainViewUpdateMode.FullScanAllChartsFilterSelected)
             {
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, filterReason))
-                {
-                    return;
-                }
                 RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
                 return;
             }

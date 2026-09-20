@@ -18,6 +18,8 @@
 
 通常一覧と導入直後の新規一覧のリソース不足は、保守情報から作る `ResourceHealthIndexSnapshot` を表示時に投影します。DBに保存する警告ではありません。LR2互換性は保守行の互換性情報から別の `Lr2Compatibility` 分類へ投影し、リソース状態の索引や無視設定へ混ぜません。
 
+一覧の管理主体は、リソース状態を投影する表示の準備で索引を現在の入力へ合わせます。行の読取りや診断ログは索引を構築しません。未構築・失効状態のまま警告なしとして表示や警告順を確定しないため、行を再利用する表示と、警告・保守の表示だけの更新も同じ準備を行います。詳細は[一覧表示](../ui/table-view.md#絞込みと画面更新)に従います。
+
 保守情報の既定値や、BMSON解析直後の文字コードだけの行は仮の値です。要求数と存在数が揃うまで計算済みのリソース状態として扱いません。DB由来の一部カテゴリだけの結果は、そのカテゴリの表示に使えます。
 
 ### 要約・詳細・強調
@@ -90,6 +92,7 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 | --- | --- | --- |
 | 種類、優先順位、要約の重複抑止、詳細、強調 | [`ChartWarning`](../../../BeMusicSeeker/Models/ChartWarning.cs)、[`ChartWarningCollection`](../../../BeMusicSeeker/Models/ChartWarning.cs)、[`ChartWarningProjectionFormatter`](../../../BeMusicSeeker/ViewModels/ChartWarningProjectionFormatter.cs) | [`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/ChartWarningCollectionTests.cs) |
 | BMS・BMSON・保留の状態分離 | [`ChartFileProjection`](../../../BeMusicSeeker/Models/ChartFileProjection.cs)、[`ChartFileTransientState`](../../../BeMusicSeeker/Models/ChartFileTransientState.cs)、[`PackageChartEntry`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PackageChartEntry.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs)、[`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfoInstallFailureRetryTests.cs) |
+| 導入後の不足継続・解消と初回表示 | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/RegularChartListOwner.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs) の `InstallPendingPackages_ProjectsCurrentResourceWarningsInNewAndNormalViews`。実導入したBMS/BMSONの一時警告解除、導入後保守、新規・通常一覧の要約と詳細を、構築済み・未構築の索引で確認する。 |
 | 現在の保守情報、差分更新と再評価 | [`ResourceHealthIndexOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealthIndexOwner.cs)、[`ResourceHealthWarningProjection`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealthWarningProjection.cs) | [`ResourceHealthIndexOwnerTests`](../../../BeMusicSeeker.Tests/ResourceHealthIndexOwnerTests.cs)、[`ResourceHealthFullOwnedTargetFreshnessTests`](../../../BeMusicSeeker.Tests/ResourceHealthFullOwnedTargetFreshnessTests.cs) |
 | LR2のパス・リソース互換性 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongRowEnricher.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/BmsLibraryLr2SongDbSyncTests.cs)、[`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/ChartWarningCollectionTests.cs) |
 | BMSの追加、相対パス補正、表現不能なパスの行の保持 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongRowEnricher.cs)、[`BMSLibrary`](../../../BeMusicSeeker/Models/BMSLibrary.cs) | [`BmsLibraryInitializationInstallTests`](../../../BeMusicSeeker.Tests/BmsLibraryInitializationInstallTests.cs)、[`BmsLibraryInitializationLoadTests`](../../../BeMusicSeeker.Tests/BmsLibraryInitializationLoadTests.cs) |
