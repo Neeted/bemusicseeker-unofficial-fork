@@ -1,23 +1,21 @@
 <#
 .SYNOPSIS
-    リリースパッケージの作成と公開リポジトリへの同期を行うスクリプト
+    リリースパッケージを作成するスクリプト
 
 .DESCRIPTION
     1. クリーンビルド後、dist\ にリリース用 zip パッケージを作成
     2. Markdown 資料を HTML に変換して同梱
     3. -IncludeMetadata 指定時は chart_info metadata 同梱 zip も追加作成
-    4. パッケージおよび公開対象ファイルを公開リポジトリへコピー
+
+    このスクリプトは配布物と ZIP 内の資料だけを生成します。更新情報や GitHub
+    Pages のファイルは release.ps1 が、リリース対象の ZIP から生成します。
 #>
 param(
     [switch]$SkipBuild,
-    [switch]$PackageOnly,
-    [switch]$SyncOnly,
     [switch]$SkipDocHtml,
     [switch]$IncludeMetadata,
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
     [string]$MetadataPackageSuffix = "-with-metadata",
-    [string]$PublicSiteUrl = "https://neeted.github.io/bemusicseeker-unofficial-fork",
-    [string]$PublicRepositoryRoot,
     [string]$ArtifactRoot
 )
 
@@ -25,12 +23,6 @@ $ErrorActionPreference = "Stop"
 
 # パス定義
 $devRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$pubRoot = if ([string]::IsNullOrWhiteSpace($PublicRepositoryRoot)) {
-    Join-Path (Split-Path -Parent $devRoot) "bemusicseeker-unofficial-fork"
-}
-else {
-    [System.IO.Path]::GetFullPath($PublicRepositoryRoot)
-}
 $configuration = "Release"
 $platform = "x64"
 $solution = Join-Path $devRoot "BeMusicSeeker.sln"
@@ -52,8 +44,6 @@ else {
     Join-Path $devRoot "dist"
 }
 $stagingRoot = Join-Path $distDir "_staging"
-$publicRepoOwner = "Neeted"
-$publicRepoName = "bemusicseeker-unofficial-fork"
 
 . (Join-Path $PSScriptRoot "portable-package-layout.ps1")
 
@@ -179,16 +169,6 @@ function Resolve-MetadataSource {
     }
 }
 
-function Get-UpdateAssetKindPriority($kind) {
-    if ($kind -eq "app") { return 0 }
-    if ($kind -eq "app-with-metadata") { return 1 }
-    return 99
-}
-
-function Sort-UpdateManifestAssets($assets) {
-    return ,@($assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority $_.kind } }, fileName)
-}
-
 function Build-DocHtml($targetStagingDir) {
     if ($SkipDocHtml) {
         Write-Host "  HTML docs 生成をスキップしました" -ForegroundColor Yellow
@@ -209,30 +189,6 @@ function Build-DocHtml($targetStagingDir) {
         Pop-Location
     }
     Write-Host "  HTML docs 生成完了" -ForegroundColor Green
-}
-
-function Build-PublicDocSite($targetDocsDir) {
-    if ($SkipDocHtml) {
-        Write-Host "  Pages HTML docs 生成をスキップしました" -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host "  Pages HTML docs を生成中..."
-    Push-Location $devRoot
-    try {
-        $generatedDocs = @(uv run scripts\build-doc-html.py --source-root $devRoot --output-root $targetDocsDir --site --site-url $PublicSiteUrl)
-        $exitCode = $LASTEXITCODE
-        foreach ($doc in $generatedDocs) {
-            Write-Host "    docs\$doc"
-        }
-        if ($exitCode -ne 0) { throw "Pages HTML docs の生成に失敗しました" }
-    }
-    finally {
-        Pop-Location
-    }
-
-    New-Item -ItemType File -Path (Join-Path $targetDocsDir ".nojekyll") -Force | Out-Null
-    Write-Host "  Pages HTML docs 生成完了" -ForegroundColor Green
 }
 
 function Copy-AppFilesToStaging($targetStagingDir) {
@@ -278,47 +234,22 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     # third_party
     Copy-Item (Join-Path $devRoot "third_party") (Join-Path $targetStagingDir "third_party") -Recurse
 
-    # docs source files and image assets
-    Copy-Item (Join-Path $devRoot "docs") (Join-Path $targetStagingDir "docs") -Recurse
+    # docs の元資料と画像だけをコピーする。配布用HTMLはBuild-DocHtmlで生成する。
+    $sourceDocsDir = Join-Path $devRoot "docs"
+    $targetDocsDir = Join-Path $targetStagingDir "docs"
+    New-Item -ItemType Directory -Path $targetDocsDir -Force | Out-Null
+    foreach ($sourceDoc in Get-ChildItem -LiteralPath $sourceDocsDir -File) {
+        if ($sourceDoc.Extension -ieq ".html" -or $sourceDoc.Name -eq ".nojekyll") {
+            continue
+        }
+        Copy-Item -LiteralPath $sourceDoc.FullName -Destination $targetDocsDir -Force
+    }
+    foreach ($sourceDirectory in Get-ChildItem -LiteralPath $sourceDocsDir -Directory) {
+        Copy-Item -LiteralPath $sourceDirectory.FullName -Destination $targetDocsDir -Recurse -Force
+    }
 
     # Markdown docs converted to HTML.
     Build-DocHtml $targetStagingDir
-}
-
-function Get-ReleaseAssetMetadata($assetPath, $version, $packageSuffix) {
-    $asset = Get-Item $assetPath
-    $tag = "v$version"
-    $fileName = $asset.Name
-    $downloadUrl = "https://github.com/$publicRepoOwner/$publicRepoName/releases/download/$tag/$fileName"
-    $isMetadataPackage = -not [string]::IsNullOrWhiteSpace($packageSuffix)
-
-    return [PSCustomObject]@{
-        kind = if ($isMetadataPackage) { "app-with-metadata" } else { "app" }
-        label = if ($isMetadataPackage) { "App with metadata bundle" } else { "App only" }
-        fileName = $fileName
-        url = $downloadUrl
-        sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        sizeBytes = $asset.Length
-        includesChartInfoMetadata = $isMetadataPackage
-    }
-}
-
-function New-UpdateManifestCandidate($version, $assetMetadata) {
-    $tag = "v$version"
-    $manifest = [PSCustomObject]@{
-        schemaVersion = 1
-        version = $version
-        releaseTag = $tag
-        releasePageUrl = "https://github.com/$publicRepoOwner/$publicRepoName/releases/tag/$tag"
-        packageFormatVersion = 1
-        publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-        minimumUpdaterVersion = "1"
-        assets = (Sort-UpdateManifestAssets $assetMetadata)
-    }
-
-    $manifestPath = Join-Path $distDir "update-$tag.json"
-    $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
-    Write-Host "  update manifest 候補を作成: $manifestPath" -ForegroundColor Green
 }
 
 function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
@@ -386,9 +317,13 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  配布用 Self-contained publish 中..."
         Push-Location $devRoot
-        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
-        Invoke-SelfContainedPublish
-        Pop-Location
+        try {
+            Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
+            Invoke-SelfContainedPublish
+        }
+        finally {
+            Pop-Location
+        }
         Write-Host "  Self-contained publish 完了" -ForegroundColor Green
     }
     else {
@@ -403,97 +338,20 @@ function New-ReleasePackage {
     if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
 
     $packages = @()
-    $assetMetadata = @()
 
     $appPackage = New-ZipPackage $version "" $null
     $packages += $appPackage
-    $assetMetadata += Get-ReleaseAssetMetadata $appPackage $version ""
 
     if ($IncludeMetadata) {
         $metadataPackage = New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
         $packages += $metadataPackage
-        $assetMetadata += Get-ReleaseAssetMetadata $metadataPackage $version $MetadataPackageSuffix
     }
-
-    New-UpdateManifestCandidate $version $assetMetadata
 
     return $packages
 }
 
-# ========== ステップ 2: 公開リポジトリへコピー ==========
-function Sync-PublicRepo($releasePackagePaths) {
-    Write-Host ""
-    Write-Host "=== ステップ 2: 公開リポジトリへコピー ===" -ForegroundColor Cyan
-
-    # ディレクトリのミラーリングコピー (既存を削除→新規コピー)
-    function Mirror-Directory($srcName) {
-        $src = Join-Path $devRoot  $srcName
-        $dst = Join-Path $pubRoot  $srcName
-        if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-        Copy-Item $src $dst -Recurse
-        Write-Host "  コピー: $srcName"
-    }
-
-    # 配布元 asset を先に列挙・検証してから公開先を変更する
-    $pubDist = Join-Path $pubRoot "dist"
-    if (-not (Test-Path $pubDist)) { New-Item -ItemType Directory -Path $pubDist -Force | Out-Null }
-    $releaseAssets = @()
-    if ($releasePackagePaths -ne $null -and $releasePackagePaths.Count -gt 0) {
-        $releaseAssets = @($releasePackagePaths | ForEach-Object { Get-Item $_ })
-    }
-    else {
-        $releaseAssets = @(Get-ChildItem (Join-Path $distDir "*.zip") -File)
-    }
-    if ($releaseAssets.Count -eq 0) {
-        throw "検証対象の release package がありません。先に publish.ps1 -PackageOnly を実行してください。"
-    }
-    foreach ($asset in $releaseAssets) {
-        Assert-PortableReleasePackageLayout $asset.FullName
-    }
-
-    $version = Get-AppVersion
-    $currentVersionPattern = "bemusicseeker-unofficial-fork-v$version*.zip"
-    Get-ChildItem $pubDist -Filter $currentVersionPattern -File | ForEach-Object {
-        Remove-Item $_.FullName -Force
-        Write-Host "  削除: dist\$($_.Name)"
-    }
-
-    foreach ($asset in $releaseAssets) {
-        Copy-Item $asset.FullName $pubDist -Force
-        Write-Host "  コピー: dist\$($asset.Name)"
-    }
-
-    # ディレクトリのミラーリング
-    Mirror-Directory "docs"
-    Build-PublicDocSite (Join-Path $pubRoot "docs")
-    Mirror-Directory "third_party"
-    Mirror-Directory "scripts"
-    Mirror-Directory "lang"
-
-    # 単体ファイルのコピー
-    $files = @("README.md", "README.ja.md", "LICENSE", "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt")
-    foreach ($f in $files) {
-        Copy-Item (Join-Path $devRoot $f) (Join-Path $pubRoot $f) -Force
-        Write-Host "  コピー: $f"
-    }
-    $publicVersionPath = Join-Path $pubRoot "version.txt"
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($publicVersionPath, $version, $utf8NoBom)
-    Write-Host "  生成: version.txt"
-
-    Write-Host ""
-    Write-Host "=== 同期完了 ===" -ForegroundColor Green
-    Write-Host "公開リポジトリ: $pubRoot"
-}
-
 # ========== メイン ==========
-$releasePackagePaths = @()
-if (-not $SyncOnly) {
-    $releasePackagePaths = @(New-ReleasePackage)
-}
-if (-not $PackageOnly) {
-    Sync-PublicRepo $releasePackagePaths
-}
+[void](New-ReleasePackage)
 
 Write-Host ""
-Write-Host "全て完了しました。" -ForegroundColor Green
+Write-Host "配布物の生成が完了しました。" -ForegroundColor Green

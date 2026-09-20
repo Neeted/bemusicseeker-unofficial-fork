@@ -10,10 +10,7 @@ This project is an unofficial fork created by decompiling, modifying, and rebuil
 
 This fork was not made with direct permission from the original binary author, [`@rib_2_bit`](https://x.com/rib_2_bit). However, because the original binary was distributed under the MIT License, we believe creating and publishing this derivative version is permissible.
 
-**Important note about this repository**
-
-To the best of our knowledge, the original source code has never been published. This project also does not publish most of the decompiled source code.
-In practice, this repository is maintained as a distribution point for modified release packages and as a public archive for newly created scripts and patch-style code added by this fork.
+This repository publishes the application source reconstructed from decompilation and subsequently modified, along with tests, development history, and releases. Development takes place on `dev`; `main` contains officially released code and published data. To use the application, download a package from [Releases](https://github.com/Neeted/bemusicseeker-unofficial-fork/releases).
 
 ## Installation
 
@@ -90,15 +87,15 @@ These are rough notes. Priority is mixed, and completed items are removed over t
 
 ## Contributing
 
-To prepare a Windows 11 development environment and start contributing, see the [development setup guide (Japanese)](devdocs/setup.md).
+To prepare a Windows 11 development environment and start contributing, see the [development setup guide (Japanese)](devdocs/setup.md). Create working branches from `dev` and target `dev` for normal pull requests. Follow the [branch and release workflow (Japanese)](devdocs/spec/development/release.md).
 
 </div>
 
 ## License Scope
 
-First-party source code newly created and published in this repository, such as scripts, is distributed under the **MIT License**, following the original binary.
+The project's first-party source code is distributed under the **MIT License**, following the original binary. External components and third-party chart data included in tests remain subject to their respective rights holders' terms.
 
-- **New first-party code, including public scripts**: MIT License. See [`LICENSE`](LICENSE).
+- **Project source code**: MIT License. See [`LICENSE`](LICENSE).
 - **Third-party binaries, fonts, SDKs, and similar components**: These bundled external components are governed by the licenses and terms of their respective providers.
 - If terms conflict, the provider's license and notices take precedence for that component.
 

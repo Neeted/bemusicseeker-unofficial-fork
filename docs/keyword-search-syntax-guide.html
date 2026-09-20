@@ -7,7 +7,7 @@
   <meta name="description" content="An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, with performance improvements, bmson support, standalone mode, and LR2 integration updates.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
-  <meta property="og:title" content="Keyword Search Syntax Guide">
+  <meta property="og:title" content="Keyword Search Guide">
   <meta property="og:description" content="An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, with performance improvements, bmson support, standalone mode, and LR2 integration updates.">
   <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/ogp-card.ja.png">
   <meta property="og:image:width" content="1200">
@@ -15,11 +15,11 @@
   <meta property="og:image:alt" content="BeMusicSeeker Unofficial Fork - BMSライブラリ管理を、もっと軽快に。Releases から最新版を入手。">
   <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/keyword-search-syntax-guide.html">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Keyword Search Syntax Guide">
+  <meta name="twitter:title" content="Keyword Search Guide">
   <meta name="twitter:description" content="An unofficial BeMusicSeeker fork for BMS library management, chart installation, and playlist maintenance.">
   <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/ogp-card.ja.png">
   <meta name="twitter:image:alt" content="BeMusicSeeker Unofficial Fork - BMSライブラリ管理を、もっと軽快に。Releases から最新版を入手。">
-  <title>Keyword Search Syntax Guide</title>
+  <title>Keyword Search Guide</title>
   <style>
 
 :root {
@@ -465,36 +465,39 @@ hr {
         <p class="sidebar-title">On This Page</p>
         <div class="toc-tree">
 <ul>
-<li class="toc-level-1"><details open><summary><a href="#keyword-search-syntax-guide">Keyword Search Syntax Guide</a></summary><ul>
-<li class="toc-level-2"><details open><summary><a href="#input-assistance">Input Assistance</a></summary><ul>
-<li class="toc-level-3"><a href="#field-completion">Field Completion</a></li>
-<li class="toc-level-3"><a href="#playlist-name-completion-for-playlist--ref--table">Playlist Name Completion for playlist: / ref: / table:</a></li>
-<li class="toc-level-3"><a href="#search-history">Search History</a></li>
+<li class="toc-level-1"><details open><summary><a href="#keyword-search-guide">Keyword Search Guide</a></summary><ul>
+<li class="toc-level-2"><a href="#searches-to-try-first">Searches to Try First</a></li>
+<li class="toc-level-2"><details open><summary><a href="#suggestions-favorites-and-search-history">Suggestions, Favorites, and Search History</a></summary><ul>
+<li class="toc-level-3"><a href="#before-you-type">Before You Type</a></li>
+<li class="toc-level-3"><a href="#as-you-type">As You Type</a></li>
+<li class="toc-level-3"><a href="#using-favorites">Using Favorites</a></li>
+<li class="toc-level-3"><a href="#using-search-history">Using Search History</a></li>
+<li class="toc-level-3"><a href="#keyboard-controls">Keyboard Controls</a></li>
 </ul></details></li>
-<li class="toc-level-2"><a href="#basic-search">Basic Search</a></li>
-<li class="toc-level-2"><details open><summary><a href="#target-columns">Target Columns</a></summary><ul>
-<li class="toc-level-3"><a href="#main-chart-list">Main Chart List</a></li>
-<li class="toc-level-3"><a href="#playlist-detail">Playlist Detail</a></li>
+<li class="toc-level-2"><details open><summary><a href="#basic-search">Basic Search</a></summary><ul>
+<li class="toc-level-3"><a href="#search-for-text">Search for Text</a></li>
+<li class="toc-level-3"><a href="#choose-where-to-search">Choose Where to Search</a></li>
+<li class="toc-level-3"><a href="#search-for-text-containing-spaces">Search for Text Containing Spaces</a></li>
+<li class="toc-level-3"><a href="#exclude-matching-rows">Exclude Matching Rows</a></li>
+<li class="toc-level-3"><a href="#match-either-value">Match Either Value</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#search-fields-by-screen">Search Fields by Screen</a></summary><ul>
+<li class="toc-level-3"><a href="#main-chart-list-and-playlist-detail">Main Chart List and Playlist Detail</a></li>
 <li class="toc-level-3"><a href="#playlist-list">Playlist List</a></li>
 <li class="toc-level-3"><a href="#play-log">Play Log</a></li>
 </ul></details></li>
-<li class="toc-level-2"><details open><summary><a href="#field-qualified-search">Field-Qualified Search</a></summary><ul>
-<li class="toc-level-3"><a href="#fields-available-in-the-main-chart-list-and-playlist-detail">Fields Available in the Main Chart List and Playlist Detail</a></li>
-<li class="toc-level-3"><a href="#fields-available-in-the-playlist-list">Fields Available in the Playlist List</a></li>
-<li class="toc-level-3"><a href="#fields-available-in-the-play-log">Fields Available in the Play Log</a></li>
+<li class="toc-level-2"><details open><summary><a href="#numbers-statuses-and-dates">Numbers, Statuses, and Dates</a></summary><ul>
+<li class="toc-level-3"><a href="#compare-numbers">Compare Numbers</a></li>
+<li class="toc-level-3"><a href="#search-by-whether-information-is-available">Search by Whether Information Is Available</a></li>
+<li class="toc-level-3"><a href="#common-suggested-values">Common Suggested Values</a></li>
+<li class="toc-level-3"><a href="#search-by-clear-status">Search by Clear Status</a></li>
+<li class="toc-level-3"><a href="#search-by-play-date-and-time">Search by Play Date and Time</a></li>
 </ul></details></li>
-<li class="toc-level-2"><details open><summary><a href="#phrase-search">Phrase Search</a></summary><ul>
-<li class="toc-level-3"><a href="#escapes-in-quotes">Escapes in Quotes</a></li>
+<li class="toc-level-2"><details open><summary><a href="#advanced-search">Advanced Search</a></summary><ul>
+<li class="toc-level-3"><a href="#regular-expressions">Regular Expressions</a></li>
+<li class="toc-level-3"><a href="#search-for--or--inside-double-quotes">Search for &quot; or \ Inside Double Quotes</a></li>
 </ul></details></li>
-<li class="toc-level-2"><a href="#exclusion-search">Exclusion Search</a></li>
-<li class="toc-level-2"><details open><summary><a href="#or-search">OR Search</a></summary><ul>
-<li class="toc-level-3"><a href="#or-cautions">OR Cautions</a></li>
-</ul></details></li>
-<li class="toc-level-2"><details open><summary><a href="#regular-expression-search">Regular Expression Search</a></summary><ul>
-<li class="toc-level-3"><a href="#regular-expression-timeout">Regular Expression Timeout</a></li>
-</ul></details></li>
-<li class="toc-level-2"><a href="#invalid-syntax-handling">Invalid Syntax Handling</a></li>
-<li class="toc-level-2"><a href="#common-examples">Common Examples</a></li>
+<li class="toc-level-2"><a href="#when-you-see-a-warning-or-no-results">When You See a Warning or No Results</a></li>
 </ul></details></li>
 </ul>
         </div>
@@ -502,159 +505,177 @@ hr {
 
     </nav>
     <main class="doc-content">
-<h1 id="keyword-search-syntax-guide">Keyword Search Syntax Guide</h1>
+<h1 id="keyword-search-guide">Keyword Search Guide</h1>
 
-<p>BeMusicSeeker search boxes support regular word search, multi-word AND search, field-qualified search, phrase search, exclusion conditions, OR, and regular expressions.</p>
-<p>This syntax is mainly available in the following search boxes:</p>
+<p>The BeMusicSeeker search box can quickly narrow a list by title, artist, and other information. You can also choose where to search and combine multiple conditions.</p>
+<p>The searches in this guide are mainly available in:</p>
 <ul>
 <li>Main chart list</li>
 <li>Playlist detail</li>
 <li>Playlist list</li>
 <li>Play Log</li>
 </ul>
+<p>Available search fields vary by screen. You can always check the candidates shown in the search box to see what is available.</p>
 <hr/>
-<h2 id="input-assistance">Input Assistance</h2>
-<p>Search boxes provide field completion for easier field-qualified search input, and search history for recalling previous searches.</p>
-<h3 id="field-completion">Field Completion</h3>
-<p>When you start typing a field name in a search box, available fields are shown as candidates.</p>
-<div class="highlight"><pre><span></span><code>tit
-</code></pre></div>
-<p>In the example above, you can select <code>title:</code> as a candidate.</p>
-<p>Completion also works for exclusion conditions.</p>
-<div class="highlight"><pre><span></span><code>-ar
-</code></pre></div>
-<p>In the example above, you can select <code>-artist:</code> as a candidate.</p>
-<p>Candidate controls are as follows.</p>
+<h2 id="searches-to-try-first">Searches to Try First</h2>
 <div class="table-scroll"><table>
 <thead>
 <tr>
-<th style="text-align: left;">Operation</th>
-<th style="text-align: left;">Behavior</th>
+<th style="text-align: left;">What you want to find</th>
+<th style="text-align: left;">Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Charts containing <code>alpha</code></td>
+<td style="text-align: left;"><code>alpha</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">A specific TITLE and ARTIST</td>
+<td style="text-align: left;"><code>title:alpha artist:xi</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Charts from level 10 through 12</td>
+<td style="text-align: left;"><code>level:10..12</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Anything outside a backup folder</td>
+<td style="text-align: left;"><code>-path:backup</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Charts referenced by a playlist</td>
+<td style="text-align: left;"><code>playlist:"Satellite Sub"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Play Log entries from a date</td>
+<td style="text-align: left;"><code>date:2026-08-27</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Separate conditions with spaces. Only rows matching every condition are shown.</p>
+<hr/>
+<h2 id="suggestions-favorites-and-search-history">Suggestions, Favorites, and Search History</h2>
+<p>Select a search box to see suggestions that match the current input.</p>
+<h3 id="before-you-type">Before You Type</h3>
+<p>When the search box is empty, available groups appear in this order:</p>
+<ol>
+<li>Favorites</li>
+<li>Search history</li>
+<li>Search fields</li>
+</ol>
+<p>Favorites and Search history each show up to five rows at once; scroll to see additional rows. Search fields show up to ten rows at once.</p>
+<h3 id="as-you-type">As You Type</h3>
+<p>Start typing a search field to narrow the suggestions to fields available on the current screen.</p>
+<div class="highlight"><pre><span></span><code>t
+</code></pre></div>
+<p>In the main chart list and playlist detail, this can suggest <code>table:</code>, <code>tag:</code>, and <code>title:</code>. Suggestions also work when you begin an exclusion with <code>-</code>.</p>
+<div class="highlight"><pre><span></span><code>-ar
+</code></pre></div>
+<p>This suggests <code>-artist:</code>.</p>
+<p>Fields with a fixed set of choices show Search values after <code>:</code>.</p>
+<div class="highlight"><pre><span></span><code>clear:
+rank:
+feature:
+</code></pre></div>
+<p>After you choose a value, a space is added so you can immediately enter another condition. Free-text fields such as <code>title:</code> do not show value suggestions.</p>
+<p>For <code>playlist:</code>, <code>ref:</code>, and <code>table:</code>, you can choose from installed playlist names.</p>
+<div class="highlight"><pre><span></span><code>playlist:Sat
+</code></pre></div>
+<p>Playlist names are automatically placed in double quotes when needed.</p>
+<div class="highlight"><pre><span></span><code>playlist:"Satellite Sub"
+</code></pre></div>
+<p>Search fields and Search values show up to ten rows at once; scroll to see additional rows.</p>
+<h3 id="using-favorites">Using Favorites</h3>
+<p>Use <strong>Add to Favorites</strong> at the end of a Search history row to save that search. Use <strong>Remove from Favorites</strong> at the end of a Favorite row to remove it.</p>
+<ul>
+<li>There is no limit to the number of Favorites.</li>
+<li>Adding or removing a Favorite does not change what you are currently typing.</li>
+<li>When the same search exists in both places, it is shown only in Favorites. Removing it from Favorites makes its history entry visible again if that entry still exists.</li>
+</ul>
+<p>The main chart list, playlist detail, and Play Log share the same Favorites. The Playlist list keeps a separate set. A Favorite or history entry that uses a field unavailable on the current screen is hidden there but is not deleted.</p>
+<h3 id="using-search-history">Using Search History</h3>
+<p>Pressing <code>Enter</code> after typing a search, or moving away from the search box, saves it to Search history. Choosing a Favorite or history row replaces the full contents of the search box and moves that search to the top of Search history.</p>
+<ul>
+<li>Up to 20 searches are kept, most recent first.</li>
+<li>Reusing the same search moves it to the top instead of creating a duplicate.</li>
+<li>Use <strong>Delete from search history</strong> to delete an entry you no longer need.</li>
+</ul>
+<p>Search history is shared by the main chart list, playlist detail, and Play Log. The Playlist list keeps a separate history.</p>
+<h3 id="keyboard-controls">Keyboard Controls</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Key</th>
+<th style="text-align: left;">Result</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;"><code>↑</code> / <code>↓</code></td>
-<td style="text-align: left;">Select a candidate</td>
+<td style="text-align: left;">Select a suggestion</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
-<td style="text-align: left;">Confirm the selected candidate</td>
+<td style="text-align: left;">Insert the selected suggestion</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Esc</code></td>
-<td style="text-align: left;">Close candidates</td>
+<td style="text-align: left;">Close suggestions</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Ctrl+Space</code></td>
-<td style="text-align: left;">Show candidates</td>
+<td style="text-align: left;">Open suggestions again</td>
 </tr>
 <tr>
-<td style="text-align: left;">Mouse click</td>
-<td style="text-align: left;">Confirm a candidate</td>
+<td style="text-align: left;"><code>Shift+Tab</code></td>
+<td style="text-align: left;">Move to the action buttons for the selected Favorite or history row</td>
 </tr>
 </tbody>
 </table></div>
-<p>Field completion completes only field names.
-If you have already typed a search word after <code>:</code>, such as <code>title:alpha</code>, field completion is not shown.</p>
-<h3 id="playlist-name-completion-for-playlist--ref--table">Playlist Name Completion for <code>playlist:</code> / <code>ref:</code> / <code>table:</code></h3>
-<p>In the main chart list, playlist detail, and Play Log, entering a search term for <code>playlist:</code>, <code>ref:</code>, or <code>table:</code> shows installed playlist names as candidates.</p>
-<div class="highlight"><pre><span></span><code>playlist:Sat
-</code></pre></div>
-<p>In the example above, you can select a playlist name such as <code>Satellite Sub</code>.
-When a candidate is confirmed, only names that contain spaces, quotes, backslashes, or <code>|</code> are automatically wrapped in double quotes.</p>
-<div class="highlight"><pre><span></span><code>playlist:"Satellite Sub"
-ref:GENOSIDE
-table:GENOSIDE
-</code></pre></div>
-<h3 id="search-history">Search History</h3>
-<p>Search history is shown when the search box is empty and focused, or when you press <code>↓</code>.
-Selecting a history item replaces the entire search box with that search string.</p>
-<p>History is saved at the following times:</p>
-<ul>
-<li>When you press <code>Enter</code></li>
-<li>When focus leaves the search box</li>
-<li>When you select a history candidate</li>
-</ul>
-<p>History is stored separately for normal search boxes and the playlist-list search box.
-Each history keeps up to 20 entries. Duplicate search strings are not stored; when the same string is used again, it moves to the top.</p>
+<p>After moving to an action button, use <code>Tab</code> / <code>Shift+Tab</code> to move between buttons and <code>Enter</code> or <code>Space</code> to activate one. Pressing <code>Enter</code> to confirm IME text does not choose a suggestion.</p>
 <hr/>
 <h2 id="basic-search">Basic Search</h2>
-<p>Typing a search word shows rows where any target column contains that string.
-Matching is case-insensitive.</p>
+<h3 id="search-for-text">Search for Text</h3>
+<p>Enter a word to show rows containing that text in any default search column. Matching is case-insensitive.</p>
 <div class="highlight"><pre><span></span><code>alpha
 </code></pre></div>
-<p>When multiple words are separated by spaces, only rows matching all words are shown.</p>
+<p>Separate words with spaces to require every word.</p>
 <div class="highlight"><pre><span></span><code>alpha artist
 </code></pre></div>
-<p>The example above shows rows that match both <code>alpha</code> and <code>artist</code>.</p>
-<hr/>
-<h2 id="target-columns">Target Columns</h2>
-<h3 id="main-chart-list">Main Chart List</h3>
-<p>Normal search targets the following columns:</p>
-<ul>
-<li>TITLE</li>
-<li>ARTIST</li>
-<li>GENRE</li>
-<li>TAG</li>
-<li>PATH</li>
-<li>Display symbols in the PLAYLIST column</li>
-<li>MD5</li>
-<li>SHA256</li>
-</ul>
-<h3 id="playlist-detail">Playlist Detail</h3>
-<p>Normal search targets the same columns as the main chart list, plus:</p>
-<ul>
-<li>memo</li>
-<li>comment</li>
-</ul>
-<h3 id="playlist-list">Playlist List</h3>
-<p>Normal search targets:</p>
-<ul>
-<li>playlist id</li>
-<li>name</li>
-<li>symbol</li>
-</ul>
-<h3 id="play-log">Play Log</h3>
-<p>Normal search targets:</p>
-<ul>
-<li>TITLE</li>
-<li>ARTIST</li>
-<li>PATH</li>
-<li>Display labels in the FOLDER column</li>
-<li>Referenced playlist names</li>
-<li>raw hash</li>
-<li>MD5</li>
-<li>SHA256</li>
-<li>TYPE</li>
-<li>score write type</li>
-<li>CLEAR</li>
-<li>source name</li>
-<li>source path</li>
-<li>play date (<code>yyyy-MM-dd</code>)</li>
-</ul>
-<p>In the Play Log, not every displayed column is part of normal search. BEST DJ, BEST RATE, BEST EXSCORE, BP, COMBO, OPTION, OP HISTORY, PLAY EXSCORE, and JUDGES are not currently targeted by normal search or field-qualified search.</p>
-<hr/>
-<h2 id="field-qualified-search">Field-Qualified Search</h2>
-<p>Use <code>field:keyword</code> to restrict the search target to a specific column.</p>
+<h3 id="choose-where-to-search">Choose Where to Search</h3>
+<p>Use <code>field:value</code> to limit a condition to one kind of information.</p>
 <div class="highlight"><pre><span></span><code>title:alpha
 artist:xi
 sha256:abcdef
 </code></pre></div>
-<p>Tokens beginning with <code>A:</code> through <code>Z:</code> or <code>a:</code> through <code>z:</code> are treated as Windows paths containing drive letters, not as field-qualified terms.
-This means full paths and drive-relative paths can be searched as-is without quotes.</p>
-<div class="highlight"><pre><span></span><code>D:\BMS\
-D:
-</code></pre></div>
-<p>Multiple field-qualified terms are combined with AND.</p>
+<p>Multiple conditions are combined with AND.</p>
 <div class="highlight"><pre><span></span><code>title:alpha artist:xi
 </code></pre></div>
-<h3 id="fields-available-in-the-main-chart-list-and-playlist-detail">Fields Available in the Main Chart List and Playlist Detail</h3>
+<p>Text containing a Windows drive letter, such as <code>D:\BMS\</code>, can be searched as a path.</p>
+<h3 id="search-for-text-containing-spaces">Search for Text Containing Spaces</h3>
+<p>Place the text in double quotes.</p>
+<div class="highlight"><pre><span></span><code>"alpha title"
+title:"alpha title"
+</code></pre></div>
+<h3 id="exclude-matching-rows">Exclude Matching Rows</h3>
+<p>Place <code>-</code> before a condition.</p>
+<div class="highlight"><pre><span></span><code>alpha -artist:beta
+-path:backup
+</code></pre></div>
+<h3 id="match-either-value">Match Either Value</h3>
+<p>Use <code>|</code> within one condition.</p>
+<div class="highlight"><pre><span></span><code>alpha|beta
+title:alpha|beta
+</code></pre></div>
+<p><code>|</code> cannot join different fields, so cross-field OR searches such as <code>title:alpha|artist:beta</code> are not supported. Entering separate conditions combines them with AND instead.</p>
+<hr/>
+<h2 id="search-fields-by-screen">Search Fields by Screen</h2>
+<h3 id="main-chart-list-and-playlist-detail">Main Chart List and Playlist Detail</h3>
 <div class="table-scroll"><table>
 <thead>
 <tr>
-<th style="text-align: left;">field</th>
-<th style="text-align: left;">Target</th>
+<th style="text-align: left;">Field</th>
+<th style="text-align: left;">Information searched</th>
 </tr>
 </thead>
 <tbody>
@@ -676,11 +697,11 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>path</code></td>
-<td style="text-align: left;">PATH</td>
+<td style="text-align: left;">File or folder path</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
-<td style="text-align: left;">Referenced playlist name. Searches the full playlist name shown in the tooltip, not the short display symbol in the PLAYLIST column</td>
+<td style="text-align: left;">Referenced playlist name</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>md5</code> / <code>hash</code></td>
@@ -692,35 +713,35 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>level</code></td>
-<td style="text-align: left;"><code>chart_info.level</code></td>
+<td style="text-align: left;">Level</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>difficulty</code></td>
-<td style="text-align: left;"><code>chart_info.difficulty</code>. <code>beginner</code>, <code>normal</code>, <code>hyper</code>, <code>another</code>, and <code>insane</code> can also be specified</td>
+<td style="text-align: left;">Difficulty. Also accepts <code>beginner</code>, <code>normal</code>, <code>hyper</code>, <code>another</code>, and <code>insane</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>mainbpm</code></td>
-<td style="text-align: left;"><code>chart_info.mainbpm</code></td>
+<td style="text-align: left;">Main BPM</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>maxbpm</code></td>
-<td style="text-align: left;"><code>chart_info.maxbpm</code></td>
+<td style="text-align: left;">Maximum BPM</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>minbpm</code></td>
-<td style="text-align: left;"><code>chart_info.minbpm</code></td>
+<td style="text-align: left;">Minimum BPM</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>duration</code> / <code>length</code></td>
-<td style="text-align: left;">Play duration, specified in seconds</td>
+<td style="text-align: left;">Play duration in seconds</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>judge</code> / <code>judge%</code> / <code>judgepct</code></td>
-<td style="text-align: left;">Judge width multiplier. <code>judge</code> also accepts <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, and <code>veryeasy</code></td>
+<td style="text-align: left;">Judge width. Also accepts <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, and <code>veryeasy</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>feature</code></td>
-<td style="text-align: left;"><code>ln</code>, <code>mine</code>, <code>random</code>, <code>lnmode</code>, <code>cn</code>, <code>hcn</code>, <code>stop</code>, <code>scroll</code></td>
+<td style="text-align: left;">Chart features: <code>ln</code>, <code>mine</code>, <code>random</code>, <code>lnmode</code>, <code>cn</code>, <code>hcn</code>, <code>stop</code>, <code>scroll</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>notes</code></td>
@@ -732,15 +753,15 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>scratch</code></td>
-<td style="text-align: left;">Normal scratch + long scratch</td>
+<td style="text-align: left;">Scratch count</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>total</code></td>
-<td style="text-align: left;">Effective TOTAL value</td>
+<td style="text-align: left;">TOTAL value</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>tn</code> / <code>t/n</code></td>
-<td style="text-align: left;"><code>total / notes</code></td>
+<td style="text-align: left;">TOTAL divided by note count</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>density</code></td>
@@ -748,7 +769,7 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>peak</code> / <code>peakdensity</code></td>
-<td style="text-align: left;">Maximum density in a 1-second window</td>
+<td style="text-align: left;">Peak density</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>end</code> / <code>enddensity</code></td>
@@ -760,15 +781,15 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>clear</code></td>
-<td style="text-align: left;">CLEAR. Accepts <code>NP</code>, <code>F</code>, <code>AE</code>, <code>LAE</code>, <code>EC</code>, <code>NC</code>, <code>HC</code>, <code>EXH</code>, <code>FC</code>, <code>PF</code>, <code>MAX</code>, or display names</td>
+<td style="text-align: left;">Clear status</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>rank</code> / <code>djlevel</code> / <code>dj</code></td>
-<td style="text-align: left;">DJ LEVEL. Accepts <code>F</code>, <code>E</code>, <code>D</code>, <code>C</code>, <code>B</code>, <code>A</code>, <code>AA</code>, <code>AAA</code>, <code>MAX</code></td>
+<td style="text-align: left;">DJ LEVEL</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>rate</code></td>
-<td style="text-align: left;">RATE. This is the <code>rateDouble</code> value, so <code>0.95</code> means 95%</td>
+<td style="text-align: left;">RATE. Enter <code>0.95</code> for 95%</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>score</code></td>
@@ -784,15 +805,146 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>memo</code></td>
-<td style="text-align: left;">memo. Playlist detail only</td>
+<td style="text-align: left;">Memo; Playlist detail only</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>comment</code></td>
-<td style="text-align: left;">comment. Playlist detail only</td>
+<td style="text-align: left;">Comment; Playlist detail only</td>
 </tr>
 </tbody>
 </table></div>
-<p>Numeric fields support ranges and comparison operators.</p>
+<p>Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.</p>
+<h3 id="playlist-list">Playlist List</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Field</th>
+<th style="text-align: left;">Information searched</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>id</code></td>
+<td style="text-align: left;">Playlist ID</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>output</code></td>
+<td style="text-align: left;">Output destination display name</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;">Playlist name</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>folder</code> / <code>foldername</code></td>
+<td style="text-align: left;">Folder name</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>prefix</code></td>
+<td style="text-align: left;">Folder prefix</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>symbol</code></td>
+<td style="text-align: left;">Display symbol</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>header</code></td>
+<td style="text-align: left;">Header URL</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">Data URL</td>
+</tr>
+</tbody>
+</table></div>
+<p>Without a field, the Playlist list searches all the information shown in this table.</p>
+<p>While you type, this screen suggests Search fields but not Search values.</p>
+<h3 id="play-log">Play Log</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Field</th>
+<th style="text-align: left;">Information searched</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>title</code></td>
+<td style="text-align: left;">TITLE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>artist</code></td>
+<td style="text-align: left;">ARTIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;">Chart path</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>folder</code></td>
+<td style="text-align: left;">Name shown in the FOLDER column</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
+<td style="text-align: left;">Referenced playlist name</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>md5</code></td>
+<td style="text-align: left;">MD5</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>hash</code></td>
+<td style="text-align: left;">Hash recorded in the history: MD5 for LR2 and SHA256 for beatoraja</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sha256</code></td>
+<td style="text-align: left;">SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;">Play date and time</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>year</code></td>
+<td style="text-align: left;">Play year</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>month</code></td>
+<td style="text-align: left;">Play month, such as <code>2026-08</code>, <code>2026/08</code>, or <code>8</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>type</code> / <code>kind</code></td>
+<td style="text-align: left;">Update type: <code>score</code>, <code>bp</code>, <code>clear</code>, <code>combo</code>, or <code>play</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clear</code></td>
+<td style="text-align: left;">Clear status before or after the update</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>oldclear</code></td>
+<td style="text-align: left;">Clear status before the update</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newclear</code></td>
+<td style="text-align: left;">Clear status after the update</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>finalized</code></td>
+<td style="text-align: left;">Whether the entry is finalized: <code>true</code> or <code>false</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;">History source name or path</td>
+</tr>
+</tbody>
+</table></div>
+<p>Without a field, Play Log searches TITLE, ARTIST, PATH, the FOLDER display name, referenced playlist names, hashes, TYPE, clear status, source, and play date.</p>
+<p>Play Log does not support chart-list fields such as <code>level</code>, <code>difficulty</code>, <code>notes</code>, <code>rank</code>, <code>rate</code>, <code>score</code>, or <code>bp</code>.</p>
+<p>Summary cards above the list can be combined with the search box. For example, the SCORE update card is equivalent to <code>type:score</code>, and the EASY card is equivalent to <code>type:clear newclear:EC</code>. Card filters are combined with the search box using AND; multiple selected cards are combined with OR.</p>
+<hr/>
+<h2 id="numbers-statuses-and-dates">Numbers, Statuses, and Dates</h2>
+<h3 id="compare-numbers">Compare Numbers</h3>
+<p>Numeric fields accept ranges and comparison operators.</p>
 <div class="highlight"><pre><span></span><code>level:10..12
 notes:&gt;=2000
 duration:&lt;120
@@ -800,29 +952,70 @@ tn:2.0..
 rate:0.95..
 bp:0..10
 </code></pre></div>
-<p><code>defined</code> / <code>undefined</code> are also available. <code>undefined</code> can also be written as <code>undef</code> or <code>null</code>.
-When <code>chart_info</code> has not been built, when <code>level</code> is NULL, or when <code>difficulty_defined=false</code> / <code>total_defined=false</code>, the value matches <code>undefined</code>.
-For numeric score-related fields, missing values such as scores that have not been acquired match <code>undefined</code>.
-<code>rank</code> matches <code>undefined</code> when DJ LEVEL is empty.
-<code>clear</code> always matches <code>defined</code> because <code>NO SONG</code> and <code>NO PLAY</code> are also treated as CLEAR types.</p>
+<ul>
+<li><code>10..12</code>: from 10 through 12</li>
+<li><code>&gt;=2000</code>: 2000 or more</li>
+<li><code>&lt;120</code>: less than 120</li>
+<li><code>2.0..</code>: 2.0 or more</li>
+</ul>
+<h3 id="search-by-whether-information-is-available">Search by Whether Information Is Available</h3>
+<p>Use <code>defined</code> for rows with a value and <code>undefined</code> for rows without one. You can also write <code>undefined</code> as <code>undef</code>.</p>
 <div class="highlight"><pre><span></span><code>total:undefined
-total:undef
-total:null
 difficulty:defined
--feature:random
 score:defined
 rank:undefined
 </code></pre></div>
-<p><code>clear</code> is an exact match against the CLEAR type.
-In addition to display names, the following abbreviations can be used.</p>
+<p>Missing chart-analysis or score information matches <code>undefined</code>. In the main chart list and playlist detail, <code>clear</code> always has a status, including NO SONG or NO PLAY, so it does not match <code>clear:undefined</code>. In Play Log, <code>clear:defined</code> shows rows that have a clear status recorded after the update.</p>
+<h3 id="common-suggested-values">Common Suggested Values</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Search field</th>
+<th style="text-align: left;">Common values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>difficulty</code></td>
+<td style="text-align: left;"><code>beginner</code>, <code>normal</code>, <code>hyper</code>, <code>another</code>, <code>insane</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>judge</code></td>
+<td style="text-align: left;"><code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, <code>veryeasy</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>feature</code></td>
+<td style="text-align: left;"><code>ln</code>, <code>mine</code>, <code>random</code>, <code>lnmode</code>, <code>cn</code>, <code>hcn</code>, <code>stop</code>, <code>scroll</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rank</code> / <code>djlevel</code> / <code>dj</code></td>
+<td style="text-align: left;"><code>F</code>, <code>E</code>, <code>D</code>, <code>C</code>, <code>B</code>, <code>A</code>, <code>AA</code>, <code>AAA</code>, <code>MAX</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Play Log <code>type</code> / <code>kind</code></td>
+<td style="text-align: left;"><code>score</code>, <code>bp</code>, <code>clear</code>, <code>combo</code>, <code>play</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Play Log <code>finalized</code></td>
+<td style="text-align: left;"><code>true</code>, <code>false</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Fields that can distinguish missing information also suggest <code>defined</code> and <code>undefined</code>.</p>
+<h3 id="search-by-clear-status">Search by Clear Status</h3>
+<p><code>clear</code>, <code>oldclear</code>, and <code>newclear</code> accept the displayed name or one of these abbreviations.</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
 <th style="text-align: left;">Input</th>
-<th style="text-align: left;">Target</th>
+<th style="text-align: left;">Clear status</th>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td style="text-align: left;"><code>nosong</code></td>
+<td style="text-align: left;">NO SONG</td>
+</tr>
 <tr>
 <td style="text-align: left;"><code>NP</code></td>
 <td style="text-align: left;">NO PLAY</td>
@@ -869,274 +1062,73 @@ In addition to display names, the following abbreviations can be used.</p>
 </tr>
 </tbody>
 </table></div>
-<h3 id="fields-available-in-the-playlist-list">Fields Available in the Playlist List</h3>
-<div class="table-scroll"><table>
-<thead>
-<tr>
-<th style="text-align: left;">field</th>
-<th style="text-align: left;">Target</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: left;"><code>id</code></td>
-<td style="text-align: left;">playlist id</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>name</code></td>
-<td style="text-align: left;">name</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>folder</code> / <code>foldername</code></td>
-<td style="text-align: left;">folder name</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>prefix</code></td>
-<td style="text-align: left;">folder prefix</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>symbol</code></td>
-<td style="text-align: left;">symbol</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>header</code></td>
-<td style="text-align: left;">resolved header URI</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>data</code></td>
-<td style="text-align: left;">resolved data URI</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="fields-available-in-the-play-log">Fields Available in the Play Log</h3>
-<p>The Play Log uses a field set separate from the main chart list and playlist detail.</p>
-<div class="table-scroll"><table>
-<thead>
-<tr>
-<th style="text-align: left;">field</th>
-<th style="text-align: left;">Target</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: left;"><code>title</code></td>
-<td style="text-align: left;">TITLE</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>artist</code></td>
-<td style="text-align: left;">ARTIST</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>path</code></td>
-<td style="text-align: left;">PATH</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>folder</code></td>
-<td style="text-align: left;">Display labels in the FOLDER column</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
-<td style="text-align: left;">Referenced playlist name. Searches the resolved playlist name, not the short display label in the FOLDER column</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>md5</code></td>
-<td style="text-align: left;">MD5. In beatoraja history, this has a value only when MD5 can be resolved from an owned chart or similar source</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>hash</code></td>
-<td style="text-align: left;">raw hash. LR2 targets the recorded MD5, and beatoraja targets the recorded SHA256</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>sha256</code></td>
-<td style="text-align: left;">SHA256</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>date</code></td>
-<td style="text-align: left;">Play date. Accepts <code>yyyy-MM-dd</code>, <code>yyyy/M/d</code>, <code>yyyy/MM/dd</code>, and <code>yyyyMMdd</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>year</code></td>
-<td style="text-align: left;">Play year. Example: <code>2026</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>month</code></td>
-<td style="text-align: left;">Play month. Accepts <code>yyyy-MM</code>, <code>yyyy/MM</code>, or <code>1</code> through <code>12</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>type</code> / <code>kind</code></td>
-<td style="text-align: left;">TYPE and score write type. <code>type</code> is the primary name; <code>kind</code> is a compatibility alias. Examples: <code>score</code>, <code>bp</code>, <code>clear</code>, <code>combo</code>, <code>play</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>clear</code></td>
-<td style="text-align: left;">CLEAR before or after the update. Accepts the same abbreviations as normal <code>clear:</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>oldclear</code></td>
-<td style="text-align: left;">CLEAR before the update. Accepts the same abbreviations as normal <code>clear:</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>newclear</code></td>
-<td style="text-align: left;">CLEAR after the update. Accepts the same abbreviations as normal <code>clear:</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>finalized</code></td>
-<td style="text-align: left;">Whether the row is finalized. Accepts <code>true</code>, <code>1</code>, <code>yes</code>, <code>y</code>, <code>finalized</code> / <code>false</code>, <code>0</code>, <code>no</code>, <code>n</code>, <code>unfinalized</code>, <code>pending</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>source</code></td>
-<td style="text-align: left;">source name and source path</td>
-</tr>
-</tbody>
-</table></div>
-<p>Play Log <code>date</code> / <code>year</code> / <code>month</code> / <code>clear</code> / <code>oldclear</code> / <code>newclear</code> / <code>finalized</code> use dedicated matching. Range and comparison operators such as <code>level:10..12</code> are not used for them.
-In the Play Log, <code>clear:defined</code> matches rows that have a CLEAR value after the update. This differs from the main chart list and playlist detail, where <code>clear</code> always matches <code>defined</code> because <code>NO SONG</code> and <code>NO PLAY</code> are also treated as CLEAR types.
-Click filtering from the top summary cards also uses these search fields internally. For example, the SCORE update card is equivalent to <code>type:score</code>, and the EASY card is equivalent to <code>type:clear newclear:EC</code>. Card filters are applied with AND against the search-box filter. When multiple cards are selected, the cards are combined with OR.
-The Play Log also does not support main-chart-list / playlist-detail fields such as <code>level</code>, <code>difficulty</code>, <code>notes</code>, <code>rank</code>, <code>rate</code>, <code>score</code>, and <code>bp</code>. They are treated as unknown fields.</p>
+<div class="highlight"><pre><span></span><code>clear:HC
+oldclear:NC newclear:HC
+</code></pre></div>
+<h3 id="search-by-play-date-and-time">Search by Play Date and Time</h3>
+<p>In Play Log, you can enter a date, a date and time, or a period.</p>
+<p>For a specific time, an easy option is to copy the displayed DATE value, place it in double quotes, and add <code>date:</code> before it.</p>
+<div class="highlight"><pre><span></span><code>date:2026-08-27
+date:2026/8/27
+date:20260827
+date:"2026/08/27 10:22:50"
+date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
+</code></pre></div>
+<p>A period includes plays at both its start and end times.</p>
+<p>You can also select two or more Play Log rows, right-click, and choose <strong>Add period to search</strong>. This adds a period from the earliest through the latest selected play while keeping the conditions already in the search box.</p>
 <hr/>
-<h2 id="phrase-search">Phrase Search</h2>
-<p>To treat a string containing spaces as a single search word, wrap it in double quotes.</p>
-<div class="highlight"><pre><span></span><code>"alpha title"
-title:"alpha title"
+<h2 id="advanced-search">Advanced Search</h2>
+<h3 id="regular-expressions">Regular Expressions</h3>
+<p>Enter a regular expression after <code>re:</code>. It can be combined with a field or exclusion.</p>
+<div class="highlight"><pre><span></span><code>re:^alpha
+title:re:^alpha
+-title:re:^test
+path:re:\\BMS\\.*\.bms$
 </code></pre></div>
-<p>An unclosed quote is treated as a phrase through the end of the input.</p>
-<div class="highlight"><pre><span></span><code>"alpha title
-</code></pre></div>
-<p>The example above is almost equivalent to <code>"alpha title"</code>.</p>
-<h3 id="escapes-in-quotes">Escapes in Quotes</h3>
-<p>Inside quotes, only the following sequences are specially escaped.</p>
-<div class="table-scroll"><table>
-<thead>
-<tr>
-<th style="text-align: left;">Input</th>
-<th style="text-align: left;">Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: left;"><code>\"</code></td>
-<td style="text-align: left;"><code>"</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>\\</code></td>
-<td style="text-align: left;"><code>\</code></td>
-</tr>
-</tbody>
-</table></div>
-<p>Example:</p>
+<p>Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.</p>
+<h3 id="search-for--or--inside-double-quotes">Search for <code>"</code> or <code>\</code> Inside Double Quotes</h3>
+<p>Inside double quotes, use <code>\"</code> for <code>"</code> and <code>\\</code> for <code>\</code>.</p>
 <div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""
 </code></pre></div>
+<p>For ordinary text searches, omitting the closing double quote treats the text through the end of the input as one search word. When quoting a date, time, or period after <code>date:</code>, include the closing double quote.</p>
 <hr/>
-<h2 id="exclusion-search">Exclusion Search</h2>
-<p>Prefix a search word with <code>-</code> to exclude rows that match that condition.</p>
-<div class="highlight"><pre><span></span><code>alpha -artist:beta
-</code></pre></div>
-<p>The example above shows rows that match <code>alpha</code> and do not contain <code>beta</code> in ARTIST.</p>
-<p>Exclusion can be combined with field-qualified search, phrase search, and regular expressions.</p>
-<div class="highlight"><pre><span></span><code>-title:"old version"
--path:backup
--title:re:^test
-</code></pre></div>
-<p>A <code>-</code> that appears anywhere other than the start, such as in <code>foo-bar</code>, is treated as a normal character.</p>
-<hr/>
-<h2 id="or-search">OR Search</h2>
-<p>Use <code>|</code> inside a single search word for OR search.</p>
-<div class="highlight"><pre><span></span><code>alpha|beta
-</code></pre></div>
-<p>The example above shows rows that match either <code>alpha</code> or <code>beta</code>.</p>
-<p>When combined with a field qualifier, OR is evaluated only within that field.</p>
-<div class="highlight"><pre><span></span><code>title:alpha|beta
-title:"alpha title"|beta
-</code></pre></div>
-<p>The examples above show rows whose TITLE contains <code>alpha</code> or <code>beta</code>.</p>
-<h3 id="or-cautions">OR Cautions</h3>
-<p>Cross-column OR such as <code>title:alpha|artist:beta</code> is not supported.
-In that case, <code>artist:beta</code> is treated as a string to search for inside TITLE.</p>
-<p>Empty alternatives are ignored.</p>
-<div class="highlight"><pre><span></span><code>alpha|
-|alpha
-alpha||beta
-</code></pre></div>
-<p>If all alternatives are empty, the condition is treated as invalid and matches nothing.</p>
-<hr/>
-<h2 id="regular-expression-search">Regular Expression Search</h2>
-<p>Use <code>re:pattern</code> for regular expression search.</p>
-<div class="highlight"><pre><span></span><code>re:^alpha
-</code></pre></div>
-<p>When combining it with a field qualifier, write <code>field:re:pattern</code>.</p>
-<div class="highlight"><pre><span></span><code>title:re:^alpha
-path:re:\\BMS\\.*\\.bms$
-</code></pre></div>
-<p>It can also be used as an exclusion condition.</p>
-<div class="highlight"><pre><span></span><code>-title:re:^test
-</code></pre></div>
-<p>Regular expressions are evaluated case-insensitively and culture-independently.</p>
-<h3 id="regular-expression-timeout">Regular Expression Timeout</h3>
-<p>Regular expressions have a 100 ms timeout per condition as protection against runaway patterns.
-Very expensive regular expressions are stopped partway through and treated as not matching that condition.</p>
-<hr/>
-<h2 id="invalid-syntax-handling">Invalid Syntax Handling</h2>
-<p>Invalid conditions do not show an error. They are treated as "conditions that do not match".
-Therefore, if an AND search contains an invalid condition, the result may become 0 rows.</p>
-<p>Examples treated as invalid:</p>
-<div class="highlight"><pre><span></span><code>unknown:alpha
-title:
--
-|
-title:re:[
-</code></pre></div>
+<h2 id="when-you-see-a-warning-or-no-results">When You See a Warning or No Results</h2>
+<p>The following conditions show a warning and do not match any rows.</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
 <th style="text-align: left;">Example</th>
-<th style="text-align: left;">Reason</th>
+<th style="text-align: left;">What to check</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;"><code>unknown:alpha</code></td>
-<td style="text-align: left;">Unknown field</td>
+<td style="text-align: left;">Whether that field is available on the current screen</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>title:</code></td>
-<td style="text-align: left;">The search word for the field qualifier is empty</td>
+<td style="text-align: left;">Whether a search value follows <code>:</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>-</code></td>
-<td style="text-align: left;">The exclusion condition body is empty</td>
+<td style="text-align: left;">Whether an exclusion follows <code>-</code></td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>\|</code></td>
-<td style="text-align: left;">All OR alternatives are empty</td>
+<td style="text-align: left;"><code>|</code></td>
+<td style="text-align: left;">Whether search text appears before or after <code>|</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>title:re:[</code></td>
-<td style="text-align: left;">Invalid as a regular expression</td>
+<td style="text-align: left;">Whether the regular expression is valid</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date:2026-99-99</code></td>
+<td style="text-align: left;">Whether the date format and value are valid</td>
 </tr>
 </tbody>
 </table></div>
-<p>If the field name is empty, as in <code>:alpha</code>, it is treated as a normal search word rather than a field qualifier.
-In other words, it searches for rows containing the string <code>:alpha</code>.</p>
-<hr/>
-<h2 id="common-examples">Common Examples</h2>
-<p>Filter by both TITLE and ARTIST:</p>
-<div class="highlight"><pre><span></span><code>title:alpha artist:xi
-</code></pre></div>
-<p>Search by part of an MD5 or SHA256:</p>
-<div class="highlight"><pre><span></span><code>md5:abcdef
-sha256:123456
-</code></pre></div>
-<p>Search memo in playlist detail:</p>
-<div class="highlight"><pre><span></span><code>memo:"favorite chart"
-</code></pre></div>
-<p>Exclude backup folders:</p>
-<div class="highlight"><pre><span></span><code>-path:backup
-</code></pre></div>
-<p>Search for charts whose TITLE starts with <code>alpha</code>:</p>
-<div class="highlight"><pre><span></span><code>title:re:^alpha
-</code></pre></div>
-<p>Search for charts whose TITLE contains <code>alpha</code> or <code>beta</code>, and whose ARTIST does not contain <code>test</code>:</p>
-<div class="highlight"><pre><span></span><code>title:alpha|beta -artist:test
-</code></pre></div>
+<p>Search fields differ by screen. If you are unsure, clear the search box and choose a field from the <strong>Search fields</strong> suggestions.</p>
     </main>
   </div>
 </body>

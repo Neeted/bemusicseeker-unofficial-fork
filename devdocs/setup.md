@@ -2,7 +2,14 @@
 
 Windows 11の新しい開発環境を準備するための手順です。初回構築時、または依存ツールの不足によってビルド・検証に失敗したときに参照してください。構築済みの環境で、通常の開発作業のたびに環境確認やインストールを実行する必要はありません。
 
-本書は、アプリのソース一式、`BeMusicSeeker.sln`、`global.json`、`scripts/verify-refactor.ps1`を含む開発用のチェックアウトを対象とします。配布物や一部の公開ファイルだけでは、以下の手順によるビルドはできません。
+本書は公開リポジトリの `dev` を対象とします。リリースZIPではなく、アプリのソース一式、`BeMusicSeeker.sln`、`global.json`、`scripts/verify-refactor.ps1` を含むチェックアウトを使用します。
+
+```powershell
+git clone --branch dev https://github.com/Neeted/bemusicseeker-unofficial-fork.git
+cd bemusicseeker-unofficial-fork
+```
+
+既存のcloneでは、作業中の変更を整理してから `git fetch origin` と `git switch dev` を実行します。公開サイトと更新情報は `main` から配信されます。開発のために別の非公開リポジトリを準備する必要はありません。
 
 ## 前提
 
@@ -121,5 +128,7 @@ pwsh -NoProfile -File .\native\EverythingBridge\build-x64.ps1 -Configuration Rel
 構築後の開発では、変更したい挙動、期待する結果、検証に使えるデータや条件を伝えます。環境構築を毎回依頼する必要はありません。変更結果は差分と検証結果で確認してください。
 
 ## 開発を始める
+
+`dev` を更新してから作業ブランチを作ります。例えば `git switch dev`、`git pull --ff-only`、`git switch -c codex/変更内容` の順に実行します。GitHubの既定ブランチは `main` なので、通常のプルリクエストでは対象を `dev` に変更してください。正式リリース、緊急修正、TSVだけの更新は[ブランチ運用とリリース手順](spec/development/release.md)に従います。
 
 仕様や担当領域の入口は[開発資料の案内](README.md)です。反復中の対象確認、通常の最終検証、配布・更新の検証の使い分けは[テスト検証](spec/development/testing.md)を正本とします。本書では検証ルールを重複して定義しません。

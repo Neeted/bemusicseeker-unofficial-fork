@@ -18,6 +18,8 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/update.json
 ```
 
+同じ `main` のルートにある `version.txt` は、v2.1.0.0より前のアプリが更新通知に使う互換資源として `2.1.6.0` に固定します。現行アプリは読み取らず、リリース時にも生成・更新しません。`update.json` の代替や現行版の正本には使いません。
+
 | フィールド | 契約 |
 | --- | --- |
 | `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。 |

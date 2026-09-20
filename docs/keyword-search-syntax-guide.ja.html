@@ -7,7 +7,7 @@
   <meta name="description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
-  <meta property="og:title" content="キーワード検索構文ガイド">
+  <meta property="og:title" content="キーワード検索ガイド">
   <meta property="og:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
   <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/ogp-card.ja.png">
   <meta property="og:image:width" content="1200">
@@ -15,11 +15,11 @@
   <meta property="og:image:alt" content="BeMusicSeeker Unofficial Fork - BMSライブラリ管理を、もっと軽快に。Releases から最新版を入手。">
   <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/keyword-search-syntax-guide.ja.html">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="キーワード検索構文ガイド">
+  <meta name="twitter:title" content="キーワード検索ガイド">
   <meta name="twitter:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。">
   <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/ogp-card.ja.png">
   <meta name="twitter:image:alt" content="BeMusicSeeker Unofficial Fork - BMSライブラリ管理を、もっと軽快に。Releases から最新版を入手。">
-  <title>キーワード検索構文ガイド</title>
+  <title>キーワード検索ガイド</title>
   <style>
 
 :root {
@@ -466,36 +466,39 @@ hr {
         <p class="sidebar-title">On This Page</p>
         <div class="toc-tree">
 <ul>
-<li class="toc-level-1"><details open><summary><a href="#キーワード検索構文ガイド">キーワード検索構文ガイド</a></summary><ul>
-<li class="toc-level-2"><details open><summary><a href="#入力支援">入力支援</a></summary><ul>
-<li class="toc-level-3"><a href="#field-補完">field 補完</a></li>
-<li class="toc-level-3"><a href="#playlist--ref--table-のプレイリスト名補完">playlist: / ref: / table: のプレイリスト名補完</a></li>
-<li class="toc-level-3"><a href="#検索履歴">検索履歴</a></li>
+<li class="toc-level-1"><details open><summary><a href="#キーワード検索ガイド">キーワード検索ガイド</a></summary><ul>
+<li class="toc-level-2"><a href="#まず試す検索例">まず試す検索例</a></li>
+<li class="toc-level-2"><details open><summary><a href="#検索候補お気に入り検索履歴">検索候補・お気に入り・検索履歴</a></summary><ul>
+<li class="toc-level-3"><a href="#入力していないとき">入力していないとき</a></li>
+<li class="toc-level-3"><a href="#入力を始めたとき">入力を始めたとき</a></li>
+<li class="toc-level-3"><a href="#お気に入りを使う">お気に入りを使う</a></li>
+<li class="toc-level-3"><a href="#検索履歴を使う">検索履歴を使う</a></li>
+<li class="toc-level-3"><a href="#キーボードで操作する">キーボードで操作する</a></li>
 </ul></details></li>
-<li class="toc-level-2"><a href="#基本検索">基本検索</a></li>
-<li class="toc-level-2"><details open><summary><a href="#検索対象カラム">検索対象カラム</a></summary><ul>
-<li class="toc-level-3"><a href="#メイン譜面一覧">メイン譜面一覧</a></li>
-<li class="toc-level-3"><a href="#プレイリスト詳細">プレイリスト詳細</a></li>
+<li class="toc-level-2"><details open><summary><a href="#基本的な検索方法">基本的な検索方法</a></summary><ul>
+<li class="toc-level-3"><a href="#文字をそのまま検索する">文字をそのまま検索する</a></li>
+<li class="toc-level-3"><a href="#検索対象を指定する">検索対象を指定する</a></li>
+<li class="toc-level-3"><a href="#スペースを含む文字列を検索する">スペースを含む文字列を検索する</a></li>
+<li class="toc-level-3"><a href="#一致する行を除外する">一致する行を除外する</a></li>
+<li class="toc-level-3"><a href="#いずれかに一致する行を探す">いずれかに一致する行を探す</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#画面別に使える検索対象">画面別に使える検索対象</a></summary><ul>
+<li class="toc-level-3"><a href="#メインの譜面一覧プレイリスト詳細">メインの譜面一覧・プレイリスト詳細</a></li>
 <li class="toc-level-3"><a href="#プレイリスト一覧">プレイリスト一覧</a></li>
 <li class="toc-level-3"><a href="#プレイログ">プレイログ</a></li>
 </ul></details></li>
-<li class="toc-level-2"><details open><summary><a href="#カラム指定検索">カラム指定検索</a></summary><ul>
-<li class="toc-level-3"><a href="#メイン譜面一覧プレイリスト詳細で使える-field">メイン譜面一覧・プレイリスト詳細で使える field</a></li>
-<li class="toc-level-3"><a href="#プレイリスト一覧で使える-field">プレイリスト一覧で使える field</a></li>
-<li class="toc-level-3"><a href="#プレイログで使える-field">プレイログで使える field</a></li>
+<li class="toc-level-2"><details open><summary><a href="#数値状態日付で絞り込む">数値・状態・日付で絞り込む</a></summary><ul>
+<li class="toc-level-3"><a href="#数値を比較する">数値を比較する</a></li>
+<li class="toc-level-3"><a href="#情報の有無を検索する">情報の有無を検索する</a></li>
+<li class="toc-level-3"><a href="#候補から選べる主な検索値">候補から選べる主な検索値</a></li>
+<li class="toc-level-3"><a href="#クリア状態を検索する">クリア状態を検索する</a></li>
+<li class="toc-level-3"><a href="#プレイ日時を検索する">プレイ日時を検索する</a></li>
 </ul></details></li>
-<li class="toc-level-2"><details open><summary><a href="#フレーズ検索">フレーズ検索</a></summary><ul>
-<li class="toc-level-3"><a href="#クォート内のエスケープ">クォート内のエスケープ</a></li>
+<li class="toc-level-2"><details open><summary><a href="#高度な検索">高度な検索</a></summary><ul>
+<li class="toc-level-3"><a href="#正規表現">正規表現</a></li>
+<li class="toc-level-3"><a href="#ダブルクォート内で--や--を検索する">ダブルクォート内で &quot; や \ を検索する</a></li>
 </ul></details></li>
-<li class="toc-level-2"><a href="#除外検索">除外検索</a></li>
-<li class="toc-level-2"><details open><summary><a href="#or-検索">OR 検索</a></summary><ul>
-<li class="toc-level-3"><a href="#or-の注意点">OR の注意点</a></li>
-</ul></details></li>
-<li class="toc-level-2"><details open><summary><a href="#正規表現検索">正規表現検索</a></summary><ul>
-<li class="toc-level-3"><a href="#正規表現のタイムアウト">正規表現のタイムアウト</a></li>
-</ul></details></li>
-<li class="toc-level-2"><a href="#不正な構文の扱い">不正な構文の扱い</a></li>
-<li class="toc-level-2"><a href="#よく使う例">よく使う例</a></li>
+<li class="toc-level-2"><a href="#警告が表示される結果が0件になる場合">警告が表示される・結果が0件になる場合</a></li>
 </ul></details></li>
 </ul>
         </div>
@@ -503,44 +506,118 @@ hr {
 
     </nav>
     <main class="doc-content">
-<h1 id="キーワード検索構文ガイド">キーワード検索構文ガイド</h1>
+<h1 id="キーワード検索ガイド">キーワード検索ガイド</h1>
 
-<p>BeMusicSeeker の検索ボックスでは、単語検索に加えて、複数語 AND、カラム指定、フレーズ検索、除外条件、OR、正規表現を利用できます。</p>
-<p>この構文は主に以下の検索欄で利用できます。</p>
+<p>BeMusicSeeker の検索欄では、曲名やアーティスト名などをすばやく絞り込めます。検索対象を指定したり、複数の条件を組み合わせたりすることもできます。</p>
+<p>このガイドの検索方法は、主に次の画面で利用できます。</p>
 <ul>
 <li>メインの譜面一覧</li>
 <li>プレイリスト詳細</li>
 <li>プレイリスト一覧</li>
 <li>プレイログ</li>
 </ul>
+<p>画面によって利用できる検索対象は異なります。入力できる検索対象は、検索欄に表示される候補からも確認できます。</p>
 <hr/>
-<h2 id="入力支援">入力支援</h2>
-<p>検索ボックスには、カラム指定検索を入力しやすくする field 補完と、過去の検索を呼び出す検索履歴があります。</p>
-<h3 id="field-補完">field 補完</h3>
-<p>検索欄で field 名を入力し始めると、利用できる field が候補として表示されます。</p>
-<div class="highlight"><pre><span></span><code>tit
+<h2 id="まず試す検索例">まず試す検索例</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">やりたいこと</th>
+<th style="text-align: left;">入力例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>alpha</code> を含む譜面を探す</td>
+<td style="text-align: left;"><code>alpha</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">TITLE と ARTIST を指定する</td>
+<td style="text-align: left;"><code>title:alpha artist:xi</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">レベル 10～12 に絞る</td>
+<td style="text-align: left;"><code>level:10..12</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">backup フォルダを除外する</td>
+<td style="text-align: left;"><code>-path:backup</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">特定のプレイリストを参照している譜面を探す</td>
+<td style="text-align: left;"><code>playlist:"Satellite Sub"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">指定日のプレイログを表示する</td>
+<td style="text-align: left;"><code>date:2026-08-27</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>複数の条件を半角スペースで区切ると、すべての条件に一致する行だけが表示されます。</p>
+<hr/>
+<h2 id="検索候補お気に入り検索履歴">検索候補・お気に入り・検索履歴</h2>
+<p>検索欄を選ぶと、入力内容に応じて候補が表示されます。</p>
+<h3 id="入力していないとき">入力していないとき</h3>
+<p>検索欄が空のときは、登録されている内容に応じて次の順に表示されます。</p>
+<ol>
+<li>お気に入り</li>
+<li>検索履歴</li>
+<li>検索対象</li>
+</ol>
+<p>お気に入りと検索履歴はそれぞれ最大5行の高さで表示され、6行目以降はスクロールして確認できます。検索対象は最大10行の高さで表示されます。</p>
+<h3 id="入力を始めたとき">入力を始めたとき</h3>
+<p>検索対象名を入力すると、現在の画面で利用できる候補に絞り込まれます。</p>
+<div class="highlight"><pre><span></span><code>t
 </code></pre></div>
-<p>上の例では <code>title:</code> を候補として選べます。</p>
-<p>除外条件でも補完できます。</p>
+<p>メインの譜面一覧とプレイリスト詳細では、<code>table:</code>、<code>tag:</code>、<code>title:</code> などが候補になります。除外条件の <code>-</code> を付けたままでも候補を利用できます。</p>
 <div class="highlight"><pre><span></span><code>-ar
 </code></pre></div>
-<p>上の例では <code>-artist:</code> を候補として選べます。</p>
-<p>候補の操作は以下の通りです。</p>
+<p>この例では <code>-artist:</code> を選べます。</p>
+<p>値の種類が決まっている検索対象では、<code>:</code> の後に検索値の候補が表示されます。</p>
+<div class="highlight"><pre><span></span><code>clear:
+rank:
+feature:
+</code></pre></div>
+<p>候補を選ぶと値の後ろに半角スペースが入り、そのまま次の条件を入力できます。<code>title:</code> のように自由な文字列を入力する検索対象では、検索値の候補は表示されません。</p>
+<p><code>playlist:</code>、<code>ref:</code>、<code>table:</code> では、登録済みのプレイリスト名から候補を選べます。</p>
+<div class="highlight"><pre><span></span><code>playlist:Sat
+</code></pre></div>
+<p>候補を選ぶと、必要に応じてプレイリスト名がダブルクォートで囲まれます。</p>
+<div class="highlight"><pre><span></span><code>playlist:"Satellite Sub"
+</code></pre></div>
+<p>検索対象と検索値は最大10行の高さで表示され、11行目以降はスクロールして確認できます。</p>
+<h3 id="お気に入りを使う">お気に入りを使う</h3>
+<p>検索履歴の右端にある［お気に入りに追加］を押すと、その検索をお気に入りへ登録できます。お気に入りの右端にある［お気に入りから削除］を押すと解除できます。</p>
+<ul>
+<li>お気に入りの登録数に上限はありません。</li>
+<li>お気に入りへ追加・削除しても、検索欄に入力中の内容は変わりません。</li>
+<li>同じ検索が検索履歴にも残っている場合は、お気に入りにだけ表示されます。お気に入りから削除すると、履歴が残っていれば検索履歴へ戻ります。</li>
+</ul>
+<p>メインの譜面一覧、プレイリスト詳細、プレイログでは同じお気に入りを共有します。プレイリスト一覧のお気に入りは別に保存されます。現在の画面で使えない検索対象を含むお気に入りや検索履歴は、その画面では表示されませんが削除はされません。</p>
+<h3 id="検索履歴を使う">検索履歴を使う</h3>
+<p>入力後に <code>Enter</code> を押すか、検索欄から別の場所へ移ると、検索が履歴へ保存されます。お気に入りまたは検索履歴を選ぶと、検索欄全体がその内容に置き換わり、使用した検索として履歴の先頭へ移動します。</p>
+<ul>
+<li>検索履歴は新しい順に最大20件まで保存されます。</li>
+<li>同じ検索をもう一度使うと、重複せず先頭へ移動します。</li>
+<li>右端の［検索履歴から削除］で不要な履歴を削除できます。</li>
+</ul>
+<p>検索履歴も、メインの譜面一覧・プレイリスト詳細・プレイログで共有され、プレイリスト一覧では別に保存されます。</p>
+<h3 id="キーボードで操作する">キーボードで操作する</h3>
 <div class="table-scroll"><table>
 <thead>
 <tr>
 <th style="text-align: left;">操作</th>
-<th style="text-align: left;">挙動</th>
+<th style="text-align: left;">結果</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;"><code>↑</code> / <code>↓</code></td>
-<td style="text-align: left;">候補を選択</td>
+<td style="text-align: left;">候補を選ぶ</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
-<td style="text-align: left;">選択中の候補を確定</td>
+<td style="text-align: left;">選択中の候補を入力する</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Esc</code></td>
@@ -548,114 +625,58 @@ hr {
 </tr>
 <tr>
 <td style="text-align: left;"><code>Ctrl+Space</code></td>
-<td style="text-align: left;">候補を表示</td>
+<td style="text-align: left;">候補をもう一度開く</td>
 </tr>
 <tr>
-<td style="text-align: left;">マウスクリック</td>
-<td style="text-align: left;">候補を確定</td>
+<td style="text-align: left;"><code>Shift+Tab</code></td>
+<td style="text-align: left;">選択中のお気に入り・履歴行の操作ボタンへ移動する</td>
 </tr>
 </tbody>
 </table></div>
-<p>field 補完は field 名だけを補完します。
-<code>title:alpha</code> のように <code>:</code> の後に検索語を入力している場合、field 補完は表示されません。</p>
-<h3 id="playlist--ref--table-のプレイリスト名補完"><code>playlist:</code> / <code>ref:</code> / <code>table:</code> のプレイリスト名補完</h3>
-<p>メイン譜面一覧、プレイリスト詳細、プレイログでは、<code>playlist:</code> / <code>ref:</code> / <code>table:</code> の検索語を入力すると、導入済みプレイリスト名が候補として表示されます。</p>
-<div class="highlight"><pre><span></span><code>playlist:Sat
-</code></pre></div>
-<p>上の例では <code>Satellite Sub</code> のようなプレイリスト名を候補として選べます。
-候補を確定すると、スペース、引用符、バックスラッシュ、<code>|</code> を含む名前だけが自動的にダブルクォートで囲まれます。</p>
-<div class="highlight"><pre><span></span><code>playlist:"Satellite Sub"
-ref:GENOSIDE
-table:GENOSIDE
-</code></pre></div>
-<h3 id="検索履歴">検索履歴</h3>
-<p>検索欄が空の状態でフォーカスしたとき、または <code>↓</code> を押したときに検索履歴が表示されます。
-履歴を選ぶと、検索欄全体がその検索文字列に置き換わります。</p>
-<p>履歴は以下のタイミングで保存されます。</p>
-<ul>
-<li><code>Enter</code> を押したとき</li>
-<li>検索欄からフォーカスが外れたとき</li>
-<li>履歴候補を選択したとき</li>
-</ul>
-<p>履歴は通常の検索欄とプレイリスト一覧の検索欄で別々に保存されます。
-保存件数はそれぞれ最大 20 件で、同じ検索文字列は重複せず、最後に使ったものが先頭に移動します。</p>
+<p>操作ボタンへ移動した後は、<code>Tab</code> / <code>Shift+Tab</code> でボタンを移動し、<code>Enter</code> または <code>Space</code> で実行できます。日本語入力の変換確定に使った <code>Enter</code> では候補は選択されません。</p>
 <hr/>
-<h2 id="基本検索">基本検索</h2>
-<p>検索語を入力すると、対象カラムのどこかにその文字列を含む行が表示されます。
-大文字・小文字は区別しません。</p>
+<h2 id="基本的な検索方法">基本的な検索方法</h2>
+<h3 id="文字をそのまま検索する">文字をそのまま検索する</h3>
+<p>検索語を入力すると、対象となる情報のどこかにその文字列を含む行が表示されます。大文字・小文字は区別しません。</p>
 <div class="highlight"><pre><span></span><code>alpha
 </code></pre></div>
-<p>複数の語をスペース区切りで入力した場合は、すべての語に一致する行だけが表示されます。</p>
+<p>複数の検索語を半角スペースで区切ると、すべての語に一致する行だけが表示されます。</p>
 <div class="highlight"><pre><span></span><code>alpha artist
 </code></pre></div>
-<p>上の例は <code>alpha</code> と <code>artist</code> の両方に一致する行を表示します。</p>
-<hr/>
-<h2 id="検索対象カラム">検索対象カラム</h2>
-<h3 id="メイン譜面一覧">メイン譜面一覧</h3>
-<p>通常検索では、以下が検索対象です。</p>
-<ul>
-<li>TITLE</li>
-<li>ARTIST</li>
-<li>GENRE</li>
-<li>TAG</li>
-<li>PATH</li>
-<li>PLAYLIST 列の表示記号</li>
-<li>MD5</li>
-<li>SHA256</li>
-</ul>
-<h3 id="プレイリスト詳細">プレイリスト詳細</h3>
-<p>通常検索では、メイン譜面一覧の対象に加えて、以下も検索対象です。</p>
-<ul>
-<li>memo</li>
-<li>comment</li>
-</ul>
-<h3 id="プレイリスト一覧">プレイリスト一覧</h3>
-<p>通常検索では、以下が検索対象です。</p>
-<ul>
-<li>playlist id</li>
-<li>name</li>
-<li>symbol</li>
-</ul>
-<h3 id="プレイログ">プレイログ</h3>
-<p>通常検索では、以下が検索対象です。</p>
-<ul>
-<li>TITLE</li>
-<li>ARTIST</li>
-<li>PATH</li>
-<li>FOLDER 列の表示ラベル</li>
-<li>参照プレイリスト名</li>
-<li>raw hash</li>
-<li>MD5</li>
-<li>SHA256</li>
-<li>TYPE</li>
-<li>score write type</li>
-<li>CLEAR</li>
-<li>source 名</li>
-<li>source path</li>
-<li>プレイ日付 (<code>yyyy-MM-dd</code>)</li>
-</ul>
-<p>プレイログでは、表示される列すべてが通常検索の対象になるわけではありません。BEST DJ、BEST RATE、BEST EXSCORE、BP、COMBO、OPTION、OP HISTORY、PLAY EXSCORE、JUDGES などは、現在は通常検索・field 指定検索の対象外です。</p>
-<hr/>
-<h2 id="カラム指定検索">カラム指定検索</h2>
-<p><code>field:keyword</code> の形で、検索対象を特定のカラムに限定できます。</p>
+<h3 id="検索対象を指定する">検索対象を指定する</h3>
+<p><code>検索対象:検索語</code> の形で、探す場所を限定できます。</p>
 <div class="highlight"><pre><span></span><code>title:alpha
 artist:xi
 sha256:abcdef
 </code></pre></div>
-<p><code>A:</code> から <code>Z:</code> / <code>a:</code> から <code>z:</code> で始まる token は Windows のドライブレターを含むパスとして扱い、field 指定にはしません。
-そのため、フルパスや drive-relative path は引用符なしでそのまま検索できます。</p>
-<div class="highlight"><pre><span></span><code>D:\BMS\
-D:
-</code></pre></div>
-<p>複数指定した場合は AND 検索です。</p>
+<p>複数の条件を並べると AND 検索になります。</p>
 <div class="highlight"><pre><span></span><code>title:alpha artist:xi
 </code></pre></div>
-<h3 id="メイン譜面一覧プレイリスト詳細で使える-field">メイン譜面一覧・プレイリスト詳細で使える field</h3>
+<p><code>D:\BMS\</code> のようなドライブ文字を含む文字列はパスとして検索できます。</p>
+<h3 id="スペースを含む文字列を検索する">スペースを含む文字列を検索する</h3>
+<p>スペースを含む文字列はダブルクォートで囲みます。</p>
+<div class="highlight"><pre><span></span><code>"alpha title"
+title:"alpha title"
+</code></pre></div>
+<h3 id="一致する行を除外する">一致する行を除外する</h3>
+<p>条件の先頭に <code>-</code> を付けます。</p>
+<div class="highlight"><pre><span></span><code>alpha -artist:beta
+-path:backup
+</code></pre></div>
+<h3 id="いずれかに一致する行を探す">いずれかに一致する行を探す</h3>
+<p>1つの条件の中で <code>|</code> を使います。</p>
+<div class="highlight"><pre><span></span><code>alpha|beta
+title:alpha|beta
+</code></pre></div>
+<p><code>title:alpha|artist:beta</code> のように、異なる検索対象をまたぐ OR 検索はできません。条件を分けて入力した場合は AND 検索になります。</p>
+<hr/>
+<h2 id="画面別に使える検索対象">画面別に使える検索対象</h2>
+<h3 id="メインの譜面一覧プレイリスト詳細">メインの譜面一覧・プレイリスト詳細</h3>
 <div class="table-scroll"><table>
 <thead>
 <tr>
-<th style="text-align: left;">field</th>
-<th style="text-align: left;">対象</th>
+<th style="text-align: left;">入力</th>
+<th style="text-align: left;">検索する情報</th>
 </tr>
 </thead>
 <tbody>
@@ -677,11 +698,11 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>path</code></td>
-<td style="text-align: left;">PATH</td>
+<td style="text-align: left;">ファイルやフォルダのパス</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
-<td style="text-align: left;">参照プレイリスト名。PLAYLIST 列の短い表示記号ではなく、ツールチップに表示されるフルのプレイリスト名を検索対象にします</td>
+<td style="text-align: left;">参照しているプレイリスト名</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>md5</code> / <code>hash</code></td>
@@ -693,35 +714,35 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>level</code></td>
-<td style="text-align: left;"><code>chart_info.level</code></td>
+<td style="text-align: left;">レベル</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>difficulty</code></td>
-<td style="text-align: left;"><code>chart_info.difficulty</code>。<code>beginner</code>, <code>normal</code>, <code>hyper</code>, <code>another</code>, <code>insane</code> も指定可</td>
+<td style="text-align: left;">難易度。<code>beginner</code>、<code>normal</code>、<code>hyper</code>、<code>another</code>、<code>insane</code> も利用できます</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>mainbpm</code></td>
-<td style="text-align: left;"><code>chart_info.mainbpm</code></td>
+<td style="text-align: left;">メインBPM</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>maxbpm</code></td>
-<td style="text-align: left;"><code>chart_info.maxbpm</code></td>
+<td style="text-align: left;">最大BPM</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>minbpm</code></td>
-<td style="text-align: left;"><code>chart_info.minbpm</code></td>
+<td style="text-align: left;">最小BPM</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>duration</code> / <code>length</code></td>
-<td style="text-align: left;">演奏時間。秒単位で指定</td>
+<td style="text-align: left;">演奏時間（秒）</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>judge</code> / <code>judge%</code> / <code>judgepct</code></td>
-<td style="text-align: left;">判定幅倍率。<code>judge</code> は <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, <code>veryeasy</code> も指定可</td>
+<td style="text-align: left;">判定幅。<code>veryhard</code>、<code>hard</code>、<code>normal</code>、<code>easy</code>、<code>veryeasy</code> も利用できます</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>feature</code></td>
-<td style="text-align: left;"><code>ln</code>, <code>mine</code>, <code>random</code>, <code>lnmode</code>, <code>cn</code>, <code>hcn</code>, <code>stop</code>, <code>scroll</code></td>
+<td style="text-align: left;">譜面の特徴。<code>ln</code>、<code>mine</code>、<code>random</code>、<code>lnmode</code>、<code>cn</code>、<code>hcn</code>、<code>stop</code>、<code>scroll</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>notes</code></td>
@@ -733,15 +754,15 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>scratch</code></td>
-<td style="text-align: left;">通常スクラッチ + ロングスクラッチ</td>
+<td style="text-align: left;">スクラッチ数</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>total</code></td>
-<td style="text-align: left;">TOTAL 有効値</td>
+<td style="text-align: left;">TOTAL値</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>tn</code> / <code>t/n</code></td>
-<td style="text-align: left;"><code>total / notes</code></td>
+<td style="text-align: left;">TOTAL値 ÷ ノーツ数</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>density</code></td>
@@ -749,11 +770,11 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>peak</code> / <code>peakdensity</code></td>
-<td style="text-align: left;">1 秒窓の最大密度</td>
+<td style="text-align: left;">最大密度</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>end</code> / <code>enddensity</code></td>
-<td style="text-align: left;">終盤密度</td>
+<td style="text-align: left;">終盤の密度</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>soflan</code></td>
@@ -761,15 +782,15 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>clear</code></td>
-<td style="text-align: left;">CLEAR。<code>NP</code>, <code>F</code>, <code>AE</code>, <code>LAE</code>, <code>EC</code>, <code>NC</code>, <code>HC</code>, <code>EXH</code>, <code>FC</code>, <code>PF</code>, <code>MAX</code> または表示名で指定可</td>
+<td style="text-align: left;">クリア状態</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>rank</code> / <code>djlevel</code> / <code>dj</code></td>
-<td style="text-align: left;">DJ LEVEL。<code>F</code>, <code>E</code>, <code>D</code>, <code>C</code>, <code>B</code>, <code>A</code>, <code>AA</code>, <code>AAA</code>, <code>MAX</code> を指定可</td>
+<td style="text-align: left;">DJ LEVEL</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>rate</code></td>
-<td style="text-align: left;">RATE。<code>rateDouble</code> の値で、<code>0.95</code> が 95% を表す</td>
+<td style="text-align: left;">RATE。95%は <code>0.95</code> と入力します</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>score</code></td>
@@ -785,15 +806,146 @@ D:
 </tr>
 <tr>
 <td style="text-align: left;"><code>memo</code></td>
-<td style="text-align: left;">memo。プレイリスト詳細のみ</td>
+<td style="text-align: left;">メモ（プレイリスト詳細のみ）</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>comment</code></td>
-<td style="text-align: left;">comment。プレイリスト詳細のみ</td>
+<td style="text-align: left;">コメント（プレイリスト詳細のみ）</td>
 </tr>
 </tbody>
 </table></div>
-<p>数値 field は範囲指定と比較演算を利用できます。</p>
+<p>検索対象を指定しない場合、メインの譜面一覧では TITLE、ARTIST、GENRE、TAG、PATH、プレイリストの表示記号、MD5、SHA256 を検索します。プレイリスト詳細では、さらにメモとコメントも検索します。</p>
+<h3 id="プレイリスト一覧">プレイリスト一覧</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">入力</th>
+<th style="text-align: left;">検索する情報</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>id</code></td>
+<td style="text-align: left;">プレイリストID</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>output</code></td>
+<td style="text-align: left;">出力先の表示名</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;">プレイリスト名</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>folder</code> / <code>foldername</code></td>
+<td style="text-align: left;">フォルダ名</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>prefix</code></td>
+<td style="text-align: left;">フォルダ接頭辞</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>symbol</code></td>
+<td style="text-align: left;">表示記号</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>header</code></td>
+<td style="text-align: left;">ヘッダーURL</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">データURL</td>
+</tr>
+</tbody>
+</table></div>
+<p>検索対象を指定しない場合は、表にあるすべての情報を検索します。</p>
+<p>入力中は検索対象の候補だけが表示され、検索値の候補は表示されません。</p>
+<h3 id="プレイログ">プレイログ</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">入力</th>
+<th style="text-align: left;">検索する情報</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>title</code></td>
+<td style="text-align: left;">TITLE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>artist</code></td>
+<td style="text-align: left;">ARTIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;">譜面のパス</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>folder</code></td>
+<td style="text-align: left;">FOLDER欄の表示名</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
+<td style="text-align: left;">参照しているプレイリスト名</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>md5</code></td>
+<td style="text-align: left;">MD5</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>hash</code></td>
+<td style="text-align: left;">履歴に記録されたハッシュ値。LR2ではMD5、beatorajaではSHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sha256</code></td>
+<td style="text-align: left;">SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;">プレイ日時</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>year</code></td>
+<td style="text-align: left;">プレイ年</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>month</code></td>
+<td style="text-align: left;">プレイ月。<code>2026-08</code>、<code>2026/08</code>、<code>8</code> など</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>type</code> / <code>kind</code></td>
+<td style="text-align: left;">更新の種類。<code>score</code>、<code>bp</code>、<code>clear</code>、<code>combo</code>、<code>play</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clear</code></td>
+<td style="text-align: left;">更新前または更新後のクリア状態</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>oldclear</code></td>
+<td style="text-align: left;">更新前のクリア状態</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newclear</code></td>
+<td style="text-align: left;">更新後のクリア状態</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>finalized</code></td>
+<td style="text-align: left;">確定済みかどうか。<code>true</code> または <code>false</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;">履歴の取得元名またはパス</td>
+</tr>
+</tbody>
+</table></div>
+<p>検索対象を指定しない場合は、TITLE、ARTIST、PATH、FOLDER欄、参照プレイリスト名、各ハッシュ値、TYPE、クリア状態、取得元、プレイ日付などを検索します。</p>
+<p>プレイログでは、<code>level</code>、<code>difficulty</code>、<code>notes</code>、<code>rank</code>、<code>rate</code>、<code>score</code>、<code>bp</code> など、譜面一覧用の検索対象は利用できません。</p>
+<p>上部のサマリーカードと検索欄は組み合わせて利用できます。たとえば SCORE 更新カードを選んだ状態は <code>type:score</code>、EASY カードは <code>type:clear newclear:EC</code> に相当します。検索欄の条件とは AND、複数のカード同士は OR で絞り込まれます。</p>
+<hr/>
+<h2 id="数値状態日付で絞り込む">数値・状態・日付で絞り込む</h2>
+<h3 id="数値を比較する">数値を比較する</h3>
+<p>数値を扱う検索対象では、範囲や比較演算子を利用できます。</p>
 <div class="highlight"><pre><span></span><code>level:10..12
 notes:&gt;=2000
 duration:&lt;120
@@ -801,24 +953,70 @@ tn:2.0..
 rate:0.95..
 bp:0..10
 </code></pre></div>
-<p><code>defined</code> / <code>undefined</code> も利用できます。<code>undefined</code> は <code>undef</code> / <code>null</code> とも書けます。<code>chart_info</code> が未構築の場合や、<code>level</code> が NULL の場合、<code>difficulty_defined=false</code> / <code>total_defined=false</code> の場合は <code>undefined</code> に一致します。数値のスコア系 field ではスコア未取得などで値がない場合に <code>undefined</code> に一致します。<code>rank</code> は DJ LEVEL が空の場合に <code>undefined</code> に一致します。<code>clear</code> は <code>NO SONG</code> / <code>NO PLAY</code> も CLEAR 種別として扱うため、常に <code>defined</code> に一致します。</p>
+<ul>
+<li><code>10..12</code>: 10以上12以下</li>
+<li><code>&gt;=2000</code>: 2000以上</li>
+<li><code>&lt;120</code>: 120未満</li>
+<li><code>2.0..</code>: 2.0以上</li>
+</ul>
+<h3 id="情報の有無を検索する">情報の有無を検索する</h3>
+<p>値が登録されている行は <code>defined</code>、登録されていない行は <code>undefined</code> で検索できます。<code>undefined</code> は <code>undef</code> と書くこともできます。</p>
 <div class="highlight"><pre><span></span><code>total:undefined
-total:undef
-total:null
 difficulty:defined
--feature:random
 score:defined
 rank:undefined
 </code></pre></div>
-<p><code>clear</code> は CLEAR 種別の完全一致です。表示名に加えて、以下の短縮表現を利用できます。</p>
+<p>譜面解析やスコアの情報がまだない場合は <code>undefined</code> に一致します。メインの譜面一覧とプレイリスト詳細では、<code>clear</code> は NO SONG や NO PLAY も1つの状態として扱うため、<code>clear:undefined</code> には一致しません。プレイログの <code>clear:defined</code> は、更新後のクリア状態が記録されている行を表示します。</p>
+<h3 id="候補から選べる主な検索値">候補から選べる主な検索値</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">検索対象</th>
+<th style="text-align: left;">主な検索値</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>difficulty</code></td>
+<td style="text-align: left;"><code>beginner</code>、<code>normal</code>、<code>hyper</code>、<code>another</code>、<code>insane</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>judge</code></td>
+<td style="text-align: left;"><code>veryhard</code>、<code>hard</code>、<code>normal</code>、<code>easy</code>、<code>veryeasy</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>feature</code></td>
+<td style="text-align: left;"><code>ln</code>、<code>mine</code>、<code>random</code>、<code>lnmode</code>、<code>cn</code>、<code>hcn</code>、<code>stop</code>、<code>scroll</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rank</code> / <code>djlevel</code> / <code>dj</code></td>
+<td style="text-align: left;"><code>F</code>、<code>E</code>、<code>D</code>、<code>C</code>、<code>B</code>、<code>A</code>、<code>AA</code>、<code>AAA</code>、<code>MAX</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">プレイログの <code>type</code> / <code>kind</code></td>
+<td style="text-align: left;"><code>score</code>、<code>bp</code>、<code>clear</code>、<code>combo</code>、<code>play</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">プレイログの <code>finalized</code></td>
+<td style="text-align: left;"><code>true</code>、<code>false</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>値の有無を検索できる対象では、これらに加えて <code>defined</code> と <code>undefined</code> も候補に表示されます。</p>
+<h3 id="クリア状態を検索する">クリア状態を検索する</h3>
+<p><code>clear</code>、<code>oldclear</code>、<code>newclear</code> では表示名のほか、次の短縮表現を利用できます。</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
 <th style="text-align: left;">入力</th>
-<th style="text-align: left;">対象</th>
+<th style="text-align: left;">クリア状態</th>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td style="text-align: left;"><code>nosong</code></td>
+<td style="text-align: left;">NO SONG</td>
+</tr>
 <tr>
 <td style="text-align: left;"><code>NP</code></td>
 <td style="text-align: left;">NO PLAY</td>
@@ -865,274 +1063,73 @@ rank:undefined
 </tr>
 </tbody>
 </table></div>
-<h3 id="プレイリスト一覧で使える-field">プレイリスト一覧で使える field</h3>
-<div class="table-scroll"><table>
-<thead>
-<tr>
-<th style="text-align: left;">field</th>
-<th style="text-align: left;">対象</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: left;"><code>id</code></td>
-<td style="text-align: left;">playlist id</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>name</code></td>
-<td style="text-align: left;">name</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>folder</code> / <code>foldername</code></td>
-<td style="text-align: left;">フォルダ名</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>prefix</code></td>
-<td style="text-align: left;">フォルダ接頭辞</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>symbol</code></td>
-<td style="text-align: left;">symbol</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>header</code></td>
-<td style="text-align: left;">解決済み header URI</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>data</code></td>
-<td style="text-align: left;">解決済み data URI</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="プレイログで使える-field">プレイログで使える field</h3>
-<p>プレイログでは、譜面一覧・プレイリスト詳細とは別の field が使われます。</p>
-<div class="table-scroll"><table>
-<thead>
-<tr>
-<th style="text-align: left;">field</th>
-<th style="text-align: left;">対象</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: left;"><code>title</code></td>
-<td style="text-align: left;">TITLE</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>artist</code></td>
-<td style="text-align: left;">ARTIST</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>path</code></td>
-<td style="text-align: left;">PATH</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>folder</code></td>
-<td style="text-align: left;">FOLDER 列の表示ラベル</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
-<td style="text-align: left;">参照プレイリスト名。FOLDER 列の短い表示ラベルではなく、解決されたプレイリスト名を検索対象にします</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>md5</code></td>
-<td style="text-align: left;">MD5。beatoraja 履歴では、所持譜面などから MD5 を解決できた場合だけ値があります</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>hash</code></td>
-<td style="text-align: left;">raw hash。LR2 では記録元の MD5、beatoraja では記録元の SHA256 を検索対象にします</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>sha256</code></td>
-<td style="text-align: left;">SHA256</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>date</code></td>
-<td style="text-align: left;">プレイ日付。<code>yyyy-MM-dd</code>, <code>yyyy/M/d</code>, <code>yyyy/MM/dd</code>, <code>yyyyMMdd</code> を指定可</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>year</code></td>
-<td style="text-align: left;">プレイ年。例: <code>2026</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>month</code></td>
-<td style="text-align: left;">プレイ月。<code>yyyy-MM</code>, <code>yyyy/MM</code>, または <code>1</code> から <code>12</code> を指定可</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>type</code> / <code>kind</code></td>
-<td style="text-align: left;">TYPE と score write type。<code>type</code> が主名で、<code>kind</code> は互換エイリアスです。例: <code>score</code>, <code>bp</code>, <code>clear</code>, <code>combo</code>, <code>play</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>clear</code></td>
-<td style="text-align: left;">更新前または更新後の CLEAR。通常の <code>clear:</code> と同じ短縮表現を指定可</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>oldclear</code></td>
-<td style="text-align: left;">更新前の CLEAR。通常の <code>clear:</code> と同じ短縮表現を指定可</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>newclear</code></td>
-<td style="text-align: left;">更新後の CLEAR。通常の <code>clear:</code> と同じ短縮表現を指定可</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>finalized</code></td>
-<td style="text-align: left;">確定済みかどうか。<code>true</code>, <code>1</code>, <code>yes</code>, <code>y</code>, <code>finalized</code> / <code>false</code>, <code>0</code>, <code>no</code>, <code>n</code>, <code>unfinalized</code>, <code>pending</code> を指定可</td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>source</code></td>
-<td style="text-align: left;">source 名と source path</td>
-</tr>
-</tbody>
-</table></div>
-<p>プレイログの <code>date</code> / <code>year</code> / <code>month</code> / <code>clear</code> / <code>oldclear</code> / <code>newclear</code> / <code>finalized</code> は専用判定です。<code>level:10..12</code> のような範囲指定や比較演算は使いません。
-プレイログの <code>clear:defined</code> は、更新後 CLEAR がある行に一致します。譜面一覧・プレイリスト詳細の <code>clear</code> は <code>NO SONG</code> / <code>NO PLAY</code> も CLEAR 種別として扱うため常に <code>defined</code> ですが、プレイログでは意味が異なります。
-上部サマリーカードのクリック絞り込みも、この検索 field を内部的に使います。たとえば SCORE 更新カードは <code>type:score</code>、EASY カードは <code>type:clear newclear:EC</code> 相当の条件として、検索欄の条件と AND で適用されます。複数カードを選んだ場合、カード同士は OR で扱われます。
-また、プレイログでは <code>level</code>、<code>difficulty</code>、<code>notes</code>、<code>rank</code>、<code>rate</code>、<code>score</code>、<code>bp</code> など、譜面一覧・プレイリスト詳細用の field は使えません。未知の field として扱われます。</p>
+<div class="highlight"><pre><span></span><code>clear:HC
+oldclear:NC newclear:HC
+</code></pre></div>
+<h3 id="プレイ日時を検索する">プレイ日時を検索する</h3>
+<p>プレイログでは、日付、日時、期間を指定できます。</p>
+<p>特定の日時を探す場合は、DATE欄の表示をコピーし、ダブルクォートで囲んで先頭に <code>date:</code> を付ける方法が簡単です。</p>
+<div class="highlight"><pre><span></span><code>date:2026-08-27
+date:2026/8/27
+date:20260827
+date:"2026/08/27 10:22:50"
+date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
+</code></pre></div>
+<p>期間検索では、開始日時と終了日時のプレイも結果に含まれます。</p>
+<p>プレイログで2行以上を選択して右クリックし、［検索に期間を追加］を選ぶと、選択した最も早い日時から最も遅い日時までの条件を検索欄へ追加できます。すでに入力してある条件は残ります。</p>
 <hr/>
-<h2 id="フレーズ検索">フレーズ検索</h2>
-<p>スペースを含む文字列を 1 つの検索語として扱いたい場合は、ダブルクォートで囲みます。</p>
-<div class="highlight"><pre><span></span><code>"alpha title"
-title:"alpha title"
+<h2 id="高度な検索">高度な検索</h2>
+<h3 id="正規表現">正規表現</h3>
+<p><code>re:</code> に続けて正規表現を入力します。検索対象や除外条件とも組み合わせられます。</p>
+<div class="highlight"><pre><span></span><code>re:^alpha
+title:re:^alpha
+-title:re:^test
+path:re:\\BMS\\.*\.bms$
 </code></pre></div>
-<p>未閉じのクォートは、入力末尾までをフレーズとして扱います。</p>
-<div class="highlight"><pre><span></span><code>"alpha title
-</code></pre></div>
-<p>上の例は <code>"alpha title"</code> とほぼ同じ意味になります。</p>
-<h3 id="クォート内のエスケープ">クォート内のエスケープ</h3>
-<p>クォート内では、以下だけが特別にエスケープされます。</p>
-<div class="table-scroll"><table>
-<thead>
-<tr>
-<th style="text-align: left;">入力</th>
-<th style="text-align: left;">意味</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: left;"><code>\"</code></td>
-<td style="text-align: left;"><code>"</code></td>
-</tr>
-<tr>
-<td style="text-align: left;"><code>\\</code></td>
-<td style="text-align: left;"><code>\</code></td>
-</tr>
-</tbody>
-</table></div>
-<p>例:</p>
+<p>正規表現は大文字・小文字を区別しません。処理に時間がかかりすぎる式は途中で停止し、その条件には一致しなかったものとして扱われます。</p>
+<h3 id="ダブルクォート内で--や--を検索する">ダブルクォート内で <code>"</code> や <code>\</code> を検索する</h3>
+<p>ダブルクォート内では、<code>\"</code> で <code>"</code>、<code>\\</code> で <code>\</code> を表します。</p>
 <div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""
 </code></pre></div>
+<p>通常の文字列検索では、閉じるダブルクォートを省略すると、入力の末尾までが1つの検索語として扱われます。<code>date:</code> で日時や期間を囲む場合は、閉じるダブルクォートも入力してください。</p>
 <hr/>
-<h2 id="除外検索">除外検索</h2>
-<p>検索語の先頭に <code>-</code> を付けると、その条件に一致する行を除外します。</p>
-<div class="highlight"><pre><span></span><code>alpha -artist:beta
-</code></pre></div>
-<p>上の例は、<code>alpha</code> に一致し、かつ ARTIST に <code>beta</code> を含まない行を表示します。</p>
-<p>field 指定やフレーズ検索、正規表現とも組み合わせられます。</p>
-<div class="highlight"><pre><span></span><code>-title:"old version"
--path:backup
--title:re:^test
-</code></pre></div>
-<p><code>foo-bar</code> のように先頭以外にある <code>-</code> は通常の文字として扱います。</p>
-<hr/>
-<h2 id="or-検索">OR 検索</h2>
-<p>1 つの検索語の中で <code>|</code> を使うと OR 検索になります。</p>
-<div class="highlight"><pre><span></span><code>alpha|beta
-</code></pre></div>
-<p>上の例は、<code>alpha</code> または <code>beta</code> に一致する行を表示します。</p>
-<p>field 指定と組み合わせた場合、OR はその field の中だけで評価されます。</p>
-<div class="highlight"><pre><span></span><code>title:alpha|beta
-title:"alpha title"|beta
-</code></pre></div>
-<p>上の例は、TITLE に <code>alpha</code> または <code>beta</code> が含まれる行を表示します。</p>
-<h3 id="or-の注意点">OR の注意点</h3>
-<p><code>title:alpha|artist:beta</code> のような「カラムをまたいだ OR」は扱いません。
-この場合、<code>artist:beta</code> は TITLE 内で探す文字列として扱われます。</p>
-<p>空の候補は無視されます。</p>
-<div class="highlight"><pre><span></span><code>alpha|
-|alpha
-alpha||beta
-</code></pre></div>
-<p>すべての候補が空の場合は不正な条件として扱われ、何にも一致しません。</p>
-<hr/>
-<h2 id="正規表現検索">正規表現検索</h2>
-<p><code>re:pattern</code> で正規表現検索ができます。</p>
-<div class="highlight"><pre><span></span><code>re:^alpha
-</code></pre></div>
-<p>field 指定と組み合わせる場合は、<code>field:re:pattern</code> と書きます。</p>
-<div class="highlight"><pre><span></span><code>title:re:^alpha
-path:re:\\BMS\\.*\\.bms$
-</code></pre></div>
-<p>除外条件としても使えます。</p>
-<div class="highlight"><pre><span></span><code>-title:re:^test
-</code></pre></div>
-<p>正規表現は大文字・小文字を区別せず、カルチャ非依存で評価されます。</p>
-<h3 id="正規表現のタイムアウト">正規表現のタイムアウト</h3>
-<p>正規表現には暴走対策として、1 条件あたり 100ms のタイムアウトがあります。
-非常に重い正規表現は途中で打ち切られ、その条件は一致しなかったものとして扱われます。</p>
-<hr/>
-<h2 id="不正な構文の扱い">不正な構文の扱い</h2>
-<p>不正な条件は、エラー表示を出さずに「一致しない条件」として扱われます。
-そのため、AND 検索の中に不正な条件が含まれると、結果が 0 件になることがあります。</p>
-<p>不正扱いになる例:</p>
-<div class="highlight"><pre><span></span><code>unknown:alpha
-title:
--
-|
-title:re:[
-</code></pre></div>
+<h2 id="警告が表示される結果が0件になる場合">警告が表示される・結果が0件になる場合</h2>
+<p>次のような条件は警告の対象となり、検索結果には一致しません。</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
-<th style="text-align: left;">例</th>
-<th style="text-align: left;">理由</th>
+<th style="text-align: left;">入力例</th>
+<th style="text-align: left;">確認すること</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;"><code>unknown:alpha</code></td>
-<td style="text-align: left;">未知の field</td>
+<td style="text-align: left;">その画面で利用できる検索対象か</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>title:</code></td>
-<td style="text-align: left;">field 指定の検索語が空</td>
+<td style="text-align: left;"><code>:</code> の後に検索語があるか</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>-</code></td>
-<td style="text-align: left;">除外条件の中身が空</td>
+<td style="text-align: left;"><code>-</code> の後に除外条件があるか</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>\|</code></td>
-<td style="text-align: left;">OR の候補がすべて空</td>
+<td style="text-align: left;"><code>|</code></td>
+<td style="text-align: left;"><code>|</code> の前後に検索語があるか</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>title:re:[</code></td>
-<td style="text-align: left;">正規表現として不正</td>
+<td style="text-align: left;">正規表現が正しいか</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date:2026-99-99</code></td>
+<td style="text-align: left;">日付の書式が正しいか</td>
 </tr>
 </tbody>
 </table></div>
-<p><code>:alpha</code> のように field 名が空の場合は、field 指定ではなく通常の検索語として扱われます。
-つまり、文字列 <code>:alpha</code> を含む行を探します。</p>
-<hr/>
-<h2 id="よく使う例">よく使う例</h2>
-<p>TITLE と ARTIST の両方で絞り込む:</p>
-<div class="highlight"><pre><span></span><code>title:alpha artist:xi
-</code></pre></div>
-<p>MD5 または SHA256 の一部で探す:</p>
-<div class="highlight"><pre><span></span><code>md5:abcdef
-sha256:123456
-</code></pre></div>
-<p>プレイリスト詳細で memo を検索する:</p>
-<div class="highlight"><pre><span></span><code>memo:"favorite chart"
-</code></pre></div>
-<p>バックアップフォルダを除外する:</p>
-<div class="highlight"><pre><span></span><code>-path:backup
-</code></pre></div>
-<p>TITLE が <code>alpha</code> で始まる譜面を探す:</p>
-<div class="highlight"><pre><span></span><code>title:re:^alpha
-</code></pre></div>
-<p>TITLE に <code>alpha</code> または <code>beta</code> を含み、ARTIST に <code>test</code> を含まない譜面を探す:</p>
-<div class="highlight"><pre><span></span><code>title:alpha|beta -artist:test
-</code></pre></div>
+<p>検索対象は画面ごとに異なります。迷った場合は検索欄を空にし、［検索対象］に表示される候補から選んでください。</p>
     </main>
   </div>
 </body>

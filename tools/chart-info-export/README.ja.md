@@ -57,7 +57,7 @@ dotnet run --project tools/chart-info-export -- `
 metadata 同梱版 package は `scripts\publish.ps1` で作成します。
 
 ```powershell
-.\scripts\publish.ps1 -PackageOnly -IncludeMetadata
+.\scripts\publish.ps1 -IncludeMetadata
 ```
 
 既定では以下の metadata archive を同梱します。

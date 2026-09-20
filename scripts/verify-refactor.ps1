@@ -1455,7 +1455,7 @@ function Invoke-CurrentDistributionPublish {
     Invoke-VerificationPhaseCommand `
         -Label 'Current distribution publish' `
         -CommandPath 'pwsh' `
-        -Arguments @('-NoProfile', '-File', $publishScript, '-PackageOnly', '-SkipDocHtml', '-ArtifactRoot', $ArtifactRoot) `
+        -Arguments @('-NoProfile', '-File', $publishScript, '-SkipDocHtml', '-ArtifactRoot', $ArtifactRoot) `
         -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish') `
         -DeadlinePolicy $DeadlinePolicy
 

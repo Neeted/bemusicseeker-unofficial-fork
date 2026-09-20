@@ -490,9 +490,7 @@ hr {
 <h2 id="overview">Overview</h2>
 <p>This project is an unofficial fork created by decompiling, modifying, and rebuilding <code>BeMusicSeeker.exe</code> bundled with <code>Sayaka / 黒皇帝</code>'s <a href="https://github.com/SayakaIsBaka/BeMusicSeeker-installer">BeMusicSeeker-installer</a>.</p>
 <p>This fork was not made with direct permission from the original binary author, <a href="https://x.com/rib_2_bit"><code>@rib_2_bit</code></a>. However, because the original binary was distributed under the MIT License, we believe creating and publishing this derivative version is permissible.</p>
-<p><strong>Important note about this repository</strong></p>
-<p>To the best of our knowledge, the original source code has never been published. This project also does not publish most of the decompiled source code.
-In practice, this repository is maintained as a distribution point for modified release packages and as a public archive for newly created scripts and patch-style code added by this fork.</p>
+<p>This repository publishes the application source reconstructed from decompilation and subsequently modified, along with tests, development history, and releases. Development takes place on <code>dev</code>; <code>main</code> contains officially released code and published data. To use the application, download a package from <a href="https://github.com/Neeted/bemusicseeker-unofficial-fork/releases">Releases</a>.</p>
 <h2 id="installation">Installation</h2>
 <p>For first-time setup, operating modes, and screen-by-screen usage, see the <a href="manual.html">User Manual</a>.</p>
 <ol>
@@ -555,15 +553,15 @@ In practice, this repository is maintained as a distribution point for modified 
    - Should md5 values that could not be uploaded, for example because the chart was too large, be stored locally? Otherwise they may remain in the unregistered list indefinitely.
    - The approach used by <a href="https://github.com/Neeted/bms-score-uploader">bms-score-uploader</a> seems like a good reference.</li>
 <li>Download LR2IR rival data, import it into <code>song.db</code>, and create WIN/LOSE folders per difficulty table</li>
-<li>Clear lamp viewer</li>
 <li>Course content display and ordering editor</li>
 <li>Replace hardcoded URLs that are now broken</li>
 <li>Consolidation feature for duplicate <code>.wav</code> and <code>.ogg</code> files</li>
 </ol>
+
 <h2 id="license-scope">License Scope</h2>
-<p>First-party source code newly created and published in this repository, such as scripts, is distributed under the <strong>MIT License</strong>, following the original binary.</p>
+<p>The project's first-party source code is distributed under the <strong>MIT License</strong>, following the original binary. External components and third-party chart data included in tests remain subject to their respective rights holders' terms.</p>
 <ul>
-<li><strong>New first-party code, including public scripts</strong>: MIT License. See <a href="LICENSE"><code>LICENSE</code></a>.</li>
+<li><strong>Project source code</strong>: MIT License. See <a href="LICENSE"><code>LICENSE</code></a>.</li>
 <li><strong>Third-party binaries, fonts, SDKs, and similar components</strong>: These bundled external components are governed by the licenses and terms of their respective providers.</li>
 <li>If terms conflict, the provider's license and notices take precedence for that component.</li>
 </ul>
@@ -574,7 +572,7 @@ In practice, this repository is maintained as a distribution point for modified 
 </ul>
 <h3 id="important-notice-about-bass">Important Notice About BASS</h3>
 <p>The release package includes <code>BASS</code>-related audio components that are outside the scope of the MIT License.
-These binaries are not open source. Commercial use requires an appropriate commercial license from the provider, such as un4seen. Non-commercial personal use may be allowed as freeware in some cases, but you must always comply with the official license terms of native BASS and the <code>Bass.Net</code> wrapper.</p>
+These native binaries are not open source. The current release is non-commercial, non-revenue end-user software and is classified GREEN for the BASS core and official add-ons, BASSASIO, and BASS_FX under their upstream terms. BASS_FX is a third-party add-on attributed to JOBnik / Arthur Aminov. If a future release becomes commercial or monetized, review the applicable upstream terms before distribution; that future trigger is not a current YELLOW condition. The ManagedBass bindings are MIT licensed; see the third-party notices for the separate terms.</p>
     </main>
   </div>
 </body>
