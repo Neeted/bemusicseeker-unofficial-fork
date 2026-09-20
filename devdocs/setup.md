@@ -129,6 +129,6 @@ pwsh -NoProfile -File .\native\EverythingBridge\build-x64.ps1 -Configuration Rel
 
 ## 開発を始める
 
-`dev` を更新してから作業ブランチを作ります。例えば `git switch dev`、`git pull --ff-only`、`git switch -c codex/変更内容` の順に実行します。GitHubの既定ブランチは `main` なので、通常のプルリクエストでは対象を `dev` に変更してください。正式リリース、緊急修正、TSVだけの更新は[ブランチ運用とリリース手順](spec/development/release.md)に従います。
+`dev` を更新してから作業ブランチを作ります。例えば `git switch dev`、`git pull --ff-only`、`git switch -c codex/変更内容` の順に実行します。GitHubの既定ブランチと通常のプルリクエストの対象は `dev` です。報告・提案・PRの手順は[開発への参加方針](../CONTRIBUTING.md)、正式リリース、緊急修正、TSVだけの更新は[ブランチ運用とリリース手順](spec/development/release.md)を参照してください。
 
 仕様や担当領域の入口は[開発資料の案内](README.md)です。反復中の対象確認、通常の最終検証、配布・更新の検証の使い分けは[テスト検証](spec/development/testing.md)を正本とします。本書では検証ルールを重複して定義しません。

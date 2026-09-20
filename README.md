@@ -87,7 +87,7 @@ These are rough notes. Priority is mixed, and completed items are removed over t
 
 ## Contributing
 
-To prepare a Windows 11 development environment and start contributing, see the [development setup guide (Japanese)](devdocs/setup.md). Create working branches from `dev` and target `dev` for normal pull requests. Follow the [branch and release workflow (Japanese)](devdocs/spec/development/release.md).
+For bug reports, proposals, and pull requests, see the [contributing guidelines (Japanese)](CONTRIBUTING.md). To prepare a Windows 11 development environment, see the [development setup guide (Japanese)](devdocs/setup.md). Normal pull requests target `dev`.
 
 </div>
 
