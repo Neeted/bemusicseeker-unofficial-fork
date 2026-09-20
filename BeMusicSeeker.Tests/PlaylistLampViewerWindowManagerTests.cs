@@ -448,8 +448,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                                 if (prepareWindowPresentation)
                                 {
                                     presentationScope.PrepareForOwnedPresentation(
-                                        window,
-                                        TestWindowActivation.NonActivating);
+                                        window);
                                 }
                                 fixture?.RecordPreparedWindow(window);
                             },

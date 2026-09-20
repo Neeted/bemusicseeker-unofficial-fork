@@ -272,7 +272,7 @@ public sealed class UiDialogCoordinatorWpfTests
             ownerResolver ?? new UiDialogOwnerResolver(),
             window =>
             {
-                windowTest.PrepareForOwnedPresentation(window, TestWindowActivation.NonActivating);
+                windowTest.PrepareForOwnedPresentation(window);
                 return UiDialogOwnerResolver.PushActiveModal(window);
             },
             messagePresenter ?? ((owner, request) =>

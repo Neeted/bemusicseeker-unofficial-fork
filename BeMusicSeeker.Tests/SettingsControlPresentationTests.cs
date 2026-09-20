@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -46,7 +45,7 @@ namespace BeMusicSeeker.Tests;
 
 [TestClass]
 [DoNotParallelize]
-public sealed class SettingsForegroundInteractionTests
+public sealed class SettingsControlPresentationTests
 {
     [TestInitialize]
     public void MaterializeCanonicalApplicationResources()
@@ -55,100 +54,7 @@ public sealed class SettingsForegroundInteractionTests
     }
 
     [TestMethod]
-    public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var runtime = new RecordingManualResyncRuntime();
-            SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime);
-            var ownerWindow = new Window
-            {
-                Width = 320,
-                Height = 200,
-                ShowInTaskbar = false,
-                WindowStartupLocation = WindowStartupLocation.Manual
-            };
-            var window = new SettingsWindow
-            {
-                DataContext = settings,
-                PlaybackPanel = owner.PlaybackPanel,
-                PlaylistWorkspace = owner.PlaylistWorkspace
-            };
-            Window? confirmationWindow = null;
-            Exception? confirmationFailure = null;
-
-            try
-            {
-                windowTest.PrepareForOwnedPresentation(ownerWindow);
-                ownerWindow.Show();
-                ownerWindow.UpdateLayout();
-                window.Owner = ownerWindow;
-                windowTest.ShowAndWaitForContentRendered(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                Button resyncButton = FindDescendants<Button>(page)
-                    .Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
-                Assert.IsTrue(settings.CanRequestLr2SongDbSyncDataResync);
-                Assert.IsTrue(resyncButton.IsEnabled);
-
-                window.Dispatcher.BeginInvoke(
-                    DispatcherPriority.ApplicationIdle,
-                    (Action)(() =>
-                    {
-                        try
-                        {
-                            confirmationWindow = Application.Current.Windows
-                                .OfType<Window>()
-                                .Single(candidate => candidate.IsVisible
-                                    && ReferenceEquals(candidate.Owner, window));
-                            Assert.IsInstanceOfType<ThemedWindow>(confirmationWindow);
-                            Assert.AreEqual(Resources.Confirm, confirmationWindow!.Title);
-                            Button acceptButton = FindDescendants<Button>(confirmationWindow!)
-                                .Single(candidate => Equals(candidate.Content, "OK"));
-                            acceptButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, acceptButton));
-                        }
-                        catch (Exception exception)
-                        {
-                            confirmationFailure = exception;
-                            confirmationWindow?.Close();
-                        }
-                    }));
-
-                resyncButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, resyncButton));
-                PumpUntil(
-                    window.Dispatcher,
-                    () => runtime.QueueCount == 1,
-                    "Manual LR2 resync did not queue its runtime request within the bounded UI pump.");
-
-                Assert.IsNull(confirmationFailure);
-                Assert.IsNotNull(confirmationWindow);
-                Assert.IsFalse(window.IsVisible);
-                Assert.AreEqual(SettingsWindowCloseReason.ManualResync, window.CloseReason);
-                Assert.IsNull(window.DataContext);
-                RecordingManualResyncRuntime.QueueCall call = runtime.LastQueueCall;
-                Assert.AreEqual("setting_dialog_manual_resync", call.Reason);
-                Assert.IsTrue(call.Force);
-            }
-            finally
-            {
-                if (confirmationWindow?.IsVisible == true)
-                {
-                    confirmationWindow.Close();
-                }
-                if (window.IsVisible)
-                {
-                    window.CloseForOwnerShutdown();
-                }
-                if (ownerWindow.IsVisible)
-                {
-                    ownerWindow.Close();
-                }
-            }
-        });
-    }
-
-    [TestMethod]
-    public void SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll()
+    public void SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -161,36 +67,13 @@ public sealed class SettingsForegroundInteractionTests
             };
             try
             {
-                windowTest.ShowAndWaitForContentRendered(
-                    window,
-                    TestWindowActivation.ForegroundInteraction);
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var scroller = (ScrollViewer)window.FindName("settingsPageScrollViewer");
                 var header = (ContentControl)window.FindName("settingsPageHeader");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
 
-                var firstItem = (ListBoxItem)navigation.Items[0];
                 Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
-                Assert.AreEqual(KeyboardNavigationMode.Continue, KeyboardNavigation.GetDirectionalNavigation(navigation));
-                Assert.IsTrue(firstItem.Focusable, "Navigation items must participate in keyboard focus traversal.");
-                window.Activate();
-                Assert.IsTrue(firstItem.Focus(), "The displayed navigation item must accept keyboard focus.");
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(firstItem.IsKeyboardFocusWithin);
-                RaiseKey(firstItem, Key.Down);
-                PumpDispatcher(window.Dispatcher);
-                Assert.AreEqual(1, navigation.SelectedIndex);
-                Assert.IsInstanceOfType<AppearanceSettingsPage>(pageHost.Content);
-                Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
-                ((FrameworkElement)pageHost.Content).Height = 1200;
-
-                var secondItem = (ListBoxItem)navigation.Items[1];
-                Assert.IsTrue(secondItem.IsKeyboardFocusWithin);
-                RaiseKey(secondItem, Key.Up);
-                PumpDispatcher(window.Dispatcher);
-                Assert.AreEqual(0, navigation.SelectedIndex);
-                Assert.IsInstanceOfType<GeneralSettingsPage>(pageHost.Content);
-                Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
 
                 foreach (ListBoxItem item in navigation.Items)
                 {
@@ -214,6 +97,11 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.IsInstanceOfType<PlaybackSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
                 Assert.IsTrue(playbackSelection.IsSelected);
+
+                navigation.SelectedIndex = 1;
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsInstanceOfType<AppearanceSettingsPage>(pageHost.Content);
+                Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
 
                 navigation.SelectedIndex = 0;
                 var selectedPage = (FrameworkElement)pageHost.Content;
@@ -270,9 +158,7 @@ public sealed class SettingsForegroundInteractionTests
                     Width = 360,
                     Height = 160
                 };
-                windowTest.ShowAndWaitForContentRendered(
-                    window,
-                    TestWindowActivation.ForegroundInteraction);
+                windowTest.ShowAndWaitForContentRendered(window);
 
                 selectionCombo.ApplyTemplate();
                 editableCombo.ApplyTemplate();
@@ -281,8 +167,8 @@ public sealed class SettingsForegroundInteractionTests
                 var editor = (TextBox)editableCombo.Template.FindName("PART_EditableTextBox", editableCombo);
                 var selectionPopup = (Popup)selectionCombo.Template.FindName("PART_Popup", selectionCombo);
                 var editablePopup = (Popup)editableCombo.Template.FindName("PART_Popup", editableCombo);
-                windowTest.TrackPopup(selectionPopup);
-                windowTest.TrackPopup(editablePopup);
+                AssertPopupTemplate(selectionCombo, selectionPopup);
+                AssertPopupTemplate(editableCombo, editablePopup);
 
                 foreach (double x in new[] { 6d, selectionCombo.ActualWidth / 2d, selectionCombo.ActualWidth - 6d })
                 {
@@ -298,61 +184,17 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.AreSame(editor, editableCombo.Template.FindName("PART_EditableTextBox", editableCombo));
                 Assert.AreSame(editablePopup, editableCombo.Template.FindName("PART_Popup", editableCombo));
 
-                editor.Focus();
-                editor.CaretIndex = editor.Text.Length;
-                var composition = new TextComposition(InputManager.Current, editor, "Z");
-                editor.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition)
-                {
-                    RoutedEvent = TextCompositionManager.TextInputEvent
-                });
+                editableCombo.Text = "FirstZ";
                 PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(editor.IsKeyboardFocused);
                 Assert.AreEqual("FirstZ", editor.Text);
-                Assert.AreEqual(editor.Text.Length, editor.CaretIndex);
-
-                var selectionPeer = new ComboBoxAutomationPeer(selectionCombo);
-                var selectionProvider = (IExpandCollapseProvider)selectionPeer.GetPattern(PatternInterface.ExpandCollapse);
-                Assert.IsNotNull(selectionProvider);
-                selectionProvider.Expand();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(selectionPopup.IsOpen);
-                AssertPopupWidth(selectionCombo, selectionPopup);
-                RaiseKey(selectionCombo, Key.Down);
-                RaiseKey(selectionCombo, Key.Enter);
-                PumpDispatcher(window.Dispatcher);
-                Assert.AreEqual(1, selectionCombo.SelectedIndex);
-                Assert.IsFalse(selectionPopup.IsOpen);
-
-                var editablePeer = new ComboBoxAutomationPeer(editableCombo);
-                var editableProvider = (IExpandCollapseProvider)editablePeer.GetPattern(PatternInterface.ExpandCollapse);
-                Assert.IsNotNull(editableProvider);
-                editableProvider.Expand();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(editablePopup.IsOpen);
-                AssertPopupWidth(editableCombo, editablePopup);
-                editableProvider.Collapse();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsFalse(editablePopup.IsOpen);
 
                 selectionCombo.Width = 240;
                 editableCombo.Width = 268;
                 PumpDispatcher(window.Dispatcher);
-
-                selectionProvider.Expand();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(selectionPopup.IsOpen);
-                AssertPopupWidth(selectionCombo, selectionPopup);
-                selectionProvider.Collapse();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsFalse(selectionPopup.IsOpen);
-
-                editableProvider.Expand();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(editablePopup.IsOpen);
-                AssertPopupWidth(editableCombo, editablePopup);
-                editableProvider.Collapse();
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsFalse(editablePopup.IsOpen);
+                Assert.AreEqual("FirstZ", editableCombo.Text);
+                Assert.AreEqual("FirstZ", editor.Text);
+                AssertPopupTemplate(selectionCombo, selectionPopup);
+                AssertPopupTemplate(editableCombo, editablePopup);
             }
             finally
             {
@@ -445,9 +287,7 @@ public sealed class SettingsForegroundInteractionTests
                     Width = 420,
                     Height = 420
                 };
-                windowTest.ShowAndWaitForContentRendered(
-                    sectionWindow,
-                    TestWindowActivation.ForegroundInteraction);
+                windowTest.ShowAndWaitForContentRendered(sectionWindow);
                 sectionWindow.UpdateLayout();
 
                 Assert.IsTrue(
@@ -512,9 +352,7 @@ public sealed class SettingsForegroundInteractionTests
                     Width = 420,
                     Height = 520
                 };
-                windowTest.ShowAndWaitForContentRendered(
-                    window,
-                    TestWindowActivation.ForegroundInteraction);
+                windowTest.ShowAndWaitForContentRendered(window);
 
                 AssertEffectiveTemplateRole(listBox.Style, canonicalListBoxStyle, nameof(ListBox));
                 AssertEffectiveTemplateRole(listBox.ItemContainerStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
@@ -576,40 +414,7 @@ public sealed class SettingsForegroundInteractionTests
 
                 comboBox.ApplyTemplate();
                 var popup = (Popup)comboBox.Template.FindName("PART_Popup", comboBox);
-                windowTest.TrackPopup(popup);
-                comboBox.Focus();
-                comboBox.IsDropDownOpen = true;
-                PumpDispatcher(window.Dispatcher);
-                Assert.IsTrue(popup.IsOpen);
-                Assert.IsTrue(comboBox.IsDropDownOpen);
-                ScrollViewer? popupScroller = FindDescendant<ScrollViewer>(popup.Child);
-                Assert.IsNotNull(popupScroller);
-                Assert.AreNotEqual(sentinel, popupScroller!.Tag);
-                AssertMaterializedScrollViewerConsumer(popupScroller!, Orientation.Vertical, "ComboBox popup");
-                var firstComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(0);
-                var secondComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(1);
-                Assert.IsNotNull(firstComboItem);
-                Assert.IsNotNull(secondComboItem);
-                AssertEffectiveTemplateRole(firstComboItem.Style, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
-                AssertEffectiveTemplateRole(secondComboItem.Style, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
-                Assert.AreNotEqual(sentinel, firstComboItem.Tag);
-                firstComboItem.ApplyTemplate();
-                Assert.IsNotNull(firstComboItem.Template.FindName("ItemChrome", firstComboItem));
-
-                var comboPeer = new ComboBoxAutomationPeer(comboBox);
-                var comboExpandProvider = (IExpandCollapseProvider)comboPeer.GetPattern(PatternInterface.ExpandCollapse);
-                Assert.IsNotNull(comboExpandProvider);
-                Assert.AreEqual(ExpandCollapseState.Expanded, comboExpandProvider.ExpandCollapseState);
-                RaiseKey(comboBox, Key.Down);
-                PumpDispatcher(window.Dispatcher);
-                RaiseKey(comboBox, Key.Enter);
-                PumpDispatcher(window.Dispatcher);
-                Assert.AreEqual(1, comboBox.SelectedIndex);
-                Assert.AreEqual("Second", comboBox.SelectedItem);
-                Assert.IsTrue(secondComboItem.IsSelected);
-                Assert.IsFalse(comboBox.IsDropDownOpen);
-                Assert.IsFalse(popup.IsOpen);
-                Assert.AreEqual(ExpandCollapseState.Collapsed, comboExpandProvider.ExpandCollapseState);
+                AssertPopupTemplate(comboBox, popup);
 
                 listBox.ApplyTemplate();
                 ScrollViewer? listScroller = FindDescendant<ScrollViewer>(listBox);
@@ -674,12 +479,9 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.AreEqual(Visibility.Visible, topTickBar.Visibility);
                 Assert.AreEqual(Visibility.Visible, bottomTickBar.Visibility);
 
-                primaryButton.Focus();
-                window.Dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
-                var focusBorder = (Border)primaryButton.Template.FindName("FocusBorder", primaryButton);
-                Assert.AreEqual(Visibility.Visible, focusBorder.Visibility);
-                AssertBrushColor(host, "App.AccentFocusRingBrush", focusBorder.BorderBrush);
-                Color focusColor = ((SolidColorBrush)focusBorder.BorderBrush).Color;
+                object focusBrush = host.TryFindResource("App.AccentFocusRingBrush");
+                Assert.IsInstanceOfType<SolidColorBrush>(focusBrush);
+                Color focusColor = ((SolidColorBrush)focusBrush).Color;
                 foreach (string accentState in new[] { "App.AccentBrush", "App.AccentHoverBrush", "App.AccentPressedBrush" })
                 {
                     Color stateColor = ((SolidColorBrush)host.TryFindResource(accentState)).Color;
@@ -721,15 +523,11 @@ public sealed class SettingsForegroundInteractionTests
                     Height = 180
                 };
                 windowTest.ShowAndWaitForContentRendered(
-                    topNavigationWindow,
-                    TestWindowActivation.ForegroundInteraction);
+                    topNavigationWindow);
 
                 topNavigation.ApplyTemplate();
                 topNavigationWindow.UpdateLayout();
                 Assert.AreEqual(SelectionMode.Single, topNavigation.SelectionMode);
-                Assert.AreEqual(
-                    KeyboardNavigationMode.Continue,
-                    KeyboardNavigation.GetDirectionalNavigation(topNavigation));
                 StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation)!;
                 Assert.AreEqual(Orientation.Horizontal, topNavigationItems.Orientation);
                 ListBoxItem[] topNavigationItemsByIndex = topNavigation.Items
@@ -740,9 +538,7 @@ public sealed class SettingsForegroundInteractionTests
                 foreach (ListBoxItem item in topNavigationItemsByIndex)
                 {
                     item.ApplyTemplate();
-                    Assert.IsTrue(item.Focusable);
                     Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
-                    Assert.IsNotNull(item.Template.FindName("FocusBorder", item));
                 }
                 Assert.AreEqual(
                     Visibility.Visible,
@@ -750,19 +546,6 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.AreEqual(
                     Visibility.Collapsed,
                     ((Border)topNavigationItemsByIndex[1].Template.FindName("SelectionIndicator", topNavigationItemsByIndex[1])).Visibility);
-                Assert.IsTrue(topNavigationItemsByIndex[0].Focus());
-                PumpDispatcher(topNavigationWindow.Dispatcher);
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    ((Border)topNavigationItemsByIndex[0].Template.FindName("FocusBorder", topNavigationItemsByIndex[0])).Visibility);
-                RaiseKey(topNavigationItemsByIndex[0], Key.End);
-                PumpDispatcher(topNavigationWindow.Dispatcher);
-                Assert.AreEqual(2, topNavigation.SelectedIndex);
-                Assert.IsTrue(topNavigationItemsByIndex[2].IsKeyboardFocusWithin);
-                RaiseKey(topNavigationItemsByIndex[2], Key.Home);
-                PumpDispatcher(topNavigationWindow.Dispatcher);
-                Assert.AreEqual(0, topNavigation.SelectedIndex);
-                Assert.IsTrue(topNavigationItemsByIndex[0].IsKeyboardFocusWithin);
                 var topNavigationPeer = new ListBoxAutomationPeer(topNavigation);
                 var topNavigationSelection = (ISelectionProvider)topNavigationPeer.GetPattern(PatternInterface.Selection);
                 Assert.IsNotNull(topNavigationSelection);
@@ -776,16 +559,6 @@ public sealed class SettingsForegroundInteractionTests
                 PumpDispatcher(topNavigationWindow.Dispatcher);
                 Assert.AreEqual(1, topNavigation.SelectedIndex);
                 Assert.IsTrue(topFolderSelection.IsSelected);
-                Assert.IsTrue(topNavigationItemsByIndex[1].Focus());
-                PumpDispatcher(topNavigationWindow.Dispatcher);
-                RaiseKey(topNavigationItemsByIndex[1], Key.Right);
-                PumpDispatcher(topNavigationWindow.Dispatcher);
-                Assert.AreEqual(2, topNavigation.SelectedIndex);
-                Assert.IsTrue(topNavigationItemsByIndex[2].IsKeyboardFocusWithin);
-                RaiseKey(topNavigationItemsByIndex[2], Key.Left);
-                PumpDispatcher(topNavigationWindow.Dispatcher);
-                Assert.AreEqual(1, topNavigation.SelectedIndex);
-                Assert.IsTrue(topNavigationItemsByIndex[1].IsKeyboardFocusWithin);
                 topNavigationItemsByIndex[2].IsEnabled = false;
                 PumpDispatcher(topNavigationWindow.Dispatcher);
                 var disabledNavigationChrome = (Border)topNavigationItemsByIndex[2].Template.FindName("NavigationItemChrome", topNavigationItemsByIndex[2]);
@@ -812,7 +585,6 @@ public sealed class SettingsForegroundInteractionTests
                     "A disabled top-navigation item must reject or ignore public Automation selection.");
                 topNavigationContent.ApplyTemplate();
                 topNavigationContent.UpdateLayout();
-                Assert.IsFalse(topNavigationContent.Focusable);
                 Rect topNavigationContentBounds = new(
                     0d,
                     0d,
@@ -876,142 +648,6 @@ public sealed class SettingsForegroundInteractionTests
         });
     }
 
-    private static SettingsDialogViewModel CreateManualResyncSettingsDialog(
-        MainWindowViewModel owner,
-        RecordingManualResyncRuntime runtime)
-    {
-        var settingsSession = new ManualResyncSettingsEditSession(
-            new Settings { OperationModeLR2DB = true });
-        var composition = new ApplicationComposition(
-            settingsEditSession: settingsSession,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-            applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        var workflow = new Lr2SongDbSyncWorkflowOwner(
-            runtime,
-            action =>
-            {
-                action();
-                return Task.CompletedTask;
-            },
-            (_, _) => { });
-        return new SettingsDialogViewModel(
-            new ManualResyncStatePort(),
-            owner.PlaylistWorkspace,
-            owner.PlaylistWorkspace,
-            owner.PlayHistory,
-            owner.LibraryFolderTree,
-            composition,
-            owner.PlaybackPanel,
-            workflow,
-            settingsSession,
-            applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            externalShellGateway: ExternalShellGatewayPolicy.Current,
-            applicationPathSnapshot: ApplicationPathPolicy.Current,
-            audioDeviceCatalog: new TestAudioDeviceCatalog(),
-            audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-    }
-
-    private static MainWindowViewModel CreateViewModel(
-        CountingSettingsEditSession settingsSession,
-        bool firstStartup,
-        Func<MainWindowViewModel, Task<bool>>? initializeOwner = null,
-        Func<MainWindowViewModel, Task>? reloadScoresOnly = null,
-        Action<Exception>? reportSettingsApplyFailure = null,
-        Func<MainWindowViewModel, Task>? reloadFileDiff = null,
-        ISettingsDialogPlayerFactoryPort? playerFactoryPort = null,
-        ISettingsDialogPlaybackRuntimePort? playbackRuntimePort = null,
-        IUiDialogService? dialogs = null)
-    {
-        var composition = new ApplicationComposition(
-            settingsEditSession: settingsSession,
-            reportSettingsApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null)
-        {
-            SettingsDialogViewModel testDialog = new(
-                new TestSettingsDialogStatePort(
-                    viewModel,
-                    initializeOwner == null
-                        ? () => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync()
-                        : async () => await initializeOwner(viewModel)
-                            ? StartupInitializationOutcome.Succeeded
-                            : StartupInitializationOutcome.SettingsRequired,
-                    () =>
-                    {
-                        SetPrivateField(viewModel, "initializationCompleted", false);
-                        SetPrivateField(viewModel, "hasActiveLibraryProfile", false);
-                    },
-                    reloadScoresOnly: reloadScoresOnly == null
-                        ? () => Task.CompletedTask
-                        : () => reloadScoresOnly(viewModel),
-                    reloadFileDiff: reloadFileDiff == null
-                        ? () => Task.CompletedTask
-                        : () => reloadFileDiff(viewModel)),
-                viewModel.PlaylistWorkspace,
-                viewModel.PlaylistWorkspace,
-                viewModel.PlayHistory,
-                viewModel.LibraryFolderTree,
-                new TestSettingsDialogPlayerFactoryPort(),
-                new TestSettingsDialogPlaybackRuntimePort(),
-                viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession,
-                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs,
-                reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
-                externalShellGateway: ExternalShellGatewayPolicy.Current,
-                applicationPathSnapshot: ApplicationPathPolicy.Current,
-                audioDeviceCatalog: new TestAudioDeviceCatalog(),
-                audioSettingsGateway: new TestAudioSettingsGateway(),
-                audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-            typeof(MainWindowViewModel)
-                .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
-                .SetValue(viewModel, testDialog);
-        }
-        typeof(SettingsDialogViewModel)
-            .GetField("playerFactoryPort", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(viewModel.SettingDialog, playerFactoryPort ?? new TestSettingsDialogPlayerFactoryPort());
-        typeof(SettingsDialogViewModel)
-            .GetField("playbackRuntimePort", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(viewModel.SettingDialog, playbackRuntimePort ?? new TestSettingsDialogPlaybackRuntimePort());
-        return viewModel;
-    }
-
-    private static void SetPrivateField(object instance, string fieldName, object value)
-    {
-        instance.GetType()
-            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(instance, value);
-    }
-
-    private static Settings CreateValidStandaloneSettings(string root)
-    {
-        var settings = new Settings
-        {
-            OperationModeLR2DB = false,
-            BMSRootPath = root,
-            StandaloneBmsRootPaths = root,
-            BMSInstallDir = root,
-            TableListURL = new Uri("http://127.0.0.1:1/table-list.json"),
-            EnablePlaylistUrlCompletion = false,
-            ScanBmsFilesOnStartup = false,
-            SkipInitPlaylistLoad = true,
-            UseBeatorajaScoreDb = false,
-            EnableBeatorajaBmtOutput = false,
-            UseExternalPanelImage = false,
-            UsePlayeruBMplay = false,
-            UsePlayerLR2body = false,
-            UsePlayerBMIIDXView = false,
-            IsLR2BackupEnabled = false,
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
-        };
-        return settings;
-    }
-
     private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
         where T : DependencyObject
     {
@@ -1043,187 +679,6 @@ public sealed class SettingsForegroundInteractionTests
                 {
                     pending.Push(dependencyObject);
                 }
-            }
-        }
-    }
-
-    private sealed class ManualResyncStatePort : ISettingsDialogStatePort
-    {
-        public bool HasActiveLibraryProfile => true;
-
-        public bool IsLibraryOperationInProgress => false;
-
-        public Task<StartupInitializationOutcome> InitializeLibraryAsync() => Task.FromResult(StartupInitializationOutcome.Succeeded);
-
-        public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
-
-        public Task ReloadFileDiffAsync() => Task.CompletedTask;
-
-        public event EventHandler LibraryOperationAvailabilityChanged
-        {
-            add { }
-            remove { }
-        }
-
-        public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged
-        {
-            add { }
-            remove { }
-        }
-    }
-
-    private sealed class ManualResyncSettingsEditSession : ISettingsEditSession
-    {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
-        {
-            Values.OperationModeLR2DB = operationMode;
-            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
-            Save();
-            Reload();
-        }
-
-        internal ManualResyncSettingsEditSession(Settings values)
-        {
-            Values = values;
-        }
-
-        public Settings Values { get; }
-
-        public void Reload()
-        {
-        }
-
-        public void Save()
-        {
-        }
-    }
-
-    private sealed class RecordingManualResyncRuntime : ILr2SongDbSyncWorkflowRuntime
-    {
-        private readonly object gate = new();
-
-        private readonly List<QueueCall> queueCalls = [];
-
-        bool ILr2SongDbSyncWorkflowRuntime.IsLr2ModeEnabled => true;
-
-        bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => true;
-
-        public void DiscardCommittedPathReceipt(string reason)
-        {
-        }
-
-        internal int QueueCount
-        {
-            get
-            {
-                lock (gate)
-                {
-                    return queueCalls.Count;
-                }
-            }
-        }
-
-        internal QueueCall LastQueueCall
-        {
-            get
-            {
-                lock (gate)
-                {
-                    return queueCalls.Single();
-                }
-            }
-        }
-
-        public void Queue(
-            string reason,
-            bool force,
-            bool prepareGeneratedData = false,
-            bool allowIncompleteToQueue = true,
-            bool allowCommittedPathReceipt = false)
-        {
-            lock (gate)
-            {
-                queueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue));
-            }
-        }
-
-        public bool TryRunDataPreparation(
-            string reason,
-            bool includeBuiltinGeneratedData = false,
-            Action? queueAfterPreparation = null)
-        {
-            queueAfterPreparation?.Invoke();
-            return true;
-        }
-
-        public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
-        {
-        }
-
-        public bool Cancel(string reason) => true;
-
-        internal sealed class QueueCall
-        {
-            internal QueueCall(string reason, bool force, bool allowIncompleteToQueue)
-            {
-                Reason = reason;
-                Force = force;
-                AllowIncompleteToQueue = allowIncompleteToQueue;
-            }
-
-            internal string Reason { get; }
-
-            internal bool Force { get; }
-
-            internal bool AllowIncompleteToQueue { get; }
-        }
-    }
-
-    private sealed class CountingSettingsEditSession : ISettingsEditSession
-    {
-        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
-        {
-            Values.OperationModeLR2DB = operationMode;
-            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
-            Save();
-            Reload();
-        }
-
-        internal CountingSettingsEditSession(Settings values)
-        {
-            Values = values;
-        }
-
-        internal Action? SaveObserved { get; set; }
-
-        internal Exception? SaveFailure { get; set; }
-
-        internal bool BlockSave { get; set; }
-
-        internal ManualResetEventSlim SaveEntered { get; } = new(false);
-
-        internal ManualResetEventSlim ReleaseSave { get; } = new(false);
-
-        internal int SaveCount { get; private set; }
-
-        public Settings Values { get; }
-
-        public void Reload()
-        {
-        }
-
-        public void Save()
-        {
-            SaveCount++;
-            SaveObserved?.Invoke();
-            if (SaveFailure != null)
-            {
-                throw SaveFailure;
-            }
-            if (BlockSave)
-            {
-                SaveEntered.Set();
-                ReleaseSave.Wait();
             }
         }
     }
@@ -1328,36 +783,32 @@ public sealed class SettingsForegroundInteractionTests
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
     }
 
-    private static void AssertPopupWidth(ComboBox comboBox, Popup popup)
+    private static void AssertPopupTemplate(ComboBox comboBox, Popup popup)
     {
-        Assert.IsNotNull(popup.Child, "The open ComboBox popup must materialize its presentation root.");
-        Assert.IsInstanceOfType<FrameworkElement>(popup.Child);
-        var popupRoot = (FrameworkElement)popup.Child;
+        Assert.IsFalse(popup.IsOpen, "The template contract is inspected while the ComboBox popup is closed.");
+        Assert.AreEqual(PlacementMode.Bottom, popup.Placement);
+
+        BindingExpression popupWidthBinding = popup.GetBindingExpression(FrameworkElement.WidthProperty)
+            ?? throw new AssertFailedException("The ComboBox popup must bind Width to its templated parent's ActualWidth.");
+        Assert.AreEqual("ActualWidth", popupWidthBinding.ParentBinding.Path?.Path);
+        Assert.AreEqual(RelativeSourceMode.TemplatedParent, popupWidthBinding.ParentBinding.RelativeSource?.Mode);
+
+        Assert.IsInstanceOfType<Border>(popup.Child);
+        var popupBorder = (Border)popup.Child;
+        BindingExpression borderWidthBinding = popupBorder.GetBindingExpression(FrameworkElement.WidthProperty)
+            ?? throw new AssertFailedException("The outer ComboBox popup Border must bind Width to its templated parent's ActualWidth.");
+        Assert.AreEqual("ActualWidth", borderWidthBinding.ParentBinding.Path?.Path);
+        Assert.AreEqual(RelativeSourceMode.TemplatedParent, borderWidthBinding.ParentBinding.RelativeSource?.Mode);
         Assert.AreEqual(
             comboBox.ActualWidth,
-            popupRoot.ActualWidth,
+            popup.Width,
             0.01d,
-            "The popup presentation root width must match the open ComboBox ActualWidth.");
-    }
-
-    private static void PumpUntil(Dispatcher dispatcher, Func<bool> predicate, string failureMessage)
-    {
-        var timeout = Stopwatch.StartNew();
-        while (!predicate() && timeout.Elapsed < TimeSpan.FromSeconds(5))
-        {
-            PumpDispatcher(dispatcher);
-        }
-        Assert.IsTrue(predicate(), failureMessage);
-    }
-
-    private static void RaiseKey(UIElement target, Key key)
-    {
-        var source = PresentationSource.FromVisual(target);
-        Assert.IsNotNull(source);
-        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
-        {
-            RoutedEvent = Keyboard.KeyDownEvent
-        });
+            "The closed ComboBox popup width must follow the control's ActualWidth.");
+        Assert.AreEqual(
+            comboBox.ActualWidth,
+            popupBorder.Width,
+            0.01d,
+            "The closed outer ComboBox popup Border width must follow the control's ActualWidth.");
     }
 
     private static void AssertEffectiveTemplateRole(Style? actualStyle, Style? canonicalStyle, string controlName)

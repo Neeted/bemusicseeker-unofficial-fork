@@ -15,7 +15,6 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq;
@@ -47,6 +46,99 @@ public sealed class SettingsWindowPresentationTests
     public void MaterializeCanonicalApplicationResources()
     {
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
+    }
+
+    [TestMethod]
+    public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var runtime = new RecordingManualResyncRuntime();
+            SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime);
+            var ownerWindow = new Window
+            {
+                Width = 320,
+                Height = 200,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.Manual
+            };
+            var window = new SettingsWindow
+            {
+                DataContext = settings,
+                PlaybackPanel = owner.PlaybackPanel,
+                PlaylistWorkspace = owner.PlaylistWorkspace
+            };
+            Window? confirmationWindow = null;
+            Exception? confirmationFailure = null;
+
+            try
+            {
+                windowTest.PrepareForOwnedPresentation(ownerWindow);
+                ownerWindow.Show();
+                ownerWindow.UpdateLayout();
+                window.Owner = ownerWindow;
+                windowTest.ShowAndWaitForContentRendered(window);
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Button resyncButton = FindDescendants<Button>(page)
+                    .Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
+                Assert.IsTrue(settings.CanRequestLr2SongDbSyncDataResync);
+                Assert.IsTrue(resyncButton.IsEnabled);
+
+                window.Dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    (Action)(() =>
+                    {
+                        try
+                        {
+                            confirmationWindow = Application.Current.Windows
+                                .OfType<Window>()
+                                .Single(candidate => candidate.IsVisible
+                                    && ReferenceEquals(candidate.Owner, window));
+                            Assert.IsInstanceOfType<ThemedWindow>(confirmationWindow);
+                            Assert.AreEqual(Resources.Confirm, confirmationWindow!.Title);
+                            Button acceptButton = FindDescendants<Button>(confirmationWindow!)
+                                .Single(candidate => Equals(candidate.Content, "OK"));
+                            acceptButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, acceptButton));
+                        }
+                        catch (Exception exception)
+                        {
+                            confirmationFailure = exception;
+                            confirmationWindow?.Close();
+                        }
+                    }));
+
+                resyncButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, resyncButton));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    runtime.QueueAccepted.Task,
+                    "Manual LR2 resync runtime request acceptance");
+                RecordingManualResyncRuntime.QueueCall call = runtime.QueueAccepted.Task.GetAwaiter().GetResult();
+
+                Assert.IsNull(confirmationFailure);
+                Assert.IsNotNull(confirmationWindow);
+                Assert.IsFalse(window.IsVisible);
+                Assert.AreEqual(SettingsWindowCloseReason.ManualResync, window.CloseReason);
+                Assert.IsNull(window.DataContext);
+                Assert.AreEqual(1, runtime.QueueCount);
+                Assert.AreEqual("setting_dialog_manual_resync", call.Reason);
+                Assert.IsTrue(call.Force);
+            }
+            finally
+            {
+                if (confirmationWindow?.IsVisible == true)
+                {
+                    confirmationWindow.Close();
+                }
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                if (ownerWindow.IsVisible)
+                {
+                    ownerWindow.Close();
+                }
+            }
+        });
     }
 
     [TestMethod]
@@ -1579,7 +1671,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(BindingMode.TwoWay, themeBinding.ParentBinding.Mode);
                 Assert.AreEqual(false, selector.IsChecked);
 
-                selector.Focus();
                 selector.IsChecked = true;
                 PumpDispatcher(window.Dispatcher);
 
@@ -3060,16 +3151,6 @@ public sealed class SettingsWindowPresentationTests
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
     }
 
-    private static void RaiseKey(UIElement target, Key key)
-    {
-        var source = PresentationSource.FromVisual(target);
-        Assert.IsNotNull(source);
-        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
-        {
-            RoutedEvent = Keyboard.KeyDownEvent
-        });
-    }
-
     private static string GetAppliedApplicationTheme()
     {
         string source = Application.Current.Resources.MergedDictionaries
@@ -4384,6 +4465,171 @@ public sealed class SettingsWindowPresentationTests
         typeof(SettingsDialogViewModel)
             .GetField("isEditCompletionInProgress", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
+    }
+
+    private static SettingsDialogViewModel CreateManualResyncSettingsDialog(
+        MainWindowViewModel owner,
+        RecordingManualResyncRuntime runtime)
+    {
+        var settingsSession = new ManualResyncSettingsEditSession(
+            new Settings { OperationModeLR2DB = true });
+        var composition = new ApplicationComposition(
+            settingsEditSession: settingsSession,
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        var workflow = new Lr2SongDbSyncWorkflowOwner(
+            runtime,
+            action =>
+            {
+                action();
+                return Task.CompletedTask;
+            },
+            (_, _) => { });
+        return new SettingsDialogViewModel(
+            new ManualResyncStatePort(),
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            owner.PlayHistory,
+            owner.LibraryFolderTree,
+            composition,
+            owner.PlaybackPanel,
+            workflow,
+            settingsSession,
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+    }
+
+    private sealed class ManualResyncStatePort : ISettingsDialogStatePort
+    {
+        public bool HasActiveLibraryProfile => true;
+
+        public bool IsLibraryOperationInProgress => false;
+
+        public Task<StartupInitializationOutcome> InitializeLibraryAsync() => Task.FromResult(StartupInitializationOutcome.Succeeded);
+
+        public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
+
+        public Task ReloadFileDiffAsync() => Task.CompletedTask;
+
+        public event EventHandler LibraryOperationAvailabilityChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    private sealed class ManualResyncSettingsEditSession : ISettingsEditSession
+    {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
+        internal ManualResyncSettingsEditSession(Settings values)
+        {
+            Values = values;
+        }
+
+        public Settings Values { get; }
+
+        public void Reload()
+        {
+        }
+
+        public void Save()
+        {
+        }
+    }
+
+    private sealed class RecordingManualResyncRuntime : ILr2SongDbSyncWorkflowRuntime
+    {
+        private readonly object gate = new();
+
+        private readonly List<QueueCall> queueCalls = [];
+
+        internal TaskCompletionSource<QueueCall> QueueAccepted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        bool ILr2SongDbSyncWorkflowRuntime.IsLr2ModeEnabled => true;
+
+        bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => true;
+
+        public void DiscardCommittedPathReceipt(string reason)
+        {
+        }
+
+        internal int QueueCount
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return queueCalls.Count;
+                }
+            }
+        }
+
+        public void Queue(
+            string reason,
+            bool force,
+            bool prepareGeneratedData = false,
+            bool allowIncompleteToQueue = true,
+            bool allowCommittedPathReceipt = false)
+        {
+            QueueCall call = new(reason, force, allowIncompleteToQueue);
+            lock (gate)
+            {
+                queueCalls.Add(call);
+            }
+
+            QueueAccepted.TrySetResult(call);
+        }
+
+        public bool TryRunDataPreparation(
+            string reason,
+            bool includeBuiltinGeneratedData = false,
+            Action? queueAfterPreparation = null)
+        {
+            queueAfterPreparation?.Invoke();
+            return true;
+        }
+
+        public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
+        {
+        }
+
+        public bool Cancel(string reason) => true;
+
+        internal sealed class QueueCall
+        {
+            internal QueueCall(string reason, bool force, bool allowIncompleteToQueue)
+            {
+                Reason = reason;
+                Force = force;
+                AllowIncompleteToQueue = allowIncompleteToQueue;
+            }
+
+            internal string Reason { get; }
+
+            internal bool Force { get; }
+
+            internal bool AllowIncompleteToQueue { get; }
+        }
     }
 
     private sealed class DangerDialogContext

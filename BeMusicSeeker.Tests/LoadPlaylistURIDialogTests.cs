@@ -17,7 +17,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class LoadPlaylistURIDialogTests
 {
     [TestMethod]
@@ -30,6 +29,7 @@ public sealed class LoadPlaylistURIDialogTests
         Assert.AreEqual("existing", LoadPlaylistURIDialog.AppendUriInputLine("existing", " "));
     }
 
+    [DoNotParallelize]
     [TestMethod]
     public void Presentation_ContainsUriInputAboveFooterAtDefaultAndFontScale()
     {
@@ -88,6 +88,7 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
+    [DoNotParallelize]
     [TestMethod]
     public void OpenLocalFile_UsesInjectedJsonPickerAndAppendsAcceptedPathWithoutShowingModal()
     {
@@ -132,6 +133,7 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
+    [DoNotParallelize]
     [DataTestMethod]
     [DataRow((int)UiDialogStatus.CancelledByUser)]
     [DataRow((int)UiDialogStatus.ClosedByUser)]
@@ -171,6 +173,7 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
+    [DoNotParallelize]
     [TestMethod]
     public void OpenLocalFile_FailedPickerPropagatesCauseWithoutMutatingInputOrShowingModal()
     {
@@ -211,6 +214,7 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
+    [DoNotParallelize]
     [TestMethod]
     public void OpenLocalFileAsync_AwaitsPickerWithoutBlockingDispatcherAndAppliesCompletion()
     {

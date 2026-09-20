@@ -383,68 +383,83 @@ public partial class KeywordSearchEditor : UserControl
 
     private void InputTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && imeCompositionActive)
+        e.Handled |= HandleInputKey(
+            e.Key,
+            e.KeyboardDevice.Modifiers,
+            e.ImeProcessedKey);
+    }
+
+    /// <summary>
+    /// 入力欄の検索支援キーを、WPF の PreviewKeyDown と同じ判定経路で処理します。
+    /// 実際のフォーカス遷移は既存の WPF 入力経路が担当します。
+    /// </summary>
+    /// <param name="key">処理するキー。</param>
+    /// <param name="modifiers">キー入力時の修飾キー。</param>
+    /// <param name="imeProcessedKey">IME が処理した元のキー。</param>
+    /// <returns>検索支援が入力を処理した場合は <see langword="true"/>。</returns>
+    internal bool HandleInputKey(Key key, ModifierKeys modifiers, Key imeProcessedKey = Key.None)
+    {
+        if (key == Key.Escape && imeCompositionActive)
         {
             // The first Escape cancels the active IME composition. Leave the assistance
             // surface untouched; a subsequent Escape can dismiss the unchanged snapshot.
             imeCompositionActive = false;
-            return;
+            return false;
         }
-        if (assistanceOwner == null || IsImeCommitKey(e))
+        if (assistanceOwner == null || IsImeCommitKey(key, imeProcessedKey))
         {
-            return;
+            return false;
         }
 
-        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.Space)
+        if ((modifiers & ModifierKeys.Control) != 0 && key == Key.Space)
         {
             ApplyPresentation(assistanceOwner.ForceRefresh());
             SelectFirstItem();
-            e.Handled = true;
-            return;
+            return true;
         }
 
-        if (e.Key == Key.Escape)
+        if (key == Key.Escape)
         {
             if (AssistancePopup.IsOpen)
             {
                 ApplyPresentation(assistanceOwner.SuppressCurrentSnapshot());
-                e.Handled = true;
+                return true;
             }
-            return;
+            return false;
         }
 
-        if (e.Key is Key.Down or Key.Up)
+        if (key is Key.Down or Key.Up)
         {
             if (!AssistancePopup.IsOpen)
             {
                 ApplyPresentation(assistanceOwner.ForceRefresh());
             }
-            Navigate(e.Key == Key.Down ? 1 : -1);
-            e.Handled = true;
-            return;
+            Navigate(key == Key.Down ? 1 : -1);
+            return true;
         }
 
-        if ((e.Key is Key.Enter or Key.Tab) && AssistancePopup.IsOpen)
+        if ((key is Key.Enter or Key.Tab) && AssistancePopup.IsOpen)
         {
             if (ApplySelectedItem())
             {
-                e.Handled = true;
+                return true;
             }
-            return;
+            return false;
         }
 
-        if (e.Key == Key.Enter)
+        if (key == Key.Enter)
         {
             CommitCurrentHistory();
         }
+        return false;
     }
 
-    private bool IsImeCommitKey(KeyEventArgs e)
+    private bool IsImeCommitKey(Key key, Key imeProcessedKey)
     {
         return imeCompositionActive
-            || e.Key == Key.ImeProcessed
-            || e.ImeProcessedKey == Key.Enter
-            || e.ImeProcessedKey == Key.Return;
+            || key == Key.ImeProcessed
+            || imeProcessedKey == Key.Enter
+            || imeProcessedKey == Key.Return;
     }
 
     private void RefreshFromInput()

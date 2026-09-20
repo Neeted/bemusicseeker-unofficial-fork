@@ -93,18 +93,6 @@ public sealed class MainWindowPlaybackWpfTests
         }
     }
 
-    private static void RaiseKey(CustomTableView table, Key key)
-    {
-        table.RaiseEvent(new KeyEventArgs(
-            Keyboard.PrimaryDevice,
-            PresentationSource.FromVisual(table),
-            0,
-            key)
-        {
-            RoutedEvent = UIElement.PreviewKeyDownEvent
-        });
-    }
-
     private static HwndSource CreateVisualHost(MainWindow window, string name)
     {
         var source = new HwndSource(new HwndSourceParameters(name)
@@ -120,4 +108,7 @@ public sealed class MainWindowPlaybackWpfTests
         window.UpdateLayout();
         return source;
     }
+
+    private static void RaiseKey(CustomTableView table, Key key)
+        => table.HandleKeyDown(key, ModifierKeys.None);
 }

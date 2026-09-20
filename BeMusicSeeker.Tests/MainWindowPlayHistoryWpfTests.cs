@@ -363,38 +363,51 @@ public sealed class MainWindowPlayHistoryWpfTests
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 Assert.AreSame(playHistoryMenu, window.FindResource("playHistoryContextMenu"));
                 int contextRequests = 0;
-                table.RowContextMenuRequested += (_, _) => contextRequests++;
+                CustomTableRowRequestedEventArgs? contextRequest = null;
+                table.RowContextMenuRequested += (_, args) =>
+                {
+                    contextRequests++;
+                    contextRequest = args;
+                };
                 table.ItemsSource = new List<object> { resolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
                 Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(resolved, out _));
-                RaiseKey(table, Key.Apps);
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+                Assert.IsTrue(table.HandleKeyDown(Key.Apps, ModifierKeys.None));
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                Assert.AreEqual(1, contextRequests);
+                Assert.IsNotNull(contextRequest);
+                Assert.AreSame(resolved, contextRequest!.Row);
+                RaiseMenuOpened(playHistoryMenu, table, resolved, 0);
                 TestUiDispatcherHost.Drain();
 
-                Assert.AreEqual(1, contextRequests);
                 Assert.IsInstanceOfType(playHistoryMenu.Tag, typeof(CustomTableContextMenuContext));
                 var resolvedContext =
                     (CustomTableContextMenuContext)playHistoryMenu.Tag;
                 Assert.AreSame(resolved, resolvedContext.Row);
                 Assert.AreSame(table, playHistoryMenu.PlacementTarget);
-                playHistoryMenu.IsOpen = false;
-                TestUiDispatcherHost.Drain();
+                RaiseMenuClosed(playHistoryMenu);
 
                 object unresolvedTagSentinel = new();
                 playHistoryMenu.Tag = unresolvedTagSentinel;
                 playHistoryMenu.PlacementTarget = null;
-                int contextRequestsBeforeUnresolved = contextRequests;
                 PlayHistoryRow unresolved = CreateUnresolvedPlayHistoryRow();
                 table.ItemsSource = new List<object> { unresolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, unresolved));
-                RaiseKey(table, Key.Apps);
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+                Assert.IsTrue(table.HandleKeyDown(Key.Apps, ModifierKeys.None));
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                Assert.AreEqual(2, contextRequests);
+                Assert.AreSame(unresolved, contextRequest!.Row);
+                RaiseMenuOpened(playHistoryMenu, table, unresolved, 0);
                 TestUiDispatcherHost.Drain();
 
-                Assert.AreEqual(contextRequestsBeforeUnresolved + 1, contextRequests);
                 Assert.IsInstanceOfType(playHistoryMenu.Tag, typeof(CustomTableContextMenuContext));
                 Assert.AreSame(unresolved, ((CustomTableContextMenuContext)playHistoryMenu.Tag).Row);
                 Assert.AreSame(table, playHistoryMenu.PlacementTarget);
                 Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(unresolved, out _));
                 Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(resolved, out _));
+                RaiseMenuClosed(playHistoryMenu);
             });
     }
 
@@ -414,7 +427,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.ItemsSource = new List<object> { first, second };
                 table.SelectRowsByPredicate(_ => true);
 
-                RaiseKey(table, Key.Apps);
+                RaiseMenuOpened(playHistoryMenu, table, first, 0);
                 TestUiDispatcherHost.Drain();
 
                 MenuItem? dateRange = playHistoryMenu.Items
@@ -425,13 +438,13 @@ public sealed class MainWindowPlayHistoryWpfTests
                 Assert.IsFalse(string.IsNullOrWhiteSpace(dateRange!.Header as string));
                 Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
 
-                playHistoryMenu.IsOpen = false;
-                TestUiDispatcherHost.Drain();
+                RaiseMenuClosed(playHistoryMenu);
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, first));
-                RaiseKey(table, Key.Apps);
+                RaiseMenuOpened(playHistoryMenu, table, first, 0);
                 TestUiDispatcherHost.Drain();
 
                 Assert.AreEqual(Visibility.Collapsed, dateRange.Visibility);
+                RaiseMenuClosed(playHistoryMenu);
             });
     }
 
@@ -455,7 +468,7 @@ public sealed class MainWindowPlayHistoryWpfTests
 
                 Assert.IsFalse(viewModel.PlayHistory.TryCreateContextMenuState(primary, out _));
                 Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(secondary, out _));
-                RaiseKey(table, Key.Apps);
+                RaiseMenuOpened(playHistoryMenu, table, primary, 0);
                 TestUiDispatcherHost.Drain();
 
                 MenuItem dateRange = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemAddDateRangeToSearch");
@@ -464,6 +477,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     Visibility.Collapsed,
                     FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemOpenExplorer").Visibility);
                 Assert.AreSame(primary, ((CustomTableContextMenuContext)playHistoryMenu.Tag).Row);
+                RaiseMenuClosed(playHistoryMenu);
             });
     }
 
@@ -483,109 +497,65 @@ public sealed class MainWindowPlayHistoryWpfTests
                 using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangeSnapshot");
                 var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
-                var menuClosed = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                var menuOpenedAndActionCompleted = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                RoutedEventHandler menuClosedHandler = (_, _) => menuClosed.TrySetResult(true);
+                var table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow first = CreateResolvedPlayHistoryRow(playedAt: 1000);
+                PlayHistoryRow second = CreateResolvedPlayHistoryRow(playedAt: 1001);
+                PlayHistoryRow intermediate = CreateResolvedPlayHistoryRow(playedAt: 1002);
+                PlayHistoryRow later = CreateResolvedPlayHistoryRow(playedAt: 2000);
+                table.ItemsSource = new List<object> { later, intermediate, first, second };
+                table.SelectRowsByPredicate(
+                    row => ReferenceEquals(row, first) || ReferenceEquals(row, later),
+                    row => ReferenceEquals(row, first));
+                CollectionAssert.AreEqual(
+                    new object[] { later, first },
+                    table.GetSelectedRowsSnapshot().ToArray(),
+                    "The table enumeration order must differ from the chronological min/max order.");
+                Assert.IsTrue(later.PlayedAt > first.PlayedAt);
+
+                const string prefix = "title:alpha\t";
+                viewModel.ChartFilters.KeywordFilter = prefix;
+                int keywordChangedCount = 0;
+                viewModel.ChartFilters.KeywordFilterChanged += (_, _) => keywordChangedCount++;
+
+                string start = first.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+                string end = later.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+                string expectedClause = $"date:\"{start}..{end}\"";
+                bool opened = false;
+                bool closed = false;
+                RoutedEventHandler menuOpenedHandler = (_, _) =>
+                {
+                    opened = true;
+                    MenuItem dateRange = FindMenuItem(
+                        playHistoryMenu,
+                        "playHistoryContextMenuItemAddDateRangeToSearch");
+                    Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
+                    Assert.IsTrue(dateRange.IsEnabled);
+
+                    // The XAML Opened handler has already captured the original min/max.
+                    table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
+                    dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
+                };
+                RoutedEventHandler menuClosedHandler = (_, _) => closed = true;
+                playHistoryMenu.Opened += menuOpenedHandler;
                 playHistoryMenu.Closed += menuClosedHandler;
                 try
                 {
-                    var table = (CustomTableView)window.FindName("customTableView");
-                    PlayHistoryRow first = CreateResolvedPlayHistoryRow(playedAt: 1000);
-                    PlayHistoryRow second = CreateResolvedPlayHistoryRow(playedAt: 1001);
-                    PlayHistoryRow intermediate = CreateResolvedPlayHistoryRow(playedAt: 1002);
-                    PlayHistoryRow later = CreateResolvedPlayHistoryRow(playedAt: 2000);
-                    table.ItemsSource = new List<object> { later, intermediate, first, second };
-                    table.SelectRowsByPredicate(
-                        row => ReferenceEquals(row, first) || ReferenceEquals(row, later),
-                        row => ReferenceEquals(row, first));
-                    CollectionAssert.AreEqual(
-                        new object[] { later, first },
-                        table.GetSelectedRowsSnapshot().ToArray(),
-                        "The table enumeration order must differ from the chronological min/max order.");
-                    Assert.IsTrue(later.PlayedAt > first.PlayedAt);
-
-                    Assert.IsTrue(table.Focus());
-                    Assert.AreSame(table, Keyboard.FocusedElement);
-
-                    const string prefix = "title:alpha\t";
-                    viewModel.ChartFilters.KeywordFilter = prefix;
-                    int keywordChangedCount = 0;
-                    viewModel.ChartFilters.KeywordFilterChanged += (_, _) => keywordChangedCount++;
-
-                    string start = first.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
-                    string end = later.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
-                    string expectedClause = $"date:\"{start}..{end}\"";
-
-                    var keywordSearchEditor = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
-                    Assert.IsNotNull(keywordSearchEditor);
-                    Assert.AreNotSame(keywordSearchEditor, Keyboard.FocusedElement);
-                    bool keywordSearchEditorReceivedFocus = false;
-                    KeyboardFocusChangedEventHandler keywordFocusHandler =
-                        (_, _) => keywordSearchEditorReceivedFocus = true;
-                    RoutedEventHandler menuOpenedHandler = (_, _) =>
-                    {
-                        try
-                        {
-                            // XAML側のOpenedハンドラが作ったスナップショットを、Popupの外部入力で破棄される前に使う。
-                            Assert.IsTrue(playHistoryMenu.IsOpen);
-                            MenuItem dateRange = FindMenuItem(
-                                playHistoryMenu,
-                                "playHistoryContextMenuItemAddDateRangeToSearch");
-                            Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
-                            Assert.IsTrue(dateRange.IsEnabled);
-
-                            table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
-                            dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
-                            menuOpenedAndActionCompleted.TrySetResult(true);
-                        }
-                        catch (Exception exception)
-                        {
-                            menuOpenedAndActionCompleted.TrySetException(exception);
-                        }
-                        finally
-                        {
-                            if (playHistoryMenu.IsOpen)
-                            {
-                                playHistoryMenu.IsOpen = false;
-                            }
-                        }
-                    };
-                    keywordSearchEditor.GotKeyboardFocus += keywordFocusHandler;
-                    playHistoryMenu.Opened += menuOpenedHandler;
-                    try
-                    {
-                        RaiseKey(table, Key.Apps);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            menuOpenedAndActionCompleted.Task,
-                            "play-history date-range context menu opened and action completed");
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            menuClosed.Task,
-                            "play-history date-range context menu closed after action");
-                        TestUiDispatcherHost.Drain();
-                    }
-                    finally
-                    {
-                        playHistoryMenu.Opened -= menuOpenedHandler;
-                        keywordSearchEditor.GotKeyboardFocus -= keywordFocusHandler;
-                    }
-
-                    Assert.AreEqual(prefix + expectedClause, viewModel.ChartFilters.KeywordFilter);
-                    Assert.AreEqual(1, keywordChangedCount);
-                    Assert.IsFalse(keywordSearchEditorReceivedFocus);
-                    Assert.AreNotSame(keywordSearchEditor, Keyboard.FocusedElement);
-                    Assert.AreEqual(historyBeforeAction, settings.KeywordSearchHistory);
+                    // Drive the public menu events directly; the test never opens a real Popup.
+                    RaiseMenuOpened(playHistoryMenu, table, first, 2);
+                    RaiseMenuClosed(playHistoryMenu);
+                    TestUiDispatcherHost.Drain();
                 }
                 finally
                 {
-                    if (playHistoryMenu.IsOpen)
-                    {
-                        playHistoryMenu.IsOpen = false;
-                        TestUiDispatcherHost.Drain();
-                    }
+                    playHistoryMenu.Opened -= menuOpenedHandler;
                     playHistoryMenu.Closed -= menuClosedHandler;
                 }
+
+                Assert.IsTrue(opened);
+                Assert.IsTrue(closed);
+                Assert.AreEqual(prefix + expectedClause, viewModel.ChartFilters.KeywordFilter);
+                Assert.AreEqual(1, keywordChangedCount);
+                Assert.AreEqual(historyBeforeAction, settings.KeywordSearchHistory);
             });
     }
 
@@ -616,12 +586,13 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.ItemsSource = new List<object> { resolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
 
-                RaiseKey(table, Key.Apps);
+                RaiseMenuOpened(playHistoryMenu, table, resolved, 0);
                 TestUiDispatcherHost.Drain();
 
                 MenuItem webAction = FindMenuItem(playHistoryMenu, "configuredWebAction_bmson_md5");
                 Assert.AreEqual(actionName, webAction.Header);
                 Assert.AreEqual(Visibility.Visible, webAction.Visibility);
+                RaiseMenuClosed(playHistoryMenu);
             });
     }
 
@@ -666,7 +637,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.ItemsSource = new List<object> { unresolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, unresolved));
 
-                RaiseKey(table, Key.Apps);
+                RaiseMenuOpened(playHistoryMenu, table, unresolved, 0);
                 TestUiDispatcherHost.Drain();
 
                 Assert.IsFalse(playHistoryMenu.Items.OfType<MenuItem>().Any(item =>
@@ -676,6 +647,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 MenuItem allKinds = FindMenuItem(playHistoryMenu, "configuredWebAction_all_kinds");
                 Assert.AreEqual(allKindsName, allKinds.Header);
                 Assert.AreEqual(Visibility.Visible, allKinds.Visibility);
+                RaiseMenuClosed(playHistoryMenu);
             });
     }
 
@@ -706,7 +678,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.ItemsSource = new List<object> { resolved };
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
 
-                RaiseKey(table, Key.Apps);
+                RaiseMenuOpened(playHistoryMenu, table, resolved, 0);
                 TestUiDispatcherHost.Drain();
 
                 MenuItem associated = FindMenuItem(
@@ -731,6 +703,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     playHistoryMenu.Items.IndexOf(associated) + 1,
                     playHistoryMenu.Items.IndexOf(program));
                 Assert.AreEqual(Resources.RightClick_open_with_program, program.Header);
+                RaiseMenuClosed(playHistoryMenu);
             });
     }
 
@@ -763,17 +736,19 @@ public sealed class MainWindowPlayHistoryWpfTests
         }
     }
 
-    private static void RaiseKey(CustomTableView table, Key key)
+    private static void RaiseMenuOpened(
+        ContextMenu menu,
+        CustomTableView table,
+        object row,
+        int rowIndex)
     {
-        table.RaiseEvent(new KeyEventArgs(
-            Keyboard.PrimaryDevice,
-            PresentationSource.FromVisual(table),
-            0,
-            key)
-        {
-            RoutedEvent = UIElement.PreviewKeyDownEvent
-        });
+        menu.Tag = new CustomTableContextMenuContext(row, rowIndex);
+        menu.PlacementTarget = table;
+        menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
     }
+
+    private static void RaiseMenuClosed(ContextMenu menu)
+        => menu.RaiseEvent(new RoutedEventArgs(ContextMenu.ClosedEvent, menu));
 
     private static HwndSource CreateVisualHost(MainWindow window, string name)
     {

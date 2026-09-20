@@ -94,7 +94,7 @@
 | --- | --- | --- |
 | 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`](../../../BeMusicSeeker.Tests/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`](../../../BeMusicSeeker.Tests/PlaylistWorkspacePresentationStateTests.cs) |
 | 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../BeMusicSeeker.Tests/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/ApplicationCompositionTests.cs) |
-| IME、フォーカス、区画のスクロール、行内ボタン、行の再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindowChartPresentationWpfTests.cs) |
+| 明示入力のIME判定、区画のスクロール、行内ボタン、行の再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindowChartPresentationWpfTests.cs)。OSの実フォーカス・IME・キー操作は[入力操作の明示受入](../development/testing.md#入力操作の明示受入)。 |
 | 表示文字列の言語間整合 | 表示リソースと各言語の辞書 | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/LocalizationResourceParityTests.cs) |
 
 ## 関連資料

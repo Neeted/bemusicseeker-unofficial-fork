@@ -60,8 +60,8 @@ SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK �
 | --- | --- | --- |
 | `portable-settings` | 1、`MethodLevel` | `PlayerPanelStateSettingsCompatibilityTests` の全テスト。 |
 | `bass-collectible` | 1、`MethodLevel` | `BassCollectibleLoadContextTests`。ポータブル設定完了後に独立して実行する。 |
-| `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をソートし、前面操作の4メソッドをここへ固定したうえで、その他を交互割当したA側。 |
-| `shared-state-b` | 1、`MethodLevel` | 前面操作以外の`DoNotParallelize`を完全修飾名順で交互割当したB側。 |
+| `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をOrdinal順に並べ、偶数番目を交互割当した集合。 |
+| `shared-state-b` | 1、`MethodLevel` | 同じ集合の奇数番目を交互割当した集合。 |
 | `parallel-a` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で偶数番目に交互割当した集合。 |
 | `parallel-b` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で奇数番目に交互割当した集合。 |
 
@@ -102,18 +102,11 @@ WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcher
 
 `ShowAndWaitForContentRendered` は表示前に通知を購読し、期限付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
 
-既定は `NonActivating` です。表示直前に手動配置、タスクバー非表示、非アクティブ表示を適用し、全モニターの外へ置きます。HWND生成時には既存の拡張スタイルを保って `WS_EX_NOACTIVATE` を設定・再読取りします。前面でないことと矩形も確認し、Popupにも開く境界で同じ規則を適用します。ネイティブAPIの失敗や表示観測の失敗は、テスト本体とは独立して保持します。
+共通基盤は非アクティブ表示専用です。表示直前に手動配置、タスクバー非表示、非アクティブ表示を適用し、全モニターの外へ置きます。HWND生成時には既存の拡張スタイルを保って `WS_EX_NOACTIVATE` を設定・再読取りします。前面でないことと矩形も確認し、Popupにも開く境界で同じ規則を適用します。ネイティブAPIの失敗や表示観測の失敗は、テスト本体とは独立して保持します。
 
-前面での入力・フォーカス・ヒット判定・モーダル起動を確認する例外は、`SettingsForegroundInteractionTests` の次の4メソッドだけです。`shared-state-a` が所有し、`ForegroundInteraction` を明示します。
+通常テストに前面操作の例外は設けません。実OSカーソルの取得・移動や `Mouse.GetPosition` による物理位置、実フォーカスの取得成功、物理修飾キー、入力キャプチャ、Popupが外部入力で閉じないことを合否条件にしません。イベントを明示しても呼出先がOS状態を参照する場合は分離できていないため、本番の処理へ明示入力を渡す境界で検証します。Popupの内容と接続は、開閉イベント・操作入力、閉じたテンプレートのBinding、明示配置などで確認します。
 
-```text
-SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll
-SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes
-SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes
-SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow
-```
-
-例外の追加前には、`Full` の画面受入に分けられるか検討します。実OSカーソルの取得・移動や `Mouse.GetPosition` による物理位置の判定は使わず、明示的なイベント・操作入力で確認します。
+共有Dispatcherの利用だけではテスト全体の排他を保証しません。待機中の再入と、共有リソース・設定・テーマ等の変更を確認し、所有を分離できない範囲に `DoNotParallelize` を残します。独立した入力と状態だけを扱うテストは並列実行できます。
 
 開始時の共有スレッドのウィンドウ・HWNDを基準に、追跡したPopup、深い所有関係から順にウィンドウ、購読、Dispatcherの残処理、残留HWNDを片付けます。設定画面には `CloseForOwnerShutdown` を使います。失敗の優先順位はテスト本体、表示観測、後片付けです。
 
@@ -186,6 +179,20 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 画面の表示、入力、完了状態は区別して確認します。単にウィンドウが現れたことやログが静かになったことを、対象操作の成功条件にしません。
 
+### 入力操作の明示受入
+
+OS入力との接続自体は、該当機能の入力・フォーカス経路を変更するときに、実装担当または統合担当が明示的に画面確認します。通常の `Quick`・`Functional`・`Full` の成功だけで、この範囲を確認済みとはしません。専用CI、操作禁止のPC、入力遮断を通常テストの前提にせず、手動確認を選べます。起動と後片付けは[画面確認](#画面確認)に従います。
+
+| 対象 | 操作と期待結果 |
+| --- | --- |
+| 通常・サマリー検索欄 | 入力欄への移動で候補が開く。上下選択は入力欄にフォーカスを残し、Enter / Tabで候補を適用する。IME変換確定のEnterでは候補を適用せず、履歴も保存しない。 |
+| 検索候補の保存行 | Shift+Tabで行内ボタンへ移り、Tab / Shift+Tabで移動する。Enter / Spaceで操作後は入力欄へ戻り、検索条件は変えない。Escで戻る場合は同一条件の候補を再表示しない。 |
+| 検索欄の離脱・クリア | 外クリック・別ウィンドウへの移動で候補が閉じる。クリアは対応する欄だけを空にしてフォーカスを維持・復帰し、空入力候補を表示する。 |
+| 設定とプロパティのカテゴリ・ComboBox | 規定の方向キー・Home・Endでカテゴリを移動し、無効項目を飛ばす。ComboBoxの開閉・キー選択・編集入力が働き、フォーカス表示を識別できる。 |
+| 表と履歴メニュー | 実キーと修飾キーで選択・編集・再生が行われる。Apps / Shift+F10と右クリックで対象のメニューを開き、日付条件追加で検索欄へ不要にフォーカスを移さない。 |
+
+確認時の外部操作による中断は製品不具合と区別します。未確認は未確認として報告し、通常テストのスキップや成功扱いに置き換えません。対象機能の廃止、または同じ接続を外部入力から独立して検証できるようになった場合は該当手順を退役します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
@@ -193,7 +200,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | 実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
 | UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |
-| 画面の準備、表示、破棄 | [`TestUiDispatcherHost`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs)、[`TestWindowPresentationScope`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs) | [`SettingsForegroundInteractionTests`](../../../BeMusicSeeker.Tests/SettingsForegroundInteractionTests.cs) |
+| 画面の準備、表示、破棄 | [`TestUiDispatcherHost`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs)、[`TestWindowPresentationScope`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/SettingsControlPresentationTests.cs) |
 | 公開旧版と現在版の更新 | [旧版からの受入](../../../scripts/accept-v216-first-hop.ps1)、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/UpdaterPackageSyncTests.cs) |
 | 外部エンコーダー | [`BassAudioWriter`](../../../Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/ExternalAudioEncoderSmokeTests.cs) |
 

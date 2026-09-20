@@ -537,7 +537,7 @@ public sealed class KeywordSearchPresentationTests
     }
 
     [TestMethod]
-    public void KsaRefresh_OnlyNotifiesWhenPresentationActuallyChanges()
+    public void KsaLifecycle_SuppressionReopensOnInputContextCatalogAndForceRefreshAndBlur()
     {
         PresentationSettingsStore store = new();
         KeywordSearchSavedQueryOwner savedQueries = new(
@@ -547,17 +547,64 @@ public sealed class KeywordSearchPresentationTests
         KeywordSearchAssistanceOwner assistance = new(
             savedQueries,
             GridKeywordSearchContext.ChartList,
-            new KeywordSearchCatalogSnapshot(1L, []));
+            new KeywordSearchCatalogSnapshot(30L, []));
+
         int changed = 0;
         assistance.PresentationChanged += (_, _) => changed++;
+        KeywordSearchPresentationState focused = assistance.Focus("ti", 2);
+        Assert.IsTrue(focused.IsOpen);
+        Assert.AreEqual(1, changed);
 
-        assistance.Focus("ti", 2);
-        assistance.Refresh("ti", 2);
-        assistance.SuppressCurrentSnapshot();
-        assistance.Refresh("ti", 2);
-        assistance.Refresh("tit", 3);
+        Assert.IsTrue(assistance.Refresh("ti", 2).IsOpen);
+        Assert.AreEqual(1, changed);
 
+        KeywordSearchPresentationState suppressed = assistance.SuppressCurrentSnapshot();
+        Assert.IsFalse(suppressed.IsOpen);
+        Assert.AreEqual(2, changed);
+
+        Assert.IsFalse(assistance.Refresh("ti", 2).IsOpen);
+        Assert.AreEqual(2, changed);
+
+        KeywordSearchPresentationState changedText = assistance.Refresh("tit", 3);
+        Assert.IsTrue(changedText.IsOpen);
         Assert.AreEqual(3, changed);
+
+        Assert.IsFalse(assistance.SuppressCurrentSnapshot().IsOpen);
+        Assert.AreEqual(4, changed);
+
+        KeywordSearchPresentationState changedCaret = assistance.Refresh("tit", 2);
+        Assert.IsTrue(changedCaret.IsOpen);
+        Assert.AreEqual(5, changed);
+
+        Assert.IsFalse(assistance.SuppressCurrentSnapshot().IsOpen);
+        Assert.AreEqual(6, changed);
+
+        KeywordSearchPresentationState changedContext = assistance.UpdateContext(
+            GridKeywordSearchContext.PlaylistDetail,
+            new KeywordSearchCatalogSnapshot(30L, []));
+        Assert.IsTrue(changedContext.IsOpen);
+        Assert.AreEqual(GridKeywordSearchContext.PlaylistDetail, changedContext.Context);
+        Assert.AreEqual(7, changed);
+
+        Assert.IsFalse(assistance.SuppressCurrentSnapshot().IsOpen);
+        Assert.AreEqual(8, changed);
+
+        KeywordSearchPresentationState changedCatalog = assistance.UpdateCatalogSnapshot(
+            new KeywordSearchCatalogSnapshot(31L, ["Alpha"]));
+        Assert.IsTrue(changedCatalog.IsOpen);
+        Assert.AreEqual(31L, changedCatalog.CatalogRevision);
+        Assert.AreEqual(9, changed);
+
+        Assert.IsFalse(assistance.SuppressCurrentSnapshot().IsOpen);
+        Assert.AreEqual(10, changed);
+        KeywordSearchPresentationState forced = assistance.ForceRefresh();
+        Assert.IsTrue(forced.IsOpen);
+        Assert.AreEqual(11, changed);
+
+        Assert.IsFalse(assistance.Blur().IsOpen);
+        Assert.AreEqual(12, changed);
+        Assert.IsFalse(assistance.Blur().IsOpen);
+        Assert.AreEqual(12, changed);
     }
 
     private sealed class PresentationSettingsStore : IKeywordSearchHistorySettingsStore, IKeywordSearchFavoritesSettingsStore

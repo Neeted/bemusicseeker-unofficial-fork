@@ -1462,94 +1462,106 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        ModifierKeys modifiers = e.KeyboardDevice.Modifiers;
+        if (activeEditor == null
+            && (e.Key is Key.Apps or Key.Return
+                || (e.Key == Key.F10 && (modifiers & ModifierKeys.Shift) != 0)))
+        {
+            // 行操作の通知先が別の画面操作を始める前に、この入力の受付を確定します。
+            e.Handled = true;
+        }
+        e.Handled |= HandleKeyDown(e.Key, modifiers);
+    }
+
+    /// <summary>
+    /// 表が受け付けるキー操作を、入力キーと修飾キーの組み合わせから実行します。
+    /// OSの修飾キー状態は入口で取得し、選択・編集・行操作へ同じ入力値を渡します。
+    /// </summary>
+    /// <param name="key">処理するキー。</param>
+    /// <param name="modifiers">キー入力時の修飾キー。</param>
+    /// <returns>表の操作を受け付けた場合は <see langword="true"/>。</returns>
+    internal bool HandleKeyDown(Key key, ModifierKeys modifiers)
+    {
         if (activeEditor != null)
         {
-            switch (e.Key)
+            switch (key)
             {
                 case Key.Escape:
                     if (editSuggestionPopup.IsOpen)
                     {
                         CloseEditSuggestions();
-                        e.Handled = true;
-                        return;
+                        return true;
                     }
                     CancelActiveEdit();
-                    e.Handled = true;
-                    return;
+                    return true;
                 case Key.Return:
                     if (CommitSelectedEditSuggestion())
                     {
-                        e.Handled = true;
-                        return;
+                        return true;
                     }
                     CommitActiveEdit();
-                    e.Handled = true;
-                    return;
+                    return true;
                 case Key.Tab:
                     CommitActiveEdit();
-                    e.Handled = true;
                     MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
-                    return;
+                    return true;
                 case Key.Down:
                     if (MoveEditSuggestionSelection(1))
                     {
-                        e.Handled = true;
-                        return;
+                        return true;
                     }
                     break;
                 case Key.Up:
                     if (MoveEditSuggestionSelection(-1))
                     {
-                        e.Handled = true;
-                        return;
+                        return true;
                     }
                     break;
             }
-            return;
+            return false;
         }
-        switch (ResolveKeyboardCommand(e.Key, Keyboard.Modifiers))
+        switch (ResolveKeyboardCommand(key, modifiers))
         {
             case CustomTableKeyboardCommand.SelectAllRows:
-                e.Handled = SelectAllRows();
-                return;
+                return SelectAllRows();
             case CustomTableKeyboardCommand.CopyCurrentCell:
-                e.Handled = CopyCurrentCellToClipboard();
-                return;
+                return CopyCurrentCellToClipboard();
             case CustomTableKeyboardCommand.CopySelectedRowsTsv:
-                e.Handled = CopySelectedRowsToClipboard();
-                return;
+                return CopySelectedRowsToClipboard();
         }
-        switch (e.Key)
+        switch (key)
         {
             case Key.F2:
-                e.Handled = TryBeginEditCurrentCell(null);
-                break;
+                return TryBeginEditCurrentCell(null);
             case Key.Up:
-                e.Handled = MoveKeyboardSelection(-1, (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift);
-                break;
+                return MoveKeyboardSelection(-1, (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift);
             case Key.Down:
-                e.Handled = MoveKeyboardSelection(1, (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift);
-                break;
+                return MoveKeyboardSelection(1, (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift);
             case Key.Apps:
-            case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift:
-                e.Handled = true;
+            case Key.F10 when (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift:
                 CustomTableHitTestResult contextHit = CreateSelectedRowHit();
                 if (contextHit.Kind == CustomTableHitKind.Cell)
                 {
                     RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(contextHit, openAtMousePosition: false));
                 }
-                break;
+                return true;
             case Key.Return:
-                e.Handled = true;
                 CustomTableHitTestResult selectedHit = CreateSelectedRowHit();
                 if (selectedHit.Kind == CustomTableHitKind.Cell)
                 {
                     RowActivated?.Invoke(this, new CustomTableRowRequestedEventArgs(selectedHit, openAtMousePosition: false));
                 }
-                break;
+                return true;
         }
+        return false;
     }
 
+    /// <summary>
+    /// 表のキー入力を組み込み操作へ対応付けます。
+    /// </summary>
+    /// <param name="key">判定するキー。</param>
+    /// <param name="modifiers">判定する修飾キー。</param>
+    /// <returns>対応する組み込み操作。</returns>
     internal static CustomTableKeyboardCommand ResolveKeyboardCommand(Key key, ModifierKeys modifiers)
     {
         return key switch

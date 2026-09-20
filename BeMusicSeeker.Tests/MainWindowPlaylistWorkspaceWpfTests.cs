@@ -2052,9 +2052,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 // UiDialogCoordinator invokes this modal scope after creating and owning the
                 // child, immediately before ShowDialog. Keep the real coordinator route while
                 // giving the shared scope its required pre-show non-activating seam.
-                windowTest.PrepareForOwnedPresentation(
-                    dialogWindow,
-                    TestWindowActivation.NonActivating);
+                windowTest.PrepareForOwnedPresentation(dialogWindow);
                 modalPreparation.Record(dialogWindow);
                 RoutedEventHandler? closeOnLoaded = null;
                 DispatcherOperation? closeOperation = null;
@@ -2657,16 +2655,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static void RaiseButtonClick(Button button)
         => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
-
-    private static void RaiseKey(UIElement target, Key key)
-    {
-        var source = PresentationSource.FromVisual(target);
-        Assert.IsNotNull(source);
-        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
-        {
-            RoutedEvent = Keyboard.KeyDownEvent
-        });
-    }
 
     private static PlaylistSummaryRow CreatePlaylistSummaryRow(BMSTable table)
     {

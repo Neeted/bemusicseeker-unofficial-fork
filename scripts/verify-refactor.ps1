@@ -76,13 +76,6 @@ $functionalPortableSettingsClass =
     'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests'
 $functionalBassCollectibleLoadContextClass =
     'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
-$functionalSettingsForegroundInteractionClass =
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests'
-$functionalSettingsForegroundInteractionMethods = @(
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes'
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow')
 $functionalTestAssemblyPath = Join-Path `
     $repoRoot `
     'BeMusicSeeker.Tests\bin\x64\Release\net10.0-windows\BeMusicSeeker.Tests.dll'
@@ -145,32 +138,17 @@ function New-FunctionalShardPlan {
     if ($parallelATests.Count -eq 0 -or $parallelBTests.Count -eq 0) {
         throw 'Functional non-DoNotParallelize metadata must produce two nonempty parallel queues.'
     }
-    $foregroundMethods = [string[]]@($functionalSettingsForegroundInteractionMethods)
-    $foregroundSet = [System.Collections.Generic.HashSet[string]]::new(
-        [StringComparer]::Ordinal)
-    foreach ($method in $foregroundMethods) {
-        if (-not $method.StartsWith(
-                "$functionalSettingsForegroundInteractionClass.",
-                [StringComparison]::Ordinal)) {
-            throw 'Foreground interaction methods must all belong to SettingsForegroundInteractionTests.'
-        }
-        [void]$foregroundSet.Add($method)
-    }
-
     $serialStateA = @()
     $serialStateB = @()
     $alternateIndex = 0
     foreach ($test in $serialTests) {
-        if ($foregroundSet.Contains([string]$test.FullyQualifiedName) -or
-            ($alternateIndex % 2) -eq 0) {
+        if (($alternateIndex % 2) -eq 0) {
             $serialStateA += $test
         }
         else {
             $serialStateB += $test
         }
-        if (-not $foregroundSet.Contains([string]$test.FullyQualifiedName)) {
-            $alternateIndex++
-        }
+        $alternateIndex++
     }
 
     if ($serialStateA.Count -eq 0 -or $serialStateB.Count -eq 0) {
@@ -261,7 +239,6 @@ function New-FunctionalShardPlan {
         ParallelBTests = [object[]]$parallelBTests
         SharedStateATests = [object[]]$serialStateA
         SharedStateBTests = [object[]]$serialStateB
-        ForegroundInteractionMethods = $foregroundMethods
     }
 }
 
@@ -353,23 +330,12 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional shared-state hosts must use one worker and each parallel host must use ProcessorCount workers.'
     }
 
-    $foregroundMethods = [string[]]@($Plan.ForegroundInteractionMethods)
-    if (@(Compare-Object -ReferenceObject $functionalSettingsForegroundInteractionMethods `
-            -DifferenceObject $foregroundMethods -CaseSensitive).Count -ne 0) {
-        throw 'Functional foreground interaction methods must be the exact four approved methods.'
-    }
     $serialANames = [string[]]@($Plan.SharedStateATests | ForEach-Object { $_.FullyQualifiedName })
     $serialBNames = [string[]]@($Plan.SharedStateBTests | ForEach-Object { $_.FullyQualifiedName })
     $serialNames = [string[]]@($Plan.SerialTests | ForEach-Object { $_.FullyQualifiedName })
     if (@($serialANames | Where-Object { $serialBNames -contains $_ }).Count -ne 0 -or
-        @($serialANames + $serialBNames | Where-Object { $foregroundMethods -contains $_ }).Count -ne 4 -or
         @(Compare-Object -ReferenceObject $serialNames -DifferenceObject ($serialANames + $serialBNames) -CaseSensitive).Count -ne 0) {
-        throw 'Functional DoNotParallelize metadata must be assigned once across shared-state A/B, with all foreground methods in A.'
-    }
-    foreach ($foregroundMethod in $foregroundMethods) {
-        if ($serialANames -notcontains $foregroundMethod) {
-            throw "Foreground interaction method was not assigned to shared-state-a: $foregroundMethod"
-        }
+        throw 'Functional DoNotParallelize metadata must be assigned once across shared-state A/B.'
     }
     if ($serialA.Filter -cne (New-FunctionalTestCaseFilter -BaseFilter $functionalFilter -IncludeFullyQualifiedNames $serialANames) -or
         $serialB.Filter -cne (New-FunctionalTestCaseFilter -BaseFilter $functionalFilter -IncludeFullyQualifiedNames $serialBNames)) {

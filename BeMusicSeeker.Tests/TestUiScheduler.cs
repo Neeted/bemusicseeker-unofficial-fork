@@ -378,22 +378,6 @@ internal static class TestUiDispatcherHost
 }
 
 /// <summary>
-/// Selects whether a real WPF test window may participate in foreground interaction.
-/// </summary>
-internal enum TestWindowActivation
-{
-    /// <summary>
-    /// Presents the window outside all current monitors without activating it.
-    /// </summary>
-    NonActivating,
-
-    /// <summary>
-    /// Allows the test to interact with the window through the foreground input path.
-    /// </summary>
-    ForegroundInteraction
-}
-
-/// <summary>
 /// Owns real windows and popups created by one test on the shared WPF dispatcher.
 /// </summary>
 internal sealed class TestWindowPresentationScope
@@ -426,14 +410,13 @@ internal sealed class TestWindowPresentationScope
     }
 
     /// <summary>
-    /// Applies the selected presentation policy, shows the window, and waits for a rendered HWND-backed layout.
+    /// 非アクティブ・画面外に表示し、HWNDを持つ画面の描画完了を待ちます。
     /// </summary>
     internal void ShowAndWaitForContentRendered(
-        Window window,
-        TestWindowActivation activation = TestWindowActivation.NonActivating)
+        Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        PrepareForOwnedPresentation(window, activation);
+        PrepareForOwnedPresentation(window);
 
         bool contentRendered = false;
         EventHandler handler = (_, _) => contentRendered = true;
@@ -457,7 +440,7 @@ internal sealed class TestWindowPresentationScope
                     $"The displayed {window.GetType().Name} did not produce a loaded, non-empty HWND-backed layout.");
             }
 
-            VerifyPresentationPolicy(handle, activation);
+            VerifyPresentationPolicy(handle);
         }
         finally
         {
@@ -466,11 +449,10 @@ internal sealed class TestWindowPresentationScope
     }
 
     /// <summary>
-    /// Tracks a window and applies its presentation policy immediately before an owned or modal presentation.
+    /// 所有ウィンドウまたはモーダルの表示前に、非アクティブ・画面外表示と破棄の管理を登録します。
     /// </summary>
     internal void PrepareForOwnedPresentation(
-        Window window,
-        TestWindowActivation activation = TestWindowActivation.NonActivating)
+        Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
         if (trackedWindows.Any(registration => ReferenceEquals(registration.Window, window)))
@@ -478,23 +460,17 @@ internal sealed class TestWindowPresentationScope
             throw new InvalidOperationException("The window is already prepared by this presentation scope.");
         }
 
-        if (activation == TestWindowActivation.NonActivating)
-        {
-            window.WindowStartupLocation = WindowStartupLocation.Manual;
-            window.ShowInTaskbar = false;
-            window.ShowActivated = false;
-            window.Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d;
-            window.Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d;
-        }
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.ShowInTaskbar = false;
+        window.ShowActivated = false;
+        window.Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d;
+        window.Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d;
 
-        var registration = new WindowRegistration(window, activation);
+        var registration = new WindowRegistration(window);
         registration.SourceInitialized = (_, _) =>
         {
             registration.Handle = new WindowInteropHelper(window).Handle;
-            if (activation == TestWindowActivation.NonActivating)
-            {
-                EnsureNonActivatingStyle(registration.Handle, window.GetType().Name);
-            }
+            EnsureNonActivatingStyle(registration.Handle, window.GetType().Name);
         };
         registration.Loaded = (_, _) => ObservePresentation(registration);
         registration.Closing = (_, _) => ObservePresentation(registration);
@@ -505,7 +481,7 @@ internal sealed class TestWindowPresentationScope
     }
 
     /// <summary>
-    /// Tracks a popup, applies its placement target's activation policy when opened, and closes it before its owning window.
+    /// Popupを非アクティブ・画面外に配置し、所有ウィンドウより先に閉じます。
     /// </summary>
     internal void TrackPopup(Popup popup)
     {
@@ -715,13 +691,8 @@ internal sealed class TestWindowPresentationScope
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
     }
 
-    private static void VerifyPresentationPolicy(nint handle, TestWindowActivation activation)
+    private static void VerifyPresentationPolicy(nint handle)
     {
-        if (activation != TestWindowActivation.NonActivating)
-        {
-            return;
-        }
-
         long extendedStyle = ReadExtendedWindowStyle(handle, "non-activating test");
         if ((extendedStyle & WsExNoActivate) == 0)
         {
@@ -826,7 +797,7 @@ internal sealed class TestWindowPresentationScope
                 $"Failed to position non-activating test HWND 0x{handle:X} outside the virtual screen; Win32 error {Marshal.GetLastWin32Error()}.");
         }
 
-        VerifyPresentationPolicy(handle, TestWindowActivation.NonActivating);
+        VerifyPresentationPolicy(handle);
     }
 
     private void ObservePopupPresentation(PopupRegistration registration)
@@ -845,10 +816,6 @@ internal sealed class TestWindowPresentationScope
                 throw new InvalidOperationException(
                     "An opened popup must have a placement target in a window prepared by this presentation scope.");
             }
-            if (ownerRegistration.Activation != TestWindowActivation.NonActivating)
-            {
-                return;
-            }
 
             nint handle = registration.Popup.Child == null
                 ? 0
@@ -865,8 +832,7 @@ internal sealed class TestWindowPresentationScope
 
     private void ObservePresentation(WindowRegistration registration)
     {
-        if (registration.ObservationCompleted
-            || registration.Activation != TestWindowActivation.NonActivating)
+        if (registration.ObservationCompleted)
         {
             return;
         }
@@ -942,11 +908,9 @@ internal sealed class TestWindowPresentationScope
         return handles;
     }
 
-    private sealed class WindowRegistration(Window window, TestWindowActivation activation)
+    private sealed class WindowRegistration(Window window)
     {
         internal Window Window { get; } = window;
-
-        internal TestWindowActivation Activation { get; } = activation;
 
         internal EventHandler SourceInitialized { get; set; } = null!;
 
