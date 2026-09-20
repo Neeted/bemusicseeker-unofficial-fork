@@ -485,6 +485,8 @@ public sealed class MainWindowPlayHistoryWpfTests
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 var menuClosed = new TaskCompletionSource<bool>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
+                var menuOpenedAndActionCompleted = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
                 RoutedEventHandler menuClosedHandler = (_, _) => menuClosed.TrySetResult(true);
                 playHistoryMenu.Closed += menuClosedHandler;
                 try
@@ -512,29 +514,52 @@ public sealed class MainWindowPlayHistoryWpfTests
                     int keywordChangedCount = 0;
                     viewModel.ChartFilters.KeywordFilterChanged += (_, _) => keywordChangedCount++;
 
-                    RaiseKey(table, Key.Apps);
-                    TestUiDispatcherHost.Drain();
-
-                    MenuItem dateRange = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemAddDateRangeToSearch");
-                    Assert.IsTrue(playHistoryMenu.IsOpen);
-                    Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
-                    Assert.IsTrue(dateRange.IsEnabled);
                     string start = first.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
                     string end = later.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
                     string expectedClause = $"date:\"{start}..{end}\"";
 
-                    table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
                     var keywordSearchEditor = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
                     Assert.IsNotNull(keywordSearchEditor);
                     Assert.AreNotSame(keywordSearchEditor, Keyboard.FocusedElement);
                     bool keywordSearchEditorReceivedFocus = false;
                     KeyboardFocusChangedEventHandler keywordFocusHandler =
                         (_, _) => keywordSearchEditorReceivedFocus = true;
+                    RoutedEventHandler menuOpenedHandler = (_, _) =>
+                    {
+                        try
+                        {
+                            // XAML側のOpenedハンドラが作ったスナップショットを、Popupの外部入力で破棄される前に使う。
+                            Assert.IsTrue(playHistoryMenu.IsOpen);
+                            MenuItem dateRange = FindMenuItem(
+                                playHistoryMenu,
+                                "playHistoryContextMenuItemAddDateRangeToSearch");
+                            Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
+                            Assert.IsTrue(dateRange.IsEnabled);
+
+                            table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
+                            dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
+                            menuOpenedAndActionCompleted.TrySetResult(true);
+                        }
+                        catch (Exception exception)
+                        {
+                            menuOpenedAndActionCompleted.TrySetException(exception);
+                        }
+                        finally
+                        {
+                            if (playHistoryMenu.IsOpen)
+                            {
+                                playHistoryMenu.IsOpen = false;
+                            }
+                        }
+                    };
                     keywordSearchEditor.GotKeyboardFocus += keywordFocusHandler;
+                    playHistoryMenu.Opened += menuOpenedHandler;
                     try
                     {
-                        dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
-                        playHistoryMenu.IsOpen = false;
+                        RaiseKey(table, Key.Apps);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            menuOpenedAndActionCompleted.Task,
+                            "play-history date-range context menu opened and action completed");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(
                             menuClosed.Task,
                             "play-history date-range context menu closed after action");
@@ -542,6 +567,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     }
                     finally
                     {
+                        playHistoryMenu.Opened -= menuOpenedHandler;
                         keywordSearchEditor.GotKeyboardFocus -= keywordFocusHandler;
                     }
 
