@@ -176,10 +176,31 @@ public sealed class ReleaseScriptVersionSourceTests
                 fixture.SetRemoteTagCommit(fixture.InitialHead);
                 break;
             case "zip":
-                File.AppendAllText(fixture.NormalPackagePath, "changed zip", Encoding.ASCII);
+                long packageLength = new FileInfo(fixture.NormalPackagePath).Length;
+                string[] packageEntries = fixture.ZipEntryNames(fixture.NormalPackagePath);
+                string packageHash = Convert.ToHexString(
+                    SHA256.HashData(File.ReadAllBytes(fixture.NormalPackagePath)));
+                fixture.RewriteNormalPackageContent();
+                Assert.AreEqual(packageLength, new FileInfo(fixture.NormalPackagePath).Length);
+                CollectionAssert.AreEqual(packageEntries, fixture.ZipEntryNames(fixture.NormalPackagePath));
+                Assert.AreNotEqual(
+                    packageHash,
+                    Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixture.NormalPackagePath))));
                 break;
             case "asset-size":
-                fixture.WriteRemoteAssetsJson("[{\"name\":\"bemusicseeker-unofficial-fork-v9.9.9.9.zip\",\"size\":1}]");
+                fixture.WriteRemoteAssetsJson(JsonSerializer.Serialize(new[]
+                {
+                    new
+                    {
+                        name = Path.GetFileName(fixture.NormalPackagePath),
+                        size = new FileInfo(fixture.NormalPackagePath).Length + 1
+                    },
+                    new
+                    {
+                        name = Path.GetFileName(fixture.MetadataPackagePath),
+                        size = new FileInfo(fixture.MetadataPackagePath).Length
+                    }
+                }));
                 break;
             case "asset-set":
                 fixture.WriteRemoteAssetsJson("[]");
@@ -464,6 +485,22 @@ public sealed class ReleaseScriptVersionSourceTests
         public void WriteRemoteAssetsJson(string json)
         {
             File.WriteAllText(GhAssetsPath, json, Encoding.ASCII);
+        }
+
+        public void RewriteNormalPackageContent()
+        {
+            using ZipArchive archive = ZipFile.Open(NormalPackagePath, ZipArchiveMode.Update);
+            ZipArchiveEntry entry = archive.GetEntry("test.mp3")
+                ?? throw new InvalidOperationException("Fixture ZIP did not contain test.mp3.");
+            using Stream stream = entry.Open();
+            stream.Position = 0;
+            stream.WriteByte((byte)'y');
+        }
+
+        public string[] ZipEntryNames(string packagePath)
+        {
+            using ZipArchive archive = ZipFile.OpenRead(packagePath);
+            return archive.Entries.Select(entry => entry.FullName).ToArray();
         }
 
         public IReadOnlyList<string> GhLogLines()
