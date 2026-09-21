@@ -27,6 +27,26 @@
 
 機能の状態や複数サービスの処理順をルートのViewModelへ戻しません。画面固有処理を隠すだけの転送クラス、可変状態・ロックを外へ並べる巨大な窓口、実行時に依存を探し回る仕組みは追加しません。
 
+### ソースの配置
+
+物理フォルダは既存の機能・管理主体を探す単位とし、名前空間や公開範囲とは区別します。名前空間は既存の型識別と保存・XAMLの参照を維持します。同じpartial型のファイルは一箇所へ置き、機能専用の要求・結果・補助処理を管理主体と揃えます。
+
+| 配置 | 探す対象 |
+| --- | --- |
+| `Models/Chart`、`Library`、`Playlist`、`Install` | 譜面・スコアのモデル、ライブラリの構成と変更主体、表と項目、パッケージと導入要求。 |
+| `Models/Playback`、`Settings`、`ExternalActions`、`Ir`、`Resources` | 再生、設定の保存・編集、外部プログラム操作、IR、譜面リソースの識別。既存の `LR2`、`Update`、`Localization` は各連携・機能を担当する。 |
+| `Models/BmsLibraryInternal/Catalog`、`Mutations`、`FileOperations`、`Scanning` | カタログの正本と投影、変更セッションの事実と結果、物理変更の境界、譜面の走査・確定。 |
+| `Models/BmsLibraryInternal/ChartInfo`、`Resources`、`ResourceHealth` | 譜面解析と補完、譜面リソースの参照・逆引き、健全性の判定・更新。WPFリソースとは区別する。 |
+| `Models/BmsLibraryInternal/Install`、`Maintenance`、`Playlist`、`Lr2`、`PlayHistory`、`Score`、`Ir`、`Startup`、`Dialogs` | 各機能の管理主体と要求・結果。DB窓口、ライブラリ全体の設定・実行条件は `BmsLibraryInternal` 直下に置く。 |
+| `Models/Utils/Scanning`、`FileOperations`、`Processes` | 走査基盤、ファイルシステム操作、外部プロセス・シェル操作。用途を限定しない通知・同期等の小さな補助は `Utils` 直下に置く。 |
+| `ViewModels/MainWindow` | ルートViewModelの全partial、構成、画面全体の更新判断・進捗・終了。 |
+| `ViewModels/ChartList`、`ChartOperations`、`Install`、`Maintenance`、`Playlist`、`PlayHistory`、`Playback`、`Search`、`Settings`、`Lr2`、`Startup`、`Update` | 各機能の表示状態と操作の入口。メイン画面で使うことだけを理由に `MainWindow` 配下へ分散させない。 |
+| `Views/CustomTable`、`Converters`、`MainWindow`、`Playback`、`Playlist`、`PlayHistory`、`Search`、`Settings`、`Dialogs` | 表部品、値変換、機能別の画面・端末処理。機能専用ダイアログはその機能へ、汎用・起動用は `Dialogs` へ置く。共通WPF部品は直下に置く。 |
+
+層全体の接続・共通契約は各層の直下に置きます。ファイル数だけを基準に細分化したり、分類しにくい型を集めるためのフォルダを増やしたりしません。XAMLとコードビハインドを移すときは、相対リソースURIとソースパスを読む既存検証・文書も同時に追従させます。
+
+テストの物理配置は[テスト作成](../development/test-authoring.md#既存テストの調査と配置)に従います。
+
 ### 主な構成要素
 
 | 型 | 担当 |
@@ -74,9 +94,9 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |
-| 埋込みアイコンの解決 | [Images.cs](../../../BeMusicSeeker/Properties/Images.cs) の `ResourceManager` と型付きアクセサー | [ResourceIconContractTests](../../../BeMusicSeeker.Tests/ResourceIconContractTests.cs) の `EmbeddedImagesExposeStableKeysTypesAndPayloads`、`XamlIconConverterPreservesResourceDimensions`。 |
-| 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
+| 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |
+| 埋込みアイコンの解決 | [Images.cs](../../../BeMusicSeeker/Properties/Images.cs) の `ResourceManager` と型付きアクセサー | [ResourceIconContractTests](../../../BeMusicSeeker.Tests/Localization/ResourceIconContractTests.cs) の `EmbeddedImagesExposeStableKeysTypesAndPayloads`、`XamlIconConverterPreservesResourceDimensions`。 |
+| 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
 | 機能ごとの責務・起動・変更 | 各領域の管理主体 | [起動](../runtime/startup.md)、[ライブラリ変更](../library/mutations.md)、[画面](../ui/README.md)の対応表で確認する。 |
 
 ## 関連資料

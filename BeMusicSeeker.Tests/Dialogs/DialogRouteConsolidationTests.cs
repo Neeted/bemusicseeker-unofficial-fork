@@ -74,8 +74,8 @@ public sealed class DialogRouteConsolidationTests
     public void LegacyDialogEntryPoints_AreCoordinatorBackedAndDoNotUseStandardFallback()
     {
         string root = FindRepositoryRoot();
-        string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDialogService.cs"));
-        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "Dialogs", "BmsLibraryDialogService.cs"));
+        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
         string emergencyDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "EmergencyDialog.cs"));
 
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs")), "DispatcherMessageBox should be removed after legacy call sites move to coordinator-backed routes.");

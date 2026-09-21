@@ -16,7 +16,7 @@
 
 `MainWindow` は進捗を `RunWithProgressAsync`、ファイル・フォルダ選択を表示窓口、子ウィンドウを `ShowWindowAsync` へ渡します。重ね合わせ表示は `ShowOverlayDialog` / `HideOverlayDialog` で管理し、初期言語画面から設定画面への遷移も明示します。
 
-ライブラリ操作は [BmsLibraryDialogService](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs) と[変更結果の表示](../library/mutations.md)の境界に従います。表示処理の統一を理由に、モデルの排他権を保持したまま画面の応答を待ちません。
+ライブラリ操作は [BmsLibraryDialogService](../../../BeMusicSeeker/Models/BmsLibraryInternal/Dialogs/BmsLibraryDialogService.cs) と[変更結果の表示](../library/mutations.md)の境界に従います。表示処理の統一を理由に、モデルの排他権を保持したまま画面の応答を待ちません。
 
 ### 直接表示を許可する実装
 
@@ -52,11 +52,11 @@ LR2個別参照の確認・選択で表示失敗が起きた場合は、元の�
 
 | 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../BeMusicSeeker.Tests/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 検出対象のファイル集合と表が一致すること。正規表現・比較対象は実装側を参照する。 |
+| 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../BeMusicSeeker.Tests/Dialogs/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 検出対象のファイル集合と表が一致すること。正規表現・比較対象は実装側を参照する。 |
 | 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同テスト群: コンパイル後の呼出し関係から、緊急表示を使う境界を確認する。 |
-| 設定内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs)、[SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../BeMusicSeeker.Tests/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択を確認する。実フォーカスは[入力操作の明示受入](../development/testing.md#入力操作の明示受入)で確認する。 |
-| 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
-| 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
+| 設定内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択を確認する。実フォーカスは[入力操作の明示受入](../development/testing.md#入力操作の明示受入)で確認する。 |
+| 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
+| 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
 
 ## 関連資料
 

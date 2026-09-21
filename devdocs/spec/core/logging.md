@@ -49,10 +49,10 @@ NLogの `FileTarget` で、一ファイル20 MiB超過時にローテーショ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| ログ構成、文字コード、回転、出力先の失敗 | [`NLogWrapper`](../../../Ribbit/Logging/NLogWrapper.cs) | [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/NLogWrapperTests.cs) |
-| Taskの成功値、元の例外、取消、診断失敗 | [`TaskEx`](../../../Ribbit/Util/Extensions/TaskEx.cs) | [`TaskLoggingTests`](../../../BeMusicSeeker.Tests/TaskLoggingTests.cs) |
-| プレイリスト通知の順序、一次失敗、通知失敗時も再表示しない | [`PlaylistOperationNotificationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistOperationNotificationOwner.cs) | [`PlaylistOperationNotificationOwnerTests`](../../../BeMusicSeeker.Tests/PlaylistOperationNotificationOwnerTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/PlaylistWorkspacePersistenceCommandTests.cs) |
-| 画面イベントからの例外通知 | [MainWindow.cs](../../../BeMusicSeeker/Views/MainWindow.cs) の `NotifyMainWindowOperationFailureAsync` と `playlistTableDrop` | 共通サービスへの引渡しと、既存の通知境界を実装で確認する。ダイアログの受付・失敗は[ダイアログ仕様](../ui/dialogs.md)の対応表を参照する。 |
+| ログ構成、文字コード、回転、出力先の失敗 | [`NLogWrapper`](../../../Ribbit/Logging/NLogWrapper.cs) | [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/Runtime/NLogWrapperTests.cs) |
+| Taskの成功値、元の例外、取消、診断失敗 | [`TaskEx`](../../../Ribbit/Util/Extensions/TaskEx.cs) | [`TaskLoggingTests`](../../../BeMusicSeeker.Tests/Runtime/TaskLoggingTests.cs) |
+| プレイリスト通知の順序、一次失敗、通知失敗時も再表示しない | [`PlaylistOperationNotificationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistOperationNotificationOwner.cs) | [`PlaylistOperationNotificationOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistOperationNotificationOwnerTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
+| 画面イベントからの例外通知 | [MainWindow.cs](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の `NotifyMainWindowOperationFailureAsync` と `playlistTableDrop` | 共通サービスへの引渡しと、既存の通知境界を実装で確認する。ダイアログの受付・失敗は[ダイアログ仕様](../ui/dialogs.md)の対応表を参照する。 |
 
 ## 関連資料
 

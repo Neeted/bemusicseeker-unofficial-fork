@@ -12,9 +12,9 @@ public sealed class WpfChromeBoundaryTests
     [TestMethod]
     public void MainWindowUsesNativeChromeAndPreservesTerminalCaptionRoutes()
     {
-        string xamlPath = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml");
+        string xamlPath = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml");
         string source = File.ReadAllText(xamlPath);
-        string codeBehind = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string codeBehind = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.cs"));
         var document = XDocument.Load(xamlPath);
         XElement window = document.Root!;
         XElement windowChrome = document.Descendants().Single(element => element.Name.LocalName == "WindowChrome");
@@ -83,7 +83,7 @@ public sealed class WpfChromeBoundaryTests
         string repositoryRoot = FindRepositoryRoot();
         foreach (string fileName in new[] { "LoadPlaylistURIDialog.xaml", "PlaylistPropertyDialog.xaml" })
         {
-            string source = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", fileName));
+            string source = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "Playlist", fileName));
             Assert.IsFalse(source.Contains("xmlns:i=", StringComparison.Ordinal), fileName);
             Assert.IsFalse(source.Contains("System.Windows.Interactivity", StringComparison.Ordinal), fileName);
         }

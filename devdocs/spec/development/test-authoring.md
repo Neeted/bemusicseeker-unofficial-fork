@@ -47,6 +47,8 @@
 
 ### 既存テストの調査と配置
 
+`BeMusicSeeker.Tests` は `Catalog`、`ChartInfo`、`Install`、`Playlist`、`PlayHistory`、`MainWindow` 等の機能別フォルダにテストを置き、対象機能だけで使う準備・代替実装も同居させます。機能横断の補助は既存の `Helpers`、検証・配布スクリプトの契約は `Verification` に置きます。プロジェクトとアセンブリの設定は直下、固定入力は `TestData`、性能測定は `Performance` を使います。物理フォルダからテストの実行区分や並列度は決めず、既存の属性と[実行計画](testing.md#通常テストの分割と並列実行)に従います。
+
 判定基準の確定後に、機能仕様の対応表、本番の入口と識別子、用語、失敗文言から既存テストを絞ります。全テストの台帳を作らず、該当機能と共通補助処理を調べます。既存テストは配置の根拠であり、期待値を書き換える根拠ではありません。
 
 | 設計項目 | 実装の管理主体・識別子 | 既存テスト候補 | 配置 | 共有資源・実行区分 | 完了の待ち方 | 退役するもの |
@@ -112,7 +114,7 @@ DBの準備・観測は検証対象の処理と区別します。入力データ
 | 仕様項目 | 指示・実装 | 確認方法 |
 | --- | --- | --- |
 | 必要性、判定基準、配置 | [テスト配下の指示](../../../BeMusicSeeker.Tests/AGENTS.md)、[設計担当](../../../.codex/agents/test-contract-designer.toml) | 作業の分類、独立した根拠、設計項目と実際の検証内容を点検する。 |
-| 表示リソースのキー・非空値・書式引数 | [基準辞書](../../../BeMusicSeeker/Properties/Resources.resx)、[アクセサー](../../../BeMusicSeeker/Properties/Resources.cs)、[全言語](../../../lang) | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/LocalizationResourceParityTests.cs) の全件共通検査。機能固有の通知・表示の確認は各機能のテストが分担する。 |
+| 表示リソースのキー・非空値・書式引数 | [基準辞書](../../../BeMusicSeeker/Properties/Resources.resx)、[アクセサー](../../../BeMusicSeeker/Properties/Resources.cs)、[全言語](../../../lang) | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) の全件共通検査。機能固有の通知・表示の確認は各機能のテストが分担する。 |
 | WPFの準備・待機・解放 | [共通テスト基盤](../../../BeMusicSeeker.Tests)、[検証仕様](testing.md#画面テストの分離) | 実際のテスト群と共通補助処理の使用を確認する。機能の保証は各仕様の対応表を参照する。 |
 | プロセスの所有と失敗 | [スクリプト指針](../../../scripts/AGENTS.md)、[プロセス検証](testing.md#プロセスの待機と失敗) | 実行側と同じ処理境界、残留確認、失敗の優先順位を点検する。 |
 | 一時資料の退役 | [資料運用](../../README.md)、[計画運用](../../plan/README.md) | 移管後のリンク、機能名・テスト名、削除対象を静的に確認する。 |

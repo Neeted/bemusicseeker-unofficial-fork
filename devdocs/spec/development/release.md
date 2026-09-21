@@ -48,7 +48,7 @@ uv run scripts/build-doc-html.py --source-root . --output-root docs --site --sit
 バージョン更新は通常 `dev` を起点に行い、次を同じ変更で揃えます。
 
 - `AssemblyInformationalVersion`。
-- [ReleaseNotesWindow.xaml](../../../BeMusicSeeker/Views/ReleaseNotesWindow.xaml) の `Update_history`。
+- [ReleaseNotesWindow.xaml](../../../BeMusicSeeker/Views/Dialogs/ReleaseNotesWindow.xaml) の `Update_history`。
 - `release notes/vX.X.X.X リリースノート.md`。GitHub Release本文として使える内容にする。
 
 タグ作成・公開は、下記のリリース手順で行います。画面内の更新履歴は日本語で直接記述できます。その他の表示文言は[表示リソースの規則](../../../AGENTS.md#ログと表示文言)に従います。
@@ -119,9 +119,9 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 | 仕様項目 | 実装箇所 | テスト・確認方法 |
 | --- | --- | --- |
 | ブランチと作業起点 | [AGENTS.md](../../../AGENTS.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。 |
-| バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../BeMusicSeeker.Tests/ReleaseScriptVersionSourceTests.cs): 隔離repoと実Git、GitHub CLIの代替を使い、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
+| バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../BeMusicSeeker.Tests/Verification/ReleaseScriptVersionSourceTests.cs): 隔離repoと実Git、GitHub CLIの代替を使い、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
 | 配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | Fullで配布物生成、既存データ利用、更新・起動を確認する。 |
-| 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
+| 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
 | 実公開 | [release.ps1](../../../scripts/release.ps1) | 自動テストでは実GitHubを変更しない。許可された公開でタグ・資産・リモートブランチの照合結果を確認する。 |
 
 ## 関連資料

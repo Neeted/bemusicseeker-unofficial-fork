@@ -35,8 +35,8 @@ URL取込みとアーカイブ導入で作る一時ファイルを、利用者�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 作成印、セッション内外、管理下にないファイルの保護 | [`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | [`TempDirectoryPublisherTests`](../../../BeMusicSeeker.Tests/TempDirectoryPublisherTests.cs) |
-| 並列に確保した入力の寿命と一括解放 | [`temporarilyCopyFiles`](../../../BeMusicSeeker/ViewModels/temporarilyCopyFiles.cs) | [`TemporaryCopyFilesTests`](../../../BeMusicSeeker.Tests/TemporaryCopyFilesTests.cs) |
+| 作成印、セッション内外、管理下にないファイルの保護 | [`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | [`TempDirectoryPublisherTests`](../../../BeMusicSeeker.Tests/FileOperations/TempDirectoryPublisherTests.cs) |
+| 並列に確保した入力の寿命と一括解放 | [`temporarilyCopyFiles`](../../../BeMusicSeeker/ViewModels/ChartOperations/temporarilyCopyFiles.cs) | [`TemporaryCopyFilesTests`](../../../BeMusicSeeker.Tests/ChartOperations/TemporaryCopyFilesTests.cs) |
 | 展開・保留・削除に伴う寿命 | [導入入口](../library/drop-install.md)と[パッケージ変更](../library/mutations.md) | 各仕様の実入口テストで確認する。 |
 | 起動・終了時の回収 | [App.cs](../../../BeMusicSeeker/App.cs) と[終了処理](../runtime/shutdown.md) | 終了仕様の対応表と、現在・過去の管理セッションを区別する実装の呼出し順で確認する。 |
 

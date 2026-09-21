@@ -2757,7 +2757,7 @@ public sealed class SettingsWindowPresentationTests
         Assert.IsFalse(aboutDocument.Descendants(PresentationName("FlowDocumentScrollViewer")).Any());
 
         var releaseNotesDocument = XDocument.Load(Path.Combine(
-            FindRepositoryRoot(), "BeMusicSeeker", "Views", "ReleaseNotesWindow.xaml"));
+            FindRepositoryRoot(), "BeMusicSeeker", "Views", "Dialogs", "ReleaseNotesWindow.xaml"));
         XElement versionDocument = releaseNotesDocument.Descendants(PresentationName("FlowDocumentScrollViewer")).Single();
         Assert.IsNull(versionDocument.Attribute("Height"));
         Assert.AreEqual("Auto", versionDocument.Attribute("VerticalScrollBarVisibility")?.Value);
@@ -4221,7 +4221,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static XDocument LoadSettingsWindowXaml()
     {
-        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "Settings", "SettingsWindow.xaml"));
     }
 
     private static XDocument[] LoadSettingsPageXamls()

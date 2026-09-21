@@ -33,7 +33,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void DeleteContextMenuItems_UseSpecificDeleteResourceKeys()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
 
         Assert.AreEqual(2, CountOccurrences(xaml, "Name=\"tableContextMenuItemDeleteEntry\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"tableContextMenuItemDeleteFile\""));
@@ -64,7 +64,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void InstallPackageTreeHeaders_BindToPackageDisplayTitle()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
 
         Assert.AreEqual(4, CountOccurrences(xaml, "DisplayTitle"));
         Assert.AreEqual(-1, xaml.IndexOf("P={Binding ChartFiles}", StringComparison.Ordinal));
@@ -74,7 +74,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlayHistoryTree_ExposesExpectedPeriodNodes()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
         string playHistoryTree = ExtractBetween(xaml, "Name=\"treeViewItemPlayHistory\"", "</TreeView>");
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"treeViewItemPlayHistory\""));
@@ -126,7 +126,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ChartInfoParseFailureContextMenu_UsesDedicatedResourceAndVisibilityPolicy()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"tableContextMenuItemRemoveChartInfoParseFailure\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Remove_chart_info_parse_failure_record, Mode=OneWay"));
@@ -437,7 +437,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string styles = File.ReadAllText(Path.Combine(root, "Simple Styles.xaml")).Replace("\r\n", "\n");
-        string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml")).Replace("\r\n", "\n");
+        string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml")).Replace("\r\n", "\n");
 
         Assert.AreEqual(-1, styles.IndexOf("StrokeDashArray", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindow.IndexOf("TreeViewItemFocusVisual", StringComparison.Ordinal));
@@ -1004,7 +1004,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void ThemeStyles_ApplyToMenusAndStandardControls()
     {
         string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
-        string mainWindow = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindow = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
 
         foreach (string targetType in new[]
         {
@@ -1084,7 +1084,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaylistExternalPackageLookupContextMenu_IsBelowDiffUrlAndUsesResources()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
         string tableContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"tableContextMenu\"", "<ContextMenu x:Key=\"tableContextMenuPlaylistMissing\"");
         string missingContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"tableContextMenuPlaylistMissing\"", "<ContextMenu x:Key=\"playHistoryContextMenu\"");
 
@@ -1477,7 +1477,7 @@ public sealed class MainWindowContextMenuResourceTests
 
     private static XDocument LoadMainWindowXamlDocument()
     {
-        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"), LoadOptions.PreserveWhitespace);
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"), LoadOptions.PreserveWhitespace);
     }
 
     private static XElement FindElementByAttribute(XContainer container, string attributeLocalName, string value)

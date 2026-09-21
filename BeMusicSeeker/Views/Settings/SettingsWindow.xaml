@@ -17,7 +17,7 @@
   <views:ThemedWindow.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
-        <ResourceDictionary Source="Settings/SettingsControls.xaml" />
+        <ResourceDictionary Source="SettingsControls.xaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </views:ThemedWindow.Resources>

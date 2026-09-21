@@ -38,9 +38,9 @@ LR2連携の起動処理は、設定フラグと元パスを `Backup.SaveSelecte
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 選択済み対象の欠落・未選択対象・対象なし | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/BackupTests.cs) |
-| 長いパス・コピー失敗・最終パス衝突・既存内容の保持 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/BackupTests.cs) |
-| 世代数・同日省略・削除警告・作業領域の残留 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/BackupTests.cs) |
+| 選択済み対象の欠落・未選択対象・対象なし | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |
+| 長いパス・コピー失敗・最終パス衝突・既存内容の保持 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |
+| 世代数・同日省略・削除警告・作業領域の残留 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |
 
 ## 関連資料
 

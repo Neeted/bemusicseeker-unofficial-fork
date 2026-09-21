@@ -102,15 +102,15 @@ public sealed class PlaylistConcurrencyArchitectureTests
 
         foreach (string relativePath in new[]
         {
-            Path.Combine("BeMusicSeeker", "Models", "BMSLibrary.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BMSPlaylist.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryStateApplier.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "PackageLifecycleOwner.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistAggregatePersistenceOwner.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "Library", "BMSLibrary.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "Install", "BmsLibraryStateApplier.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "Install", "PackageLifecycleOwner.cs"),
+            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistAggregatePersistenceOwner.cs"),
+            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "ApplicationComposition.cs"),
+            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.cs"),
             Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "LibraryFolderTreeViewModel.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistPropertyDialogViewModel.cs")
+            Path.Combine("BeMusicSeeker", "ViewModels", "Playlist", "PlaylistPropertyDialogViewModel.cs")
         })
         {
             string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), relativePath));
@@ -121,6 +121,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             FindRepositoryRoot(),
             "BeMusicSeeker",
             "Views",
+            "Playback",
             "WpfPlaybackUiDispatcher.cs"));
         StringAssert.Contains(terminalAdapter, "UiSchedulePriority.DataBind");
     }
@@ -133,6 +134,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker",
             "Models",
             "BmsLibraryInternal",
+            "Playlist",
             "PlaylistEntriesHydrationOwner.cs"));
         Assert.IsFalse(ownerSource.Contains("Action<PlaylistTableUpdateContext>"));
         Assert.IsFalse(ownerSource.Contains("pendingUpdateCallbacks"));
@@ -151,18 +153,19 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker",
             "Models",
             "BmsLibraryInternal",
+            "Playlist",
             "PlaylistEntriesHydrationOwner.cs"));
         string workspaceSource = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "BeMusicSeeker",
             "ViewModels",
-            "MainWindow",
+            "Playlist",
             "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs"));
         string referenceApplySource = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "BeMusicSeeker",
             "ViewModels",
-            "MainWindow",
+            "Playlist",
             "PlaylistReferenceApplyWorkflowOwner.cs"));
 
         StringAssert.Contains(ownerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
@@ -183,6 +186,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             FindRepositoryRoot(),
             "BeMusicSeeker",
             "ViewModels",
+            "MainWindow",
             "MainWindowViewModel.cs"));
         string hydrationCompletion = ExtractMethodBody(
             viewModelSource,
@@ -201,6 +205,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             FindRepositoryRoot(),
             "BeMusicSeeker",
             "Models",
+            "Playlist",
             "BMSPlaylist.cs"));
         StringAssert.Contains(playlistSource, "RunCustomFolderOutputRepairAfterHydration");
         StringAssert.Contains(playlistSource, "runCustomFolderOutputRepairAfterHydration: true");
@@ -211,8 +216,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void PlaylistUrlCompletionSettings_UseDedicatedProviderBoundary()
     {
-        string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string urlCompletionSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.UrlCompletion.cs"));
+        string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
+        string urlCompletionSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.UrlCompletion.cs"));
 
         Assert.IsFalse(playlistSource.Contains("Settings.Default.EnablePlaylistUrlCompletion"));
         Assert.IsFalse(urlCompletionSource.Contains("Settings.Default."));
@@ -225,8 +230,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void BeatorajaBmtSettings_UseDedicatedProviderBoundary()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistBmtOutputOwner.cs"));
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
+        string ownerSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistBmtOutputOwner.cs"));
 
         foreach (string pathSource in new[] { source, ownerSource })
         {
@@ -244,9 +249,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void RecommendedTableWorkflow_IsOwnedByDedicatedOwner()
     {
         string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistRecommendedTableOwner.cs"));
-        string externalSyncSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistExternalSyncOwner.cs"));
+        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
+        string ownerSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistRecommendedTableOwner.cs"));
+        string externalSyncSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistExternalSyncOwner.cs"));
 
         StringAssert.Contains(playlistSource, "new PlaylistExternalSyncOwner(");
         StringAssert.Contains(externalSyncSource, "recommendedTableOwner.LoadWalkureTable");
@@ -272,18 +277,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void CustomFolderProjectionAndMaterialization_UseDedicatedOwner()
     {
         string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
         string ownerSource = File.ReadAllText(Path.Combine(
             root,
             "BeMusicSeeker",
             "Models",
             "BmsLibraryInternal",
+            "Playlist",
             "PlaylistCustomFolderOutputOwner.cs"));
         string maintenanceOwnerSource = File.ReadAllText(Path.Combine(
             root,
             "BeMusicSeeker",
             "Models",
             "BmsLibraryInternal",
+            "Playlist",
             "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
 
         StringAssert.Contains(playlistSource, "customFolderOutputOwner.CreateProjection");
@@ -316,12 +323,13 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void CustomFolderMaintenance_UsesDedicatedLifecycleOwner()
     {
         string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
         string ownerSource = File.ReadAllText(Path.Combine(
             root,
             "BeMusicSeeker",
             "Models",
             "BmsLibraryInternal",
+            "Playlist",
             "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
 
         foreach (string route in new[]
@@ -366,6 +374,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             root,
             "BeMusicSeeker",
             "ViewModels",
+            "Startup",
             "StartupSettingsSnapshot.cs"));
 
         StringAssert.Contains(snapshotSource, "StandaloneBmsRootPathSettings.Deserialize(");
@@ -373,7 +382,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(snapshotSource.Contains("Settings.Default."));
         Assert.IsFalse(snapshotSource.Contains("SettingDialogViewModel"));
 
-        string compositionSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
+        string compositionSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "ApplicationComposition.cs"));
         StringAssert.Contains(compositionSource, "StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
     }
 
@@ -385,6 +394,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             root,
             "BeMusicSeeker",
             "ViewModels",
+            "MainWindow",
             "ApplicationComposition.cs"));
 
         StringAssert.Contains(compositionSource, "BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
@@ -395,9 +405,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string[] snapshotPaths =
         [
             Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryOptionsSnapshot.cs"),
-            Path.Combine(root, "BeMusicSeeker", "Models", "PlaylistUrlCompletionOptionsSnapshot.cs"),
-            Path.Combine(root, "BeMusicSeeker", "Models", "BeatorajaBmtOptionsSnapshot.cs"),
-            Path.Combine(root, "BeMusicSeeker", "Models", "CustomFolderOutputSettingsSnapshot.cs")
+            Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "PlaylistUrlCompletionOptionsSnapshot.cs"),
+            Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BeatorajaBmtOptionsSnapshot.cs"),
+            Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "CustomFolderOutputSettingsSnapshot.cs")
         ];
 
         foreach (string snapshotPath in snapshotPaths)
