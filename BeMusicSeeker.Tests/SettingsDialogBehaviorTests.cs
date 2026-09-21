@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -27,7 +28,15 @@ public sealed class SettingsDialogBehaviorTests
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task FailedNormalSaveRetainsDraftUntilUserCancelsOrRetries(bool cancel)
+    [DoNotParallelize]
+    public void FailedNormalSaveRetainsDraftUntilUserCancelsOrRetries(bool cancel)
+    {
+        RunOnUiDispatcher(
+            () => FailedNormalSaveRetainsDraftUntilUserCancelsOrRetriesCoreAsync(cancel),
+            nameof(FailedNormalSaveRetainsDraftUntilUserCancelsOrRetries));
+    }
+
+    private static async Task FailedNormalSaveRetainsDraftUntilUserCancelsOrRetriesCoreAsync(bool cancel)
     {
         using var directory = new TemporaryDirectory("failed-normal-save");
         string path = Path.Combine(directory.Path, "user.config");
@@ -130,7 +139,15 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     [TestMethod]
-    public async Task Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollback()
+    [DoNotParallelize]
+    public void Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollback()
+    {
+        RunOnUiDispatcher(
+            Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollbackCoreAsync,
+            nameof(Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollback));
+    }
+
+    private static async Task Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollbackCoreAsync()
     {
         using var directory = new TemporaryDirectory("partial-settings-save");
         (string? songDb, string? configPath, string? bmsRoot) = CreateValidLr2Layout(directory.Path);
@@ -259,7 +276,15 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     [TestMethod]
-    public async Task RightClickRestoreDefaultsIsDraftOnlyUntilSave()
+    [DoNotParallelize]
+    public void RightClickRestoreDefaultsIsDraftOnlyUntilSave()
+    {
+        RunOnUiDispatcher(
+            RightClickRestoreDefaultsIsDraftOnlyUntilSaveCoreAsync,
+            nameof(RightClickRestoreDefaultsIsDraftOnlyUntilSave));
+    }
+
+    private static async Task RightClickRestoreDefaultsIsDraftOnlyUntilSaveCoreAsync()
     {
         const string originalJson = """
         {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"{filePath}","enabled":true}]}
@@ -1074,7 +1099,15 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     [TestMethod]
-    public async Task SettingDialogReloadDecision_UsesExplicitSettingDiffs()
+    [DoNotParallelize]
+    public void SettingDialogReloadDecision_UsesExplicitSettingDiffs()
+    {
+        RunOnUiDispatcher(
+            SettingDialogReloadDecision_UsesExplicitSettingDiffsCoreAsync,
+            nameof(SettingDialogReloadDecision_UsesExplicitSettingDiffs));
+    }
+
+    private static async Task SettingDialogReloadDecision_UsesExplicitSettingDiffsCoreAsync()
     {
         using (var modeHarness = SettingsDialogHarness.Create(CreateStandaloneSettings(
             @"C:\settings-behavior\mode-root",
@@ -1363,6 +1396,32 @@ public sealed class SettingsDialogBehaviorTests
         {
             TryDeleteDirectory(root);
         }
+    }
+
+    private static void RunOnUiDispatcher(Func<Task> operation, string operationName)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string previousTheme = Settings.Default.AppearanceTheme;
+            CultureInfo? previousCulture = Resources.Culture;
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation(), operationName);
+            }
+            finally
+            {
+                Settings.Default.AppearanceTheme = previousTheme;
+                AppThemeService.ApplyTheme(previousTheme);
+                if (previousCulture is null)
+                {
+                    Resources.Culture = null;
+                }
+                else
+                {
+                    ResourceService.Current.ChangeCulture(previousCulture.Name);
+                }
+            }
+        });
     }
 
     private static void AssertInstallDestinationValidation(SettingsDialogViewModel dialog)

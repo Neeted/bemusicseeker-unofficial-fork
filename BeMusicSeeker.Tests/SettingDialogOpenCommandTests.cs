@@ -1,5 +1,6 @@
 using System;
-using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -13,28 +14,24 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogOpenCommandTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
     [TestMethod]
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
         var catalog = new TestAudioDeviceCatalog();
-        MainWindowViewModel viewModel = CreateViewModel(catalog);
+        var settingsSession = new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings
+        {
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
+        });
+        using SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
         var presentation = new RecordingSettingsDialogPresentationPort();
-        viewModel.SettingDialog.AttachPresentationPort(presentation);
+        dialog.AttachPresentationPort(presentation);
 
-        Assert.IsTrue(viewModel.SettingDialog.OpenCommand.CanExecute);
-        viewModel.SettingDialog.OpenCommand.Execute();
+        Assert.IsTrue(dialog.OpenCommand.CanExecute);
+        dialog.OpenCommand.Execute();
 
         CollectionAssert.AreEqual(new[] { "open" }, presentation.Requests);
         Assert.AreEqual(1, catalog.RefreshCount);
-    }
-
-    [TestMethod]
-    public void OpenCommand_WithoutShellSubscriber_IsNoOp()
-    {
-        MainWindowViewModel viewModel = CreateViewModel();
-
-        viewModel.SettingDialog.OpenCommand.Execute();
+        Assert.AreEqual(0, settingsSession.SaveCount);
     }
 
     [TestMethod]
@@ -46,7 +43,7 @@ public sealed class SettingDialogOpenCommandTests
             PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
             PlayerWASAPIParam = false
         };
-        SettingsDialogViewModel dialog = CreateViewModel(
+        using SettingsDialogViewModel dialog = CreateViewModel(
             settingsEditSession: new TestSettingsEditSession(settings)).SettingDialog;
 
         Assert.AreEqual(3, dialog.PlayerDriverNames.Count);
@@ -70,66 +67,131 @@ public sealed class SettingDialogOpenCommandTests
         Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
     }
 
-    [TestMethod]
-    public void OpenAndCancel_UnavailableBackendReissuesWarningNotification()
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    [DoNotParallelize]
+    public void Cancel_RestoresAudioDraftAndPresentationState(bool unavailableBackend)
     {
-        var settings = new BeMusicSeeker.Properties.Settings
+        TestUiDispatcherHost.Invoke(() =>
         {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerDriver = BassAudioPlayer.DeviceDriver.NULL_DEVICE
-        };
-        MainWindowViewModel viewModel = CreateViewModel(
-            settingsEditSession: new TestSettingsEditSession(settings));
-        SettingsDialogViewModel dialog = viewModel.SettingDialog;
-        var changedProperties = new List<string>();
-        dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
+            string previousTheme = BeMusicSeeker.Properties.Settings.Default.AppearanceTheme;
+            CultureInfo? previousCulture = BeMusicSeeker.Properties.Resources.Culture;
+            try
+            {
+                var settings = new BeMusicSeeker.Properties.Settings
+                {
+                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
+                    PlayerDriver = unavailableBackend
+                        ? BassAudioPlayer.DeviceDriver.NULL_DEVICE
+                        : BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                    PlayerDevice = unavailableBackend ? null : "saved-missing-device",
+                    PlayerDeviceName = unavailableBackend ? null : "Saved missing device"
+                };
+                var catalog = new TestAudioDeviceCatalog
+                {
+                    Devices =
+                    [
+                        new AudioDeviceInfo("Default", string.Empty),
+                        new AudioDeviceInfo("Current device", "current-device")
+                    ]
+                };
+                var settingsSession = new TestSettingsEditSession(settings);
+                using SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
+                int closeCount = 0;
+                bool warningWasCleared = false;
+                bool restoredWarningNotificationObserved = false;
+                PropertyChangedEventHandler? warningHandler = null;
+                if (unavailableBackend)
+                {
+                    warningHandler = (_, args) =>
+                    {
+                        if (string.Equals(
+                                args.PropertyName,
+                                nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription),
+                                StringComparison.Ordinal)
+                            && warningWasCleared
+                            && !string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription))
+                        {
+                            restoredWarningNotificationObserved = true;
+                        }
+                    };
+                    dialog.PropertyChanged += warningHandler;
+                }
 
-        dialog.OpenCommand.Execute();
+                try
+                {
+                    var presentation = new RecordingSettingsDialogPresentationPort(request =>
+                    {
+                        if (!string.Equals(request, "close", StringComparison.Ordinal))
+                        {
+                            return;
+                        }
 
-        CollectionAssert.Contains(changedProperties, nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
+                        closeCount++;
+                        Assert.IsFalse(dialog.HasPendingSettingChanges());
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        if (unavailableBackend)
+                        {
+                            Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, settings.PlayerDriver);
+                            Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
+                        }
+                        else
+                        {
+                            Assert.AreEqual("saved-missing-device", dialog.PlayerDevice);
+                            AudioDeviceInfo restored = dialog.PlayerDeviceNames.Find(
+                                device => device.Driver == "saved-missing-device");
+                            Assert.AreEqual("saved-missing-device", restored.Driver);
+                            Assert.AreEqual("Saved missing device", restored.Name);
+                            Assert.IsFalse(restored.IsAvailable);
+                        }
+                    });
+                    dialog.AttachPresentationPort(presentation);
+                    dialog.OpenCommand.Execute();
 
-        changedProperties.Clear();
-        dialog.ShowRecommUpdatedMsg = !settings.ShowRecommUpdatedMsg;
-        dialog.CancelCommand.Execute();
+                    if (unavailableBackend)
+                    {
+                        Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
+                        dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiShared);
+                        Assert.IsTrue(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
+                        warningWasCleared = true;
+                    }
+                    else
+                    {
+                        dialog.PlayerDevice = "current-device";
+                    }
 
-        CollectionAssert.Contains(changedProperties, nameof(SettingsDialogViewModel.UnavailablePlayerDriverDescription));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(dialog.UnavailablePlayerDriverDescription));
-    }
+                    Assert.IsTrue(dialog.HasPendingSettingChanges());
+                    dialog.CancelCommand.Execute();
 
-    [TestMethod]
-    public void Cancel_ChangedDeviceRestoresSavedUnavailableDeviceInRebuiltList()
-    {
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-            PlayerDevice = "saved-missing-device",
-            PlayerDeviceName = "Saved missing device"
-        };
-        var catalog = new TestAudioDeviceCatalog
-        {
-            Devices =
-                [
-                    new AudioDeviceInfo("Default", string.Empty),
-                    new AudioDeviceInfo("Current device", "current-device")
-                ]
-        };
-        MainWindowViewModel viewModel = CreateViewModel(
-            catalog,
-            new TestSettingsEditSession(settings));
-        SettingsDialogViewModel dialog = viewModel.SettingDialog;
-
-        dialog.OpenCommand.Execute();
-        dialog.PlayerDevice = "current-device";
-        dialog.CancelCommand.Execute();
-
-        Assert.AreEqual("saved-missing-device", dialog.PlayerDevice);
-        AudioDeviceInfo restored = dialog.PlayerDeviceNames.Find(
-            device => device.Driver == "saved-missing-device");
-        Assert.AreEqual("saved-missing-device", restored.Driver);
-        Assert.AreEqual("Saved missing device", restored.Name);
-        Assert.IsFalse(restored.IsAvailable);
+                    Assert.AreEqual(1, closeCount);
+                    if (unavailableBackend)
+                    {
+                        Assert.IsTrue(restoredWarningNotificationObserved);
+                    }
+                }
+                finally
+                {
+                    if (warningHandler != null)
+                    {
+                        dialog.PropertyChanged -= warningHandler;
+                    }
+                }
+            }
+            finally
+            {
+                BeMusicSeeker.Properties.Settings.Default.AppearanceTheme = previousTheme;
+                AppThemeService.ApplyTheme(previousTheme);
+                if (previousCulture is null)
+                {
+                    BeMusicSeeker.Properties.Resources.Culture = null;
+                }
+                else
+                {
+                    ResourceService.Current.ChangeCulture(previousCulture.Name);
+                }
+            }
+        });
     }
 
     [TestMethod]
@@ -151,10 +213,9 @@ public sealed class SettingDialogOpenCommandTests
             ]
         };
 
-        MainWindowViewModel firstViewModel = CreateViewModel(
+        using SettingsDialogViewModel firstDialog = CreateViewModel(
             catalog,
-            new TestSettingsEditSession(settings));
-        SettingsDialogViewModel firstDialog = firstViewModel.SettingDialog;
+            new TestSettingsEditSession(settings)).SettingDialog;
         firstDialog.OpenCommand.Execute();
 
         Assert.AreEqual("saved-device", firstDialog.SelectedPlayerDevice?.Driver);
@@ -168,10 +229,9 @@ public sealed class SettingDialogOpenCommandTests
         Assert.AreEqual("saved-device", settings.PlayerDevice);
         Assert.AreEqual("Saved device", settings.PlayerDeviceName);
 
-        MainWindowViewModel secondViewModel = CreateViewModel(
+        using SettingsDialogViewModel secondDialog = CreateViewModel(
             catalog,
-            new TestSettingsEditSession(settings));
-        SettingsDialogViewModel secondDialog = secondViewModel.SettingDialog;
+            new TestSettingsEditSession(settings)).SettingDialog;
         secondDialog.OpenCommand.Execute();
 
         Assert.AreEqual("saved-device", secondDialog.SelectedPlayerDevice?.Driver);
@@ -196,10 +256,9 @@ public sealed class SettingDialogOpenCommandTests
                 new AudioDeviceInfo("Current device", "current-device")
             ]
         };
-        MainWindowViewModel viewModel = CreateViewModel(
+        using SettingsDialogViewModel dialog = CreateViewModel(
             catalog,
-            new TestSettingsEditSession(settings));
-        SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            new TestSettingsEditSession(settings)).SettingDialog;
         dialog.OpenCommand.Execute();
 
         Assert.IsTrue(dialog.SelectedPlayerDevice?.IsDefaultPlaceholder);
@@ -243,49 +302,20 @@ public sealed class SettingDialogOpenCommandTests
         {
             SaveFailure = new IOException("simulated save failure")
         };
-        SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
+        using SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
         dialog.OpenCommand.Execute();
-        dialog.SelectedPlayerDevice = dialog.PlayerDeviceNames[2];
+        dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.Asio);
+        dialog.PlayerDevice = "current-device";
 
         await Assert.ThrowsExceptionAsync<IOException>(() => dialog.SaveSettings());
 
+        Assert.AreEqual(1, settingsSession.SaveCount);
+        Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, settings.PlayerDriver);
         Assert.AreEqual("saved-device", settings.PlayerDevice);
         Assert.AreEqual("Saved device", settings.PlayerDeviceName);
+        Assert.AreEqual(AudioDriverPolicy.IndexOf(AudioDriver.Asio), dialog.PlayerDriverIndex);
         Assert.AreEqual("current-device", dialog.SelectedPlayerDevice?.Driver);
-    }
-
-    [TestMethod]
-    public void CancelCommand_ChangedDraft_ResetsDraftBeforeClosing()
-    {
-        bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
-        try
-        {
-            MainWindowViewModel viewModel = CreateViewModel(
-                settingsEditSession: new TestSettingsEditSession(testSettings));
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
-            var presentation = new RecordingSettingsDialogPresentationPort();
-            dialog.AttachPresentationPort(presentation);
-
-            dialog.ShowRecommUpdatedMsg = !previousShowRecommUpdatedMsg;
-            Assert.IsTrue(dialog.HasPendingSettingChanges());
-
-            dialog.CancelCommand.Execute();
-
-            CollectionAssert.AreEqual(
-                new[]
-                {
-                    "refresh",
-                    "close"
-                },
-                presentation.Requests);
-            Assert.IsFalse(dialog.HasPendingSettingChanges());
-            Assert.AreEqual(previousShowRecommUpdatedMsg, dialog.ShowRecommUpdatedMsg);
-            Assert.IsFalse(dialog.IsEditCompletionInProgress);
-        }
-        finally
-        {
-            testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
-        }
+        Assert.AreEqual("Current device", dialog.SelectedPlayerDevice?.Name);
     }
 
     private static MainWindowViewModel CreateViewModel(
@@ -324,12 +354,15 @@ public sealed class SettingDialogOpenCommandTests
 
         internal Exception? SaveFailure { get; set; }
 
+        internal int SaveCount { get; private set; }
+
         public void Reload()
         {
         }
 
         public void Save()
         {
+            SaveCount++;
             if (SaveFailure != null)
             {
                 throw SaveFailure;

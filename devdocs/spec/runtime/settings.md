@@ -141,7 +141,7 @@ LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが�
 | LR2の保存先とプレイヤー設定 | [`SettingsPlayerSettingsGateway`](../../../BeMusicSeeker/Models/PlayerSettingsGateway.cs) | [`PlayerSettingsGatewayTests`](../../../BeMusicSeeker.Tests/PlayerSettingsGatewayTests.cs) |
 | 履歴DBの状態と明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`](../../../BeMusicSeeker.Tests/Lr2PlayHistorySchemaUiTests.cs) |
 | 設定値の捕捉と追加パスの分離 | [`BMSLibrary`](../../../BeMusicSeeker/Models/BMSLibrary.cs) | [`BmsLibraryOptionsSnapshotTests`](../../../BeMusicSeeker.Tests/BmsLibraryOptionsSnapshotTests.cs) |
-| 設定画面の単一要求、音声設定の取消と保存失敗 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingDialogOpenCommandTests`](../../../BeMusicSeeker.Tests/SettingDialogOpenCommandTests.cs) |
+| 設定画面の単一要求、音声設定の取消と保存失敗 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/SettingsDialogViewModel.cs) | [`SettingDialogOpenCommandTests`](../../../BeMusicSeeker.Tests/SettingDialogOpenCommandTests.cs): 開く際の単一表示要求・機器再列挙・非保存、取消による利用不可方式の警告と消失機器の復元、閉鎖時の復元完了、機器識別情報の保持、保存失敗時の保存値と編集値の分離。取消の検証は共有テーマ・文化圏を所有し、復元する。 |
 
 ## 関連資料
 
