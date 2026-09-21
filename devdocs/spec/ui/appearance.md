@@ -38,6 +38,8 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 アプリの辞書は `CanonicalDialogStyles.xaml`、そこから `CanonicalControls.xaml` を参照します。`App.Canonical.*` は用途を明示した共通スタイルのキーです。導入だけで未採用のメイン画面へ波及しないよう、アプリ全体の型名による暗黙スタイルとして追加しません。
 
+共通の操作・状態アイコンは `AppFontIcon` と `App.IconFontFamily`、`App.Canonical.FontIconStyle` を明示して使います。Windows 11 の `Segoe Fluent Icons` を第一候補、Windows 10 の `Segoe MDL2 Assets` を代替にし、両方で同じ意味を持つコードポイントを選びます。Segoe のフォントファイルはアプリへ同梱しません。`AppFontIcon` は固定領域の文字ベースラインへ合わせず、解決された字形の実描画領域を表示領域の中央へ配置します。アイコンの色は固定値にせず、本文、補助、強調、警告、失敗など既存の意味付きブラシへ接続します。
+
 設定画面は `SettingsControls` から共通辞書へ接続します。設定画面の既存キーは `BasedOn` で対応する共通スタイルを参照し、設定画面内にだけ既定スタイルを置きます。その他の独自ダイアログは共通辞書を直接使います。辞書やテンプレートを画面ごとに複製しません。
 
 ボタン、入力欄、選択欄、チェック、ラジオボタン、ラベル、グループ、タブ、折りたたみ、メニューと区切り、一覧、スクロール等を共通化します。標準のキーボード操作とアクセシビリティを保ち、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewerの部品、Expanderの `HeaderSite` を欠かしません。
@@ -61,6 +63,8 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 ツリーの通常・選択・無効の文字色は、`TextBlock` と `EditableTextBlock` の両方へ明示します。サイドバーの分割線は操作範囲5、見える線1とし、透明な操作範囲を重ねます。余分な余白でツリーと表、スクロールバーを離しません。
 
 検索欄に文字があるときは `App.ControlBackgroundActiveBrush` で絞込み中であることを示します。明るいテーマは薄い桃色、暗いテーマは落ち着いた注意色とし、構文警告の `!` とは区別します。候補の操作は検索支援の仕様に従います。
+
+検索欄の絞込み、構文警告、ヘルプ、クリアと、左サイドバーのプレイリスト、フォルダ、検索、パッケージ、処理中の状態は共通アイコン体系へ揃えます。`[NO SONG]` は通常フォルダと同じ表示にせず、未所持の特殊フォルダと分かるフォルダ系アイコンを使います。処理中は通常アイコンを同期アイコンへ置き換えて回転させ、処理状態の判定や寿命は既存の管理主体から変えません。
 
 ### 設定画面の構造と即時反映
 
@@ -100,6 +104,8 @@ OSや属性の非対応、API不在、HRESULTの失敗は標準のWindows表示�
 
 メイン画面内に重ねる初回言語選択とプレイリストURL入力は、`DialogOverlayStyle` と `DialogContentStyle` を明示して使います。標準ウィンドウへこの重ね表示用の外面を流用しません。OSのファイル・フォルダ選択と緊急ダイアログは対象外です。所有元、モーダル結果、取消、終了の抑制、処理と寿命の所有は表示部品の統一で変えません。
 
+通常運用の `ThemedMessageBox` は質問、情報、警告、失敗を共通アイコン体系で表示し、質問・情報は強調色、警告は警告色、失敗は失敗色を使います。緊急経路のOSネイティブダイアログはこの統一対象に含めません。
+
 ### 個別画面の寸法と読み上げ
 
 | 画面 | 契約 |
@@ -127,7 +133,7 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、即時反映と取消 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ダイアログの表示面、標準メニュー、結果とサイズ | [`ThemedMessageBox`](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`ThemedMessageBoxTests`](../../../BeMusicSeeker.Tests/Dialogs/ThemedMessageBoxTests.cs)、[`UiDialogCoordinatorWpfTests`](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) |
-| 表とツリーへの配色・表示の反映 | [`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |
+| 表とツリーへの配色・表示、共通アイコンの描画 | [`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs)、[`AppFontIcon`](../../../BeMusicSeeker/Views/AppFontIcon.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |
 
 ## 関連資料
 

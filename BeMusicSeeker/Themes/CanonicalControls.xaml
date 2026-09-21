@@ -1,11 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:s="clr-namespace:System;assembly=mscorlib"
+                    xmlns:v="clr-namespace:BeMusicSeeker.Views">
   <!--
     These resources are deliberately keyed.  Settings and dialogs opt into the
     design system explicitly; an application-level implicit style would also
     restyle MainWindow controls that have not been migrated yet.
   -->
+  <FontFamily x:Key="App.IconFontFamily">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+  <s:String x:Key="App.IconGlyph.Filter">&#xE71C;</s:String>
+  <s:String x:Key="App.IconGlyph.Search">&#xE721;</s:String>
+  <s:String x:Key="App.IconGlyph.Error">&#xE783;</s:String>
+  <s:String x:Key="App.IconGlyph.Package">&#xE7B8;</s:String>
+  <s:String x:Key="App.IconGlyph.Warning">&#xE7BA;</s:String>
+  <s:String x:Key="App.IconGlyph.Clear">&#xE894;</s:String>
+  <s:String x:Key="App.IconGlyph.Sync">&#xE895;</s:String>
+  <s:String x:Key="App.IconGlyph.Download">&#xE896;</s:String>
+  <s:String x:Key="App.IconGlyph.Help">&#xE897;</s:String>
+  <s:String x:Key="App.IconGlyph.Folder">&#xE8B7;</s:String>
+  <s:String x:Key="App.IconGlyph.SearchResult">&#xE8BC;</s:String>
+  <s:String x:Key="App.IconGlyph.UnsyncFolder">&#xE8F6;</s:String>
+  <s:String x:Key="App.IconGlyph.List">&#xE8FD;</s:String>
+  <s:String x:Key="App.IconGlyph.Scan">&#xE8FE;</s:String>
+  <s:String x:Key="App.IconGlyph.Info">&#xEA1F;</s:String>
+
+  <Style x:Key="App.Canonical.FontIconStyle" TargetType="{x:Type v:AppFontIcon}" BasedOn="{x:Null}">
+    <Setter Property="FontFamily" Value="{StaticResource App.IconFontFamily}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="AutomationProperties.Name" Value="" />
+  </Style>
+
   <ControlTemplate x:Key="App.Canonical.ButtonTemplate" TargetType="{x:Type Button}">
     <Grid SnapsToDevicePixels="True">
       <Border x:Name="ButtonChrome"

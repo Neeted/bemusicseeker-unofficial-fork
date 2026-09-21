@@ -315,6 +315,12 @@ internal static class TestUiDispatcherHost
                 originalAppearanceTheme = Settings.Default.AppearanceTheme;
                 Settings.Default.AppearanceTheme = AppThemeService.Light;
                 AppThemeService.ApplyTheme(AppThemeService.Light);
+                application.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(
+                        "/BeMusicSeeker;component/Themes/CanonicalControls.xaml",
+                        UriKind.RelativeOrAbsolute)
+                });
                 ready.Set();
                 Dispatcher.Run();
             }

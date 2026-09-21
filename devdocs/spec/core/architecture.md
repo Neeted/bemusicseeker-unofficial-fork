@@ -94,14 +94,13 @@ Everythingを利用できる通常走査は `EBridge_ScanChartAndResources` を�
 
 BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `lang` に配置します。ネイティブや全内容の自動展開、単一ファイル圧縮、トリミングは使いません。配布形式の判断根拠と測定条件は[配布性能資料](../../acceptance/net10-distribution-performance.md)を参照し、その選定用の「5秒かつ15%」をアプリ全体の退行許容値にはしません。
 
-`System.Resources.Extensions` と `System.Configuration.ConfigurationManager` はWindowsDesktopランタイムが供給します。アプリの直接依存や中央バージョンへ追加せず、偶然のロックファイル項目を構成契約として固定しません。設定・埋込みアイコン・実配布物の動作を、それぞれの境界で確認します。
+`System.Resources.Extensions` と `System.Configuration.ConfigurationManager` はWindowsDesktopランタイムが供給します。アプリの直接依存や中央バージョンへ追加せず、偶然のロックファイル項目を構成契約として固定しません。設定と実配布物の動作を、それぞれの境界で確認します。
 
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |
-| 埋込みアイコンの解決 | [Images.cs](../../../BeMusicSeeker/Properties/Images.cs) の `ResourceManager` と型付きアクセサー | [ResourceIconContractTests](../../../BeMusicSeeker.Tests/Localization/ResourceIconContractTests.cs) の `EmbeddedImagesExposeStableKeysTypesAndPayloads`、`XamlIconConverterPreservesResourceDimensions`。 |
 | 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker/BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
 | 機能ごとの責務・起動・変更 | 各領域の管理主体 | [起動](../runtime/startup.md)、[ライブラリ変更](../library/mutations.md)、[画面](../ui/README.md)の対応表で確認する。 |
 

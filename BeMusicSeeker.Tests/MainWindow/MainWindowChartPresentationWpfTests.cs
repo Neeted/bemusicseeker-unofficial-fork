@@ -1473,7 +1473,7 @@ public sealed class MainWindowChartPresentationWpfTests
             GetNamedElement<Grid>(window, $"{suffix}KeywordSearchWarningSlot"),
             GetNamedElement<ToggleButton>(window, $"{suffix}KeywordSearchHelpButton"),
             GetNamedElement<Grid>(window, $"{suffix}KeywordSearchHelpSlot"),
-            GetNamedElement<TextBlock>(window, $"{suffix}KeywordSearchClearIcon"),
+            GetNamedElement<AppFontIcon>(window, $"{suffix}KeywordSearchClearIcon"),
             GetNamedElement<Grid>(window, $"{suffix}KeywordSearchClearSlot"),
             editor.AssistancePopupControl,
             GetNamedElement<Popup>(window, $"{suffix}KeywordSearchHelpPopup"));
@@ -1776,7 +1776,7 @@ public sealed class MainWindowChartPresentationWpfTests
         Grid WarningSlot,
         ToggleButton HelpButton,
         Grid HelpSlot,
-        TextBlock ClearIcon,
+        AppFontIcon ClearIcon,
         Grid ClearSlot,
         Popup SuggestionPopup,
         Popup HelpPopup)
@@ -1785,7 +1785,7 @@ public sealed class MainWindowChartPresentationWpfTests
 
         internal DropDownMenuButton FilterButton => Layout.Children.OfType<DropDownMenuButton>().Single();
 
-        internal TextBlock WarningContent => WarningSlot.Children.OfType<TextBlock>().Single();
+        internal AppFontIcon WarningContent => WarningSlot.Children.OfType<AppFontIcon>().Single();
     }
 
     private static CustomTableView CreateEditableTable(CustomTableColumn column, double width, double height)

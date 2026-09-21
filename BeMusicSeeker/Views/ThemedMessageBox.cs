@@ -174,17 +174,20 @@ internal static class ThemedMessageBox
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var iconBlock = new TextBlock
+        var iconBlock = new AppFontIcon
         {
-            Text = GetIconText(icon),
-            FontSize = 22,
-            FontWeight = FontWeights.Bold,
+            FontSize = 24,
             Width = 32,
             Margin = new Thickness(0, 0, 10, 12),
-            TextAlignment = TextAlignment.Center,
             VerticalAlignment = VerticalAlignment.Top,
         };
-        iconBlock.SetResourceReference(TextBlock.ForegroundProperty, GetIconBrushKey(icon));
+        iconBlock.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.FontIconStyle");
+        string iconGlyphKey = GetIconGlyphResourceKey(icon);
+        if (iconGlyphKey.Length > 0)
+        {
+            iconBlock.SetResourceReference(AppFontIcon.GlyphProperty, iconGlyphKey);
+        }
+        iconBlock.SetResourceReference(AppFontIcon.ForegroundProperty, GetIconBrushKey(icon));
         Grid.SetRow(iconBlock, 0);
         Grid.SetColumn(iconBlock, 0);
         layout.Children.Add(iconBlock);
@@ -332,14 +335,14 @@ internal static class ThemedMessageBox
         };
     }
 
-    private static string GetIconText(MessageBoxImage icon)
+    private static string GetIconGlyphResourceKey(MessageBoxImage icon)
     {
         return icon switch
         {
-            MessageBoxImage.Hand or MessageBoxImage.Stop or MessageBoxImage.Error => "!",
-            MessageBoxImage.Exclamation or MessageBoxImage.Warning => "!",
-            MessageBoxImage.Question => "?",
-            MessageBoxImage.Asterisk or MessageBoxImage.Information => "i",
+            MessageBoxImage.Hand or MessageBoxImage.Stop or MessageBoxImage.Error => "App.IconGlyph.Error",
+            MessageBoxImage.Exclamation or MessageBoxImage.Warning => "App.IconGlyph.Warning",
+            MessageBoxImage.Question => "App.IconGlyph.Help",
+            MessageBoxImage.Asterisk or MessageBoxImage.Information => "App.IconGlyph.Info",
             _ => string.Empty,
         };
     }
@@ -348,7 +351,7 @@ internal static class ThemedMessageBox
     {
         return icon switch
         {
-            MessageBoxImage.Hand or MessageBoxImage.Stop or MessageBoxImage.Error => "App.WarningTextBrush",
+            MessageBoxImage.Hand or MessageBoxImage.Stop or MessageBoxImage.Error => "App.ErrorTextBrush",
             MessageBoxImage.Exclamation or MessageBoxImage.Warning => "App.WarningTextBrush",
             MessageBoxImage.Question => "App.AccentSubtleBrush",
             MessageBoxImage.Asterisk or MessageBoxImage.Information => "App.AccentSubtleBrush",
