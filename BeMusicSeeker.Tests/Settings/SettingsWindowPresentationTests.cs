@@ -3156,9 +3156,14 @@ public sealed class SettingsWindowPresentationTests
         string source = Application.Current.Resources.MergedDictionaries
             .Select(dictionary => dictionary.Source?.OriginalString)
             .Single(value => value != null
-                && (value.StartsWith("/Themes/", StringComparison.OrdinalIgnoreCase)
-                    || value.StartsWith("/BeMusicSeeker;component/Themes/", StringComparison.OrdinalIgnoreCase))
-                && value.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))!;
+                && (string.Equals(
+                        value,
+                        "/BeMusicSeeker;component/Themes/Light.xaml",
+                        StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(
+                        value,
+                        "/BeMusicSeeker;component/Themes/Dark.xaml",
+                        StringComparison.OrdinalIgnoreCase)))!;
         return Path.GetFileNameWithoutExtension(source);
     }
 
@@ -4242,7 +4247,7 @@ public sealed class SettingsWindowPresentationTests
         });
         host.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
-            Source = new Uri("/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
+            Source = new Uri("/BeMusicSeeker;component/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
         });
         return host;
     }
@@ -4253,7 +4258,7 @@ public sealed class SettingsWindowPresentationTests
         Assert.IsNotNull(application);
         AddCanonicalResourceIfMissing(
             application,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+            "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml");
     }
 
     private static void AddCanonicalResourceIfMissing(Application application, string source)

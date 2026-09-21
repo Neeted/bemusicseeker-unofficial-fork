@@ -127,7 +127,7 @@ function Assert-WorkingTreeClean {
 }
 
 function Get-AppVersion {
-    $asmInfoPath = Join-Path $root "Properties\AssemblyInfo.cs"
+    $asmInfoPath = Join-Path $root "BeMusicSeeker\Properties\AssemblyInfo.cs"
     if (-not (Test-Path -LiteralPath $asmInfoPath -PathType Leaf)) {
         throw "AssemblyInfo.cs が見つかりません: $asmInfoPath"
     }

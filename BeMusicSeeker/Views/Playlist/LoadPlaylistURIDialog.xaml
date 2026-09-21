@@ -4,7 +4,7 @@
     <FrameworkElement.Resources>
       <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries>
-          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+          <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
         </ResourceDictionary.MergedDictionaries>
       </ResourceDictionary>
     </FrameworkElement.Resources>

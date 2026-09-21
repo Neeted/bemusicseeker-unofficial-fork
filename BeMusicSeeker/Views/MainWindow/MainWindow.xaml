@@ -42,7 +42,7 @@
       <v:folderPathWhenColumnsHiddenVisibilityConverter x:Key="folderPathWhenColumnsHiddenVisibilityConverter" />
       <v:folderPathWhenColumnsVisibleVisibilityConverter x:Key="folderPathWhenColumnsVisibleVisibilityConverter" />
       <v:playHistorySummaryVisibilityConverter x:Key="playHistorySummaryVisibilityConverter" />
-      <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
+      <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/Assets/Fonts/#LigatureSymbols</FontFamily>
       <ControlTemplate x:Key="templateDropmenuButtonLoupe" TargetType="{x:Type ToggleButton}">
         <Grid Background="#00FFFFFF">
           <Viewbox Height="20" Width="20">
@@ -560,7 +560,7 @@
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Property, Mode=OneWay}" Click="playlistSummaryContextMenuOpenPropertyClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist, Mode=OneWay}" Click="playlistSummaryContextMenuRemoveClick" />
       </ContextMenu>
-      <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/resources/#Sovjet Box</FontFamily>
+      <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/Assets/Fonts/#Sovjet Box</FontFamily>
       <ControlTemplate x:Key="tempalteToggleButtonBMSPlayControls" TargetType="{x:Type ToggleButton}">
         <Grid Background="#00FFFFFF">
           <Border Name="borderTemplateToggleButtonBMSPlayControls" BorderBrush="#FF1976D2" Background="#FF4492F0" BorderThickness="0,0,2,2" HorizontalAlignment="Left" Height="22" VerticalAlignment="Top" Width="22" CornerRadius="2">

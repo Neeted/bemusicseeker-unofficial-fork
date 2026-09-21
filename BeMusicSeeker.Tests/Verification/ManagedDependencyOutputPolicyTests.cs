@@ -18,7 +18,7 @@ public sealed class ManagedDependencyOutputPolicyTests
     public void ApplicationProjectUsesHostManagedDependencyLayout()
     {
         string repositoryRoot = FindRepositoryRoot();
-        var project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
+        var project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker", "BeMusicSeeker.csproj"));
         XElement projectRoot = project.Root ?? throw new AssertFailedException("Application project XML has no root element.");
 
         Assert.AreEqual(
@@ -38,7 +38,7 @@ public sealed class ManagedDependencyOutputPolicyTests
                 StringComparison.Ordinal)),
             "The legacy managed DLL deletion target must not remain in the project boundary.");
 
-        var config = XDocument.Load(Path.Combine(repositoryRoot, "app.config"));
+        var config = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker", "app.config"));
         Assert.IsFalse(
             config.Descendants(XName.Get("probing", "urn:schemas-microsoft-com:asm.v1")).Any(),
             "The runtime must not depend on Framework private probing.");
@@ -109,7 +109,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         XElement everythingBridgeAsset = projectRoot
             .Elements("ItemGroup")
             .Elements("None")
-            .Single(item => string.Equals((string?)item.Attribute("Include"), "native\\EverythingBridge_x64.dll", StringComparison.Ordinal));
+            .Single(item => string.Equals((string?)item.Attribute("Include"), "..\\native\\EverythingBridge_x64.dll", StringComparison.Ordinal));
         Assert.IsNull(
             everythingBridgeAsset.Attribute("Condition"),
             "The bridge and SDK must be a mandatory, deterministic native ship set.");
@@ -192,8 +192,8 @@ public sealed class ManagedDependencyOutputPolicyTests
         {
             new
             {
-                ProjectPath = "BeMusicSeeker.csproj",
-                LockPath = "packages.lock.json",
+                ProjectPath = Path.Combine("BeMusicSeeker", "BeMusicSeeker.csproj"),
+                LockPath = Path.Combine("BeMusicSeeker", "packages.lock.json"),
                 BaseTarget = "net10.0-windows7.0",
                 RidTarget = "net10.0-windows7.0/win-x64"
             },
@@ -307,8 +307,8 @@ public sealed class ManagedDependencyOutputPolicyTests
         {
             new
             {
-                ProjectPath = Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"),
-                LockPath = Path.Combine(repositoryRoot, "packages.lock.json"),
+                ProjectPath = Path.Combine(repositoryRoot, "BeMusicSeeker", "BeMusicSeeker.csproj"),
+                LockPath = Path.Combine(repositoryRoot, "BeMusicSeeker", "packages.lock.json"),
                 PackageIds = new[]
                 {
                     "LivetCask.Core",
@@ -575,6 +575,6 @@ public sealed class ManagedDependencyOutputPolicyTests
             throw new AssertFailedException("The test output path does not contain configuration and platform segments.");
         }
 
-        return Path.Combine(FindRepositoryRoot(), "bin", platform, configuration, targetFramework);
+        return Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "bin", platform, configuration, targetFramework);
     }
 }

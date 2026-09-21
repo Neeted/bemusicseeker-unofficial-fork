@@ -17,7 +17,7 @@ public sealed class UpdaterDeploymentBoundaryTests
     public void ApplicationProjectUsesDedicatedUpdaterPublishBoundary()
     {
         string repositoryRoot = FindRepositoryRoot();
-        var applicationProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
+        var applicationProject = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker", "BeMusicSeeker.csproj"));
         XElement projectRoot = applicationProject.Root
             ?? throw new AssertFailedException("Application project XML has no root element.");
 
@@ -74,6 +74,7 @@ public sealed class UpdaterDeploymentBoundaryTests
 
         string selectedAppProfilePath = Path.Combine(
             repositoryRoot,
+            "BeMusicSeeker",
             "Properties",
             "PublishProfiles",
             "WinX64SelfContained.pubxml");
@@ -90,6 +91,7 @@ public sealed class UpdaterDeploymentBoundaryTests
         Assert.IsFalse(
             File.Exists(Path.Combine(
                 repositoryRoot,
+                "BeMusicSeeker",
                 "Properties",
                 "PublishProfiles",
                 "WinX64SelfContainedSingleFile.pubxml")),
@@ -868,7 +870,7 @@ public sealed class UpdaterDeploymentBoundaryTests
             throw new AssertFailedException("The test output path does not contain configuration and platform segments.");
         }
 
-        return Path.Combine(FindRepositoryRoot(), "bin", platform, configuration, targetFramework);
+        return Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "bin", platform, configuration, targetFramework);
     }
 
     private static string ResolveSelfContainedPublishDirectory(string environmentVariableName, string childDirectoryName)

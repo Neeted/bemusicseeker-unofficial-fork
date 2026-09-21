@@ -4,8 +4,8 @@
     <FrameworkElement.Resources>
       <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries>
-          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
-          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml" />
+          <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
+          <ResourceDictionary Source="/BeMusicSeeker;component/Views/Settings/SettingsControls.xaml" />
         </ResourceDictionary.MergedDictionaries>
         <v:objectToBoolConverter x:Key="objectToBoolConverter" />
         <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />

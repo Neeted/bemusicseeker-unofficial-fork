@@ -66,7 +66,7 @@ public partial class PlaybackPanelView : UserControl
                 }
                 catch { }
             }
-            return _panelImage = new BitmapImage(new Uri("pack://application:,,,/BeMusicSeeker;component/resources/default_image.jpg"));
+            return _panelImage = new BitmapImage(new Uri("pack://application:,,,/BeMusicSeeker;component/Assets/Images/default_image.jpg"));
         }
     }
 

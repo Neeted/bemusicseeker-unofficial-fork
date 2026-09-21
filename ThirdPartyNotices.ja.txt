@@ -1,7 +1,7 @@
 BeMusicSeeker サードパーティ・ノーティス
 
 最終更新: 2026-08-09
-適用範囲: 現行の .NET 10 x64 プロジェクトによって参照され、self-contained x64 publish/package 出力、native/、および resources/ 下で配布されるサードパーティ製ファイル。
+適用範囲: 現行の .NET 10 x64 プロジェクトによって参照され、self-contained x64 publish/package 出力、native/、および BeMusicSeeker/Assets/ 下で配布されるサードパーティ製ファイル。
 
 ステータスの凡例:
 - GREEN (緑): 一次情報と再配布の条件が確認されています。

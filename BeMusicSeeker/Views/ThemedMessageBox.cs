@@ -272,7 +272,7 @@ internal static class ThemedMessageBox
             element.Resources.MergedDictionaries.Add(new ResourceDictionary
             {
                 Source = new Uri(
-                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                    "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                     UriKind.RelativeOrAbsolute),
             });
         }

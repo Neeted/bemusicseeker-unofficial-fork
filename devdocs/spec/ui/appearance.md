@@ -16,13 +16,13 @@
 
 `Settings.Default.AppearanceTheme` は `Light` または `Dark` を保存します。既定と不明・空・nullの正規化先は `Light` です。保存前にも正規化します。テーマとは別に、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
 
-`AppThemeService` は起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。切替時は相対形式と `/BeMusicSeeker;component/Themes/*.xaml` 形式の既存辞書を同じものとして除去し、後者の形式で新しい辞書を追加します。`ThemeChanged` を通知し、`Version` を進めます。
+`AppThemeService` は起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。辞書の参照は `/BeMusicSeeker;component/Themes/` 形式に統一します。切替対象は `Light.xaml` と `Dark.xaml` に限定し、既存の配色辞書を除去して指定された辞書を追加します。同じフォルダにある共通スタイルの辞書は保持します。`ThemeChanged` を通知し、`Version` を進めます。
 
 XAMLは原則として `DynamicResource` を使います。コード描画はテーマ変更と版を使って描画色・文字列・描画結果のキャッシュを破棄します。一覧の `CustomTablePalette` とスコア色もこの規則に従います。
 
 ### 配色の定義
 
-[明るいテーマ](../../../Themes/Light.xaml)と[暗いテーマ](../../../Themes/Dark.xaml)は同じ用途のキーを持ちます。値と完全な一覧はこの二つを正本とします。
+[明るいテーマ](../../../BeMusicSeeker/Themes/Light.xaml)と[暗いテーマ](../../../BeMusicSeeker/Themes/Dark.xaml)は同じ用途のキーを持ちます。値と完全な一覧はこの二つを正本とします。
 
 | キーの系統 | 用途 |
 | --- | --- |
@@ -123,6 +123,7 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は明色・暗色の切替で、配色辞書の交換、共通スタイルの解決、変更通知と版更新を確認する。 |
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、即時反映と取消 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ダイアログの表示面、標準メニュー、結果とサイズ | [`ThemedMessageBox`](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`ThemedMessageBoxTests`](../../../BeMusicSeeker.Tests/Dialogs/ThemedMessageBoxTests.cs)、[`UiDialogCoordinatorWpfTests`](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) |

@@ -106,7 +106,7 @@ public sealed class WpfPickerBoundaryTests
             new[] { "*.db", "*.db" },
             UiFilePickerUtilities.ParseFilterPairs("db|*.db|all|*.db").Select(pair => pair.Item2).ToArray());
 
-        string project = File.ReadAllText(Path.Combine(root, "BeMusicSeeker.csproj"));
+        string project = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "BeMusicSeeker.csproj"));
         string layout = File.ReadAllText(Path.Combine(root, "scripts", "portable-package-layout.ps1"));
         string notices = File.ReadAllText(Path.Combine(root, "ThirdPartyNotices.txt"));
         string japaneseNotices = File.ReadAllText(Path.Combine(root, "ThirdPartyNotices.ja.txt"));

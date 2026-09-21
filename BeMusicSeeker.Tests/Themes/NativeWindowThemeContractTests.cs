@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Windows;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -14,6 +16,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class NativeWindowThemeContractTests
 {
+    private const string ComponentThemeDictionaryPrefix = "/BeMusicSeeker;component/Themes/";
+
     private static readonly IReadOnlyDictionary<short, OpCode> OpCodesByValue = typeof(OpCodes)
         .GetFields(BindingFlags.Public | BindingFlags.Static)
         .Where(field => field.FieldType == typeof(OpCode))
@@ -114,7 +118,7 @@ public sealed class NativeWindowThemeContractTests
 
         foreach (string themeName in new[] { "Light.xaml", "Dark.xaml" })
         {
-            string path = Path.Combine(repositoryRoot, "Themes", themeName);
+            string path = Path.Combine(repositoryRoot, "BeMusicSeeker", "Themes", themeName);
             var document = XDocument.Load(path);
             XNamespace xamlNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
             var keys = document
@@ -129,6 +133,117 @@ public sealed class NativeWindowThemeContractTests
                 Assert.IsTrue(keys.Contains(requiredKey), $"{themeName} is missing {requiredKey}.");
             }
         }
+    }
+
+    [DataTestMethod]
+    [DoNotParallelize]
+    [DataRow("Light", "/BeMusicSeeker;component/Themes/Light.xaml")]
+    [DataRow("Dark", "/BeMusicSeeker;component/Themes/Dark.xaml")]
+    public void ApplyTheme_PreservesSharedDictionariesForSupportedThemeUris(
+        string initialTheme,
+        string initialThemeSource)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current
+                ?? throw new InvalidOperationException("The shared WPF application host is unavailable.");
+            Collection<ResourceDictionary> mergedDictionaries = application.Resources.MergedDictionaries;
+            ResourceDictionary[] originalDictionaries = mergedDictionaries.ToArray();
+            Assembly originalResourceAssembly = Application.ResourceAssembly;
+            ResourceDictionary simpleStyles = CreateResourceDictionary(
+                ComponentThemeDictionaryPrefix + "Simple Styles.xaml");
+            ResourceDictionary canonicalDialogStyles = CreateResourceDictionary(
+                ComponentThemeDictionaryPrefix + "CanonicalDialogStyles.xaml");
+            ResourceDictionary palette = CreateResourceDictionary(initialThemeSource);
+            int themeChangedCount = 0;
+            EventHandler themeChangedHandler = (_, _) => themeChangedCount++;
+
+            try
+            {
+                mergedDictionaries.Clear();
+                mergedDictionaries.Add(simpleStyles);
+                mergedDictionaries.Add(canonicalDialogStyles);
+                mergedDictionaries.Add(palette);
+                CustomTablePalette.Invalidate();
+
+                AppThemeService.ThemeChanged += themeChangedHandler;
+                try
+                {
+                    AppThemeService.ApplyTheme(initialTheme);
+                    AssertAppliedThemeResources(application, initialTheme, simpleStyles, canonicalDialogStyles);
+                    int versionAfterInitialApply = AppThemeService.Version;
+                    int themeChangedCountAfterInitialApply = themeChangedCount;
+
+                    string oppositeTheme = string.Equals(initialTheme, AppThemeService.Dark, StringComparison.Ordinal)
+                        ? AppThemeService.Light
+                        : AppThemeService.Dark;
+                    AppThemeService.ApplyTheme(oppositeTheme);
+                    Assert.IsTrue(AppThemeService.Version > versionAfterInitialApply);
+                    Assert.AreEqual(themeChangedCountAfterInitialApply + 1, themeChangedCount);
+                    AssertAppliedThemeResources(application, oppositeTheme, simpleStyles, canonicalDialogStyles);
+                    int versionAfterOppositeApply = AppThemeService.Version;
+                    int themeChangedCountAfterOppositeApply = themeChangedCount;
+
+                    AppThemeService.ApplyTheme(initialTheme);
+                    Assert.IsTrue(AppThemeService.Version > versionAfterOppositeApply);
+                    Assert.AreEqual(themeChangedCountAfterOppositeApply + 1, themeChangedCount);
+                    AssertAppliedThemeResources(application, initialTheme, simpleStyles, canonicalDialogStyles);
+                    Assert.AreSame(originalResourceAssembly, Application.ResourceAssembly);
+                }
+                finally
+                {
+                    AppThemeService.ThemeChanged -= themeChangedHandler;
+                }
+            }
+            finally
+            {
+                mergedDictionaries.Clear();
+                foreach (ResourceDictionary dictionary in originalDictionaries)
+                {
+                    mergedDictionaries.Add(dictionary);
+                }
+
+                CustomTablePalette.Invalidate();
+            }
+        });
+    }
+
+    private static void AssertAppliedThemeResources(
+        Application application,
+        string expectedTheme,
+        ResourceDictionary simpleStyles,
+        ResourceDictionary canonicalDialogStyles)
+    {
+        Collection<ResourceDictionary> mergedDictionaries = application.Resources.MergedDictionaries;
+        Assert.IsTrue(mergedDictionaries.Contains(simpleStyles), "Simple Styles must survive theme replacement.");
+        Assert.IsTrue(
+            mergedDictionaries.Contains(canonicalDialogStyles),
+            "Canonical dialog styles must survive theme replacement.");
+
+        ResourceDictionary[] themeDictionaries = mergedDictionaries
+            .Where(dictionary => !ReferenceEquals(dictionary, simpleStyles)
+                && !ReferenceEquals(dictionary, canonicalDialogStyles))
+            .ToArray();
+        Assert.AreEqual(1, themeDictionaries.Length, "Exactly one theme palette must be applied.");
+        Assert.AreEqual(
+            ComponentThemeDictionaryPrefix + expectedTheme + ".xaml",
+            themeDictionaries[0].Source?.OriginalString);
+
+        Assert.IsInstanceOfType(
+            application.TryFindResource("SimpleButton"),
+            typeof(Style),
+            "SimpleButton must remain resolvable from the shared Simple Styles dictionary.");
+        Assert.IsInstanceOfType(
+            application.TryFindResource("App.Canonical.NativeWindowContentStyle"),
+            typeof(Style),
+            "NativeWindowContentStyle must remain resolvable from the shared canonical dictionary.");
+    }
+
+    private static ResourceDictionary CreateResourceDictionary(string source)
+    {
+        ResourceDictionary dictionary = new();
+        dictionary.Source = new Uri(source, UriKind.RelativeOrAbsolute);
+        return dictionary;
     }
 
     private static IEnumerable<MethodBase> GetDeclaredMethods(Type type)
@@ -195,7 +310,7 @@ public sealed class NativeWindowThemeContractTests
 
     private static IEnumerable<string> EnumerateProductionXaml(string repositoryRoot)
     {
-        return new[] { "BeMusicSeeker", "Parago" }
+        return new[] { "BeMusicSeeker" }
             .SelectMany(directory => Directory.EnumerateFiles(Path.Combine(repositoryRoot, directory), "*.xaml", SearchOption.AllDirectories))
             .Where(path => !HasDirectorySegment(path, "bin") && !HasDirectorySegment(path, "obj"))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);

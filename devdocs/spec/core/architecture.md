@@ -29,6 +29,12 @@
 
 ### ソースの配置
 
+メインアプリのプロジェクト境界は `BeMusicSeeker/` とし、プロジェクトファイル、依存ロック、設定、ソース、埋込み資源をこの配下に置きます。`Ribbit/`、`Parago/`、`OutlineFont/` も同じアセンブリの構成要素として収容し、名前空間は維持します。テスト、更新プログラム、補助ツールはそれぞれ独立したプロジェクトです。
+
+テーマ辞書は `BeMusicSeeker/Themes/`、アプリの素材は `BeMusicSeeker/Assets/` の `Audio/`、`Fonts/`、`Images/`、`Icons/` に置きます。`Properties/` にはアセンブリ情報、リソース、設定、発行プロファイルを集約します。以下の層内の配置は `BeMusicSeeker/` を基準に示します。
+
+`native/`、`vendor/`、`third_party/`、`lang/` はリポジトリ直下に置き、プロジェクトから必要なファイルを明示して参照します。ソースの配置と配布物の配置は区別し、配布物の `native/`、`libs/x64/`、`lang/`、実行ファイル直下の `test.mp3` は維持します。ビルドの中間生成物と通常出力は各プロジェクトの `obj/`、`bin/` に置きます。
+
 物理フォルダは既存の機能・管理主体を探す単位とし、名前空間や公開範囲とは区別します。名前空間は既存の型識別と保存・XAMLの参照を維持します。同じpartial型のファイルは一箇所へ置き、機能専用の要求・結果・補助処理を管理主体と揃えます。
 
 | 配置 | 探す対象 |
@@ -96,7 +102,7 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 | --- | --- | --- |
 | 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |
 | 埋込みアイコンの解決 | [Images.cs](../../../BeMusicSeeker/Properties/Images.cs) の `ResourceManager` と型付きアクセサー | [ResourceIconContractTests](../../../BeMusicSeeker.Tests/Localization/ResourceIconContractTests.cs) の `EmbeddedImagesExposeStableKeysTypesAndPayloads`、`XamlIconConverterPreservesResourceDimensions`。 |
-| 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
+| 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker/BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
 | 機能ごとの責務・起動・変更 | 各領域の管理主体 | [起動](../runtime/startup.md)、[ライブラリ変更](../library/mutations.md)、[画面](../ui/README.md)の対応表で確認する。 |
 
 ## 関連資料

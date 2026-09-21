@@ -2158,7 +2158,7 @@ public sealed class UpdaterPackageSyncTests
         string? directoryPath = AppDomain.CurrentDomain.BaseDirectory;
         while (!string.IsNullOrWhiteSpace(directoryPath))
         {
-            if (File.Exists(Path.Combine(directoryPath, "BeMusicSeeker.csproj")))
+            if (File.Exists(Path.Combine(directoryPath, "BeMusicSeeker", "BeMusicSeeker.csproj")))
             {
                 return directoryPath!;
             }

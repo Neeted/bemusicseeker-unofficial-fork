@@ -575,7 +575,7 @@ public sealed class ReleaseScriptVersionSourceTests
         private void CreateFiles(bool includeMetadata, bool includeCompatibilityFile)
         {
             Directory.CreateDirectory(Path.Combine(Root, "scripts"));
-            Directory.CreateDirectory(Path.Combine(Root, "Properties"));
+            Directory.CreateDirectory(Path.Combine(Root, "BeMusicSeeker", "Properties"));
             Directory.CreateDirectory(Path.Combine(Root, "release notes"));
             Directory.CreateDirectory(Path.Combine(Root, "docs"));
             Directory.CreateDirectory(DistRoot);
@@ -587,7 +587,7 @@ public sealed class ReleaseScriptVersionSourceTests
                 Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1"),
                 Path.Combine(Root, "scripts", "portable-package-layout.ps1"));
             File.WriteAllText(
-                Path.Combine(Root, "Properties", "AssemblyInfo.cs"),
+                Path.Combine(Root, "BeMusicSeeker", "Properties", "AssemblyInfo.cs"),
                 "[assembly: AssemblyInformationalVersion(\"9.9.9.9\")]",
                 Encoding.UTF8);
             string sourceNote = Directory.GetFiles(Path.Combine(repositoryRoot, "release notes"), "v2.1.6.0*").Single();

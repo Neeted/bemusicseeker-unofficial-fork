@@ -93,7 +93,7 @@ public sealed class WpfChromeBoundaryTests
     public void ProjectAndPortableLayoutRetireLegacyChromeAssemblies()
     {
         string repositoryRoot = FindRepositoryRoot();
-        string project = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker.csproj"));
+        string project = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "BeMusicSeeker.csproj"));
         string layout = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1"));
         int sdkNativeRootStart = layout.IndexOf("$script:RequiredSdkNativeRootFiles = @(", StringComparison.Ordinal);
         int sdkNativeRootEnd = layout.IndexOf(")", sdkNativeRootStart, StringComparison.Ordinal);

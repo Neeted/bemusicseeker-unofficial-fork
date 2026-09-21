@@ -297,7 +297,7 @@ public sealed class ApplicationSettingsMetadataTests
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory != null)
         {
-            string path = Path.Combine(directory.FullName, "app.config");
+            string path = Path.Combine(directory.FullName, "BeMusicSeeker", "app.config");
             if (File.Exists(path))
             {
                 return XDocument.Load(path, LoadOptions.PreserveWhitespace);

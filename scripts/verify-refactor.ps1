@@ -18,7 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'BeMusicSeeker.sln'
-$uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net10.0-windows\BeMusicSeeker.exe'
+$uiExecutable = Join-Path $repoRoot 'BeMusicSeeker\bin\x64\Release\net10.0-windows\BeMusicSeeker.exe'
 $toolExecutables = @(
     (Join-Path $repoRoot 'tools\chart-info-compare\bin\x64\Release\net10.0\ChartInfoCompare.exe'),
     (Join-Path $repoRoot 'tools\chart-info-export\bin\x64\Release\net10.0\ChartInfoExport.exe'))
@@ -1348,7 +1348,7 @@ function Get-AssemblyInformationalVersion {
         [string]$Root
     )
 
-    $assemblyInfoPath = Join-Path $Root 'Properties\AssemblyInfo.cs'
+    $assemblyInfoPath = Join-Path $Root 'BeMusicSeeker\Properties\AssemblyInfo.cs'
     if (-not (Test-Path -LiteralPath $assemblyInfoPath -PathType Leaf)) {
         throw "AssemblyInfo.cs is missing: $assemblyInfoPath"
     }

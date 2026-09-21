@@ -19,63 +19,52 @@
     <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
   </PropertyGroup>
   <PropertyGroup>
-    <ApplicationIcon>app.ico</ApplicationIcon>
-    <ApplicationManifest>BeMusicSeeker\app.manifest</ApplicationManifest>
-    <RootNamespace />
+    <ApplicationIcon>Assets\Icons\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>BeMusicSeeker</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Remove="bin\**\*.cs;obj\**\*.cs" />
-    <Compile Remove="BeMusicSeeker.Tests\**\*.cs" />
-    <Compile Remove="BeMusicSeeker.Updater\**\*.cs" />
-    <Compile Remove="tools\**\*.cs" />
-    <None Remove="BeMusicSeeker.Tests\**\*" />
-    <None Remove="BeMusicSeeker.Updater\**\*" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="native\Everything3_x64.dll">
+    <None Include="..\native\Everything3_x64.dll">
+      <Link>native\Everything3_x64.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>native\Everything3_x64.dll</TargetPath>
     </None>
-    <None Include="native\EverythingBridge_x64.dll">
+    <None Include="..\native\EverythingBridge_x64.dll">
+      <Link>native\EverythingBridge_x64.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>native\EverythingBridge_x64.dll</TargetPath>
     </None>
-    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\7z.dll;vendor\native\x64\sqlite3.dll">
+    <None Include="..\vendor\native\x64\*.dll" Exclude="..\vendor\native\x64\7z.dll;..\vendor\native\x64\sqlite3.dll">
+      <Link>libs\x64\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
     </None>
-    <None Update="lang\*.json">
+    <None Include="..\lang\*.json">
+      <Link>lang\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>lang\%(Filename)%(Extension)</TargetPath>
     </None>
-    <None Update="assets\audio\test.mp3">
+    <None Update="Assets\Audio\test.mp3">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>test.mp3</TargetPath>
     </None>
-    <None Remove="BeMusicSeeker\App.xaml" />
-    <ApplicationDefinition Include="BeMusicSeeker\App.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </ApplicationDefinition>
-    <None Remove="icon_and_logo.ico" />
-    <None Remove="resources\default_image.jpg" />
-    <None Remove="resources\sovjetboxbd_v0_9.otf" />
-    <None Remove="resources\icon_and_logo.png" />
-    <None Remove="resources\ligaturesymbols-2.11.otf" />
-    <None Remove="resources\imageres_5328.ico" />
-    <None Remove="resources\commodore-20rounded-20v1.2.ttf" />
-    <Resource Include="icon_and_logo.ico" />
-    <EmbeddedResource Update="Properties\Images.resx" />
-    <Resource Include="resources\default_image.jpg" />
-    <Resource Include="resources\sovjetboxbd_v0_9.otf" />
-    <Resource Include="resources\icon_and_logo.png" />
-    <Resource Include="resources\ligaturesymbols-2.11.otf" />
-    <Resource Include="resources\imageres_5328.ico" />
-    <Resource Include="resources\commodore-20rounded-20v1.2.ttf" />
+    <None Remove="Assets\Images\default_image.jpg" />
+    <None Remove="Assets\Fonts\sovjetboxbd_v0_9.otf" />
+    <None Remove="Assets\Images\icon_and_logo.png" />
+    <None Remove="Assets\Fonts\ligaturesymbols-2.11.otf" />
+    <None Remove="Assets\Fonts\commodore-20rounded-20v1.2.ttf" />
+    <Resource Include="Assets\Images\default_image.jpg" />
+    <Resource Include="Assets\Fonts\sovjetboxbd_v0_9.otf" />
+    <Resource Include="Assets\Images\icon_and_logo.png" />
+    <Resource Include="Assets\Fonts\ligaturesymbols-2.11.otf" />
+    <Resource Include="Assets\Fonts\commodore-20rounded-20v1.2.ttf" />
   </ItemGroup>
 
   <Target Name="VerifyEverythingNativeAssets" BeforeTargets="Build">
-    <Error Condition="!Exists('native\Everything3_x64.dll')"
-           Text="Everything SDK x64 native asset is missing: native\Everything3_x64.dll" />
-    <Error Condition="!Exists('native\EverythingBridge_x64.dll')"
-           Text="Everything bridge x64 native asset is missing: native\EverythingBridge_x64.dll" />
+    <Error Condition="!Exists('..\native\Everything3_x64.dll')"
+           Text="Everything SDK x64 native asset is missing: ..\native\Everything3_x64.dll" />
+    <Error Condition="!Exists('..\native\EverythingBridge_x64.dll')"
+           Text="Everything bridge x64 native asset is missing: ..\native\EverythingBridge_x64.dll" />
   </Target>
   <ItemGroup>
     <PackageReference Include="LivetCask.Core" />
@@ -115,13 +104,13 @@
 
   <Target Name="CopyPublishedNativeAssets" AfterTargets="Publish">
     <MakeDir Directories="$(PublishDir)native;$(PublishDir)libs\x64" />
-    <Copy SourceFiles="native\Everything3_x64.dll"
+    <Copy SourceFiles="..\native\Everything3_x64.dll"
           DestinationFiles="$(PublishDir)native\Everything3_x64.dll"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="native\EverythingBridge_x64.dll"
+    <Copy SourceFiles="..\native\EverythingBridge_x64.dll"
           DestinationFiles="$(PublishDir)native\EverythingBridge_x64.dll"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="vendor\native\x64\bass.dll;vendor\native\x64\bassasio.dll;vendor\native\x64\bassenc.dll;vendor\native\x64\bassmix.dll;vendor\native\x64\basswasapi.dll;vendor\native\x64\bass_fx.dll"
+    <Copy SourceFiles="..\vendor\native\x64\bass.dll;..\vendor\native\x64\bassasio.dll;..\vendor\native\x64\bassenc.dll;..\vendor\native\x64\bassmix.dll;..\vendor\native\x64\basswasapi.dll;..\vendor\native\x64\bass_fx.dll"
           DestinationFiles="$(PublishDir)libs\x64\bass.dll;$(PublishDir)libs\x64\bassasio.dll;$(PublishDir)libs\x64\bassenc.dll;$(PublishDir)libs\x64\bassmix.dll;$(PublishDir)libs\x64\basswasapi.dll;$(PublishDir)libs\x64\bass_fx.dll"
           SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(PkgSevenZipExtractor)\build\x64\7z.dll"

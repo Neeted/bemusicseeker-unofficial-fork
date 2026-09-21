@@ -436,7 +436,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void AppStyles_SuppressDottedFocusVisuals()
     {
         string root = FindRepositoryRoot();
-        string styles = File.ReadAllText(Path.Combine(root, "Simple Styles.xaml")).Replace("\r\n", "\n");
+        string styles = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Themes", "Simple Styles.xaml")).Replace("\r\n", "\n");
         string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml")).Replace("\r\n", "\n");
 
         Assert.AreEqual(-1, styles.IndexOf("StrokeDashArray", StringComparison.Ordinal));
@@ -471,7 +471,7 @@ public sealed class MainWindowContextMenuResourceTests
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
                 "/BeMusicSeeker;component/Themes/Light.xaml"));
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
-                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml"));
+                "/BeMusicSeeker;component/Themes/CanonicalControls.xaml"));
 
             var scroller = new ScrollViewer
             {
@@ -706,7 +706,7 @@ public sealed class MainWindowContextMenuResourceTests
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
                 "/BeMusicSeeker;component/Themes/Light.xaml"));
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
-                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml"));
+                "/BeMusicSeeker;component/Themes/CanonicalControls.xaml"));
             var navigation = new ListBox
             {
                 Width = 360,
@@ -807,7 +807,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ContextMenuTemplates_ConstrainTallMenusWithScrollViewer()
     {
-        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
+        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "Simple Styles.xaml"));
 
         StringAssert.Contains(styles, "<views:MenuMaxHeightConverter x:Key=\"MenuMaxHeightConverter\" />");
         StringAssert.Contains(styles, "<Setter Property=\"MaxHeight\" Value=\"{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height, Converter={StaticResource MenuMaxHeightConverter}}\" />");
@@ -937,8 +937,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void ThemeResourceDictionaries_DefineRequiredTableAndAppKeys()
     {
         string root = FindRepositoryRoot();
-        string light = File.ReadAllText(Path.Combine(root, "Themes", "Light.xaml"));
-        string dark = File.ReadAllText(Path.Combine(root, "Themes", "Dark.xaml"));
+        string light = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Themes", "Light.xaml"));
+        string dark = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Themes", "Dark.xaml"));
 
         foreach (string key in new[]
         {
@@ -1003,7 +1003,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ThemeStyles_ApplyToMenusAndStandardControls()
     {
-        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
+        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "Simple Styles.xaml"));
         string mainWindow = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
 
         foreach (string targetType in new[]

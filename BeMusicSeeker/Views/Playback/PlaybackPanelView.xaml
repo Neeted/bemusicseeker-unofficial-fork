@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="BeMusicSeeker.Views.PlaybackPanelView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:wf="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="playbackPanelView" Height="286" VerticalAlignment="Top">
   <UserControl.Resources>
-    <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
-    <FontFamily x:Key="Commodore">/BeMusicSeeker;component/resources/#Commodore 64 Rounded</FontFamily>
+    <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/Assets/Fonts/#LigatureSymbols</FontFamily>
+    <FontFamily x:Key="Commodore">/BeMusicSeeker;component/Assets/Fonts/#Commodore 64 Rounded</FontFamily>
     <v:windowsFormsHostVisibilitiesConverter x:Key="windowsFormsHostVisibilitiesConverter" />
     <v:panelStateToStringConverter x:Key="panelStateToStringConverter" />
     <v:panelStateToStringConverter2 x:Key="panelStateToStringConverter2" />

@@ -692,7 +692,7 @@ public sealed class SettingsControlPresentationTests
         });
         host.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
-            Source = new Uri("/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
+            Source = new Uri("/BeMusicSeeker;component/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
         });
         return host;
     }
@@ -703,7 +703,7 @@ public sealed class SettingsControlPresentationTests
         Assert.IsNotNull(application);
         AddCanonicalResourceIfMissing(
             application,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+            "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml");
     }
 
     private static void AddCanonicalResourceIfMissing(Application application, string source)

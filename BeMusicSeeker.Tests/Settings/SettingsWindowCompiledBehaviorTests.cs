@@ -851,10 +851,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
         Assert.IsNotNull(application);
         AddCanonicalResourceIfMissing(
             application,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
+            "/BeMusicSeeker;component/Themes/CanonicalControls.xaml");
         AddCanonicalResourceIfMissing(
             application,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+            "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml");
     }
 
     private static void AddCanonicalResourceIfMissing(Application application, string source)

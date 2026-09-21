@@ -26,7 +26,7 @@ $devRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $configuration = "Release"
 $platform = "x64"
 $solution = Join-Path $devRoot "BeMusicSeeker.sln"
-$appProject = Join-Path $devRoot "BeMusicSeeker.csproj"
+$appProject = Join-Path $devRoot "BeMusicSeeker\BeMusicSeeker.csproj"
 $updaterProject = Join-Path $devRoot "BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
 $artifactRootWasProvided = -not [string]::IsNullOrWhiteSpace($ArtifactRoot)
 $artifactRootPath = if ($artifactRootWasProvided) {
@@ -135,7 +135,7 @@ function Assert-SelfContainedPublishLayout($appOutput, $updaterOutput) {
 
 # AssemblyInformationalVersion を読み取る
 function Get-AppVersion {
-    $asmInfoPath = Join-Path $devRoot "Properties\AssemblyInfo.cs"
+    $asmInfoPath = Join-Path $devRoot "BeMusicSeeker\Properties\AssemblyInfo.cs"
     $content = Get-Content $asmInfoPath -Raw
     if ($content -match 'AssemblyInformationalVersion\("([^"]+)"\)') {
         return $Matches[1]

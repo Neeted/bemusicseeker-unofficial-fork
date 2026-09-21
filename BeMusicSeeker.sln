@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BeMusicSeeker", "BeMusicSeeker.csproj", "{33E7E0D8-D206-8C09-251E-B9FA15A51400}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BeMusicSeeker", "BeMusicSeeker\BeMusicSeeker.csproj", "{33E7E0D8-D206-8C09-251E-B9FA15A51400}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BeMusicSeeker.Tests", "BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj", "{08827251-D3EA-44B9-9A44-69E82A694EB4}"
 EndProject

@@ -43,7 +43,7 @@ uv run scripts/build-doc-html.py --source-root . --output-root docs --site --sit
 
 ### バージョン更新
 
-[Properties/AssemblyInfo.cs](../../../Properties/AssemblyInfo.cs) の `AssemblyInformationalVersion` をパッケージ名、正式タグ、公開メタデータの版の正本とします。`AssemblyVersion` は互換性上の理由または明示指示がある場合だけ変更します。
+[BeMusicSeeker/Properties/AssemblyInfo.cs](../../../BeMusicSeeker/Properties/AssemblyInfo.cs) の `AssemblyInformationalVersion` をパッケージ名、正式タグ、公開メタデータの版の正本とします。`AssemblyVersion` は互換性上の理由または明示指示がある場合だけ変更します。
 
 バージョン更新は通常 `dev` を起点に行い、次を同じ変更で揃えます。
 

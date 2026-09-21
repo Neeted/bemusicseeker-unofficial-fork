@@ -38,13 +38,13 @@ public sealed class PlaylistLampViewerWindowManagerTests
             if (!application.Resources.MergedDictionaries.Any(dictionary =>
                 string.Equals(
                     dictionary.Source?.OriginalString,
-                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                    "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                     StringComparison.OrdinalIgnoreCase)))
             {
                 application.Resources.MergedDictionaries.Add(new ResourceDictionary
                 {
                     Source = new Uri(
-                        "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                        "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
             }

@@ -11,8 +11,6 @@ internal static class AppThemeService
     internal const string Light = "Light";
     internal const string Dark = "Dark";
 
-    private const string ApplicationThemeDictionaryPrefix = "/Themes/";
-
     private const string ComponentThemeDictionaryPrefix = "/BeMusicSeeker;component/Themes/";
     private static int version;
 
@@ -66,12 +64,14 @@ internal static class AppThemeService
         return candidate as Brush ?? fallback;
     }
 
+    /// <summary>
+    /// component形式の Light.xaml または Dark.xaml の完全な指定URIだけをテーマ辞書として判定します。
+    /// 共通辞書はテーマ切替時にも維持します。
+    /// </summary>
     private static bool IsThemeDictionary(ResourceDictionary dictionary)
     {
         string source = dictionary?.Source?.OriginalString;
-        return !string.IsNullOrEmpty(source)
-            && (source.StartsWith(ApplicationThemeDictionaryPrefix, StringComparison.OrdinalIgnoreCase)
-                || source.StartsWith(ComponentThemeDictionaryPrefix, StringComparison.OrdinalIgnoreCase))
-            && source.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(source, ComponentThemeDictionaryPrefix + Light + ".xaml", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(source, ComponentThemeDictionaryPrefix + Dark + ".xaml", StringComparison.OrdinalIgnoreCase);
     }
 }

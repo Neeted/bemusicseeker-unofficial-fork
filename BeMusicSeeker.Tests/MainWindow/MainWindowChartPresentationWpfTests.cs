@@ -39,7 +39,7 @@ public sealed class MainWindowChartPresentationWpfTests
             var styles = new ResourceDictionary
             {
                 Source = new Uri(
-                    "/BeMusicSeeker;component/Simple Styles.xaml",
+                    "/BeMusicSeeker;component/Themes/Simple Styles.xaml",
                     UriKind.RelativeOrAbsolute)
             };
             application.Resources.MergedDictionaries.Insert(0, styles);
@@ -343,13 +343,13 @@ public sealed class MainWindowChartPresentationWpfTests
                 resourceHost.Resources.MergedDictionaries.Add(new ResourceDictionary
                 {
                     Source = new Uri(
-                        "/BeMusicSeeker;component/Simple Styles.xaml",
+                        "/BeMusicSeeker;component/Themes/Simple Styles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
                 resourceHost.Resources.MergedDictionaries.Add(new ResourceDictionary
                 {
                     Source = new Uri(
-                        "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                        "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
                 resourceHost.Children.Add(table);
@@ -1325,7 +1325,7 @@ public sealed class MainWindowChartPresentationWpfTests
                     host.Resources.MergedDictionaries.Add(new ResourceDictionary
                     {
                         Source = new Uri(
-                            "/BeMusicSeeker;component/Simple Styles.xaml",
+                            "/BeMusicSeeker;component/Themes/Simple Styles.xaml",
                             UriKind.RelativeOrAbsolute)
                     });
                     host.Resources.MergedDictionaries.Add(new ResourceDictionary

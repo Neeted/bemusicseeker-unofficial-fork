@@ -2,7 +2,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <ResourceDictionary.MergedDictionaries>
-    <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml" />
+    <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalControls.xaml" />
   </ResourceDictionary.MergedDictionaries>
   <!-- Dialog roles are explicit so each native window or overlay can opt in without
        changing the visual system of an unadopted MainWindow control. -->
