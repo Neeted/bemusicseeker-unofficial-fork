@@ -134,6 +134,8 @@ WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcher
 
 再起動失敗時の復元テストは、本番の準備・適用処理と呼出し単位のプロセス開始代替処理を使い、配布実行ファイルを破壊しません。非公開の処理入口を呼ぶ例外はこの境界だけとし、確認対象は元の例外、到達した起動、メタデータ・ファイル・利用者データの復元です。非公開名そのものを契約にしません。画面を確認しない更新プロセスは `CreateNoWindow=true` を使用します。
 
+`UpdaterPackageSyncTests` の通常の終了・受付確認は、実プロセスの終了とreadyファイルで順序を保証し、局所的な5秒・30秒の合否条件を設けません。停止は標準入口の検証全体の期限で検出します。生存アプリの模擬プロセスは準備通知を受けてから使い、検査が終わるまで入力待ちで生存させます。決定前・排他競合中に終了しないことの短い否定観測は、通常完了の待機とは区別します。ケース固有のアプリディレクトリと回復登録を使って並列実行を維持し、所有プロセスと出力の回収後に登録・一時領域を清掃します。
+
 ### 公開旧版からの移行とリリース判定
 
 [固定配布物の指定](../../acceptance/v216-first-hop/artifact.json)が示す公開v2.1.6.0 ZIPだけを使用します。サイズは11,260,709バイト、SHA-256は次の値です。
@@ -146,7 +148,13 @@ C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
 
 `accept-v216-first-hop.ps1` は旧版の実際のprotocol-1更新プログラムを使います。期限内の終了、出力の全読取り、旧アプリの終了、新版の `startup_ready_operable` を確認し、現行のready/decision通信は旧版に要求しません。適用直後は `data/`・`config/` のバイト一致、初回起動後は設定とDBの意味上の保持を確認します。管理ファイルをロックする確認では、非ゼロ終了、非空の標準エラー、データ保持を要求し、旧管理ツリーの自動復元は要求しません。
 
-画面起動の受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。これは成功に特定のダイアログを要求する規則ではありません。
+既存データ起動と更新の受入は、初期設定・ライブラリ構築済みの利用者を表す設定と既存DBを入力にします。設定生成は共通処理を使い、`AssemblyVersion` を実保存形式の `SerializableVersion` XML、その他の単一値の設定を文字列として保存します。更新後の最初の起動は、初期設定からの新規利用ではなく、移行した設定とDBを読み取れるかの確認です。
+
+既存データ起動では、`startup_ready_operable` と `startup_post_initialization_maintenance_complete` の両方を同じ実行期限内で待ってから終了します。画面操作可能の記録だけで終了すると、起動後のLR2自動同期を中断するためです。終了後に既存の意味保持と同期結果を検査し、処理が終わったことだけで同期成功とは扱いません。
+
+公開旧版では、既存ログの起動完了を待った後、生存している旧アプリのPIDを渡して旧更新プログラムを起動し、旧アプリへ通常終了を要求します。ウィンドウが現れただけで起動完了とは扱いません。旧版に現行版専用の起動ログや更新通信を要求しません。
+
+画面起動の受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。初回構築通知も自動操作せず、利用済み入力の不備や起動の問題として扱います。初期設定自体の検証を更新受入へ混ぜません。
 
 `Assert-VerificationTestOutcomes` は通常テスト全プロセスと後続受入のTRXまたは厳密な完全修飾名付きJSONを合成し、`release-outcomes.json` を生成します。必須項目は正確に一件の `Passed` を要求します。欠落、重複、その他の状態は失敗です。任意項目の `Skipped` / `Inconclusive` / `NotExecuted` は完全修飾名の明示一覧と空でない理由がある場合だけ許可します。カテゴリ全体や未知の項目を一括で除外しません。
 
@@ -202,6 +210,8 @@ OS入力との接続自体は、該当機能の入力・フォーカス経路を
 | UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |
 | 画面の準備、表示、破棄 | [`TestUiDispatcherHost`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs)、[`TestWindowPresentationScope`](../../../BeMusicSeeker.Tests/TestUiScheduler.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/SettingsControlPresentationTests.cs) |
 | 公開旧版と現在版の更新 | [旧版からの受入](../../../scripts/accept-v216-first-hop.ps1)、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/UpdaterPackageSyncTests.cs) |
+| 利用済み設定の生成と非初回判定 | [受入設定の生成](../../../scripts/acceptance-settings-fixture.ps1)、[既存データ起動](../../../scripts/accept-net10-existing-data.ps1) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/ApplicationSettingsLifecycleTests.cs) の `LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues` は生成した設定を実設定ストアで読み、版・設定値・非初回判定を確認する。公開旧版での読取りはFullの実更新受入で確認する。 |
+| 予期しない所有モーダルの拒否 | [共通の画面観測](../../../scripts/verification-ui-automation.ps1) | [`ExistingDataAcceptanceDialogContractTests`](../../../BeMusicSeeker.Tests/ExistingDataAcceptanceDialogContractTests.cs) はPID・所有先・可視・有効・モーダル条件とプロセス結果ゲートを確認する。自動応答は行わない。 |
 | 外部エンコーダー | [`BassAudioWriter`](../../../Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/ExternalAudioEncoderSmokeTests.cs) |
 
 ## 関連資料

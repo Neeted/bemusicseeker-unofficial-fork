@@ -29,11 +29,7 @@ function Get-VerificationUiAutomationObservations {
     $windowCondition = [System.Windows.Automation.PropertyCondition]::new(
         [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
         [System.Windows.Automation.ControlType]::Window)
-    $buttonCondition = [System.Windows.Automation.PropertyCondition]::new(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [System.Windows.Automation.ControlType]::Button)
     $windowsByHandle = @{}
-    $actionsByRuntimeId = @{}
     $rootWindows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
         [System.Windows.Automation.TreeScope]::Children,
         $windowCondition)
@@ -67,58 +63,6 @@ function Get-VerificationUiAutomationObservations {
                         OwnerWindowHandle = [VerificationUiAutomationNative]::GetWindow($windowHandle, 4)
                     }
                 }
-
-                foreach ($buttonElement in @($candidateWindowElement.FindAll(
-                            [System.Windows.Automation.TreeScope]::Descendants,
-                            $buttonCondition))) {
-                    $buttonCurrent = $buttonElement.Current
-                    if ([int]$buttonCurrent.ProcessId -ne $ProcessId) {
-                        continue
-                    }
-                    $buttonWindowHandle = [IntPtr]::Zero
-                    $ancestor = $buttonElement
-                    while ($null -ne $ancestor) {
-                        $ancestorCurrent = $ancestor.Current
-                        if ([object]::Equals(
-                                $ancestorCurrent.ControlType,
-                                [System.Windows.Automation.ControlType]::Window)) {
-                            $ancestorHandle = [IntPtr]$ancestorCurrent.NativeWindowHandle
-                            if ($ancestorHandle -ne [IntPtr]::Zero) {
-                                $buttonWindowHandle = $ancestorHandle
-                                break
-                            }
-                        }
-                        $ancestor = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($ancestor)
-                    }
-                    if ($buttonWindowHandle -eq [IntPtr]::Zero) {
-                        $buttonWindowHandle = $windowHandle
-                    }
-
-                    $runtimeId = try {
-                        ($buttonElement.GetRuntimeId() -join '.')
-                    }
-                    catch {
-                        [System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($buttonElement).ToString(
-                            [Globalization.CultureInfo]::InvariantCulture)
-                    }
-                    $actionKey = '{0}:{1}:{2}' -f $buttonCurrent.ProcessId, $buttonWindowHandle.ToInt64(), $runtimeId
-                    if ($actionsByRuntimeId.ContainsKey($actionKey)) {
-                        continue
-                    }
-                    $invokePattern = $null
-                    $supportsInvoke = $buttonElement.TryGetCurrentPattern(
-                        [System.Windows.Automation.InvokePattern]::Pattern,
-                        [ref]$invokePattern)
-                    $actionsByRuntimeId[$actionKey] = [pscustomobject]@{
-                        ProcessId = [int]$buttonCurrent.ProcessId
-                        NativeWindowHandle = $buttonWindowHandle
-                        IsOffscreen = [bool]$buttonCurrent.IsOffscreen
-                        IsEnabled = [bool]$buttonCurrent.IsEnabled
-                        AutomationId = [string]$buttonCurrent.AutomationId
-                        SupportsInvoke = [bool]$supportsInvoke
-                        Element = $buttonElement
-                    }
-                }
             }
         }
         catch {
@@ -127,7 +71,6 @@ function Get-VerificationUiAutomationObservations {
     }
     return [pscustomobject]@{
         Windows = [object[]]$windowsByHandle.Values
-        Actions = [object[]]$actionsByRuntimeId.Values
     }
 }
 
@@ -147,4 +90,20 @@ function Get-VerificationOwnedModalWindowCandidates {
             [bool]$_.IsModal -and
             ([Int64]$_.OwnerWindowHandle) -eq $mainHandleValue
         })
+}
+
+function Assert-VerificationNoUnexpectedOwnedModal {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][IntPtr]$MainWindowHandle
+    )
+
+    $observations = Get-VerificationUiAutomationObservations -ProcessId $ProcessId
+    $blockingWindows = @(Get-VerificationOwnedModalWindowCandidates `
+            -ProcessId $ProcessId `
+            -MainWindowHandle $MainWindowHandle `
+            -Windows $observations.Windows)
+    if ($blockingWindows.Count -gt 0) {
+        throw 'Acceptance found an unexpected visible enabled modal owned by the application main window.'
+    }
 }

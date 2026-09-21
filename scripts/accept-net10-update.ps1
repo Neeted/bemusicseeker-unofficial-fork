@@ -27,6 +27,7 @@ if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 . (Join-Path $repoRoot 'scripts\distribution-artifact.ps1')
 . (Join-Path $repoRoot 'scripts\verification-process-lifecycle.ps1')
+. (Join-Path $repoRoot 'scripts\acceptance-settings-fixture.ps1')
 
 $script:deadlinePolicy = Resolve-VerificationDeadlinePair `
     -TimeoutSeconds $TimeoutSeconds `
@@ -68,31 +69,6 @@ function Assert-Directory {
 function Get-Sha256 {
     param([Parameter(Mandatory)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-}
-
-function Write-LegacyConfig {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][hashtable]$Settings
-    )
-    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    $document = [Xml.XmlDocument]::new()
-    $configuration = $document.CreateElement('configuration')
-    [void]$document.AppendChild($configuration)
-    $userSettings = $document.CreateElement('userSettings')
-    [void]$configuration.AppendChild($userSettings)
-    $section = $document.CreateElement('BeMusicSeeker.Properties.Settings')
-    [void]$userSettings.AppendChild($section)
-    foreach ($name in $Settings.Keys) {
-        $setting = $document.CreateElement('setting')
-        $setting.SetAttribute('name', [string]$name)
-        $setting.SetAttribute('serializeAs', 'String')
-        $value = $document.CreateElement('value')
-        $value.InnerText = [string]$Settings[$name]
-        [void]$setting.AppendChild($value)
-        [void]$section.AppendChild($setting)
-    }
-    $document.Save($Path)
 }
 
 function Get-ManifestSettings {

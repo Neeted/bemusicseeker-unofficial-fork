@@ -10,8 +10,7 @@ param(
     [int]$TimeoutSeconds = 180,
     [DateTime]$ExecutionDeadlineUtc = [DateTime]::MinValue,
     [DateTime]$CleanupDeadlineUtc = [DateTime]::MinValue,
-    [switch]$KeepSandbox,
-    [switch]$ImportFunctionsOnly
+    [switch]$KeepSandbox
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +18,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\distribution-artifact.ps1')
 . (Join-Path $repoRoot 'scripts\verification-process-lifecycle.ps1')
 . (Join-Path $repoRoot 'scripts\verification-ui-automation.ps1')
+. (Join-Path $repoRoot 'scripts\acceptance-settings-fixture.ps1')
 
 $artifactManifestMode = -not [string]::IsNullOrWhiteSpace($ArtifactManifestPath)
 $artifactManifest = $null
@@ -109,33 +109,6 @@ function Get-ManifestSettingMap {
         $map[[string]$setting.GetAttribute('name')] = [string]$setting.SelectSingleNode('value').InnerText
     }
     return $map
-}
-
-function Write-LegacyConfig {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][hashtable]$Settings
-    )
-
-    $parent = Split-Path -Parent $Path
-    New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    $document = [Xml.XmlDocument]::new()
-    $configuration = $document.CreateElement('configuration')
-    [void]$document.AppendChild($configuration)
-    $userSettings = $document.CreateElement('userSettings')
-    [void]$configuration.AppendChild($userSettings)
-    $section = $document.CreateElement('BeMusicSeeker.Properties.Settings')
-    [void]$userSettings.AppendChild($section)
-    foreach ($name in $Settings.Keys) {
-        $setting = $document.CreateElement('setting')
-        $setting.SetAttribute('name', [string]$name)
-        $setting.SetAttribute('serializeAs', 'String')
-        $value = $document.CreateElement('value')
-        $value.InnerText = [string]$Settings[$name]
-        [void]$setting.AppendChild($value)
-        [void]$section.AppendChild($setting)
-    }
-    $document.Save($Path)
 }
 
 function Write-Lr2Config {
@@ -352,7 +325,7 @@ function Get-DatabaseSemanticSnapshot {
     }
 }
 
-function Wait-ForStartupReady {
+function Wait-ForStartupCompletion {
     param(
         [Parameter(Mandatory)][Diagnostics.Process]$Process,
         [Parameter(Mandatory)][string]$LogDirectory,
@@ -364,24 +337,38 @@ function Wait-ForStartupReady {
         $script:deadlinePolicy.ExecutionDeadlineUtc
     }
     else { $DeadlineUtc.ToUniversalTime() }
+    $readyLog = $null
+    $postInitializationCompletionObserved = $false
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
+            if ($null -ne $readyLog -and -not $postInitializationCompletionObserved) {
+                throw "Self-contained app exited after startup_ready_operable before startup_post_initialization_maintenance_complete (exit code $($Process.ExitCode))."
+            }
             throw "Self-contained app exited before startup_ready_operable (exit code $($Process.ExitCode))."
         }
         $logs = @(Get-ChildItem -LiteralPath $LogDirectory -Filter '*.log' -File -ErrorAction SilentlyContinue)
         foreach ($log in $logs) {
             $content = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
             if ($content -match 'startup_setting_validation_failed|app_schema_preflight_prompt_show|Startup library initialization failure notification') {
-                throw "Self-contained app reported a startup blocker before startup_ready_operable. Log: $($log.FullName)"
+                throw "Self-contained app reported a startup blocker while waiting for startup completion. Log: $($log.FullName)"
             }
-            if ($content -match 'startup_ready_operable') {
-                return $log.FullName
+            if ($null -eq $readyLog -and $content -match 'startup_ready_operable') {
+                $readyLog = $log.FullName
             }
+            if ($content -match 'startup_post_initialization_maintenance_complete') {
+                $postInitializationCompletionObserved = $true
+            }
+        }
+        if ($null -ne $readyLog -and $postInitializationCompletionObserved) {
+            return $readyLog
         }
         Start-Sleep -Milliseconds 250
         $Process.Refresh()
     }
-    throw "Self-contained app did not reach startup_ready_operable before the acceptance execution deadline. Logs: $LogDirectory"
+    if ($null -eq $readyLog) {
+        throw "Self-contained app did not reach startup_ready_operable before the acceptance execution deadline. Logs: $LogDirectory"
+    }
+    throw "Self-contained app did not reach startup_post_initialization_maintenance_complete after startup_ready_operable before the acceptance execution deadline. Logs: $LogDirectory"
 }
 
 function Wait-ForMainWindowHandle {
@@ -397,7 +384,7 @@ function Wait-ForMainWindowHandle {
     else { $DeadlineUtc.ToUniversalTime() }
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
-            throw "Self-contained app exited after startup_ready_operable (exit code $($Process.ExitCode))."
+            throw "Self-contained app exited after startup completion (exit code $($Process.ExitCode))."
         }
         $Process.Refresh()
         if ($Process.MainWindowHandle -ne 0) {
@@ -406,123 +393,6 @@ function Wait-ForMainWindowHandle {
         Start-Sleep -Milliseconds 250
     }
     throw 'Self-contained app did not expose a main window handle before the acceptance execution deadline.'
-}
-
-function New-ExistingDataCompletionDialogClassification {
-    param(
-        [Parameter(Mandatory)][bool]$Accepted,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$FailureReason,
-        $Dialog = $null,
-        $Action = $null
-    )
-
-    return [pscustomobject]@{
-        Accepted = $Accepted
-        FailureReason = $FailureReason
-        Dialog = $Dialog
-        Action = $Action
-    }
-}
-
-function Resolve-ExistingDataCompletionDialog {
-    param(
-        [Parameter(Mandatory)][int]$ProcessId,
-        [Parameter(Mandatory)][IntPtr]$CapturedMainWindowHandle,
-        [AllowEmptyCollection()][object[]]$Windows = @(),
-        [AllowEmptyCollection()][object[]]$Actions = @()
-    )
-
-    $dialogs = @(Get-VerificationOwnedModalWindowCandidates `
-            -ProcessId $ProcessId `
-            -MainWindowHandle $CapturedMainWindowHandle `
-            -Windows $Windows)
-    if ($dialogs.Count -ne 1) {
-        return New-ExistingDataCompletionDialogClassification $false 'owned_modal_window_count_mismatch'
-    }
-
-    $dialog = $dialogs[0]
-    $dialogHandleValue = [Int64]$dialog.NativeWindowHandle
-    $dialogActions = @($Actions | Where-Object {
-            $_.ProcessId -eq $ProcessId -and
-            ([Int64]$_.NativeWindowHandle) -eq $dialogHandleValue -and
-            -not [bool]$_.IsOffscreen -and
-            [bool]$_.IsEnabled
-        })
-    $okActions = @($dialogActions | Where-Object {
-            [string]$_.AutomationId -ceq 'ThemedMessageBoxOK'
-        })
-    if ($okActions.Count -ne 1) {
-        return New-ExistingDataCompletionDialogClassification $false 'completion_dialog_ok_action_count_mismatch'
-    }
-    if (-not [bool]$okActions[0].SupportsInvoke) {
-        return New-ExistingDataCompletionDialogClassification $false 'completion_dialog_ok_action_not_invokable'
-    }
-    return New-ExistingDataCompletionDialogClassification $true '' $dialog $okActions[0]
-}
-
-function Test-ExistingDataCompletionDialogDisappeared {
-    param(
-        [Parameter(Mandatory)][int]$ProcessId,
-        [Parameter(Mandatory)][IntPtr]$NativeWindowHandle,
-        [AllowEmptyCollection()][object[]]$Windows = @()
-    )
-
-    $targetHandleValue = $NativeWindowHandle.ToInt64()
-    return @($Windows | Where-Object {
-            $_.ProcessId -eq $ProcessId -and
-            ([Int64]$_.NativeWindowHandle) -eq $targetHandleValue
-        }).Count -eq 0
-}
-
-function Wait-ForExistingDataCompletionDialog {
-    param(
-        [Parameter(Mandatory)][Diagnostics.Process]$Process,
-        [Parameter(Mandatory)][IntPtr]$CapturedMainWindowHandle,
-        [Parameter(Mandatory)][DateTime]$DeadlineUtc
-    )
-
-    while ([DateTime]::UtcNow -lt $DeadlineUtc) {
-        if ($Process.HasExited) {
-            throw "Self-contained app exited before the initial-library-construction completion dialog appeared (exit code $($Process.ExitCode))."
-        }
-        $observations = Get-VerificationUiAutomationObservations -ProcessId $Process.Id
-        $classification = Resolve-ExistingDataCompletionDialog `
-            -ProcessId $Process.Id `
-            -CapturedMainWindowHandle $CapturedMainWindowHandle `
-            -Windows $observations.Windows `
-            -Actions $observations.Actions
-        if ($classification.Accepted) {
-            return $classification
-        }
-        $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
-            -DeadlineUtc $DeadlineUtc `
-            -OperationName 'initial-library-construction completion dialog wait'
-        Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
-    }
-    throw 'Initial-library-construction completion dialog did not satisfy its UI Automation contract before the acceptance execution deadline.'
-}
-
-function Wait-ForExistingDataCompletionDialogDisappearance {
-    param(
-        [Parameter(Mandatory)][Diagnostics.Process]$Process,
-        [Parameter(Mandatory)][IntPtr]$NativeWindowHandle,
-        [Parameter(Mandatory)][DateTime]$DeadlineUtc
-    )
-
-    while ([DateTime]::UtcNow -lt $DeadlineUtc) {
-        if ($Process.HasExited) {
-            throw 'Self-contained app exited before the initial-library-construction completion dialog disappeared.'
-        }
-        $observations = Get-VerificationUiAutomationObservations -ProcessId $Process.Id
-        if (Test-ExistingDataCompletionDialogDisappeared `
-                -ProcessId $Process.Id `
-                -NativeWindowHandle $NativeWindowHandle `
-                -Windows $observations.Windows) {
-            return
-        }
-        Start-Sleep -Milliseconds 250
-    }
-    throw 'Initial-library-construction completion dialog remained visible until the acceptance execution deadline.'
 }
 
 function Prepare-LogDirectoryForRun {
@@ -553,7 +423,6 @@ function Invoke-ProfileRun {
         [Parameter(Mandatory)][string]$AppExecutable,
         [Parameter(Mandatory)][string]$LocalAppData,
         [Parameter(Mandatory)][string]$LogDirectory,
-        [switch]$CompletedThisRun,
         [Parameter(Mandatory)][object]$DeadlinePolicy
     )
 
@@ -585,28 +454,11 @@ function Invoke-ProfileRun {
         -DiagnosticsDirectory $diagnosticsDirectory
     $process = $started.Process
     try {
-        $readyLog = Wait-ForStartupReady -Process $process -LogDirectory $LogDirectory -DeadlineUtc $executionDeadline
+        $readyLog = Wait-ForStartupCompletion -Process $process -LogDirectory $LogDirectory -DeadlineUtc $executionDeadline
         $capturedMainWindowHandle = Wait-ForMainWindowHandle -Process $process -DeadlineUtc $executionDeadline
-
-        if ($CompletedThisRun) {
-            $classification = Wait-ForExistingDataCompletionDialog `
-                -Process $process `
-                -CapturedMainWindowHandle $capturedMainWindowHandle `
-                -DeadlineUtc $executionDeadline
-
-            try {
-                $invokePattern = $classification.Action.Element.GetCurrentPattern(
-                    [System.Windows.Automation.InvokePattern]::Pattern)
-                $invokePattern.Invoke()
-            }
-            catch {
-                throw 'Initial-library-construction completion dialog OK action could not be invoked.'
-            }
-            Wait-ForExistingDataCompletionDialogDisappearance `
-                -Process $process `
-                -NativeWindowHandle ([IntPtr]$classification.Dialog.NativeWindowHandle) `
-                -DeadlineUtc $executionDeadline
-        }
+        Assert-VerificationNoUnexpectedOwnedModal `
+            -ProcessId $process.Id `
+            -MainWindowHandle $capturedMainWindowHandle
 
         if ($capturedMainWindowHandle -eq 0 -or
             -not [BeMusicSeekerAcceptanceWindowMessage]::PostMessage(
@@ -715,10 +567,6 @@ function Assert-ProfileSettings {
     }
 }
 
-if ($ImportFunctionsOnly) {
-    return
-}
-
 $AppPublishRoot = Resolve-FullPath $AppPublishRoot
 $FixtureRoot = Resolve-FullPath $FixtureRoot
 $OutputDirectory = Resolve-FullPath $OutputDirectory
@@ -822,7 +670,6 @@ try {
             -AppExecutable $appExecutable `
             -LocalAppData $localAppData `
             -LogDirectory $logDirectory `
-            -CompletedThisRun:($profileKind -eq 'Lr2') `
             -DeadlinePolicy $script:deadlinePolicy
         $portableSettingsPath = Join-Path $appRoot 'config\user.config'
         Assert-File $portableSettingsPath

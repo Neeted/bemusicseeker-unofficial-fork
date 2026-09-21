@@ -39,6 +39,7 @@ if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 . (Join-Path $repoRoot 'scripts\verification-runner-contract.ps1')
 . (Join-Path $repoRoot 'scripts\verification-ui-automation.ps1')
+. (Join-Path $repoRoot 'scripts\acceptance-settings-fixture.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
 $v216AcceptanceReceiptContract = $verificationRunnerContract.V216FirstHop.AcceptanceReceipt
 
@@ -128,31 +129,6 @@ function Assert-PreservedTreesEqual {
             throw "Legacy updater changed preserved $name tree before v3 startup: $Label"
         }
     }
-}
-
-function Write-LegacyConfig {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][hashtable]$Settings
-    )
-    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    $document = [Xml.XmlDocument]::new()
-    $configuration = $document.CreateElement('configuration')
-    [void]$document.AppendChild($configuration)
-    $userSettings = $document.CreateElement('userSettings')
-    [void]$configuration.AppendChild($userSettings)
-    $section = $document.CreateElement('BeMusicSeeker.Properties.Settings')
-    [void]$userSettings.AppendChild($section)
-    foreach ($name in $Settings.Keys) {
-        $setting = $document.CreateElement('setting')
-        $setting.SetAttribute('name', [string]$name)
-        $setting.SetAttribute('serializeAs', 'String')
-        $value = $document.CreateElement('value')
-        $value.InnerText = [string]$Settings[$name]
-        [void]$setting.AppendChild($value)
-        [void]$section.AppendChild($setting)
-    }
-    $document.Save($Path)
 }
 
 function Get-ManifestSettings {
@@ -278,8 +254,14 @@ function Prepare-LegacyProfile {
     Copy-Item -LiteralPath (Join-Path $FixtureRoot 'fixture.bms') -Destination (Join-Path $packageRoot 'e1-fixture.bms') -Force
 
     $databasePath = Join-Path $AppRoot 'data\song.db'
+    $legacyExecutable = Join-Path $AppRoot 'BeMusicSeeker.exe'
+    Assert-File -Path $legacyExecutable
+    $legacyAssemblyVersion = [string](Get-Item -LiteralPath $legacyExecutable).VersionInfo.FileVersion
+    if ($legacyAssemblyVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        throw "Legacy v2 executable does not expose a four-component file version: $legacyExecutable"
+    }
     $settings = @{
-        AssemblyVersion = [string]$script:fixtureManifest.settings.assemblyVersion
+        AssemblyVersion = $legacyAssemblyVersion
         Lang = [string]$script:fixtureManifest.settings.language
         AppearanceTheme = [string]$script:fixtureManifest.settings.appearanceTheme
         OperationModeLR2DB = 'False'
@@ -370,7 +352,7 @@ function Wait-ForWindow {
         }
         $Started.Process.Refresh()
         if ($Started.Process.MainWindowHandle -ne 0) {
-            return
+            return [IntPtr]$Started.Process.MainWindowHandle
         }
         $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
             -DeadlineUtc $deadline `
@@ -380,20 +362,38 @@ function Wait-ForWindow {
     throw 'Legacy v2 application did not expose a window before the acceptance execution deadline.'
 }
 
-function Assert-NoUnexpectedOwnedModal {
+function Wait-ForLegacyApplicationReady {
     param(
-        [Parameter(Mandatory)][int]$ProcessId,
-        [Parameter(Mandatory)][IntPtr]$MainWindowHandle
+        [Parameter(Mandatory)]$Started,
+        [Parameter(Mandatory)][string]$LogDirectory,
+        [Parameter(Mandatory)][DateTime]$DeadlineUtc
     )
 
-    $observations = Get-VerificationUiAutomationObservations -ProcessId $ProcessId
-    $blockingWindows = @(Get-VerificationOwnedModalWindowCandidates `
-            -ProcessId $ProcessId `
-            -MainWindowHandle $MainWindowHandle `
-            -Windows $observations.Windows)
-    if ($blockingWindows.Count -gt 0) {
-        throw 'First-hop acceptance found an unexpected visible enabled modal owned by the application main window.'
+    $initializationComplete = $false
+    $presentationFlushed = $false
+    while ([DateTime]::UtcNow -lt $DeadlineUtc) {
+        if ($Started.Process.HasExited) {
+            throw "Legacy v2 application exited before startup completion (exit code $($Started.Process.ExitCode))."
+        }
+        foreach ($log in @(Get-ChildItem -LiteralPath $LogDirectory -Filter '*.log' -File -ErrorAction SilentlyContinue)) {
+            $content = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
+            if ($content -match '(?m)startup_initialization_complete\b') {
+                $initializationComplete = $true
+            }
+            if ($content -match '(?m)startup_presentation_flush done\b') {
+                $presentationFlushed = $true
+            }
+        }
+        if ($initializationComplete -and $presentationFlushed) {
+            return Wait-ForWindow -Started $Started -DeadlineUtc $DeadlineUtc
+        }
+        $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+            -DeadlineUtc $DeadlineUtc `
+            -OperationName 'legacy application startup completion wait'
+        Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
+        $Started.Process.Refresh()
     }
+    throw 'Legacy v2 application did not reach startup_initialization_complete and startup_presentation_flush done before the acceptance execution deadline.'
 }
 
 function Close-RedirectedApplication {
@@ -404,17 +404,7 @@ function Close-RedirectedApplication {
     )
     $executionDeadline = $DeadlinePolicy.ExecutionDeadlineUtc
     try {
-        try {
-            $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
-                -DeadlineUtc $executionDeadline `
-                -OperationName 'legacy application input-idle wait'
-            [void]$Started.Process.WaitForInputIdle([Math]::Min(30000, $remainingMilliseconds))
-        }
-        catch { }
-        Wait-ForWindow -Started $Started -DeadlineUtc $executionDeadline
-        Assert-NoUnexpectedOwnedModal `
-            -ProcessId $Started.Process.Id `
-            -MainWindowHandle ([IntPtr]$Started.Process.MainWindowHandle)
+        [void](Wait-ForWindow -Started $Started -DeadlineUtc $executionDeadline)
         $requested = $Started.Process.CloseMainWindow()
         if (-not $requested) {
             $handle = $Started.Process.MainWindowHandle
@@ -523,7 +513,7 @@ function Start-IsolatedV3Application {
         if ($null -eq $readyLog) {
             throw 'v3 application did not reach startup_ready_operable before the acceptance execution deadline. Logs: $LogDirectory'
         }
-        Wait-ForWindow -Started $started -DeadlineUtc $executionDeadline
+        [void](Wait-ForWindow -Started $started -DeadlineUtc $executionDeadline)
         $started | Add-Member -NotePropertyName ReadyLogPath -NotePropertyValue $readyLog
         return $started
     }
@@ -557,7 +547,7 @@ function Close-IsolatedV3Application {
     )
     try {
         $Started.Process.Refresh()
-        Assert-NoUnexpectedOwnedModal `
+        Assert-VerificationNoUnexpectedOwnedModal `
             -ProcessId $Started.Process.Id `
             -MainWindowHandle ([IntPtr]$Started.Process.MainWindowHandle)
         $requested = $Started.Process.CloseMainWindow()
@@ -692,8 +682,7 @@ try {
     $legacyProfile = Prepare-LegacyProfile -ProfileRoot $successRoot -AppRoot $successApp
     $legacyLog = Join-Path $successApp 'log'
 
-    # Start the actual released v2 application so protocol-1's --pid close wait is
-    # exercised.  The old process is closed before the update mutates any managed path.
+    # リリース済みv2を通常起動まで完了させ、プロトコル1の--pid updaterの通常終了待機中も維持する。
     New-Item -ItemType Directory -Path (Join-Path $successRoot 'temp') -Force | Out-Null
     $legacyApp = Start-VerificationRedirectedProcess `
         -FileName (Join-Path $successApp 'BeMusicSeeker.exe') `
@@ -708,6 +697,16 @@ try {
         -DeadlinePolicy $script:deadlinePolicy `
         -DiagnosticsDirectory (Join-Path $successRoot 'legacy-app') `
         -OwnedProcessRecords $script:ownedProcessRecords
+    $legacyMainWindowHandle = Wait-ForLegacyApplicationReady `
+        -Started $legacyApp `
+        -LogDirectory $legacyLog `
+        -DeadlineUtc $script:deadlinePolicy.ExecutionDeadlineUtc
+    Assert-VerificationNoUnexpectedOwnedModal `
+        -ProcessId $legacyApp.Process.Id `
+        -MainWindowHandle $legacyMainWindowHandle
+    if ($legacyApp.Process.HasExited) {
+        throw 'Legacy v2 application exited after startup completion before the updater was started.'
+    }
     $downloadedSuccessPackage = Copy-CurrentPackageIntoSandbox -PackagePath $currentPackage.Path -AppRoot $successApp
     $legacyArguments = New-LegacyUpdaterArguments -AppRoot $successApp -PackagePath $downloadedSuccessPackage -ProcessId $legacyApp.ProcessId
     $legacyUpdater = Start-VerificationRedirectedProcess `

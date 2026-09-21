@@ -248,7 +248,6 @@ internal static partial class Program
         {
             // Startup cleanup must never mutate a live application tree. Leave the
             // journal and handoff in place for the watchdog or a later logon.
-            TryRearmRecoveryStartup(normalizedAppDirectory);
             return 2;
         }
         RecoverIncompleteTransaction(normalizedAppDirectory, retainRolledBackJournal: true);

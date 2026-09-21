@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -311,6 +312,49 @@ public sealed class ApplicationSettingsLifecycleTests
         finally { Resources.Culture = previousCulture; }
     }
 
+    [TestMethod]
+    [TestCategory("ProcessIntegration")]
+    public void LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BmsLegacySettingsFixture-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "user.config");
+        CultureInfo previousCulture = Resources.Culture;
+        try
+        {
+            RunLegacySettingsFixtureGenerator(path);
+
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            SerializableVersion version = settings.AssemblyVersion;
+            Assert.IsNotNull(version);
+            Assert.AreEqual(17, version.Major);
+            Assert.AreEqual(23, version.Minor);
+            Assert.AreEqual(41, version.Build);
+            Assert.AreEqual(59, version.Revision);
+            Assert.AreEqual("ja-JP", settings.Lang);
+            Assert.AreEqual("Light", settings.AppearanceTheme);
+            Assert.IsFalse(settings.OperationModeLR2DB);
+            Assert.AreEqual("C:\\譜面 & <fixture>", settings.BMSRootPath);
+            Assert.AreEqual("C:\\譜面 & <fixture>\\install", settings.BMSInstallDir);
+            Assert.AreEqual(
+                new Uri("https://example.invalid/?a=1&b=<fixture>"),
+                settings.TableListURL);
+
+            var lifecycle = new ApplicationSettingsLifecycle(
+                settingsStore: new FileSettingsStore(settings),
+                normalizeSettings: () => { });
+            ApplicationSettingsInitializationResult result = lifecycle.Initialize(
+                ["ja-JP", "en-US"],
+                () => new SerializableVersion(17, 23, 41, 59));
+            Assert.IsFalse(result.FirstStartup);
+        }
+        finally
+        {
+            Resources.Culture = previousCulture;
+            Directory.Delete(directory, true);
+        }
+    }
+
     // P04b rev2: a new lifecycle after failed creation must use the preserved file, not process memory, to suppress import.
     [TestMethod]
     public void RestartAfterQuarantineAndCreateFailureDoesNotImportEligibleLegacySettings()
@@ -369,6 +413,39 @@ public sealed class ApplicationSettingsLifecycleTests
                 () => lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US"), warnRecovery),
             warnSaveFailure: _ => Assert.Fail("No save fault is expected."));
         return lifecycle;
+    }
+
+    private static void RunLegacySettingsFixtureGenerator(string path)
+    {
+        string repositoryRoot = PowerShellTestProcess.FindRepositoryRoot();
+        PowerShellTestResult result = PowerShellTestProcess.Run(
+            repositoryRoot,
+            """
+            $ErrorActionPreference = 'Stop'
+            . $env:BMS_SETTINGS_FIXTURE_SCRIPT
+            $settings = @{
+                AssemblyVersion = '17.23.41.59'
+                Lang = 'ja-JP'
+                AppearanceTheme = 'Light'
+                OperationModeLR2DB = 'False'
+                BMSRootPath = 'C:\譜面 & <fixture>'
+                BMSInstallDir = 'C:\譜面 & <fixture>\install'
+                TableListURL = 'https://example.invalid/?a=1&b=<fixture>'
+            }
+            Write-LegacyConfig -Path $env:BMS_SETTINGS_FIXTURE_PATH -Settings $settings
+            """,
+            "Legacy settings fixture",
+            new Dictionary<string, string>
+            {
+                ["BMS_SETTINGS_FIXTURE_SCRIPT"] = Path.Combine(
+                    repositoryRoot,
+                    "scripts",
+                    "acceptance-settings-fixture.ps1"),
+                ["BMS_SETTINGS_FIXTURE_PATH"] = path
+            });
+        Assert.IsTrue(
+            string.IsNullOrWhiteSpace(result.Error),
+            $"Legacy settings fixture generator wrote stderr: {result.Error}");
     }
 
     private static void WriteConfig(string path, params (string Key, string Value)[] values)

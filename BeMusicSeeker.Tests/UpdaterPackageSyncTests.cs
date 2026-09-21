@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -20,6 +21,8 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class UpdaterPackageSyncTests
 {
+    private CaseProcessScope? activeProcessScope;
+
     [TestMethod]
     public void UpdaterWaitsForProceedDecisionBeforeApplyingOrWaitingForApplicationExit()
     {
@@ -34,7 +37,7 @@ public sealed class UpdaterPackageSyncTests
             string applicationProcessId = GetExitedProcessId().ToString();
             string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
 
-            using Process process = StartUpdater(
+            OwnedProcess process = StartUpdater(
                 appDirectoryPath,
                 packagePath,
                 backupDirectoryPath,
@@ -100,18 +103,33 @@ public sealed class UpdaterPackageSyncTests
             {
                 if (!process.HasExited)
                 {
+                    bool decisionPublished = false;
                     try
                     {
                         PublishUpdaterDecision(decisionFilePath, "cancel");
+                        decisionPublished = true;
                     }
-                    catch
+                    catch (Exception exception)
                     {
-                        // Preserve the schema assertion as the authoritative test failure.
+                        activeProcessScope?.RecordDiagnostic(
+                            "updater decision cleanup failed: " + exception.Message);
                     }
-                    if (!process.WaitForExit(5000))
+
+                    try
                     {
-                        process.Kill(entireProcessTree: true);
-                        process.WaitForExit();
+                        if (decisionPublished)
+                        {
+                            process.WaitForExitAndChildren();
+                        }
+                        else
+                        {
+                            process.StopAndWait();
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        activeProcessScope?.RecordDiagnostic(
+                            "updater process cleanup failed: " + exception.Message);
                     }
                 }
             }
@@ -254,7 +272,7 @@ public sealed class UpdaterPackageSyncTests
             RunUpdaterWatchdogRecovery(appDirectoryPath);
 
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
-            WaitForFile(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            AssertRestartFileExists(Path.Combine(appDirectoryPath, "restart-marker.txt"));
             Assert.IsFalse(File.Exists(journalPath));
             Assert.IsFalse(Directory.Exists(backupDirectoryPath));
         });
@@ -296,7 +314,7 @@ public sealed class UpdaterPackageSyncTests
             RunUpdaterRecovery(appDirectoryPath);
 
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
-            WaitForFile(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            AssertRestartFileExists(Path.Combine(appDirectoryPath, "restart-marker.txt"));
             Assert.IsFalse(File.Exists(journalPath));
         });
     }
@@ -338,51 +356,72 @@ public sealed class UpdaterPackageSyncTests
                     NewPackagePaths = new[] { "BeMusicSeeker.exe" }
                 }));
 
-            using Process liveApplication = Process.Start(new ProcessStartInfo
-            {
-                FileName = restartExecutablePath,
-                ArgumentList =
-                {
-                    "/c",
-                    "ping 127.0.0.1 -n 30 >nul"
-                },
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = appDirectoryPath
-            }) ?? throw new InvalidOperationException("The live application fixture was not started.");
+            OwnedProcess liveApplication = StartLiveApplicationFixture(
+                appDirectoryPath,
+                restartExecutablePath);
             try
             {
-                Thread.Sleep(250);
-
-                using Process normalUpdater = StartUpdater(
+                OwnedProcess normalUpdater = StartUpdater(
                     appDirectoryPath,
                     packagePath,
                     backupDirectoryPath,
                     restartExecutablePath,
                     Environment.ProcessId.ToString());
-                Assert.IsTrue(normalUpdater.WaitForExit(5000), "The normal updater must defer while recovery sees a live application executable.");
+                normalUpdater.WaitForExitAndChildren();
                 Assert.AreEqual(2, normalUpdater.ExitCode);
                 Assert.AreEqual("partial-new", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+                Assert.AreEqual(
+                    1,
+                    Directory.EnumerateFiles(previousDirectoryPath, "*", SearchOption.AllDirectories).Count(),
+                    "The deferred update must retain only the recorded previous-generation file.");
+                Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(previousDirectoryPath, "BeMusicSeeker.exe")));
                 Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count);
                 Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count);
+                Assert.IsFalse(liveApplication.HasExited, "The application fixture must remain alive after normal updater deferral.");
+                IReadOnlyList<string> runOnceBeforeRecovery = GetRecoveryRunOnceValues(appDirectoryPath);
 
-                using Process recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
-                Assert.IsTrue(recovery.WaitForExit(5000), "Recovery must defer while the application executable is alive.");
+                OwnedProcess recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
+                recovery.WaitForExitAndChildren();
                 Assert.AreEqual(2, recovery.ExitCode);
                 Assert.AreEqual("partial-new", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
                 Assert.IsTrue(File.Exists(journalPath));
+                Assert.AreEqual(
+                    1,
+                    Directory.EnumerateFiles(previousDirectoryPath, "*", SearchOption.AllDirectories).Count(),
+                    "Recovery deferral must retain only the recorded previous-generation file.");
+                Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(previousDirectoryPath, "BeMusicSeeker.exe")));
                 Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count);
                 Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectoryPath).Count);
+                Assert.IsFalse(
+                    runOnceBeforeRecovery.SequenceEqual(GetRecoveryRunOnceValues(appDirectoryPath)),
+                    "Recovery must publish a fresh RunOnce generation before deferring.");
+                Assert.IsFalse(liveApplication.HasExited, "The application fixture must remain alive after recovery deferral.");
             }
             finally
             {
-                if (!liveApplication.HasExited)
+                try
                 {
-                    liveApplication.Kill(entireProcessTree: true);
+                    if (!liveApplication.HasExited)
+                    {
+                        liveApplication.StandardInput.WriteLine("release");
+                    }
+
+                    liveApplication.WaitForExitAndChildren();
                 }
-                liveApplication.WaitForExit(5000);
+                catch (Exception exception)
+                {
+                    activeProcessScope?.RecordDiagnostic(
+                        "live application fixture cleanup failed: " + exception.Message);
+                    try
+                    {
+                        liveApplication.StopAndWait();
+                    }
+                    catch (Exception stopException)
+                    {
+                        activeProcessScope?.RecordDiagnostic(
+                            "live application fixture stop failed: " + stopException.Message);
+                    }
+                }
             }
         });
     }
@@ -436,23 +475,24 @@ public sealed class UpdaterPackageSyncTests
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-used");
 
-            using Process firstUpdater = StartUpdater(
+            OwnedProcess firstUpdater = StartUpdater(
                 appDirectoryPath,
                 packagePath,
                 backupDirectoryPath,
                 publishProceed: false);
-            using Process secondUpdater = Process.Start(CreateUpdaterStartInfo(
-                appDirectoryPath,
-                packagePath,
-                backupDirectoryPath))
-                ?? throw new InvalidOperationException("The concurrent updater process was not started.");
+            OwnedProcess secondUpdater = StartOwnedProcess(
+                CreateUpdaterStartInfo(
+                    appDirectoryPath,
+                    packagePath,
+                    backupDirectoryPath),
+                useExecutionGate: true);
 
-            Assert.IsTrue(secondUpdater.WaitForExit(5000), "The second updater must reject the held transaction lease promptly.");
+            secondUpdater.WaitForExitAndChildren();
             Assert.AreNotEqual(0, secondUpdater.ExitCode);
             PublishUpdaterDecision(
                 Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"),
                 "cancel");
-            Assert.IsTrue(firstUpdater.WaitForExit(5000), "The first updater must release the lease after cancellation.");
+            firstUpdater.WaitForExitAndChildren();
             Assert.AreEqual(0, firstUpdater.ExitCode);
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
         });
@@ -555,13 +595,9 @@ public sealed class UpdaterPackageSyncTests
 
             using (FileStream managedLock = new(rollbackFaultPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                using Process recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
-                Task<string> standardOutput = recovery.StandardOutput.ReadToEndAsync();
-                Task<string> standardError = recovery.StandardError.ReadToEndAsync();
-                Assert.IsTrue(recovery.WaitForExit(30000), "Recovery must report the rollback second fault.");
+                OwnedProcess recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
+                recovery.WaitForExitAndChildren();
                 Assert.AreNotEqual(0, recovery.ExitCode, "Rollback second fault must not be reported as success.");
-                _ = standardOutput.GetAwaiter().GetResult();
-                _ = standardError.GetAwaiter().GetResult();
             }
 
             Assert.IsTrue(File.Exists(journalPath), "Rollback failure must retain the transaction journal.");
@@ -596,7 +632,7 @@ public sealed class UpdaterPackageSyncTests
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "not-used");
 
-            using Process firstUpdater = StartUpdater(
+            OwnedProcess firstUpdater = StartUpdater(
                 appDirectoryPath,
                 packagePath,
                 backupDirectoryPath,
@@ -604,16 +640,17 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count);
             DeleteRecoveryRunOnceValues(appDirectoryPath);
 
-            using Process recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
-            Thread.Sleep(250);
-            Assert.IsFalse(recovery.HasExited, "A competing recovery must wait for the transaction owner.");
+            OwnedProcess recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
+            // リース所有者は判断待ちなので、解放前の短い否定観測で競合側が
+            // 完了していないことを確認する。
+            Assert.IsFalse(recovery.WaitForExit(250), "A competing recovery must wait for the transaction owner.");
 
             PublishUpdaterDecision(
                 Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"),
                 "cancel");
-            Assert.IsTrue(firstUpdater.WaitForExit(5000));
+            firstUpdater.WaitForExitAndChildren();
             Assert.AreEqual(0, firstUpdater.ExitCode);
-            Assert.IsTrue(recovery.WaitForExit(5000), "The competing recovery must finish after the owner releases the lease.");
+            recovery.WaitForExitAndChildren();
             Assert.AreEqual(0, recovery.ExitCode);
             Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
             Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count);
@@ -1083,7 +1120,7 @@ public sealed class UpdaterPackageSyncTests
             using FileStream packageLock = new(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath);
 
-            WaitForFile(restartMarkerPath);
+            AssertRestartFileExists(restartMarkerPath);
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.IsTrue(File.Exists(packagePath), "The package remains available when post-restart cleanup cannot delete it.");
             Assert.IsTrue(File.Exists(restartMarkerPath), "The updated restart target must be started before cleanup.");
@@ -1365,7 +1402,7 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
-    private static void ApplyUpdateExpectRestartFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    private void ApplyUpdateExpectRestartFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
     {
         // The published updater is NativeAOT. Use its managed build for this
         // in-process failure boundary; the remaining process tests use the
@@ -1407,34 +1444,23 @@ public sealed class UpdaterPackageSyncTests
         Assert.AreSame(startFailure, failure.InnerException, "Successful rollback must preserve the original launch failure.");
     }
 
-    private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
+    private void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
     {
-        string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
-        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
-        if (!process.WaitForExit(30000))
-        {
-            process.Kill();
-            Assert.Fail("Updater process timed out.");
-        }
+        OwnedProcess process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
+        process.WaitForExitAndChildren();
 
-        WaitForFileAvailable(effectiveRestartExecutablePath);
-
-        string standardOutput = process.StandardOutput.ReadToEnd();
-        string standardError = process.StandardError.ReadToEnd();
+        string standardOutput = process.GetStandardOutput();
+        string standardError = process.GetStandardError();
         if (process.ExitCode != 0)
         {
             Assert.Fail("Updater failed with exit code " + process.ExitCode + Environment.NewLine + standardOutput + Environment.NewLine + standardError);
         }
     }
 
-    private static void RunUpdaterRecovery(string appDirectoryPath)
+    private void RunUpdaterRecovery(string appDirectoryPath)
     {
-        using Process process = StartUpdaterRecoveryProcess(appDirectoryPath);
-        if (!process.WaitForExit(30000))
-        {
-            process.Kill();
-            Assert.Fail("Updater recovery process timed out.");
-        }
+        OwnedProcess process = StartUpdaterRecoveryProcess(appDirectoryPath);
+        process.WaitForExitAndChildren();
 
         if (process.ExitCode != 0)
         {
@@ -1442,56 +1468,48 @@ public sealed class UpdaterPackageSyncTests
                 "Updater recovery failed with exit code "
                 + process.ExitCode
                 + Environment.NewLine
-                + process.StandardOutput.ReadToEnd()
+                + process.GetStandardOutput()
                 + Environment.NewLine
-                + process.StandardError.ReadToEnd());
+                + process.GetStandardError());
         }
     }
 
-    private static Process StartUpdaterRecoveryProcess(string appDirectoryPath)
+    private OwnedProcess StartUpdaterRecoveryProcess(string appDirectoryPath)
     {
-        return Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = FindUpdaterExecutable(),
-            Arguments = string.Join(" ", new[]
-            {
-                "--recover",
-                "--app-dir",
-                appDirectoryPath
-            }.Select(QuoteArgument)),
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(FindUpdaterExecutable()) ?? Environment.CurrentDirectory
-        }) ?? throw new InvalidOperationException("Updater recovery process was not started.");
+        };
+        startInfo.ArgumentList.Add("--recover");
+        startInfo.ArgumentList.Add("--app-dir");
+        startInfo.ArgumentList.Add(appDirectoryPath);
+        return StartOwnedProcess(startInfo, useExecutionGate: true);
     }
 
-    private static void RunUpdaterWatchdogRecovery(string appDirectoryPath)
+    private void RunUpdaterWatchdogRecovery(string appDirectoryPath)
     {
         string updaterPath = FindUpdaterExecutable();
-        using Process process = Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = updaterPath,
-            Arguments = string.Join(" ", new[]
-            {
-                "--watch",
-                "--app-dir",
-                appDirectoryPath,
-                "--pid",
-                GetExitedProcessId().ToString()
-            }.Select(QuoteArgument)),
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
-        }) ?? throw new InvalidOperationException("Updater watchdog process was not started.");
-        if (!process.WaitForExit(30000))
-        {
-            process.Kill();
-            Assert.Fail("Updater watchdog process timed out.");
-        }
+        };
+        startInfo.ArgumentList.Add("--watch");
+        startInfo.ArgumentList.Add("--app-dir");
+        startInfo.ArgumentList.Add(appDirectoryPath);
+        startInfo.ArgumentList.Add("--pid");
+        startInfo.ArgumentList.Add(GetExitedProcessId().ToString());
+        OwnedProcess process = StartOwnedProcess(startInfo, useExecutionGate: true);
+        process.WaitForExitAndChildren();
 
         if (process.ExitCode != 0)
         {
@@ -1499,29 +1517,19 @@ public sealed class UpdaterPackageSyncTests
                 "Updater watchdog failed with exit code "
                 + process.ExitCode
                 + Environment.NewLine
-                + process.StandardOutput.ReadToEnd()
+                + process.GetStandardOutput()
                 + Environment.NewLine
-                + process.StandardError.ReadToEnd());
+                + process.GetStandardError());
         }
     }
 
-    private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
+    private void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
     {
-        string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
-        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
-        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
-        Task<string> standardError = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(30000))
-        {
-            process.Kill();
-            _ = standardOutput.GetAwaiter().GetResult();
-            _ = standardError.GetAwaiter().GetResult();
-            Assert.Fail("Updater process timed out.");
-        }
+        OwnedProcess process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
+        process.WaitForExitAndChildren();
 
-        WaitForFileAvailable(effectiveRestartExecutablePath);
-        string output = standardOutput.GetAwaiter().GetResult();
-        string error = standardError.GetAwaiter().GetResult();
+        string output = process.GetStandardOutput();
+        string error = process.GetStandardError();
 
         if (process.ExitCode == 0)
         {
@@ -1529,7 +1537,7 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, bool publishProceed = true)
+    private OwnedProcess StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, bool publishProceed = true)
     {
         restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
         processId ??= GetExitedProcessId().ToString();
@@ -1545,22 +1553,55 @@ public sealed class UpdaterPackageSyncTests
             File.Delete(decisionFilePath);
         }
 
-        Process process = Process.Start(CreateUpdaterStartInfo(
+        OwnedProcess process = StartOwnedProcess(CreateUpdaterStartInfo(
             appDirectoryPath,
             packagePath,
             backupDirectoryPath,
             restartExecutablePath,
-            processId))
-            ?? throw new InvalidOperationException("Updater process was not started.");
+            processId),
+            useExecutionGate: true);
         bool validProcessId = int.TryParse(processId, out int parsedProcessId) && parsedProcessId > 0;
-        if (validProcessId)
+        if (validProcessId && WaitForReadyOrProcessExit(process, readyFilePath) && publishProceed)
         {
-            if (WaitForReadyOrProcessExit(process, readyFilePath) && publishProceed)
-            {
-                PublishUpdaterDecision(decisionFilePath, "proceed");
-            }
+            PublishUpdaterDecision(decisionFilePath, "proceed");
         }
+
         return process;
+    }
+
+    private OwnedProcess StartLiveApplicationFixture(string appDirectoryPath, string restartExecutablePath)
+    {
+        OwnedProcess process = StartOwnedProcess(new ProcessStartInfo
+        {
+            FileName = restartExecutablePath,
+            ArgumentList =
+            {
+                "/d",
+                "/c",
+                "echo BMS_TEST_FIXTURE_READY & set /p _fixtureRelease="
+            },
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WorkingDirectory = appDirectoryPath
+        }, "BMS_TEST_FIXTURE_READY", useExecutionGate: false);
+        process.WaitForOutputReady();
+        return process;
+    }
+
+    private OwnedProcess StartOwnedProcess(
+        ProcessStartInfo startInfo,
+        string? readyOutputLine = null,
+        bool useExecutionGate = false)
+    {
+        if (activeProcessScope is null)
+        {
+            throw new InvalidOperationException("The updater test process scope was not initialized.");
+        }
+
+        return activeProcessScope.Start(startInfo, readyOutputLine, useExecutionGate);
     }
 
     private static void PublishUpdaterDecision(string decisionFilePath, string decision)
@@ -1575,7 +1616,7 @@ public sealed class UpdaterPackageSyncTests
         File.Move(temporaryPath, decisionFilePath, overwrite: true);
     }
 
-    private static ProcessStartInfo CreateUpdaterStartInfo(
+    private ProcessStartInfo CreateUpdaterStartInfo(
         string appDirectoryPath,
         string packagePath,
         string backupDirectoryPath,
@@ -1587,68 +1628,57 @@ public sealed class UpdaterPackageSyncTests
         processId ??= GetExitedProcessId().ToString();
         string readyFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
         string decisionFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
-        return new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = updaterPath,
-            Arguments = string.Join(" ", new[]
-            {
-                "--app-dir",
-                appDirectoryPath,
-                "--package",
-                packagePath,
-                "--backup-dir",
-                backupDirectoryPath,
-                "--ready-file",
-                readyFilePath,
-                "--decision-file",
-                decisionFilePath,
-                "--pid",
-                processId,
-                "--restart-exe",
-                restartExecutablePath
-            }.Select(QuoteArgument)),
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
         };
+        startInfo.ArgumentList.Add("--app-dir");
+        startInfo.ArgumentList.Add(appDirectoryPath);
+        startInfo.ArgumentList.Add("--package");
+        startInfo.ArgumentList.Add(packagePath);
+        startInfo.ArgumentList.Add("--backup-dir");
+        startInfo.ArgumentList.Add(backupDirectoryPath);
+        startInfo.ArgumentList.Add("--ready-file");
+        startInfo.ArgumentList.Add(readyFilePath);
+        startInfo.ArgumentList.Add("--decision-file");
+        startInfo.ArgumentList.Add(decisionFilePath);
+        startInfo.ArgumentList.Add("--pid");
+        startInfo.ArgumentList.Add(processId);
+        startInfo.ArgumentList.Add("--restart-exe");
+        startInfo.ArgumentList.Add(restartExecutablePath);
+        return startInfo;
     }
 
-    private static int GetExitedProcessId()
+    private int GetExitedProcessId()
     {
-        using Process process = Process.Start(new ProcessStartInfo
+        OwnedProcess process = StartOwnedProcess(new ProcessStartInfo
         {
             FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
-            Arguments = "/c exit 0",
+            Arguments = "/d /q /c \"set /p _bmsExit= >nul & exit /b 0\"",
             UseShellExecute = false,
+            RedirectStandardInput = true,
             CreateNoWindow = true
-        }) ?? throw new InvalidOperationException("The exited process fixture was not started.");
+        });
         int processId = process.Id;
-        if (!process.WaitForExit(5000))
-        {
-            process.Kill();
-            Assert.Fail("The exited process fixture did not terminate.");
-        }
+        process.StandardInput.WriteLine("exit");
+        process.WaitForExitAndChildren();
 
         return processId;
     }
 
-    private static void WaitForFile(string filePath)
+    private static void AssertRestartFileExists(string filePath)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(filePath) && DateTime.UtcNow < deadline)
-        {
-            Thread.Sleep(50);
-        }
-
-        Assert.IsTrue(File.Exists(filePath), "Expected file was not created: " + filePath);
+        Assert.IsTrue(File.Exists(filePath), "Expected file was not created by the completed restart process: " + filePath);
     }
 
-    private static bool WaitForReadyOrProcessExit(Process process, string filePath)
+    private static bool WaitForReadyOrProcessExit(OwnedProcess process, string filePath)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(filePath) && DateTime.UtcNow < deadline)
+        while (!File.Exists(filePath))
         {
             if (process.HasExited)
             {
@@ -1658,43 +1688,354 @@ public sealed class UpdaterPackageSyncTests
             Thread.Sleep(50);
         }
 
-        if (File.Exists(filePath))
-        {
-            return true;
-        }
-
-        Assert.Fail("Expected file was not created: " + filePath);
-        return false;
+        return true;
     }
 
-    private static void WaitForFileAvailable(string filePath)
+    private sealed class CaseProcessScope
     {
-        if (!File.Exists(filePath))
+        private readonly List<OwnedProcess> processes = new();
+        private readonly List<string> diagnostics = new();
+
+        internal OwnedProcess Start(
+            ProcessStartInfo startInfo,
+            string? readyOutputLine,
+            bool useExecutionGate)
         {
-            return;
+            var process = new OwnedProcess(
+                startInfo,
+                readyOutputLine,
+                useExecutionGate);
+            processes.Add(process);
+            process.Start();
+            return process;
         }
 
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-        while (DateTime.UtcNow < deadline)
+        internal void RecordDiagnostic(string diagnostic)
+        {
+            diagnostics.Add(diagnostic);
+        }
+
+        internal IReadOnlyList<string> DisposeAll()
+        {
+            var result = new List<string>(diagnostics);
+            for (int index = processes.Count - 1; index >= 0; index--)
+            {
+                OwnedProcess process = processes[index];
+                try
+                {
+                    process.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    result.Add(
+                        "Updater test process cleanup failed for "
+                        + process.Description
+                        + ": "
+                        + exception.Message);
+                }
+            }
+
+            processes.Clear();
+            return result;
+        }
+    }
+
+    private sealed class OwnedProcess
+    {
+        private const int JobObjectBasicAccountingInformationClass = 1;
+        private const int JobObjectExtendedLimitInformationClass = 9;
+        private const uint JobObjectLimitKillOnJobClose = 0x2000;
+
+        private readonly Process process;
+        private readonly TaskCompletionSource<bool>? readyNotification;
+        private readonly bool useExecutionGate;
+        private Task<string> standardOutput = Task.FromResult(string.Empty);
+        private Task<string> standardError = Task.FromResult(string.Empty);
+        private IntPtr jobHandle;
+        private bool started;
+        private bool assignedToJob;
+
+        internal OwnedProcess(ProcessStartInfo startInfo, string? readyOutputLine, bool useExecutionGate)
+        {
+            process = new Process { StartInfo = useExecutionGate ? CreateExecutionGateStartInfo(startInfo) : startInfo };
+            this.useExecutionGate = useExecutionGate;
+            if (readyOutputLine is not null)
+            {
+                readyNotification = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        internal string Description => process.StartInfo.FileName;
+        internal int Id => process.Id;
+        internal bool HasExited => process.HasExited;
+        internal int ExitCode => process.ExitCode;
+        internal StreamWriter StandardInput => process.StandardInput;
+        internal bool WaitForExit(int milliseconds) => process.WaitForExit(milliseconds);
+
+        internal void Start()
+        {
+            jobHandle = CreateProcessJob();
+            started = process.Start();
+            if (!started)
+            {
+                throw new InvalidOperationException("The owned test process was not started.");
+            }
+
+            // 割当失敗の経路でも、開始済みの両パイプを回収できるよう直ちに読む。
+            if (process.StartInfo.RedirectStandardOutput)
+            {
+                standardOutput = ReadOutputAsync();
+            }
+            if (process.StartInfo.RedirectStandardError)
+            {
+                standardError = process.StandardError.ReadToEndAsync();
+            }
+            if (!AssignProcessToJobObject(jobHandle, process.Handle))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "The test process could not be assigned to its Job.");
+            }
+            assignedToJob = true;
+            if (useExecutionGate)
+            {
+                process.StandardInput.WriteLine("go");
+                process.StandardInput.Flush();
+            }
+        }
+
+        private async Task<string> ReadOutputAsync()
+        {
+            if (readyNotification is null)
+            {
+                return await process.StandardOutput.ReadToEndAsync();
+            }
+
+            // 入力待ちfixtureだけが準備通知を出す。EOFと読取り失敗も待機側へ渡す。
+            try
+            {
+                string? firstLine = await process.StandardOutput.ReadLineAsync();
+                if (firstLine?.Trim() != "BMS_TEST_FIXTURE_READY")
+                {
+                    throw new InvalidOperationException("The fixture exited or produced unexpected readiness output: " + firstLine);
+                }
+                readyNotification.SetResult(true);
+                return firstLine + Environment.NewLine + await process.StandardOutput.ReadToEndAsync();
+            }
+            catch (Exception exception)
+            {
+                readyNotification.TrySetException(exception);
+                throw;
+            }
+        }
+
+        internal void WaitForOutputReady() => readyNotification!.Task.GetAwaiter().GetResult();
+
+        internal void WaitForExitAndChildren()
+        {
+            process.WaitForExit();
+            Task.WhenAll(standardOutput, standardError).GetAwaiter().GetResult();
+            if (assignedToJob)
+            {
+                while (QueryActiveProcessCount(jobHandle) != 0)
+                {
+                    Thread.Sleep(20);
+                }
+            }
+        }
+
+        internal void StopAndWait()
+        {
+            if (!started)
+            {
+                return;
+            }
+            if (assignedToJob)
+            {
+                if (!TerminateJobObject(jobHandle, 1))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "The test process Job could not be terminated.");
+                }
+            }
+            else if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            WaitForExitAndChildren();
+        }
+
+        internal string GetStandardOutput() => standardOutput.GetAwaiter().GetResult();
+        internal string GetStandardError() => standardError.GetAwaiter().GetResult();
+
+        internal void Dispose()
         {
             try
             {
-                using FileStream stream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
-                return;
+                StopAndWait();
             }
-            catch (IOException)
+            finally
             {
-                Thread.Sleep(50);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                Thread.Sleep(50);
+                if (jobHandle != IntPtr.Zero)
+                {
+                    CloseHandle(jobHandle);
+                    jobHandle = IntPtr.Zero;
+                }
+                process.Dispose();
             }
         }
 
-        Assert.Fail("Restart target remained locked: " + filePath);
-    }
+        private static ProcessStartInfo CreateExecutionGateStartInfo(ProcessStartInfo target)
+        {
+            // updaterがwatchdogを作る前にJobへ所属させる。引数は環境変数から
+            // 引用付きで一度だけ展開し、バッチファイルと独自エスケープを不要にする。
+            var gate = new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                WorkingDirectory = target.WorkingDirectory
+            };
+            gate.Environment["BMS_TEST_EXECUTABLE"] = target.FileName;
+            var command = new StringBuilder("set /p _bmsStart= >nul && \"%BMS_TEST_EXECUTABLE%\"");
+            for (int index = 0; index < target.ArgumentList.Count; index++)
+            {
+                string name = "BMS_TEST_ARGUMENT_" + index;
+                gate.Environment[name] = target.ArgumentList[index];
+                command.Append(" \"%").Append(name).Append("%\"");
+            }
+            gate.Arguments = "/d /q /v:off /s /c \"" + command + "\"";
+            return gate;
+        }
 
+        private static int QueryActiveProcessCount(IntPtr job)
+        {
+            var information = new JobObjectBasicAccountingInformation();
+            if (!QueryInformationJobObject(
+                    job,
+                    JobObjectBasicAccountingInformationClass,
+                    ref information,
+                    (uint)Marshal.SizeOf<JobObjectBasicAccountingInformation>(),
+                    IntPtr.Zero))
+            {
+                int error = Marshal.GetLastWin32Error();
+                throw new Win32Exception(
+                    error,
+                    "The owned test process Job could not be queried (error "
+                    + error
+                    + ").");
+            }
+
+            return checked((int)information.ActiveProcesses);
+        }
+
+        private static IntPtr CreateProcessJob()
+        {
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero)
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "The updater test process Job could not be created.");
+            }
+
+            var limits = new JobObjectExtendedLimitInformation
+            {
+                BasicLimitInformation = new JobObjectBasicLimitInformation
+                {
+                    LimitFlags = JobObjectLimitKillOnJobClose
+                }
+            };
+            if (!SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformationClass,
+                    ref limits,
+                    (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>()))
+            {
+                int error = Marshal.GetLastWin32Error();
+                CloseHandle(job);
+                throw new Win32Exception(error, "The updater test process Job could not be configured.");
+            }
+
+            return job;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateJobObject(IntPtr jobAttributes, string? name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetInformationJobObject(
+            IntPtr job,
+            int informationClass,
+            ref JobObjectExtendedLimitInformation information,
+            uint informationLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool QueryInformationJobObject(
+            IntPtr job,
+            int informationClass,
+            ref JobObjectBasicAccountingInformation information,
+            uint informationLength,
+            IntPtr returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectBasicAccountingInformation
+        {
+            internal long TotalUserTime;
+            internal long TotalKernelTime;
+            internal long ThisPeriodTotalUserTime;
+            internal long ThisPeriodTotalKernelTime;
+            internal uint TotalPageFaultCount;
+            internal uint TotalProcesses;
+            internal uint ActiveProcesses;
+            internal uint TotalTerminatedProcesses;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectBasicLimitInformation
+        {
+            internal long PerProcessUserTimeLimit;
+            internal long PerJobUserTimeLimit;
+            internal uint LimitFlags;
+            internal UIntPtr MinimumWorkingSetSize;
+            internal UIntPtr MaximumWorkingSetSize;
+            internal uint ActiveProcessLimit;
+            internal UIntPtr Affinity;
+            internal uint PriorityClass;
+            internal uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoCounters
+        {
+            internal ulong ReadOperationCount;
+            internal ulong WriteOperationCount;
+            internal ulong OtherOperationCount;
+            internal ulong ReadTransferCount;
+            internal ulong WriteTransferCount;
+            internal ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectExtendedLimitInformation
+        {
+            internal JobObjectBasicLimitInformation BasicLimitInformation;
+            internal IoCounters IoInfo;
+            internal UIntPtr ProcessMemoryLimit;
+            internal UIntPtr JobMemoryLimit;
+            internal UIntPtr PeakProcessMemoryUsed;
+            internal UIntPtr PeakJobMemoryUsed;
+        }
+    }
     private static string FindUpdaterExecutable()
     {
         string? publishedRoot = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
@@ -1893,79 +2234,60 @@ public sealed class UpdaterPackageSyncTests
         File.Copy(FindUpdaterExecutable(), Path.Combine(rootDirectoryPath, "restart.exe"), overwrite: true);
     }
 
-    private static string QuoteArgument(string argument)
-    {
-        if (string.IsNullOrEmpty(argument))
-        {
-            return "\"\"";
-        }
-
-        if (!argument.Any(char.IsWhiteSpace) && !argument.Contains("\""))
-        {
-            return argument;
-        }
-
-        var builder = new System.Text.StringBuilder();
-        builder.Append('"');
-        int backslashCount = 0;
-        foreach (char c in argument)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-                continue;
-            }
-
-            if (c == '"')
-            {
-                builder.Append('\\', backslashCount * 2 + 1);
-                builder.Append('"');
-                backslashCount = 0;
-                continue;
-            }
-
-            builder.Append('\\', backslashCount);
-            backslashCount = 0;
-            builder.Append(c);
-        }
-
-        builder.Append('\\', backslashCount * 2);
-        builder.Append('"');
-        return builder.ToString();
-    }
-
-    private static void WithTemporaryDirectory(Action<string> action)
+    private void WithTemporaryDirectory(Action<string> action)
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerUpdaterTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         Directory.CreateDirectory(Path.Combine(tempDirectoryPath, "app", "update_work", "downloads"));
+        var processScope = new CaseProcessScope();
+        activeProcessScope = processScope;
+        Exception? primaryFailure = null;
         try
         {
             action(tempDirectoryPath);
         }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
+        }
         finally
         {
-            DeleteRecoveryRunOnceValues(Path.Combine(tempDirectoryPath, "app"));
-            if (Directory.Exists(tempDirectoryPath))
+            activeProcessScope = null;
+            var cleanupDiagnostics = new List<string>(processScope.DisposeAll());
+            try
             {
-                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-                while (Directory.Exists(tempDirectoryPath) && DateTime.UtcNow < deadline)
+                DeleteRecoveryRunOnceValues(Path.Combine(tempDirectoryPath, "app"));
+            }
+            catch (Exception exception)
+            {
+                cleanupDiagnostics.Add("recovery registration cleanup failed: " + exception.Message);
+            }
+
+            try
+            {
+                if (Directory.Exists(tempDirectoryPath))
                 {
-                    try
-                    {
-                        Directory.Delete(tempDirectoryPath, recursive: true);
-                    }
-                    catch (IOException)
-                    {
-                        Thread.Sleep(50);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        Thread.Sleep(50);
-                    }
+                    Directory.Delete(tempDirectoryPath, recursive: true);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupDiagnostics.Add("temporary updater test directory cleanup failed: " + exception.Message);
+            }
+
+            if (cleanupDiagnostics.Count > 0)
+            {
+                string message = string.Join(
+                    Environment.NewLine,
+                    cleanupDiagnostics.Distinct(StringComparer.Ordinal));
+                if (primaryFailure is null)
+                {
+                    Assert.Fail(message);
                 }
 
-                Assert.IsFalse(Directory.Exists(tempDirectoryPath), "Temporary updater test directory remained locked: " + tempDirectoryPath);
+                // 主処理の失敗を清掃診断で置き換えず、二次診断として残す。
+                Console.Error.WriteLine("Updater test cleanup diagnostics:" + Environment.NewLine + message);
             }
         }
     }
