@@ -3214,10 +3214,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        // スクロールバーやExpanderトグルのクリックではフォーカス移譲や更新を行わない
+        // スクロールバー、Expanderトグル、編集中の名前欄ではフォーカス移譲や更新を行わない
         var source = e.OriginalSource as DependencyObject;
         if (FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(source) != null ||
-            FindAncestor<System.Windows.Controls.Primitives.ToggleButton>(source) != null)
+            FindAncestor<System.Windows.Controls.Primitives.ToggleButton>(source) != null ||
+            FindAncestor<EditableTextBlock>(source) is { IsInEditMode: true })
         {
             return;
         }
