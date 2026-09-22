@@ -697,7 +697,7 @@ public sealed class PlaybackPanelViewModelTests
             await failureNotification;
             Assert.AreSame(failure, dialogs.LastPlaybackFailure);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
-            Assert.AreEqual(1, player.CloseProcessCount);
+            Assert.AreEqual(0, player.CloseProcessCount);
         }
         finally
         {
@@ -936,6 +936,7 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsNotNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(2, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+            Assert.AreEqual(0, player.CloseProcessCount);
         }
         finally
         {
@@ -971,7 +972,7 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.IsNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
-            Assert.AreEqual(1, player.CloseProcessCount);
+            Assert.AreEqual(0, player.CloseProcessCount);
             Assert.AreEqual(
                 1,
                 player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
@@ -1121,7 +1122,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public async Task PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationTearDown()
+    public async Task PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationClearStateWithoutClosingPlayer()
     {
         bool originalLr2Body = Settings.Default.UsePlayerLR2body;
         bool originalLr2Database = Settings.Default.OperationModeLR2DB;
@@ -1166,19 +1167,18 @@ public sealed class PlaybackPanelViewModelTests
                 }
             };
             panel.PropertyChanged += stoppedHandler;
-            Task closeObserved = player.WaitForCommandAsync("Close");
             try
             {
                 panel.Start();
                 secondCompletion.SetCanceled();
-                await Task.WhenAll(stopped.Task, closeObserved);
+                await stopped.Task;
             }
             finally
             {
                 panel.PropertyChanged -= stoppedHandler;
             }
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
-            Assert.AreEqual(2, player.CloseProcessCount);
+            Assert.AreEqual(0, player.CloseProcessCount);
         }
         finally
         {

@@ -45,6 +45,13 @@ internal interface IBMSPlayer : INotifyPropertyChanged
 
     void CloseProcess();
 
+    /// <summary>
+    /// 指定した譜面の再生開始処理を行います。
+    /// </summary>
+    /// <remarks>
+    /// 開始失敗時の開始途中資源の後片付けと、既に確立した外部プレイヤーを保持するかの判断は実装側が所有します。
+    /// 呼出側は、この処理の失敗だけを理由に <see cref="CloseProcess"/> を呼びません。
+    /// </remarks>
     Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null);
 
     void RestartPlayingBMSfile();

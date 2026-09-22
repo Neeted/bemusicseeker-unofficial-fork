@@ -786,10 +786,8 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
         if (!RequireWindowHost().UsesLegacyWindowEmbedding)
         {
-            FocusWindow(uBMplayHandleShowing, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerFocusTimeoutFormat, "uBMplay"));
-            FocusWindow(
-                foregroundWindowHandle.IsEmpty ? RequireWindowHost().ParentHandle : foregroundWindowHandle,
-                string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterStartupTimeoutFormat, "uBMplay"));
+            TrySetForegroundWindow(uBMplayHandleShowing);
+            TrySetForegroundWindow(foregroundWindowHandle.IsEmpty ? RequireWindowHost().ParentHandle : foregroundWindowHandle);
         }
     }
 
@@ -828,7 +826,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             ExternalWindowHandle restoreWindow = foregroundWindowHandle.IsEmpty
                 ? RequireWindowHost().ParentHandle
                 : foregroundWindowHandle;
-            FocusWindow(restoreWindow, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterAttachTimeoutFormat, "uBMplay"));
+            TrySetForegroundWindow(restoreWindow);
             foregroundWindow = RequireWindowHost().GetForegroundWindow();
             RequireWindowHost().SetFocus(foregroundWindowHandle);
             NLogWrapper.DebuggerLogger?.Trace("3.5 " + uBMplayHandleShowing + " " + foregroundWindow + " " + foregroundWindowHandle);
@@ -840,18 +838,13 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         return windowHost ?? throw new InvalidOperationException("uBMplayの再生ホストが接続されていません。");
     }
 
-    private void FocusWindow(ExternalWindowHandle window, string timeoutMessage)
+    private void TrySetForegroundWindow(ExternalWindowHandle window)
     {
         if (window.IsEmpty || !RequireWindowHost().IsWindow(window))
         {
             return;
         }
-        waitPolicy.WaitUntil(
-            () => RequireWindowHost().GetForegroundWindow() == window,
-            () => uBMplayProcess == null || uBMplayProcess.HasExited || !RequireWindowHost().IsWindow(window),
-            () => RequireWindowHost().SetForegroundWindow(window),
-            timeoutMessage,
-            pollMilliseconds: 0);
+        RequireWindowHost().SetForegroundWindow(window);
     }
 
     public void RestartPlayingBMSfile()

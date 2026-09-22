@@ -20,10 +20,7 @@ internal static class MainWindowViewModelTestFactory
     /// </summary>
     internal static MainWindowViewModel Create(Settings? settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null)
     {
-        settings ??= PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
-            Path.GetTempPath(),
-            "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"),
-            "user.config"));
+        settings ??= CreateIsolatedSettings();
         return new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -32,6 +29,12 @@ internal static class MainWindowViewModelTestFactory
             fileDbMutationDialogService: fileDbMutationDialogs)
             .CreateMainWindowViewModelForTest();
     }
+
+    /// <summary>テストホスト間で共有しないポータブル設定インスタンスを作成します。</summary>
+    internal static Settings CreateIsolatedSettings() => PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
+        Path.GetTempPath(),
+        "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"),
+        "user.config"));
 
     internal static TestBmsLibrary CreateLibrary(string songDbPath, Settings settings)
     {

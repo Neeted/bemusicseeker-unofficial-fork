@@ -156,9 +156,19 @@ internal interface IExternalPlayerWindowHost
 
     void DetachUbmplayWindow(ExternalWindowHandle childWindow);
 
+    /// <summary>
+    /// LR2 の通常 window style が試聴用の値へ反映されたかを確認します。
+    /// extended style は従来の LR2 起動契約では収束確認の対象ではありません。
+    /// </summary>
     bool IsLr2WindowStyleApplied(ExternalWindowHandle childWindow);
 
+    /// <summary>LR2 の通常 window style を試聴用の値へ設定します。</summary>
     void ApplyLr2WindowStyle(ExternalWindowHandle childWindow);
+
+    /// <summary>
+    /// 通常 window style の収束後に、LR2 の extended window style を一度設定します。
+    /// </summary>
+    void ApplyLr2ExtendedWindowStyle(ExternalWindowHandle childWindow);
 
     void NotifyBmiIdxPlaybackStarted(ExternalWindowHandle childWindow);
 
@@ -277,13 +287,16 @@ internal sealed class Win32ExternalPlayerWindowHost : IExternalPlayerWindowHost
 
     public bool IsLr2WindowStyleApplied(ExternalWindowHandle childWindow)
     {
-        return Win32API.GetWindowLong(childWindow.NativeValue, -16) == 2495610880u
-            && Win32API.GetWindowLong(childWindow.NativeValue, -20) == 129u;
+        return Win32API.GetWindowLong(childWindow.NativeValue, -16) == 2495610880u;
     }
 
     public void ApplyLr2WindowStyle(ExternalWindowHandle childWindow)
     {
         Win32API.SetWindowLong(childWindow.NativeValue, -16, 2495610880u);
+    }
+
+    public void ApplyLr2ExtendedWindowStyle(ExternalWindowHandle childWindow)
+    {
         Win32API.SetWindowLong(childWindow.NativeValue, -20, 129u);
     }
 

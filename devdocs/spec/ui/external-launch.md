@@ -51,13 +51,21 @@ Web操作は固定ID、空白でない名前、URLテンプレート、有効設
 
 Webは既存のブラウザ・シェル境界へ渡します。プログラムはクリック時に実行ファイルと譜面の絶対パスを確認し、`UseShellExecute=false`、作業ディレクトリは実行ファイルの親、引数は一つずつ `ArgumentList` に設定します。一回開始して待たず、プロセスを保持しません。標準入出力の転送、生の `Arguments`、関連付け起動への代替は使いません。
 
+### 一覧再生の外部プレイヤー所有範囲
+
+一覧からの再生は「プログラムから開く」とは別の契約です。停止、次曲、終了通知、一時設定の復元に必要なため再生プレイヤーのプロセスを保持しますが、外部アプリのウィンドウ状態を継続的な正常性判定には使いません。プロセスを開始できない場合、起動直後に終了した場合、またはプレイヤー操作に必要なメインウィンドウを有限時間内に確立できない場合を起動失敗として扱います。
+
+ウィンドウのforeground復元や装飾など、再生そのものに必須でないデスクトップ統合はbest-effortです。OSや外部アプリが要求状態を維持しなくても、開始済みのプレイヤーを起動失敗へ変更したり終了したりしません。`PlayStart` が失敗した場合、共通UI層はBeMusicSeeker側の再生状態と失敗通知を更新しますが、その例外だけを理由に `CloseProcess` を呼びません。開始途中のプロセスを片付ける必要があるプレイヤーは、自身の起動契約に基づいて処理します。明示的な停止、プレイヤー置換、アプリ終了では従来どおり所有中プロセスを終了します。
+
 ### LR2試聴時の設定保全
 
 LR2bodyの試聴が一時変更するXML項目は、`system/windowsize_x`、`system/windowsize_y`、`system/screenmode`、`sound/volumemaster`、`sound/volumeflag` の五つです。最新XMLを読み、原子的に公開してからプロセスを開始します。
 
 試聴中に作る設定オブジェクトは、最新XMLのその他の値と、保存しておいた五項目から構成し、一時値を編集画面へ混ぜません。通常の設定保存と検索ルート保存も同じ短い保存範囲に参加します。保存済みの五項目は元の欠落も再現し、その他の編集値を反映して公開成功後に保存値を同期します。試聴用の一時公開では保存値を変えません。
 
-ウィンドウ設定後と終了時は、後から保存した他の値を保ったまま五項目を元の値・欠落へ戻します。開始前の失敗では `HasExited`、終了要求、強制終了を呼ばず参照と購読だけを片付けます。開始済みで終了できない場合は、明示的な終了再試行のため所有状態を保持します。開始・復元の主失敗は対象設定パスと副次失敗を含め、既存のプレイヤー失敗通知へ返します。
+LR2の通常window styleは、従来どおり `GWL_STYLE` が試聴用の値へ収束するまで有限時間だけ設定を試みます。収束した場合だけ `GWL_EXSTYLE` を一度設定し、extended styleのreadback一致は成功条件にしません。通常styleが時間内に収束しなくても、メインウィンドウを確立したLR2が生存していれば再生を継続します。foreground復元も一度だけ試みるbest-effort操作です。
+
+ウィンドウ設定後と終了時は、後から保存した他の値を保ったまま五項目を元の値・欠落へ戻します。開始前の失敗では `HasExited`、終了要求、強制終了を呼ばず参照と購読だけを片付けます。プロセス開始後でもメインウィンドウを確立できない起動失敗では開始途中のプロセスを終了対象にします。メインウィンドウ確立後の補助的なウィンドウ操作や設定復元の失敗だけを理由に再生中のLR2を終了せず、明示的な終了再試行に必要な所有状態を保持します。開始・復元の失敗は既存のプレイヤー失敗通知へ返し、主失敗と後片付けの失敗が重なった場合は対象設定パスと副次失敗を保持します。
 
 ## 実装とテストの対応
 
@@ -69,7 +77,8 @@ LR2bodyの試聴が一時変更するXML項目は、`system/windowsize_x`、`sys
 | クリック時の再解決とプロセス起動条件 | [`SelectedChartExternalActionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartExternalActionWorkflowOwner.cs)、[`ExternalProgramLaunchGateway`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalProgramLaunchGateway.cs) | [`SelectedChartExternalActionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartExternalActionWorkflowOwnerTests.cs)、[`ExternalProgramLaunchGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalProgramLaunchGatewayTests.cs) |
 | 単一行のメニュー、履歴・未所持の区別 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs)、[`MainWindowPlayHistoryWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlayHistoryWpfTests.cs) |
 | 型付きの起動失敗メッセージ、多言語リソースの整合 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowContextMenuResourceTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
-| LR2試聴の五項目、他のXML値、設定編集、開始・終了失敗 | [`ExternalPlayerProcessGateway`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerProcessGateway.cs) | [`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
+| 一覧再生のプロセス所有、開始失敗時の状態解除、補助window操作のbest-effort化 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`ExternalPlayerWindowHost`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerWindowHost.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)、[`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs) |
+| LR2試聴の五項目、通常/extended style、他のXML値、設定編集、開始・終了失敗 | [`LR2body`](../../../BeMusicSeeker/Models/LR2/LR2body.cs)、[`ExternalPlayerWindowHost`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerWindowHost.cs) | [`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ubmplayの一時INI生成、値の制限、設定読み戻し | [`uBMplay`](../../../BeMusicSeeker/Models/Playback/uBMplay.cs) | [`UbmplaySettingsTests`](../../../BeMusicSeeker.Tests/Playback/UbmplaySettingsTests.cs) |
 
 ## 関連資料

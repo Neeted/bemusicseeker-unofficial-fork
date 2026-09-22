@@ -216,6 +216,30 @@ public sealed class ExternalPlayerProcessGatewayTests
     }
 
     [TestMethod]
+    public void BmiIdxMainWindowTimeoutCleansUpStartedProcess()
+    {
+        WithTemporaryPlayerFiles("BMIIDXView2015_64.exe", (root, executablePath, chartPath) =>
+        {
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            var player = new BMIIDXView2015(
+                executablePath,
+                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(
+                new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
+
+            Assert.ThrowsException<TimeoutException>(
+                () => player.PlayStart(chartPath, (EventHandler)null!));
+
+            Assert.AreEqual(1, gateway.Session.CloseMainWindowCount);
+            Assert.AreEqual(1, gateway.Session.KillCount);
+            Assert.IsFalse(gateway.Session.KeepRunning);
+        });
+    }
+
+    [TestMethod]
     public void BmiIdxEmbedsReadyWindowThroughWindowHost()
     {
         WithTemporaryPlayerFiles("BMIIDXView2015_64.exe", (root, executablePath, chartPath) =>
@@ -223,7 +247,11 @@ public sealed class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(17));
-            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                ForegroundWindow = new ExternalWindowHandle(new IntPtr(55)),
+                SetForegroundWindowSucceeds = false
+            };
             var player = new BMIIDXView2015(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => Settings.Default),
@@ -233,7 +261,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
 
             Assert.AreEqual(
-                "GetForegroundWindow,AttachBmiIdxWindow,NotifyBmiIdxPlaybackStarted",
+                "GetForegroundWindow,SetForegroundWindow,AttachBmiIdxWindow,NotifyBmiIdxPlaybackStarted,SetForegroundWindow",
                 string.Join(",", windowHost.Operations));
 
             gateway.Session.KeepRunning = false;
@@ -300,7 +328,14 @@ public sealed class ExternalPlayerProcessGatewayTests
             player.PlayStart(chartPath, (EventHandler)null!);
 
             CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
+            CollectionAssert.Contains(windowHost.Operations, "ApplyLr2ExtendedWindowStyle");
             CollectionAssert.Contains(windowHost.Operations, "ApplyWindowPlacement");
+            Assert.IsTrue(
+                windowHost.Operations.IndexOf("ApplyLr2WindowStyle")
+                < windowHost.Operations.IndexOf("ApplyLr2ExtendedWindowStyle"));
+            Assert.IsTrue(
+                windowHost.Operations.IndexOf("ApplyLr2ExtendedWindowStyle")
+                < windowHost.Operations.IndexOf("ApplyWindowPlacement"));
             Assert.IsNotNull(windowHost.AppliedPlacement);
 
             gateway.Session.KeepRunning = false;
@@ -503,7 +538,7 @@ public sealed class ExternalPlayerProcessGatewayTests
     }
 
     [TestMethod]
-    public void Lr2StartFailureAfterProcessStartRetainsUnkillableProcessForExplicitClose()
+    public void Lr2MainWindowTimeoutRetainsUnkillableProcessForExplicitClose()
     {
         WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
         {
@@ -512,12 +547,8 @@ public sealed class ExternalPlayerProcessGatewayTests
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
-            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
             gateway.Session.KillException = new InvalidOperationException("kill rejected");
-            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
-            {
-                CompleteLr2WindowStyleApply = false
-            };
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
             var player = new LR2body(
                 executablePath,
                 new LR2Config(configPath),
@@ -547,6 +578,93 @@ public sealed class ExternalPlayerProcessGatewayTests
 
             Assert.IsFalse(gateway.Session.KeepRunning);
             Assert.AreEqual("640", ReadLr2Value(XDocument.Load(configPath), "system", "windowsize_x"));
+        });
+    }
+
+    [TestMethod]
+    public void Lr2WindowStyleTimeoutKeepsEstablishedPlaybackRunning()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                CompleteLr2WindowStyleApply = false
+            };
+            var player = new LR2body(
+                executablePath,
+                new LR2Config(configPath),
+                new RecordingPlayerSettingsGateway(),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            player.PlayStart(chartPath, (EventHandler)null!);
+
+            CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
+            CollectionAssert.DoesNotContain(windowHost.Operations, "ApplyLr2ExtendedWindowStyle");
+            CollectionAssert.Contains(windowHost.Operations, "ApplyWindowPlacement");
+            Assert.AreEqual(0, gateway.Session.KillCount);
+            Assert.IsTrue(gateway.Session.KeepRunning);
+            var restoredDocument = XDocument.Load(configPath);
+            Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
+            Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
+
+            gateway.Session.KeepRunning = false;
+            player.CloseProcess();
+        });
+    }
+
+    [TestMethod]
+    public void Lr2PreviewRestoreFailureAfterStartupKeepsRunningProcessForExplicitClose()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            FileStream? lockedConfig = null;
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                Lr2WindowStyleApplyAttempt = () =>
+                    lockedConfig = new FileStream(configPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
+            };
+            var player = new LR2body(
+                executablePath,
+                new LR2Config(configPath),
+                new RecordingPlayerSettingsGateway(),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            try
+            {
+                Assert.ThrowsException<IOException>(
+                    () => player.PlayStart(chartPath, (EventHandler)null!));
+
+                Assert.AreEqual(0, gateway.Session.KillCount);
+                Assert.IsTrue(gateway.Session.KeepRunning);
+                CollectionAssert.Contains(windowHost.Operations, "ApplyLr2ExtendedWindowStyle");
+            }
+            finally
+            {
+                lockedConfig?.Dispose();
+            }
+
+            player.CloseProcess();
+
+            Assert.IsFalse(gateway.Session.KeepRunning);
+            var restoredDocument = XDocument.Load(configPath);
+            Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
+            Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
         });
     }
 
@@ -626,7 +744,9 @@ public sealed class ExternalPlayerProcessGatewayTests
             {
                 EnumeratedWindows = new[] { windowHandle },
                 WindowClassName = "ThunderRT6FormDC",
-                WindowTitle = chartPath
+                WindowTitle = chartPath,
+                ForegroundWindow = new ExternalWindowHandle(new IntPtr(55)),
+                SetForegroundWindowSucceeds = false
             };
             var player = new uBMplay(
                 executablePath,
@@ -1042,6 +1162,14 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         internal string WindowTitle { get; set; } = string.Empty;
 
+        internal ExternalWindowHandle ForegroundWindow
+        {
+            get => foregroundWindow;
+            set => foregroundWindow = value;
+        }
+
+        internal bool SetForegroundWindowSucceeds { get; set; } = true;
+
         internal bool Lr2WindowStyleApplied { get; set; }
 
         internal bool CompleteLr2WindowStyleApply { get; set; } = true;
@@ -1067,8 +1195,11 @@ public sealed class ExternalPlayerProcessGatewayTests
         public bool SetForegroundWindow(ExternalWindowHandle window)
         {
             Operations.Add("SetForegroundWindow");
-            foregroundWindow = window;
-            return true;
+            if (SetForegroundWindowSucceeds)
+            {
+                foregroundWindow = window;
+            }
+            return SetForegroundWindowSucceeds;
         }
 
         public void SetFocus(ExternalWindowHandle window)
@@ -1120,6 +1251,11 @@ public sealed class ExternalPlayerProcessGatewayTests
             {
                 Lr2WindowStyleApplied = true;
             }
+        }
+
+        public void ApplyLr2ExtendedWindowStyle(ExternalWindowHandle childWindow)
+        {
+            Operations.Add("ApplyLr2ExtendedWindowStyle");
         }
 
         public void NotifyBmiIdxPlaybackStarted(ExternalWindowHandle childWindow)

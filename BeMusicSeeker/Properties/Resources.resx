@@ -3395,14 +3395,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Error_PlayerFocusTimeoutFormat" xml:space="preserve">
     <value>{0}の操作対象ウィンドウへのフォーカス待機がタイムアウトしました。</value>
   </data>
-  <data name="Error_PlayerForegroundRestoreAfterStartupTimeoutFormat" xml:space="preserve">
-    <value>{0}起動後の前面ウィンドウの復元がタイムアウトしました。</value>
-  </data>
   <data name="Error_PlayerForegroundRestoreAfterOperationTimeoutFormat" xml:space="preserve">
     <value>{0}操作後の前面ウィンドウの復元がタイムアウトしました。</value>
-  </data>
-  <data name="Error_PlayerForegroundRestoreAfterAttachTimeoutFormat" xml:space="preserve">
-    <value>{0}への接続後の前面ウィンドウの復元がタイムアウトしました。</value>
   </data>
   <data name="Error_LR2WindowStyleTimeout" xml:space="preserve">
     <value>LR2のウィンドウスタイル適用がタイムアウトしました。</value>

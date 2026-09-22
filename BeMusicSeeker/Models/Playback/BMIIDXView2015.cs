@@ -219,9 +219,9 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             {
                 if (BMIIDXView2015HandleShowing.IsEmpty)
                 {
-                    foreach (IExternalPlayerProcessSession process in existingProcesses)
+                    foreach (IExternalPlayerProcessSession existingProcess in existingProcesses)
                     {
-                        BMIIDXView2015Process = process;
+                        BMIIDXView2015Process = existingProcess;
                         CloseProcess();
                     }
                 }
@@ -236,40 +236,80 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
                 ExePath,
                 "-S \"" + bmsFilePath + "\"",
                 System.Diagnostics.ProcessWindowStyle.Minimized);
-            BMIIDXView2015Process = processGateway.Prepare(launchRequest);
-            BMIIDXView2015Process.Exited += onExitEventHandlerDefault;
+            IExternalPlayerProcessSession process = processGateway.Prepare(launchRequest);
+            BMIIDXView2015Process = process;
+            process.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler != null)
             {
                 onExitEventHandlerRegstered = onExitEventHandler;
-                BMIIDXView2015Process.Exited += onExitEventHandlerRegstered;
+                process.Exited += onExitEventHandlerRegstered;
             }
             else
             {
                 onExitEventHandlerRegstered = null;
             }
-            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-            string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
-            temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
-            BMIIDXView2015Process.Start();
-            waitPolicy.WaitUntil(
-                () => !BMIIDXView2015Process.MainWindowHandle.IsEmpty,
-                () => BMIIDXView2015Process.HasExited,
-                () => { },
-                string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerMainWindowTimeoutFormat, "BMIIDXView2015"),
-                pollMilliseconds: 50);
-            RestoreForegroundWindow(foregroundWindow);
-            if (BMIIDXView2015Process.HasExited)
+            bool processStarted = false;
+            bool startupEstablished = false;
+            try
             {
-                throw new InvalidOperationException(string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerStartupFailedFormat, "BMIIDXView2015"));
+                ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
+                string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "BMIIDXView2015.ini");
+                temporarilyRewriteSettings(iniFilePath, playerSettingsGateway.CaptureSnapshot().PlayerVolume);
+                process.Start();
+                processStarted = true;
+                waitPolicy.WaitUntil(
+                    () => !process.MainWindowHandle.IsEmpty,
+                    () => process.HasExited,
+                    () => { },
+                    string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerMainWindowTimeoutFormat, "BMIIDXView2015"),
+                    pollMilliseconds: 50);
+                RestoreForegroundWindow(foregroundWindow);
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException(string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerStartupFailedFormat, "BMIIDXView2015"));
+                }
+                BMIIDXView2015HandleShowing = process.MainWindowHandle;
+                startupEstablished = true;
+                RequireWindowHost().AttachBmiIdxWindow(BMIIDXView2015HandleShowing);
+                Thread.Sleep(100);
+                RequireWindowHost().NotifyBmiIdxPlaybackStarted(BMIIDXView2015HandleShowing);
+                RestoreForegroundWindow(foregroundWindow);
+                NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + RequireWindowHost().GetForegroundWindow());
+                BMSFilePathPlaying = bmsFilePath;
+                return Task.CompletedTask;
             }
-            BMIIDXView2015HandleShowing = BMIIDXView2015Process.MainWindowHandle;
-            RequireWindowHost().AttachBmiIdxWindow(BMIIDXView2015HandleShowing);
-            Thread.Sleep(100);
-            RequireWindowHost().NotifyBmiIdxPlaybackStarted(BMIIDXView2015HandleShowing);
-            RestoreForegroundWindow(foregroundWindow);
-            NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + RequireWindowHost().GetForegroundWindow());
-            BMSFilePathPlaying = bmsFilePath;
-            return Task.CompletedTask;
+            catch (Exception startupFailure)
+            {
+                if (processStarted && !startupEstablished)
+                {
+                    try
+                    {
+                        CloseProcess();
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        throw new AggregateException(
+                            "BMIIDXView2015 startup failed and its process cleanup could not be completed.",
+                            startupFailure,
+                            cleanupFailure);
+                    }
+                }
+                else if (!processStarted)
+                {
+                    process.Exited -= onExitEventHandlerDefault;
+                    if (onExitEventHandlerRegstered != null)
+                    {
+                        process.Exited -= onExitEventHandlerRegstered;
+                    }
+                    if (ReferenceEquals(BMIIDXView2015Process, process))
+                    {
+                        BMIIDXView2015Process = null;
+                        BMIIDXView2015HandleShowing = default;
+                        onExitEventHandlerRegstered = null;
+                    }
+                }
+                throw;
+            }
         }
     }
 
@@ -359,7 +399,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
         {
             return;
         }
-        FocusWindow(foregroundWindow, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterStartupTimeoutFormat, "BMIIDXView2015"));
+        RequireWindowHost().SetForegroundWindow(foregroundWindow);
     }
 
     private void FocusWindow(ExternalWindowHandle window, string timeoutMessage)

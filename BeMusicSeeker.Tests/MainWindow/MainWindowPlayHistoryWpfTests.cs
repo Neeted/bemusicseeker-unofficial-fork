@@ -36,7 +36,7 @@ public sealed class MainWindowPlayHistoryWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                new Settings(),
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDropdown");
@@ -234,7 +234,7 @@ public sealed class MainWindowPlayHistoryWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                new Settings(),
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistorySummary");
@@ -350,7 +350,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryMainTable_UsesBoundDragKindAndRejectsChartContextMenu()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryContext");
@@ -415,7 +415,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryContextMenu_ShowsDateRangeOnlyForMultipleSelection()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRange");
@@ -452,7 +452,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangePrimary");
@@ -484,10 +484,8 @@ public sealed class MainWindowPlayHistoryWpfTests
     [TestMethod]
     public void PlayHistoryContextMenu_DateRangeUsesOpenSnapshotAndUpdatesKeywordOnce()
     {
-        Settings settings = new()
-        {
-            KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:previous"])
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        settings.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:previous"]);
         string historyBeforeAction = settings.KeywordSearchHistory;
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -563,7 +561,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryBmsonRowOffersConfiguredMd5WebAction()
     {
         const string actionName = "Bmson MD5";
-        Settings settings = new();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [new RightClickWebActionDefinition(
@@ -600,7 +598,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryUnresolvedBeatorajaRowOffersOnlyWebActionsForBothChartKinds()
     {
         const string allKindsName = "All kinds";
-        Settings settings = new();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [
@@ -654,7 +652,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     [TestMethod]
     public void PlayHistoryResolvedRowPlacesAssociatedOpenBeforeProgramActions()
     {
-        Settings settings = new();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [],

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -265,6 +266,36 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
+    public async Task InternalPlayer_StartFailureCleansUpPlaybackRuntime()
+    {
+        string bmsFilePath = Path.GetTempFileName();
+        try
+        {
+            var events = new List<string>();
+            var startupFailure = new InvalidOperationException("playback initialization failed");
+            var runtime = new RecordingAudioPlaybackRuntime(events)
+            {
+                InitializeException = startupFailure,
+            };
+            var player = new InternalBMSAutoPlayerSoundOnly(
+                new SettingsPlayerSettingsGateway(() => testSettings),
+                runtime);
+
+            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => player.PlayStart(bmsFilePath));
+
+            Assert.AreSame(startupFailure, actual);
+            CollectionAssert.AreEqual(
+                new[] { "initialize", "clear-max-voices", "free" },
+                events);
+        }
+        finally
+        {
+            File.Delete(bmsFilePath);
+        }
+    }
+
+    [TestMethod]
     public void PlaybackInitializationResult_SeparatesRequestedAndNegotiatedValues()
     {
         var result = new AudioPlaybackInitializationResult(
@@ -416,8 +447,15 @@ public sealed class AudioContractsTests
 
         public int MaxVoices => 0;
 
+        internal Exception InitializeException { get; set; }
+
         public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
         {
+            events.Add("initialize");
+            if (InitializeException != null)
+            {
+                throw InitializeException;
+            }
             throw new AssertFailedException("Playback initialization should not be called by this lifecycle test.");
         }
 

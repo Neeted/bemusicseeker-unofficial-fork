@@ -542,67 +542,110 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         {
             throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFilePath);
         }
-        BMSAutoPlayer bMSAutoPlayer;
+        BMSAutoPlayer bMSAutoPlayer = null;
         lock (_sharedObjectLock)
         {
-            PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-            _ = audioPlaybackRuntime.Initialize(settings);
-            _fastForwarding = false;
-            _fastBackwarding = false;
-            Duration = TimeSpan.MinValue;
-            CurrentTime = TimeSpan.MinValue;
-            MusicDuration = TimeSpan.MinValue;
-            BmsDuration = TimeSpan.MinValue;
-            _player?.Stop();
-            bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
-            bMSAutoPlayer.LoadResources();
-            _player?.Dispose();
-            _player = bMSAutoPlayer;
-            Duration = bMSAutoPlayer.Duration;
-            CurrentTime = TimeSpan.Zero;
-            MusicDuration = bMSAutoPlayer.MusicDuration;
-            BmsDuration = bMSAutoPlayer.BmsDuration;
-            StopTime = bMSAutoPlayer.StopTime;
-            CurrentVoices = 0;
-            audioPlaybackRuntime.ClearMaxVoices();
-            MaxVoices = audioPlaybackRuntime.MaxVoices;
-            NoteDensity = (int)bMSAutoPlayer.NoteDensity;
-            NoteDensityMax = (int)bMSAutoPlayer.NoteDensityMax;
-            Bpm = (int)bMSAutoPlayer.CurrentBpm;
-            MinBpm = (int)(bMSAutoPlayer.Bms.MinBpm?.ToDouble() ?? 0.0);
-            MaxBpm = (int)(bMSAutoPlayer.Bms.MaxBpm?.ToDouble() ?? 0.0);
-            Total = bMSAutoPlayer.Bms.Total ?? 0.0;
-            Combo = bMSAutoPlayer.Combo;
-            Notes = bMSAutoPlayer.Bms.TotalNoteCount;
-            Measure = bMSAutoPlayer.CurrentMeasure;
-            LastMeasure = bMSAutoPlayer.Bms.Measures.LastIndex;
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            if (Duration == TimeSpan.Zero)
+            try
             {
-                throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);
+                PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
+                _ = audioPlaybackRuntime.Initialize(settings);
+                _fastForwarding = false;
+                _fastBackwarding = false;
+                Duration = TimeSpan.MinValue;
+                CurrentTime = TimeSpan.MinValue;
+                MusicDuration = TimeSpan.MinValue;
+                BmsDuration = TimeSpan.MinValue;
+                _player?.Stop();
+                bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
+                bMSAutoPlayer.LoadResources();
+                _player?.Dispose();
+                _player = bMSAutoPlayer;
+                Duration = bMSAutoPlayer.Duration;
+                CurrentTime = TimeSpan.Zero;
+                MusicDuration = bMSAutoPlayer.MusicDuration;
+                BmsDuration = bMSAutoPlayer.BmsDuration;
+                StopTime = bMSAutoPlayer.StopTime;
+                CurrentVoices = 0;
+                audioPlaybackRuntime.ClearMaxVoices();
+                MaxVoices = audioPlaybackRuntime.MaxVoices;
+                NoteDensity = (int)bMSAutoPlayer.NoteDensity;
+                NoteDensityMax = (int)bMSAutoPlayer.NoteDensityMax;
+                Bpm = (int)bMSAutoPlayer.CurrentBpm;
+                MinBpm = (int)(bMSAutoPlayer.Bms.MinBpm?.ToDouble() ?? 0.0);
+                MaxBpm = (int)(bMSAutoPlayer.Bms.MaxBpm?.ToDouble() ?? 0.0);
+                Total = bMSAutoPlayer.Bms.Total ?? 0.0;
+                Combo = bMSAutoPlayer.Combo;
+                Notes = bMSAutoPlayer.Bms.TotalNoteCount;
+                Measure = bMSAutoPlayer.CurrentMeasure;
+                LastMeasure = bMSAutoPlayer.Bms.Measures.LastIndex;
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                if (Duration == TimeSpan.Zero)
+                {
+                    throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);
+                }
+                _onExitEvent = onExitEventHandler;
+                if (_infloopTask == null)
+                {
+                    _infloopTask = Task.Run(_playbackThreadAction);
+                    _infloopTask.ObserveFault("PlayStart");
+                }
             }
-            _onExitEvent = onExitEventHandler;
-            if (_infloopTask == null)
+            catch (Exception startupFailure)
             {
-                _infloopTask = Task.Run(_playbackThreadAction);
-                _infloopTask.ObserveFault("PlayStart");
+                CleanupFailedStart(bMSAutoPlayer, startupFailure, closeCurrentPlayer: true);
+                throw;
             }
         }
         try
         {
             await bMSAutoPlayer.Start();
         }
-        catch (OperationCanceledException)
+        catch (Exception startupFailure)
         {
-            CloseProcessCore(bMSAutoPlayer);
+            CleanupFailedStart(bMSAutoPlayer, startupFailure);
             throw;
         }
-        catch
+    }
+
+    private void CleanupFailedStart(
+        BMSAutoPlayer failedPlayer,
+        Exception startupFailure,
+        bool closeCurrentPlayer = false)
+    {
+        Exception cleanupFailure = null;
+        lock (_sharedObjectLock)
         {
-            CloseProcessCore(bMSAutoPlayer);
-            throw;
+            if (failedPlayer != null && !ReferenceEquals(_player, failedPlayer))
+            {
+                try
+                {
+                    failedPlayer.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = exception;
+                }
+            }
+        }
+
+        try
+        {
+            CloseProcessCore(closeCurrentPlayer ? null : failedPlayer);
+        }
+        catch (Exception exception)
+        {
+            cleanupFailure = cleanupFailure == null
+                ? exception
+                : new AggregateException(cleanupFailure, exception);
+        }
+        if (cleanupFailure != null)
+        {
+            throw new AggregateException(
+                "Internal player startup failed and its cleanup could not be completed.",
+                startupFailure,
+                cleanupFailure);
         }
     }
 

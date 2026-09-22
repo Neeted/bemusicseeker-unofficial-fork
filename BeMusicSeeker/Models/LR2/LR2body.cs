@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
+
 namespace BeMusicSeeker.Models.LR2;
 
 public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INotifyPropertyChanged
@@ -228,6 +230,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             IExternalPlayerProcessSession process = processGateway.Prepare(launchRequest);
             LR2bodyProcess = process;
             bool processStarted = false;
+            bool startupEstablished = false;
             Exception primaryFailure = null;
             Exception processCleanupFailure = null;
             Exception previewRestoreFailure = null;
@@ -271,6 +274,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 }
 
                 LR2bodyHandleShowing = process.MainWindowHandle;
+                startupEstablished = true;
                 if (!setWindowStyle() || LR2bodyProcess == null || process.HasExited)
                 {
                     throw new InvalidOperationException(
@@ -286,7 +290,8 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             catch (Exception exception)
             {
                 primaryFailure = exception;
-                if (processStarted)
+                bool retainStartedProcess = processStarted && startupEstablished && !process.HasExited;
+                if (processStarted && !retainStartedProcess)
                 {
                     processCleanupFailure = TryTerminateStartedProcess(process);
                     if (processCleanupFailure == null)
@@ -300,7 +305,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                         }
                     }
                 }
-                else
+                else if (!processStarted)
                 {
                     processCleanupFailure = UnregisterProcessHandlers(process);
                     if (ReferenceEquals(LR2bodyProcess, process))
@@ -324,7 +329,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     }
                 }
 
-                if (processCleanupFailure == null || !processStarted)
+                if (!retainStartedProcess && (processCleanupFailure == null || !processStarted))
                 {
                     if (previewScope != null)
                     {
@@ -520,12 +525,28 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         {
             return false;
         }
-        return waitPolicy.WaitUntil(
-            () => RequireWindowHost().IsLr2WindowStyleApplied(LR2bodyHandleShowing),
-            () => LR2bodyProcess == null || LR2bodyProcess.HasExited,
-            () => RequireWindowHost().ApplyLr2WindowStyle(LR2bodyHandleShowing),
-            BeMusicSeeker.Properties.Resources.Error_LR2WindowStyleTimeout,
-            pollMilliseconds: 0);
+        try
+        {
+            bool applied = waitPolicy.WaitUntil(
+                () => RequireWindowHost().IsLr2WindowStyleApplied(LR2bodyHandleShowing),
+                () => LR2bodyProcess == null || LR2bodyProcess.HasExited,
+                () => RequireWindowHost().ApplyLr2WindowStyle(LR2bodyHandleShowing),
+                BeMusicSeeker.Properties.Resources.Error_LR2WindowStyleTimeout,
+                pollMilliseconds: 0);
+            if (!applied)
+            {
+                return false;
+            }
+            RequireWindowHost().ApplyLr2ExtendedWindowStyle(LR2bodyHandleShowing);
+            return LR2bodyProcess != null && !LR2bodyProcess.HasExited;
+        }
+        catch (TimeoutException exception)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                exception,
+                "lr2_window_style_apply_timeout continuing_playback=true");
+            return LR2bodyProcess != null && !LR2bodyProcess.HasExited;
+        }
     }
 
     private void RestoreForegroundWindow(ExternalWindowHandle foregroundWindow)
@@ -534,12 +555,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         {
             return;
         }
-        waitPolicy.WaitUntil(
-            () => RequireWindowHost().GetForegroundWindow() == foregroundWindow,
-            () => !RequireWindowHost().IsWindow(foregroundWindow),
-            () => RequireWindowHost().SetForegroundWindow(foregroundWindow),
-            string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterStartupTimeoutFormat, "LR2"),
-            pollMilliseconds: 50);
+        RequireWindowHost().SetForegroundWindow(foregroundWindow);
     }
 
     private IExternalPlayerWindowHost RequireWindowHost()

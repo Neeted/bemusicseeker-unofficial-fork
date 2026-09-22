@@ -2520,14 +2520,8 @@ public class Resources
     /// <summary>{0}の操作対象ウィンドウへのフォーカス待機がタイムアウトしました。</summary>
     public static string Error_PlayerFocusTimeoutFormat => ResourceManager.GetString("Error_PlayerFocusTimeoutFormat", resourceCulture);
 
-    /// <summary>{0}起動後の前面ウィンドウの復元がタイムアウトしました。</summary>
-    public static string Error_PlayerForegroundRestoreAfterStartupTimeoutFormat => ResourceManager.GetString("Error_PlayerForegroundRestoreAfterStartupTimeoutFormat", resourceCulture);
-
     /// <summary>{0}操作後の前面ウィンドウの復元がタイムアウトしました。</summary>
     public static string Error_PlayerForegroundRestoreAfterOperationTimeoutFormat => ResourceManager.GetString("Error_PlayerForegroundRestoreAfterOperationTimeoutFormat", resourceCulture);
-
-    /// <summary>{0}への接続後の前面ウィンドウの復元がタイムアウトしました。</summary>
-    public static string Error_PlayerForegroundRestoreAfterAttachTimeoutFormat => ResourceManager.GetString("Error_PlayerForegroundRestoreAfterAttachTimeoutFormat", resourceCulture);
 
     /// <summary>LR2のウィンドウスタイル適用がタイムアウトしました。</summary>
     public static string Error_LR2WindowStyleTimeout => ResourceManager.GetString("Error_LR2WindowStyleTimeout", resourceCulture);

@@ -958,7 +958,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         object exitSender = null;
         EventArgs exitArgs = null;
         bool stoppedCurrentPlayback = false;
-        IBMSPlayer playerToClose = null;
         lock (sessionGate)
         {
             observation.StartCompleted = true;
@@ -967,7 +966,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 if (!succeeded)
                 {
-                    playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
+                    ClearPlaybackStateWithoutExternalCall(closeProcess: false);
                     stoppedCurrentPlayback = true;
                 }
                 else if (observation.ExitRequested && !observation.ExitClaimed)
@@ -980,7 +979,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
             }
         }
-        CloseCapturedPlayer(playerToClose);
         if (stoppedCurrentPlayback && failure != null)
         {
             NotifyPlaybackFailureSafely(failure);
@@ -1051,25 +1049,23 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         PlaybackStartObservation observation,
         Exception failure)
     {
-        if (!TryStopPlaybackForStartObservation(observation))
+        if (!TryClearPlaybackForStartObservation(observation))
         {
             return;
         }
         NotifyPlaybackFailureSafely(failure);
     }
 
-    private bool TryStopPlaybackForStartObservation(PlaybackStartObservation observation)
+    private bool TryClearPlaybackForStartObservation(PlaybackStartObservation observation)
     {
-        IBMSPlayer playerToClose;
         lock (sessionGate)
         {
             if (shutdownStarted || (observation != null && !IsCurrentPlaybackObservation(observation)))
             {
                 return false;
             }
-            playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
+            ClearPlaybackStateWithoutExternalCall(closeProcess: false);
         }
-        CloseCapturedPlayer(playerToClose);
         return true;
     }
 
@@ -1406,7 +1402,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             if (!IsPlaybackStartObservationCompleted(observation))
             {
-                TryStopPlaybackForStartObservation(observation);
+                TryClearPlaybackForStartObservation(observation);
             }
             return;
         }
@@ -1420,19 +1416,19 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             warnInvalidChart(value);
             if (playbackSettings.RepeatPlay && (playbackSettings.SinglePlay || index == 0))
             {
-                TryStopPlaybackForStartObservation(observation);
+                TryClearPlaybackForStartObservation(observation);
                 return;
             }
             remainingCandidates--;
             if (remainingCandidates <= 0)
             {
-                TryStopPlaybackForStartObservation(observation);
+                TryClearPlaybackForStartObservation(observation);
                 return;
             }
             int nextIndex = FindNextPlaybackIndex();
             if (nextIndex < 0 || nextIndex >= playbackQueue.Count)
             {
-                TryStopPlaybackForStartObservation(observation);
+                TryClearPlaybackForStartObservation(observation);
                 return;
             }
             index = nextIndex;
@@ -1534,7 +1530,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     {
                         if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
                         {
-                            TryStopPlaybackForStartObservation(playbackStartObservation);
+                            TryClearPlaybackForStartObservation(playbackStartObservation);
                         }
                         return;
                     }
