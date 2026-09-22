@@ -778,7 +778,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>曲</value>
   </data>
   <data name="Record_setting_encoder_desc" xml:space="preserve">
-    <value>※対応バイナリ: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe</value>
+    <value>※対応する実行ファイル: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe</value>
   </data>
   <data name="Download" xml:space="preserve">
     <value>ダウンロード</value>
@@ -1589,10 +1589,10 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>LR2 プレイログのアンインストール</value>
   </data>
   <data name="Lr2_play_history_schema_uninstall_desc" xml:space="preserve">
-    <value>LR2 を終了してから実行してください。対象の player score DB から LR2 プレイログの trigger または履歴 table を削除します。</value>
+    <value>LR2 を終了してから実行してください。対象のプレイヤー別スコアDBから LR2 プレイログの trigger または履歴 table を削除します。</value>
   </data>
   <data name="Lr2_play_history_schema_uninstall_score_db" xml:space="preserve">
-    <value>対象 score DB</value>
+    <value>対象スコアDB</value>
   </data>
   <data name="Lr2_play_history_schema_uninstall_mode" xml:space="preserve">
     <value>削除範囲</value>
@@ -1604,7 +1604,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>テーブルも含めて削除（既存のプレイログ履歴も削除）</value>
   </data>
   <data name="Lr2_play_history_schema_uninstall_warning" xml:space="preserve">
-    <value>この操作は元に戻せません。必要に応じて score DB を事前にバックアップしてください。</value>
+    <value>この操作は元に戻せません。必要に応じてスコアDBを事前にバックアップしてください。</value>
   </data>
   <data name="Lr2_play_history_schema_status_unknown" xml:space="preserve">
     <value>状態未確認</value>
@@ -1631,10 +1631,10 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>LR2 連携プロファイルではありません。</value>
   </data>
   <data name="Lr2_play_history_schema_message_score_db_path_not_configured" xml:space="preserve">
-    <value>score DB パスが設定されていません。</value>
+    <value>スコアDBのパスが設定されていません。</value>
   </data>
   <data name="Lr2_play_history_schema_message_score_db_file_not_found" xml:space="preserve">
-    <value>score DB ファイルが見つかりません。</value>
+    <value>スコアDBファイルが見つかりません。</value>
   </data>
   <data name="Lr2_play_history_schema_message_install_or_repair_failed_format" xml:space="preserve">
     <value>プレイログ schema の導入 / 修復に失敗しました: {0}</value>
@@ -1688,7 +1688,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>未確定 / 診断</value>
   </data>
   <data name="Play_history_summary_format" xml:space="preserve">
-    <value>{0}: {1} 件 / SCORE更新 {2} / CLEAR更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
+    <value>{0}: {1} 件 / スコア更新 {2} / クリア更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
   </data>
   <data name="Play_history_summary_judge_count" xml:space="preserve">
     <value>判定数</value>
@@ -1761,9 +1761,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Msg_confirm_lr2_play_history_schema_install_or_repair" xml:space="preserve">
     <value>LR2 を終了してから実行してください。
-プレイヤー別 score DB にプレイログ用の table / trigger を追加または修復します。
+プレイヤー別スコアDBにプレイログ用の table / trigger を追加または修復します。
 既存の score / player table は変更しません。
-必要に応じて score DB を事前にバックアップしてください。
+必要に応じてスコアDBを事前にバックアップしてください。
 
 続行しますか?</value>
   </data>
@@ -2273,7 +2273,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>LR2 song DB が見つかりませんでした。パス: {0}</value>
   </data>
   <data name="Error_LR2ScoreDBNotFound" xml:space="preserve">
-    <value>LR2 score DB が見つかりませんでした。パス: {0}</value>
+    <value>LR2スコアDBが見つかりませんでした。パス: {0}</value>
   </data>
   <data name="Error_IRCacheDirNotFound" xml:space="preserve">
     <value>{0}が見つかりませんでした</value>
@@ -3050,7 +3050,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>オーディオの初期化に失敗しました。&#xA;選択したバックエンド: {0}&#xA;失敗したバックエンド: {1}&#xA;ステージ: {2}&#xA;ネイティブエラー: {3} ({4})&#xA;選択したデバイス: {5}&#xA;実際のデバイス: {6}</value>
   </data>
   <data name="AudioDeviceTestTestSoundUnavailableReason" xml:space="preserve">
-    <value>テスト音声ファイルを利用できません。</value>
+    <value>設定されたテスト音声ファイルを利用できません。</value>
   </data>
   <data name="AudioDeviceTestPlayerCreationFailureReason" xml:space="preserve">
     <value>テスト音声のプレイヤーを作成できませんでした。</value>
@@ -3074,7 +3074,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>テスト音声の再生速度が許容範囲外でした。</value>
   </data>
   <data name="AudioDeviceTestObservationTimeoutReason" xml:space="preserve">
-    <value>テスト音声の再生完了を確認できないままタイムアウトしました。</value>
+    <value>テスト音声の再生完了を確認できないまま観測がタイムアウトしました。</value>
   </data>
   <data name="AudioDeviceTestUnexpectedFailureReason" xml:space="preserve">
     <value>テスト音声の再生中に予期しないエラーが発生しました。</value>
@@ -3097,7 +3097,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Settings_token_number" xml:space="preserve"><value>%NO% — 連番</value></data>
   <data name="Settings_token_file" xml:space="preserve"><value>%FILE% — BMS ファイル名</value></data>
   <data name="Settings_token_hash" xml:space="preserve"><value>%HASH% — MD5</value></data>
-  <data name="Settings_library_composition_description" xml:space="preserve"><value>ライブラリを単独で管理するか、LR2 のデータベースと連携するかを選択します。</value></data>
+  <data name="Settings_library_composition_description" xml:space="preserve"><value>ライブラリを単独で管理するか、LR2 と連携するかを選択します。</value></data>
   <data name="Settings_standalone_description" xml:space="preserve"><value>指定した BMS フォルダーからライブラリを構成します。</value></data>
   <data name="Settings_lr2_linked_description" xml:space="preserve"><value>LR2 の song.db と設定ファイルを使用してライブラリを構成します。</value></data>
   <data name="Settings_bms_directories_description" xml:space="preserve"><value>検索対象のフォルダーを追加、削除、またはドラッグ＆ドロップで登録します。</value></data>

@@ -20,6 +20,9 @@
 | リソース | 譜面が参照する音声・画像などのファイル。WPFリソースや翻訳リソースとは区別する。 | WAV、BMP、BGA、resource |
 | 構成ファイル | BMS 譜面と同じ導入単位で扱う音声・画像などの関連ファイル。アプリケーションの設定ファイルとは区別する。 | component file、関連ファイル |
 | 譜面情報 | 解析で得たノート数・長さ・密度など。所持行やスコアとは別に管理する。 | chart info、`chart_info` |
+| スコア | 譜面のプレイ結果に由来する値・状態・記録の総称。文脈によりクリア状況、EXスコア、またはそれらを含むDBの記録を指し、一般的な成績全般とは区別する。 | score、LR2 `score`、`score.db` |
+| クリア状況 | スコアのうち、譜面をどの条件でクリアしたかを表す状態。FAILED・EASY・NORMAL・HARD・FULLCOMBOなどを含む。 | clear status、clear |
+| クリアランプ | クリア状況をランプの区分として表示・集計する表現。 | clear lamp |
 | DJレベル | スコアを `AAA`、`AA`、`A`～`F`、`NP` などへ分類する区分。DBやコードの `rank` / `RankType` がこの区分を表す場合も、利用者向け表示と仕様ではDJレベルと呼ぶ。 | LR2 DJ level、`RankType`、`rank` |
 | 譜面形式別の保存主体 | 形式固有の保存行を保持し、値の変更に責任を持つ対象。 | storage owner |
 
@@ -39,6 +42,15 @@
 | 構成ファイル | component file | fichier associé | 구성 파일 | 组成文件 | 組成檔案 |
 | 本体URL | Main URL | URL principale | 메인 URL | 主 URL | 主要 URL |
 | リコメンド | Recommend | Recommend | 리코멘드 | Recommend | Recommend |
+| スコア | score | score | 스코어 | 成绩 | 成績 |
+| スコアDB | score DB | base de scores | 스코어 DB | 成绩数据库 | 成績資料庫 |
+| EXスコア | EX score | score EX | EX 스코어 | EX 分数 | EX 分數 |
+| クリア状況 | clear status | statut de clear | 클리어 상황 | 通关状态 | 通關狀態 |
+| クリアランプ | clear lamp | lampe de clear | 클리어 램프 | 通关灯位 | 通關燈位 |
+| ランプビューア | lamp viewer | visualiseur de lampes | 램프 뷰어 | 灯位查看器 | 燈位檢視器 |
+| ディレクトリ | directory | répertoire | 디렉터리 | 目录 | 目錄 |
+
+`score.db`、DBの `score` / `player` table など外部形式・コード上の識別子は翻訳せず原表記を保ちます。日本語の「クリア」が一覧の消去・初期化操作を表す場合は、譜面のクリア状況とは別概念として各言語の操作語を使います。
 
 「削除」のように日本語の表層語が同じでも、一覧から外す操作と実体を削除する操作など語義が異なる場合は、各言語で同一語へ機械的に統一しません。
 
