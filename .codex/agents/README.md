@@ -1,13 +1,16 @@
 # エージェントの役割設定
 
-役割・順序・権限の運用は[開発作業の仕様](../../devdocs/spec/development/agent-workflow.md)を正本とします。各TOMLは、その役割のモデル、推論強度、実行権限、読み始める資料を指定します。
+呼出し条件・共通契約・順序は[開発作業の仕様](../../devdocs/spec/development/agent-workflow.md)、各担当のモデル・推論強度・権限は各TOML、同時担当数と待機は[全体設定](../config.toml)を正本とします。
 
-| 設定 | 役割 |
+| 設定 | 用途 |
 | --- | --- |
-| [plan-clarifier.toml](plan-clarifier.toml) | 着手前の計画点検。 |
-| [test-contract-designer.toml](test-contract-designer.toml) | 必要な独立テスト設計。 |
+| [design-advisor.toml](design-advisor.toml) | 必要な設計判断への助言。 |
+| [test-contract-designer.toml](test-contract-designer.toml) | 実装前の独立テスト設計。 |
+| [plan-clarifier.toml](plan-clarifier.toml) | 実装直前の引継ぎ点検。 |
 | [implementation-worker.toml](implementation-worker.toml) | 確定した範囲の実装。 |
-| [issue-resolver.toml](issue-resolver.toml) | 実装中の重大な障害の解決。 |
-| [repo-static-review.toml](repo-static-review.toml) | 凍結した変更の読取り専用レビュー。 |
+| [issue-resolver.toml](issue-resolver.toml) | 通常の技術的障害の解決。 |
+| [critical-issue-resolver.toml](critical-issue-resolver.toml) | 重大な技術的障害の解決。 |
+| [repo-static-review.toml](repo-static-review.toml) | 通常変更の独立レビュー。 |
+| [critical-static-review.toml](critical-static-review.toml) | 重大変更の独立レビュー。 |
 
-全体の上限・待機方針は[config.toml](../config.toml)を参照します。説明文は日本語で書き、共通規則を各ファイルへ複製せず、役割固有の入力と禁止事項を示します。機械設定と意味を持つ応答識別子は原表記を保ちます。
+通常用と重大用は代替の入口であり、両方を毎回呼びません。TOMLには役割固有の入口と禁止事項を書き、共通手順を複製しません。
