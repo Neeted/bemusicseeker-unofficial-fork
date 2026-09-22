@@ -32,10 +32,13 @@
 
 `lang/*.json` では日本語の語義を正本とし、同じ概念を示す場合は次の表記を基準とします。文脈上の文法変化は許容しますが、別概念に読み替えません。
 
+日本語の文字列は `BeMusicSeeker/Properties/Resources.resx` と `lang/ja-JP.json` の値を一致させます。日本語が仕様・実装と食い違う場合は、日本語も訂正して各言語へ反映します。画面名・設定名・操作名を説明内で参照するときは、対応する表示名に揃えます。
+
 | 日本語概念 | en-US | fr-FR | ko-KR | zh-CN | zh-TW |
 | --- | --- | --- | --- | --- | --- |
 | 譜面 | chart | chart | 채보 | 谱面 | 譜面 |
 | 所持譜面 | owned chart | chart possédé | 보유 채보 | 已持有谱面 | 已持有譜面 |
+| アーティスト | artist | artiste | 아티스트 | 艺术家 | 演出者 |
 | プレイリスト | playlist | playlist | 플레이리스트 | 播放列表 | 播放清單 |
 | パッケージ（譜面） | package | paquet | 패키지 | 包 | 套件 |
 | 難易度表 | difficulty table | table de difficulté | 난이도표 | 难度表 | 難度表 |
@@ -49,10 +52,26 @@
 | クリアランプ | clear lamp | lampe de clear | 클리어 램프 | 通关灯位 | 通關燈位 |
 | ランプビューア | lamp viewer | visualiseur de lampes | 램프 뷰어 | 灯位查看器 | 燈位檢視器 |
 | ディレクトリ | directory | répertoire | 디렉터리 | 目录 | 目錄 |
+| フォルダ | folder | dossier | 폴더 | 文件夹 | 資料夾 |
+| ライブラリ | library | bibliothèque | 라이브러리 | 曲库 | 曲庫 |
+| カスタムフォルダ | custom folder | dossier personnalisé | 사용자 지정 폴더 | 自定义文件夹 | 自訂資料夾 |
+| 保留 | pending | en attente | 보류 | 已保留 | 已保留 |
+| 導入先（譜面パッケージ） | install destination | destination d’installation | 설치 대상 | 安装目标 | 安裝目標 |
+| データ取込み（操作） | import | importer | 가져오기 | 导入 | 匯入 |
+| プレイ回数 | play count | nombre de parties | 플레이 횟수 | 游玩次数 | 遊玩次數 |
+| 最終プレイ | last play | dernière partie | 마지막 플레이 | 最后游玩 | 最後遊玩 |
+| プレイログ | play log | journal de jeu | 플레이 로그 | 游玩日志 | 遊玩紀錄 |
+| プレイヤー（ユーザー／プロファイル） | player | profil du joueur | 플레이어 | 玩家配置 | 玩家設定檔 |
+| プリセット | preset | préréglage | 프리셋 | 预设 | 預設 |
+| 置換記号 | placeholder | marqueur de remplacement | 치환 기호 | 替换标记 | 取代標記 |
 
 `score.db`、DBの `score` / `player` table など外部形式・コード上の識別子は翻訳せず原表記を保ちます。日本語の「クリア」が一覧の消去・初期化操作を表す場合は、譜面のクリア状況とは別概念として各言語の操作語を使います。
 
 「削除」のように日本語の表層語が同じでも、一覧から外す操作と実体を削除する操作など語義が異なる場合は、各言語で同一語へ機械的に統一しません。
+
+保留は導入予約の待機列とは別の状態であり、自動インストール予定を意味しません。中国語の保留画面は「已保留」を基準に説明し、実際の待機バッチ数は保留状態の名前と区別します。パッケージの配置先にはインストールの語を使い、URL・プレイリスト等のデータ取込みと区別します。再生ソフトとユーザープロファイルも別の概念として訳し分けます。
+
+フランス語では `chart` と `URI` を男性名詞として冠詞・形容詞・分詞の一致を揃えます。ゲームのプレイは `partie`、音声再生は `lecture` とし、短い件数見出しの `Parties` は許容します。ファイル走査は `scan`、再スキャンは `scanner à nouveau` / `nouveau scan`、譜面解析は `analyse` として区別し、更新は略語ではなく `mise à jour` を基準にします。`FOLDER`、`OUTPUT`、`%ARTIST%` などの列名・外部形式・置換記号の識別子は原表記を維持します。
 
 ## データの識別と索引
 

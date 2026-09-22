@@ -490,7 +490,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>内蔵プレイヤー (音声のみ)</value>
   </data>
   <data name="Msg_error_cache_download" xml:space="preserve">
-    <value>LR2ランキンデータキャッシュの取得中にエラーが発生しました。
+    <value>LR2ランキングデータキャッシュの取得中にエラーが発生しました。
 この問題が一時的でない場合、開発者へ報告頂けると改善される場合があります。</value>
   </data>
   <data name="Target" xml:space="preserve">
@@ -647,7 +647,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>確認</value>
   </data>
   <data name="Record_setting_replacepattern" xml:space="preserve">
-    <value>置換文字列</value>
+    <value>使用できる置換記号</value>
   </data>
   <data name="Msg_ranking_cache_notfound" xml:space="preserve">
     <value>対象のデータは既にキャッシュより新しいか
@@ -851,7 +851,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>フォルダ並び順</value>
   </data>
   <data name="Msg_rename_to_invalid" xml:space="preserve">
-    <value>BMSファイルの拡張子を bmx/pms に変更し一覧から削除します
+    <value>BMSファイルの拡張子を .bmx / .pmx に変更し一覧から削除します
 よろしいですか？</value>
   </data>
   <data name="Add" xml:space="preserve">
@@ -1210,7 +1210,7 @@ BMSファイルが重複しないようにマージします。
     <value>このアプリについて</value>
   </data>
   <data name="Record_setting_normalize_average" xml:space="preserve">
-    <value>平均ラウドネス</value>
+    <value>RMS（実効値）</value>
   </data>
   <data name="Msg_fix_installation" xml:space="preserve">
     <value>再インストール機能ではBMSファイルのみ
@@ -1958,7 +1958,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>新規判定でも自動インストールせず保留に追加する</value>
   </data>
   <data name="Details_auto_apply_ambiguous_install_destination" xml:space="preserve">
-    <value>複数候補でも高一致なら第1候補を導入先に設定する</value>
+    <value>複数候補が残っても、第1候補のタイトル・アーティストの一致度が高い場合は、その候補を導入先に設定する</value>
   </data>
   <data name="Success" xml:space="preserve">
     <value>成功</value>
@@ -2108,7 +2108,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>BMSONファイル単体です</value>
   </data>
   <data name="Warning_NestedChartFileInPackage" xml:space="preserve">
-    <value>パッケージ直下以外に有効な譜面ファイルがあります。必要に応じて移動または無効な拡張子へ変更してください。</value>
+    <value>パッケージ内のサブフォルダに有効な譜面ファイルがあります。必要に応じて移動するか、無効な拡張子に変更してください。</value>
   </data>
   <data name="WarningDigest_NestedChart" xml:space="preserve">
     <value>サブフォルダ譜面</value>
@@ -2652,7 +2652,7 @@ cleanup-only成功: {3}
     <value>変更先のファイルパスと一致するファイルが見つかりませんでした</value>
   </data>
   <data name="Error_OldPathMismatch" xml:space="preserve">
-    <value>oldPathが指定されてしますが、bmsFile.pathとnewPathが一致しません</value>
+    <value>oldPathが指定されていますが、bmsFile.pathとnewPathが一致しません</value>
   </data>
   <data name="Error_RenameDestDirNotFound" xml:space="preserve">
     <value>変更先のディレクトリが見つかりませんでした: {0}</value>
@@ -2802,7 +2802,7 @@ cleanup-only成功: {3}
 検索フォルダを正しく指定して下さい</value>
   </data>
   <data name="Error_LR2UnicodePathUnsupported" xml:space="preserve">
-    <value>パスにユニコード文字が含まれているためLR2で認識できません</value>
+    <value>パスに Shift_JIS で表現できない文字が含まれているため、LR2 で認識できません。</value>
   </data>
   <data name="Confirm_RemoveAdditionalOutputBaseReferencedFormat" xml:space="preserve">
     <value>この出力先を使用しているプレイリストが {0} 件あります。
@@ -3253,7 +3253,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="FileDbMutationReport_DestinationTypeConflict_MergeGuidance" xml:space="preserve"><value>型衝突した統合元・宛先・登録状態は変更していません。宛先を確認してから、必要な場合は別の統合先を指定してください。詳細はログを確認してください。</value></data>
   <data name="FileDbMutationReport_File" xml:space="preserve"><value>ファイル</value></data>
   <data name="FileDbMutationReport_Directory" xml:space="preserve"><value>フォルダ</value></data>
-  <data name="LibraryChartRemovalReport_Title" xml:space="preserve"><value>ライブラリ削除の結果</value></data>
+  <data name="LibraryChartRemovalReport_Title" xml:space="preserve"><value>ライブラリからの譜面削除結果</value></data>
   <data name="LibraryChartRemovalReport_Counts" xml:space="preserve"><value>削除確認済みの譜面: {0}、削除未実行・実在未確認: {1}、削除結果未確認: {2}、対象が変更済み・解決不能: {3}</value></data>
   <data name="LibraryChartRemovalReport_CatalogNotAttempted" xml:space="preserve"><value>カタログ反映は実行されていません。</value></data>
   <data name="LibraryChartRemovalReport_CatalogDurable" xml:space="preserve"><value>カタログの保存完了を確認しました。</value></data>
