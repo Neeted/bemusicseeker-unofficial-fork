@@ -67,7 +67,7 @@ internal sealed class PlaylistLampViewerNavigationRequest
     /// <summary>Clear category when <see cref="Kind"/> is clear.</summary>
     internal PlaylistLampClearCategory? ClearCategory { get; }
 
-    /// <summary>DJ-rank category when <see cref="Kind"/> is rank.</summary>
+    /// <summary>DJ-level category when <see cref="Kind"/> is rank.</summary>
     internal PlaylistLampRankCategory? RankCategory { get; }
 
     /// <summary>Creates a folder-scoped viewer request from the core segment intent.</summary>
@@ -90,7 +90,7 @@ internal sealed class PlaylistLampViewerNavigationRequest
     /// <param name="playlistId">Stable playlist identity.</param>
     /// <param name="kind">Semantic graph kind.</param>
     /// <param name="clearCategory">Clear category for a clear request.</param>
-    /// <param name="rankCategory">DJ-rank category for a rank request.</param>
+    /// <param name="rankCategory">DJ-level category for a rank request.</param>
     /// <returns>The overall presentation intent.</returns>
     internal static PlaylistLampViewerNavigationRequest ForOverall(
         string playlistId,
@@ -295,14 +295,14 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     /// <summary>Current global clear-lamp segments in semantic order.</summary>
     public ObservableCollection<PlaylistLampViewerSegmentViewModel> ClearSegments => clearSegments;
 
-    /// <summary>Current global DJ-rank segments in semantic order.</summary>
+    /// <summary>Current global DJ-level segments in semantic order.</summary>
     public ObservableCollection<PlaylistLampViewerSegmentViewModel> RankSegments => rankSegments;
 
     /// <summary>Current global clear segments with positive display width.</summary>
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveClearSegments
         => clearSegments.Where(segment => segment.HasPositiveWidth);
 
-    /// <summary>Current global DJ-rank segments with positive display width.</summary>
+    /// <summary>Current global DJ-level segments with positive display width.</summary>
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveRankSegments
         => rankSegments.Where(segment => segment.HasPositiveWidth);
 
@@ -780,14 +780,14 @@ internal sealed class PlaylistLampViewerFolderRowViewModel : ViewModel
     /// <summary>Clear segments in semantic order.</summary>
     public ObservableCollection<PlaylistLampViewerSegmentViewModel> ClearSegments { get; }
 
-    /// <summary>DJ-rank segments in semantic order.</summary>
+    /// <summary>DJ-level segments in semantic order.</summary>
     public ObservableCollection<PlaylistLampViewerSegmentViewModel> RankSegments { get; }
 
     /// <summary>Clear segments that occupy a positive-width bar.</summary>
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveClearSegments
         => ClearSegments.Where(segment => segment.HasPositiveWidth);
 
-    /// <summary>DJ-rank segments that occupy a positive-width bar.</summary>
+    /// <summary>DJ-level segments that occupy a positive-width bar.</summary>
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveRankSegments
         => RankSegments.Where(segment => segment.HasPositiveWidth);
 

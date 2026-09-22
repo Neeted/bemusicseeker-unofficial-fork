@@ -18,6 +18,7 @@
 | 保留 | 導入先未確定などの理由で、通常の所持譜面として導入していない状態。 | pending |
 | リソース | 譜面が参照する音声・画像などのファイル。WPFリソースや翻訳リソースとは区別する。 | WAV、BMP、BGA、resource |
 | 譜面情報 | 解析で得たノート数・長さ・密度など。所持行やスコアとは別に管理する。 | chart info、`chart_info` |
+| DJレベル | スコアを `AAA`、`AA`、`A`～`F`、`NP` などへ分類する区分。DBやコードの `rank` / `RankType` がこの区分を表す場合も、利用者向け表示と仕様ではDJレベルと呼ぶ。 | LR2 DJ level、`RankType`、`rank` |
 | 譜面形式別の保存主体 | 形式固有の保存行を保持し、値の変更に責任を持つ対象。 | storage owner |
 
 関連仕様: [譜面モデル](library/chart-model.md)、[データと索引](core/data-and-indexes.md)。

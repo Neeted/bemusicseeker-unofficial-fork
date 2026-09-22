@@ -1177,8 +1177,8 @@ playlist:"Satellite Sub"
 <p>プレイリストツリーの項目またはプレイリストサマリーの 1 行を右クリックし <code>ランプビューアを開く</code> を選びます。同じプレイリストでも選ぶたびに新しいウィンドウが作られるため、複数のビューアを独立して開いておけます。メインウィンドウを閉じるとビューアもすべて閉じます。</p>
 <h4 id="画面構成_1">画面構成</h4>
 <p>ビューアは読み込みが完了して表示できる状態になってから開きます。上部には全譜面、所持、未所持、所持率、使用中のスコアソース、プレイリスト最終更新のカードを表示します。プレイ済み、未プレイ、プレイ率、平均 EX スコア率、全体クリア率のカードも表示します。</p>
-<p>グラフは左半分がクリアランプ、右半分が DJ ランクです。各通常フォルダはプレイリストの順番に 1 行ずつ並び、左右それぞれを <code>フォルダ名 | 100% 積み上げバー | 譜面数</code> の順で表示します。フォルダが多い場合も 1 つのスクロール領域で確認できます。空の通常フォルダも譜面数 0 の行として表示されます。</p>
-<p>クリアの順序は <code>MAX</code>、<code>PERFECT</code>、<code>FC</code>、<code>EXHARD</code>、<code>HARD</code>、<code>NORMAL</code>、<code>EASY</code>、<code>ASSIST</code>、<code>FAILED</code>、<code>NP</code> です。LR2 のスコアソースではビューア全体から <code>MAX</code> と <code>EXHARD</code> を省略します。ランクの順序は <code>AAA</code>、<code>AA</code>、<code>A</code>、<code>B</code>、<code>C</code>、<code>D</code>、<code>E</code>、<code>F</code>、<code>NP</code> で、ランク <code>MAX</code> は <code>AAA</code> にまとめます。<code>ASSIST</code> には <code>INVALID</code> と <code>L_ASSIST</code> を含めます。未所持の譜面は <code>所持</code> と <code>未所持</code> のカードで確認でき、未プレイの譜面は <code>NP</code> として数えます。</p>
+<p>グラフは左半分がクリアランプ、右半分が DJレベルです。各通常フォルダはプレイリストの順番に 1 行ずつ並び、左右それぞれを <code>フォルダ名 | 100% 積み上げバー | 譜面数</code> の順で表示します。フォルダが多い場合も 1 つのスクロール領域で確認できます。空の通常フォルダも譜面数 0 の行として表示されます。</p>
+<p>クリアの順序は <code>MAX</code>、<code>PERFECT</code>、<code>FC</code>、<code>EXHARD</code>、<code>HARD</code>、<code>NORMAL</code>、<code>EASY</code>、<code>ASSIST</code>、<code>FAILED</code>、<code>NP</code> です。LR2 のスコアソースではビューア全体から <code>MAX</code> と <code>EXHARD</code> を省略します。DJレベルの順序は <code>AAA</code>、<code>AA</code>、<code>A</code>、<code>B</code>、<code>C</code>、<code>D</code>、<code>E</code>、<code>F</code>、<code>NP</code> で、値 <code>MAX</code> は <code>AAA</code> にまとめます。<code>ASSIST</code> には <code>INVALID</code> と <code>L_ASSIST</code> を含めます。未所持の譜面は <code>所持</code> と <code>未所持</code> のカードで確認でき、未プレイの譜面は <code>NP</code> として数えます。</p>
 <div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>LR2 でスコアを保存しないオプションを使ってプレイすると、EASY のクリアランプが残っていても、対応する <code>op_history</code> のビットが設定されないことがあります。この場合、BeMusicSeeker はその記録をビューア上で <code>ASSIST</code> として扱います。</p></div>
 <p>平均 EX スコア率はプレイ済み譜面の算術平均です。全体クリア率は <code>ASSIST</code> 以上の譜面数 ÷ 全譜面数です。空の分母は <code>0%</code> ではなく翻訳済みの「利用不可」と表示します。</p>
 <p>スコアデータが未設定または読み込みに失敗した場合も、全譜面、所持、未所持、所持率、スコアソース、プレイリスト最終更新のカードは表示します。この場合、両グラフ、スコア依存カード、区分からの遷移は利用できません。プレイリストの削除や集計失敗がビューアを開く前に起きた場合は案内ダイアログを 1 回表示して開かず、表示後に削除された場合はそのビューアだけを静かに閉じます。表示後の集計失敗では案内ダイアログを 1 回表示して、そのビューアだけを閉じます。再試行ボタンはありません。</p>
@@ -1232,7 +1232,7 @@ playlist:"Satellite Sub"
 <tbody>
 <tr>
 <td><code>全曲ALL</code></td>
-<td>プレイリスト全体の譜面を集めた <code>ALL</code> フォルダを出力します。表全体をまとめて開きたい場合や、クリア状態・DJ レベル・各種並び順をプレイリスト全体で見たい場合に使います。</td>
+<td>プレイリスト全体の譜面を集めた <code>ALL</code> フォルダを出力します。表全体をまとめて開きたい場合や、クリア状態・DJレベル・各種並び順をプレイリスト全体で見たい場合に使います。</td>
 </tr>
 <tr>
 <td><code>フォルダ別</code></td>
@@ -1251,7 +1251,7 @@ playlist:"Satellite Sub"
 <td>クリア状態別のフォルダを出力します。<code>0 NO PLAY</code> から <code>7 P.A</code> までの番号付きフォルダ名にしているため、LR2 の TITLE 順表示でも状態順に並びます。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
 </tr>
 <tr>
-<td><code>DJ レベル</code></td>
+<td><code>DJレベル</code></td>
 <td><code>AAA</code>、<code>AA</code>、<code>A</code>、<code>UNDER A</code> に分けたフォルダを出力します。スコア詰めの対象を探すときに使います。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
 </tr>
 <tr>
@@ -1264,7 +1264,7 @@ playlist:"Satellite Sub"
 </tr>
 <tr>
 <td><code>ランダム</code></td>
-<td>単独のフォルダ種別ではなく、<code>全曲ALL</code>、<code>フォルダ別</code>、<code>レベル</code>、<code>クリア</code>、<code>DJ レベル</code> に <code>#MAXTRACKS 1</code> の RANDOM 版を追加します。同じ場所に出る通常版と RANDOM 版は、通常版が先、RANDOM 版が後ろにまとまる順番で出力されます。</td>
+<td>単独のフォルダ種別ではなく、<code>全曲ALL</code>、<code>フォルダ別</code>、<code>レベル</code>、<code>クリア</code>、<code>DJレベル</code> に <code>#MAXTRACKS 1</code> の RANDOM 版を追加します。同じ場所に出る通常版と RANDOM 版は、通常版が先、RANDOM 版が後ろにまとまる順番で出力されます。</td>
 </tr>
 <tr>
 <td><code>BPM 順</code></td>
@@ -1284,8 +1284,8 @@ playlist:"Satellite Sub"
 </tr>
 </tbody>
 </table></div>
-<p><code>全曲ALL</code> はプレイリスト全体の出力範囲、<code>フォルダ別</code> はプレイリスト内フォルダごとの出力範囲を追加します。<code>クリア</code>、<code>DJ レベル</code>、<code>BPM 順</code>、<code>BP 順</code>、<code>プレイ回数順</code>、<code>最終プレイ順</code> は、この 2 つの範囲設定に従って <code>.lr2folder</code> を出力します。</p>
-<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p><code>クリア</code> の <code>2 ASSIST</code> は、アシスト系オプションを使って EASY クリアランプが付いた譜面を分けるためのフォルダです。この状態では LR2 上のクリアランプは EASY 相当になりますが、EASY ゲージでクリアした履歴は残らないため、<code>3 EASY</code> とは別に検出しています。</p></div><div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>LR2 / OpenLR2 はカスタムフォルダを開くときに DB を参照します。クリア状態、DJ レベル、BP、プレイ回数などは、曲をプレイした後に <code>.lr2folder</code> を再出力しなくても、DB が更新されていれば反映されます。</p></div><div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p><code>最終プレイ順</code> は、プレイログ機能が LR2 <code>score.db</code> に作成する <code>bms_lr2_last_play</code> を参照します。プレイログ用 schema が未導入でも最終プレイ順のカスタムフォルダ自体は出力されますが、LR2 / OpenLR2 上で利用するにはプレイログ用 schema の導入が必要です。</p></div><div class="markdown-alert markdown-alert-tip"><p class="markdown-alert-title">Tip</p><p>出力する <code>.lr2folder</code> の数が増えると LR2 側の表示や DB 参照が重くなる場合があります。最初は <code>全曲ALL</code>、<code>フォルダ別</code> と必要な数種類だけを有効にし、使わない分類は OFF にしておくと管理しやすくなります。</p></div>
+<p><code>全曲ALL</code> はプレイリスト全体の出力範囲、<code>フォルダ別</code> はプレイリスト内フォルダごとの出力範囲を追加します。<code>クリア</code>、<code>DJレベル</code>、<code>BPM 順</code>、<code>BP 順</code>、<code>プレイ回数順</code>、<code>最終プレイ順</code> は、この 2 つの範囲設定に従って <code>.lr2folder</code> を出力します。</p>
+<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p><code>クリア</code> の <code>2 ASSIST</code> は、アシスト系オプションを使って EASY クリアランプが付いた譜面を分けるためのフォルダです。この状態では LR2 上のクリアランプは EASY 相当になりますが、EASY ゲージでクリアした履歴は残らないため、<code>3 EASY</code> とは別に検出しています。</p></div><div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>LR2 / OpenLR2 はカスタムフォルダを開くときに DB を参照します。クリア状態、DJレベル、BP、プレイ回数などは、曲をプレイした後に <code>.lr2folder</code> を再出力しなくても、DB が更新されていれば反映されます。</p></div><div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p><code>最終プレイ順</code> は、プレイログ機能が LR2 <code>score.db</code> に作成する <code>bms_lr2_last_play</code> を参照します。プレイログ用 schema が未導入でも最終プレイ順のカスタムフォルダ自体は出力されますが、LR2 / OpenLR2 上で利用するにはプレイログ用 schema の導入が必要です。</p></div><div class="markdown-alert markdown-alert-tip"><p class="markdown-alert-title">Tip</p><p>出力する <code>.lr2folder</code> の数が増えると LR2 側の表示や DB 参照が重くなる場合があります。最初は <code>全曲ALL</code>、<code>フォルダ別</code> と必要な数種類だけを有効にし、使わない分類は OFF にしておくと管理しやすくなります。</p></div>
 <h3 id="url1url2-補完">URL1/URL2 補完</h3>
 <p>プレイリストの <code>URL1</code> / <code>URL2</code> が空の場合、または既知のリンク切れサイトを指している場合、MD5 をもとに外部 TSV や Stella Uploader 由来の情報から URL を補完できます。</p>
 <p>既知のリンク切れサイトは、<code>gnqg.rosx.net</code> または <code>absolute.pv.land.to</code> を含む URL として判定します。HTTP/HTTPS の表記ゆれや web.archive.org 経由の URL も同じく補完対象として扱います。補完データがない場合、元の URL はそのまま残ります。</p>

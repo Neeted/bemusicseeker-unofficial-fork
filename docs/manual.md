@@ -660,9 +660,9 @@ From a playlist tree item or a single playlist-summary row, choose `Open lamp vi
 
 The viewer opens after loading has completed and the result can be displayed. The top cards show total charts, owned, missing, ownership rate, active score source, and playlist last update. A second card group shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.
 
-The graph area has clear lamps on the left and DJ ranks on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use `folder name | 100%-stacked bar | chart count`. Empty ordinary folders remain visible with a count of zero.
+The graph area has clear lamps on the left and DJ levels on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use `folder name | 100%-stacked bar | chart count`. Empty ordinary folders remain visible with a count of zero.
 
-The clear order is `MAX`, `PERFECT`, `FC`, `EXHARD`, `HARD`, `NORMAL`, `EASY`, `ASSIST`, `FAILED`, `NP`. With an LR2 score source, `MAX` and `EXHARD` are omitted from every viewer surface. The rank order is `AAA`, `AA`, `A`, `B`, `C`, `D`, `E`, `F`, `NP`; rank `MAX` is included in `AAA`. `ASSIST` includes the `INVALID` and `L_ASSIST` clear states. Check missing charts with the `Owned` and `Missing` cards; unplayed charts are counted as `NP`.
+The clear order is `MAX`, `PERFECT`, `FC`, `EXHARD`, `HARD`, `NORMAL`, `EASY`, `ASSIST`, `FAILED`, `NP`. With an LR2 score source, `MAX` and `EXHARD` are omitted from every viewer surface. The DJ level order is `AAA`, `AA`, `A`, `B`, `C`, `D`, `E`, `F`, `NP`; value `MAX` is included in `AAA`. `ASSIST` includes the `INVALID` and `L_ASSIST` clear states. Check missing charts with the `Owned` and `Missing` cards; unplayed charts are counted as `NP`.
 
 > [!NOTE]
 > When LR2 is played with an option that disables score saving, the EASY clear lamp may remain even when the corresponding `op_history` bit is not set. BeMusicSeeker treats that record as `ASSIST` in the viewer.

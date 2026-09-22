@@ -245,7 +245,7 @@ LR2と連携する:
     <value>オーディオ</value>
   </data>
   <data name="Msg_show_chart" xml:space="preserve">
-    <value>譜面サイトに未登録の譜面です。
+    <value>譜面ビューアに未登録の譜面です。
 譜面を登録しますか？</value>
   </data>
   <data name="Msg_init_completed" xml:space="preserve">
@@ -364,7 +364,7 @@ LR2と連携する:
     <value>プロパティ</value>
   </data>
   <data name="Register_chart_with_viewer" xml:space="preserve">
-    <value>譜面サイトに登録する</value>
+    <value>譜面ビューアに登録する</value>
   </data>
   <data name="General" xml:space="preserve">
     <value>一般</value>
@@ -631,7 +631,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>※上記条件で起動時にバックアップが取得されます</value>
   </data>
   <data name="Msg_register_chart" xml:space="preserve">
-    <value>選択中の複数の譜面を譜面サイトに登録します
+    <value>選択中の複数の譜面を譜面ビューアに登録します
 続行しますか？</value>
   </data>
   <data name="Record_setting_samplerate" xml:space="preserve">
@@ -993,7 +993,7 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>DJレベル</value>
   </data>
   <data name="PlaylistProp_ftype_djlevel_tooltip" xml:space="preserve">
-    <value>DJ レベル別のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
+    <value>DJレベル別のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
   </data>
   <data name="Msg_override_level_error_recommended" xml:space="preserve">
     <value>この操作はリコメンドフォルダには使用できません</value>
@@ -2666,18 +2666,6 @@ cleanup-only成功: {3}
   <data name="Error_UnsupportedType" xml:space="preserve">
     <value>非対応のtypeです {0}</value>
   </data>
-  <data name="InsaneBMSDiffTable_Easy" xml:space="preserve">
-    <value>発狂BMS難度推定表 EASY</value>
-  </data>
-  <data name="InsaneBMSDiffTable_Normal" xml:space="preserve">
-    <value>発狂BMS難度推定表 NORMAL</value>
-  </data>
-  <data name="InsaneBMSDiffTable_Hard" xml:space="preserve">
-    <value>発狂BMS難度推定表 HARD</value>
-  </data>
-  <data name="InsaneBMSDiffTable_FC" xml:space="preserve">
-    <value>発狂BMS難度推定表 FC</value>
-  </data>
   <data name="Error_ScoreDBConnectionFailed" xml:space="preserve">
     <value>スコアDB接続に失敗しました</value>
   </data>
@@ -3194,7 +3182,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_average_ex_rate" xml:space="preserve"><value>平均EXスコア率</value></data>
   <data name="PlaylistLampViewer_clear_rate" xml:space="preserve"><value>クリア率</value></data>
   <data name="PlaylistLampViewer_clear_lamp" xml:space="preserve"><value>クリアランプ</value></data>
-  <data name="PlaylistLampViewer_rank_lamp" xml:space="preserve"><value>DJランク</value></data>
+  <data name="PlaylistLampViewer_rank_lamp" xml:space="preserve"><value>DJレベル</value></data>
   <data name="PlaylistLampViewer_unavailable" xml:space="preserve"><value>利用不可</value></data>
   <data name="PlaylistLampViewer_selected" xml:space="preserve"><value>選択中</value></data>
   <data name="PlaylistLampViewer_not_selected" xml:space="preserve"><value>未選択</value></data>

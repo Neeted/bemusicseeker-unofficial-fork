@@ -1701,18 +1701,6 @@ public class Resources
     public static string Error_UnsupportedType => ResourceManager.GetString("Error_UnsupportedType", resourceCulture);
 
 
-    public static string InsaneBMSDiffTable_Easy => ResourceManager.GetString("InsaneBMSDiffTable_Easy", resourceCulture);
-
-
-    public static string InsaneBMSDiffTable_Normal => ResourceManager.GetString("InsaneBMSDiffTable_Normal", resourceCulture);
-
-
-    public static string InsaneBMSDiffTable_Hard => ResourceManager.GetString("InsaneBMSDiffTable_Hard", resourceCulture);
-
-
-    public static string InsaneBMSDiffTable_FC => ResourceManager.GetString("InsaneBMSDiffTable_FC", resourceCulture);
-
-
     public static string Error_ScoreDBConnectionFailed => ResourceManager.GetString("Error_ScoreDBConnectionFailed", resourceCulture);
 
 
@@ -2153,7 +2141,7 @@ public class Resources
     /// <summary>Clear-lamp graph label.</summary>
     public static string PlaylistLampViewer_clear_lamp => ResourceManager.GetString("PlaylistLampViewer_clear_lamp", resourceCulture);
 
-    /// <summary>DJ-rank graph label.</summary>
+    /// <summary>DJ-level graph label.</summary>
     public static string PlaylistLampViewer_rank_lamp => ResourceManager.GetString("PlaylistLampViewer_rank_lamp", resourceCulture);
 
     /// <summary>Localized unavailable-value label.</summary>

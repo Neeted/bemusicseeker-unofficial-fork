@@ -67,7 +67,7 @@ internal enum PlaylistLampClearCategory
 }
 
 /// <summary>
-/// DJ rank graph で公開する意味上のカテゴリです。
+/// DJレベル graph で公開する意味上のカテゴリです。
 /// </summary>
 internal enum PlaylistLampRankCategory
 {
@@ -127,7 +127,7 @@ internal sealed class PlaylistLampScore
     /// <param name="hash">LR2 の MD5。</param>
     /// <param name="sha256">beatoraja の SHA256。</param>
     /// <param name="clear">保存されていた clear 値。</param>
-    /// <param name="rank">保存されていた DJ rank。</param>
+    /// <param name="rank">保存されていた DJレベル。</param>
     /// <param name="exScore">保存されていた EX score。</param>
     /// <param name="totalNotes">譜面の総ノーツ数。</param>
     /// <param name="playCount">プレイ回数。</param>
@@ -160,7 +160,7 @@ internal sealed class PlaylistLampScore
     /// <summary>保存されていた clear 値です。</summary>
     public ClearType Clear { get; }
 
-    /// <summary>保存されていた DJ rank です。</summary>
+    /// <summary>保存されていた DJレベル です。</summary>
     public RankType Rank { get; }
 
     /// <summary>PERFECT 判定数です。</summary>
@@ -1151,7 +1151,7 @@ internal sealed class PlaylistLampFolderRow
     /// <param name="ownedCount">所持 chart 数。</param>
     /// <param name="missingCount">未所持 chart 数。</param>
     /// <param name="clearSegments">clear category segments。</param>
-    /// <param name="rankSegments">DJ rank category segments。</param>
+    /// <param name="rankSegments">DJレベル category segments。</param>
     internal PlaylistLampFolderRow(
         string folderName,
         int count,
@@ -1185,7 +1185,7 @@ internal sealed class PlaylistLampFolderRow
     /// <summary>clear segments。常に仕様順です。</summary>
     public IReadOnlyList<PlaylistLampSegment> ClearSegments { get; }
 
-    /// <summary>DJ rank segments。常に仕様順です。</summary>
+    /// <summary>DJレベル segments。常に仕様順です。</summary>
     public IReadOnlyList<PlaylistLampSegment> RankSegments { get; }
 
     /// <summary>folder row の segment invocation が有効かどうかです。</summary>
@@ -1353,7 +1353,7 @@ internal sealed class PlaylistLampAggregationResult
     /// <summary>playlist 全体 clear graph segments。</summary>
     public IReadOnlyList<PlaylistLampSegment> ClearSegments { get; }
 
-    /// <summary>playlist 全体 DJ rank graph segments。</summary>
+    /// <summary>playlist 全体 DJレベル graph segments。</summary>
     public IReadOnlyList<PlaylistLampSegment> RankSegments { get; }
 
     /// <summary>playlist 全体統計。</summary>

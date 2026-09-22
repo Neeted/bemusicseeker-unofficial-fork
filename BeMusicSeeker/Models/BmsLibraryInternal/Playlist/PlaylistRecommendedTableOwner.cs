@@ -506,19 +506,19 @@ internal sealed class PlaylistRecommendedTableOwner
         switch (type)
         {
             case EstimationTableType.Easy:
-                name = table.org_name = Resources.InsaneBMSDiffTable_Easy;
+                name = table.org_name = Resources.Insane_estimation_table_easy;
                 table.org_symbol = "E★";
                 break;
             case EstimationTableType.Normal:
-                name = table.org_name = Resources.InsaneBMSDiffTable_Normal;
+                name = table.org_name = Resources.Insane_estimation_table_normal;
                 table.org_symbol = "N★";
                 break;
             case EstimationTableType.Hard:
-                name = table.org_name = Resources.InsaneBMSDiffTable_Hard;
+                name = table.org_name = Resources.Insane_estimation_table_hard;
                 table.org_symbol = "H★";
                 break;
             default:
-                name = table.org_name = Resources.InsaneBMSDiffTable_FC;
+                name = table.org_name = Resources.Insane_estimation_table_fc;
                 table.org_symbol = "F★";
                 break;
         }

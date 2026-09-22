@@ -44,7 +44,7 @@ internal sealed class PlaylistLampAggregationService
     internal IReadOnlyList<PlaylistLampClearCategory> ClearCategoryOrder => clearCategoryOrder;
 
     /// <summary>
-    /// DJ rank category の公開順です。
+    /// DJレベル category の公開順です。
     /// </summary>
     internal IReadOnlyList<PlaylistLampRankCategory> RankCategoryOrder => rankCategoryOrder;
 
