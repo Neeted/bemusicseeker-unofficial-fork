@@ -15,13 +15,32 @@
 | カタログ | 管理対象の譜面とフォルダの正本。ファイルの実在確認やリソース逆引きとは別の役割。 | catalog、`OwnedChartCollectionState` |
 | 所持譜面 | カタログ上で管理される譜面。未実行の導入予約や推定先だけでは所持としない。 | owned chart |
 | パッケージ | 導入・保留・移動などで扱う譜面と関連ファイルのまとまり。 | package、`ChartPackage` |
+| リコメンド | Walkure（walkure.net）が個人のクリア状況から、ランプを更新できそうな譜面を提示する固有機能。一般的な「おすすめ」と区別する。 | Recommend、リコメンド、`PlaylistRecommendedTableOwner` |
 | 保留 | 導入先未確定などの理由で、通常の所持譜面として導入していない状態。 | pending |
 | リソース | 譜面が参照する音声・画像などのファイル。WPFリソースや翻訳リソースとは区別する。 | WAV、BMP、BGA、resource |
+| 構成ファイル | BMS 譜面と同じ導入単位で扱う音声・画像などの関連ファイル。アプリケーションの設定ファイルとは区別する。 | component file、関連ファイル |
 | 譜面情報 | 解析で得たノート数・長さ・密度など。所持行やスコアとは別に管理する。 | chart info、`chart_info` |
 | DJレベル | スコアを `AAA`、`AA`、`A`～`F`、`NP` などへ分類する区分。DBやコードの `rank` / `RankType` がこの区分を表す場合も、利用者向け表示と仕様ではDJレベルと呼ぶ。 | LR2 DJ level、`RankType`、`rank` |
 | 譜面形式別の保存主体 | 形式固有の保存行を保持し、値の変更に責任を持つ対象。 | storage owner |
 
 関連仕様: [譜面モデル](library/chart-model.md)、[データと索引](core/data-and-indexes.md)。
+
+### 表示文言の翻訳用語
+
+`lang/*.json` では日本語の語義を正本とし、同じ概念を示す場合は次の表記を基準とします。文脈上の文法変化は許容しますが、別概念に読み替えません。
+
+| 日本語概念 | en-US | fr-FR | ko-KR | zh-CN | zh-TW |
+| --- | --- | --- | --- | --- | --- |
+| 譜面 | chart | chart | 채보 | 谱面 | 譜面 |
+| 所持譜面 | owned chart | chart possédé | 보유 채보 | 已持有谱面 | 已持有譜面 |
+| プレイリスト | playlist | playlist | 플레이리스트 | 播放列表 | 播放清單 |
+| パッケージ（譜面） | package | paquet | 패키지 | 包 | 套件 |
+| 難易度表 | difficulty table | table de difficulté | 난이도표 | 难度表 | 難度表 |
+| 構成ファイル | component file | fichier associé | 구성 파일 | 组成文件 | 組成檔案 |
+| 本体URL | Main URL | URL principale | 메인 URL | 主 URL | 主要 URL |
+| リコメンド | Recommend | Recommend | 리코멘드 | Recommend | Recommend |
+
+「削除」のように日本語の表層語が同じでも、一覧から外す操作と実体を削除する操作など語義が異なる場合は、各言語で同一語へ機械的に統一しません。
 
 ## データの識別と索引
 
