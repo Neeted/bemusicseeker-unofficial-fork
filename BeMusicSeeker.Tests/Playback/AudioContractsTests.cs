@@ -447,7 +447,10 @@ public sealed class AudioContractsTests
 
         public int MaxVoices => 0;
 
-        internal Exception InitializeException { get; set; }
+        /// <summary>
+        /// 初期化時に送出する例外。例外を注入しない場合は <see langword="null"/>。
+        /// </summary>
+        internal Exception? InitializeException { get; init; }
 
         public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
         {
