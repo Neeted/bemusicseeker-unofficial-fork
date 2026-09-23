@@ -45,6 +45,7 @@ public sealed class MainWindowExternalShellTests
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                     externalShellGateway: gateway);
                 viewModel = composition.CreateMainWindowViewModel();
                 object previousVmResource = Application.Current.Resources["vm"];
@@ -146,6 +147,7 @@ public sealed class MainWindowExternalShellTests
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                     externalShellGateway: new RecordingExternalShellGateway());
                 viewModel = composition.CreateMainWindowViewModel();
                 object previousVmResource = Application.Current.Resources["vm"];

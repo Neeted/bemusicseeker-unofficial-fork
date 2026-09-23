@@ -479,7 +479,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public async Task StartupPostInitializationIdleRouteEnrollsWarmupOnceAfterPredecessors(
         bool enrollmentQueuesLr2)
     {
-        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        MainWindowViewModel? owner = null;
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             "BeMusicSeeker_StartupWarmup_" + Guid.NewGuid().ToString("N"));
@@ -494,31 +494,69 @@ public sealed class MainWindowViewModelStartupProgressTests
             songDb.CreateTable<LR2SongDBExtended.bmson_song>();
         }
 
-        Thread writerThread = null!;
+        Thread? writerThread = null;
+        StartupBackgroundTaskSchedulerOwner? scheduler = null;
         var releaseWriterGuard = new ManualResetEventSlim(false);
         var writerGuardReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var writerThreadCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var predecessorStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePredecessor = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var warmupStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var postInitializationCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, new Settings());
             library.BMSFiles = [];
-            IStartupLibraryApplicationPort applicationPort = owner;
-            applicationPort.AttachStartupLibrary(library);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                owner = MainWindowViewModelTestFactory.Create();
+                IStartupLibraryApplicationPort applicationPort = owner;
+                applicationPort.AttachStartupLibrary(library);
 
-            StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
-            long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
-            progress.ApplyPresentation(false, null, null, 0.0, 1.0);
-            owner.ProgressHub.BeginStartupBackgroundInitializationPresentation();
-            Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
-            SetPrivateField(owner, "startupPostInitializationCompletionTracking", true);
-            SetPrivateField(owner, "startupInitializationCompleteLogged", true);
-            SetPrivateField(owner, "startupCompletionContinuationToken", operationToken);
-            StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
+                // 開始の表示反映を同期完了してから、起動進捗を消して背景表示へ進める。
+                StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
+                long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+                progress.ApplyPresentation(false, null, null, 0.0, 1.0);
+                owner.ProgressHub.BeginStartupBackgroundInitializationPresentation();
+                Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+                SetPrivateField(owner, "startupPostInitializationCompletionTracking", true);
+                SetPrivateField(owner, "startupInitializationCompleteLogged", true);
+                SetPrivateField(owner, "startupCompletionContinuationToken", operationToken);
+            });
+            Assert.IsNotNull(owner);
+            // AttachStartupLibrary が予約した行キャッシュの反映は BMS 読取りロックを使う。
+            // その UI 処理を完了してから、ウォームアップを止める writer guard を取得する。
+            TestUiDispatcherHost.Drain();
+            scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
                 owner,
                 "startupBackgroundTaskScheduler");
             object warmupOwner = GetPrivateField<object>(owner, "startupPostInitializationWarmupOwner");
-            var predecessorStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var releasePredecessor = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Action<long, long> schedulerIdleChanged = GetPrivateField<Action<long, long>>(
+                scheduler,
+                "schedulerIdleChanged");
+            SetPrivateField(scheduler, "schedulerIdleChanged", (Action<long, long>)((generation, revision) =>
+            {
+                try
+                {
+                    schedulerIdleChanged(generation, revision);
+                    // 通知元は再入可能な予約処理内の場合もあるため、ここから UI を同期的に待たない。
+                    if (owner.RegularChartList.IsVirtualOrderPrewarmRunning)
+                    {
+                        warmupStarted.TrySetResult(true);
+                    }
+                    if (GetPrivateField<bool>(owner, "startupPostInitializationCompletionLogged")
+                        && !owner.ProgressHub.IsStartupBackgroundInitializationActive)
+                    {
+                        postInitializationCompleted.TrySetResult(true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    warmupStarted.TrySetException(exception);
+                    postInitializationCompleted.TrySetException(exception);
+                    throw;
+                }
+            }));
 
             writerThread = new Thread((ThreadStart)delegate
             {
@@ -532,6 +570,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 catch (Exception exception)
                 {
                     writerGuardReady.TrySetException(exception);
+                    writerThreadCompleted.TrySetException(exception);
                 }
                 finally
                 {
@@ -560,69 +599,101 @@ public sealed class MainWindowViewModelStartupProgressTests
                 null,
                 async () =>
                 {
-                    if (enrollmentQueuesLr2)
+                    try
                     {
-                        Assert.IsTrue(scheduler.Queue(
-                            "lr2_song_db_sync",
-                            "test",
-                            null,
-                            async () =>
-                            {
-                                predecessorStarted.TrySetResult(true);
-                                await releasePredecessor.Task;
-                            }));
-                        return;
-                    }
+                        if (enrollmentQueuesLr2)
+                        {
+                            Assert.IsTrue(scheduler.Queue(
+                                "lr2_song_db_sync",
+                                "test",
+                                null,
+                                async () =>
+                                {
+                                    predecessorStarted.TrySetResult(true);
+                                    await releasePredecessor.Task;
+                                }));
+                            return;
+                        }
 
-                    predecessorStarted.TrySetResult(true);
-                    await releasePredecessor.Task;
+                        predecessorStarted.TrySetResult(true);
+                        await releasePredecessor.Task;
+                    }
+                    catch (Exception exception)
+                    {
+                        predecessorStarted.TrySetException(exception);
+                        throw;
+                    }
                 }));
 
             scheduler.Start();
             scheduler.MarkPostInitializationSchedulingComplete();
             await predecessorStarted.Task;
-            progress.ApplyPresentation(false, null, null, 0.0, 1.0);
-            Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
-            Assert.IsFalse(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+                Assert.IsFalse(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
+            });
 
             releasePredecessor.TrySetResult(true);
-            Assert.IsTrue(
-                SpinWait.SpinUntil(
-                    () => owner.RegularChartList.IsVirtualOrderPrewarmRunning,
-                    TimeSpan.FromSeconds(5)),
-                scheduler.DescribeWaitState());
-            Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
-            Assert.IsFalse(GetPrivateField<bool>(owner, "startupPostInitializationWarmupCompleted"));
-            Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+            await warmupStarted.Task;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
+                Assert.IsFalse(GetPrivateField<bool>(owner, "startupPostInitializationWarmupCompleted"));
+                Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+            });
 
             releaseWriterGuard.Set();
             await writerThreadCompleted.Task;
-            Assert.IsTrue(
-                SpinWait.SpinUntil(
-                    () => GetPrivateField<bool>(owner, "startupPostInitializationCompletionLogged"),
-                    TimeSpan.FromSeconds(5)),
-                scheduler.DescribeWaitState());
-            Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationWarmupCompleted"));
-            Assert.IsFalse(owner.ProgressHub.IsStartupBackgroundInitializationActive);
-            Assert.IsTrue(scheduler.IsFullyIdle, scheduler.DescribeWaitState());
+            await postInitializationCompleted.Task;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationWarmupCompleted"));
+                Assert.IsFalse(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+                Assert.IsTrue(scheduler.IsFullyIdle, scheduler.DescribeWaitState());
 
-            Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
-            InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []);
-            InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []);
-            Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+                Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+                InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []);
+                InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []);
+                Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+            });
         }
         finally
         {
+            releasePredecessor.TrySetResult(true);
             releaseWriterGuard.Set();
-            if (writerThread != null && writerThread.IsAlive)
+            try
             {
-                writerThread.Join(TimeSpan.FromSeconds(5));
+                if (writerThread != null)
+                {
+                    try
+                    {
+                        await writerThreadCompleted.Task;
+                    }
+                    finally
+                    {
+                        writerThread.Join();
+                    }
+                }
             }
-            owner.SettingDialog.Dispose();
-            releaseWriterGuard.Dispose();
-            if (Directory.Exists(tempDirectory))
+            finally
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                try
+                {
+                    if (scheduler?.IsStarted == true)
+                    {
+                        await postInitializationCompleted.Task;
+                    }
+                }
+                finally
+                {
+                    TestUiDispatcherHost.Invoke(() => owner?.SettingDialog.Dispose());
+                    releaseWriterGuard.Dispose();
+                    if (Directory.Exists(tempDirectory))
+                    {
+                        Directory.Delete(tempDirectory, recursive: true);
+                    }
+                }
             }
         }
     }

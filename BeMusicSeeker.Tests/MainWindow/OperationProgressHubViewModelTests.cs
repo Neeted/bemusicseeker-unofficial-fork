@@ -554,13 +554,31 @@ public sealed class OperationProgressHubViewModelTests
         TestResourceInitializer.EnsureJapaneseResources();
         var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var statusVisible = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var hub = new OperationProgressHubViewModel(
+        var presentationCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        OperationProgressHubViewModel? hub = null;
+        hub = new OperationProgressHubViewModel(
             TestStartupProgressOwnerFactory.Create(
                 completionHideDelay: () =>
                 {
                     delayEntered.TrySetResult(true);
                     return releaseDelay.Task;
+                },
+                dispatch: action =>
+                {
+                    try
+                    {
+                        action();
+                        // 個々の PropertyChanged ではなく、Hub の再計算を含む反映全体を待つ。
+                        if (hub != null && !hub.StartupProgress.IsOperationActive && !hub.StartupProgress.IsActive)
+                        {
+                            presentationCompleted.TrySetResult(true);
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        presentationCompleted.TrySetException(exception);
+                        throw;
+                    }
                 }));
         hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         double startupValue = hub.StartupProgress.Value;
@@ -574,29 +592,34 @@ public sealed class OperationProgressHubViewModelTests
             },
             DateTime.MinValue);
 
-        hub.PropertyChanged += (_, args) =>
+        bool completionScheduled = false;
+        try
         {
-            if (args.PropertyName == nameof(OperationProgressHubViewModel.IsLr2SongDbSyncStatusActive)
-                && hub.IsLr2SongDbSyncStatusActive)
+            hub.UpdateLr2SongDbSyncStatus(incomplete);
+
+            Assert.IsFalse(hub.StartupProgress.IsFailed);
+            Assert.AreEqual(startupValue, hub.StartupProgress.Value);
+            Assert.AreEqual(startupMaximum, hub.StartupProgress.Maximum);
+
+            Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+
+            CompleteStartupProgress(hub.StartupProgress);
+            completionScheduled = true;
+            await delayEntered.Task;
+            releaseDelay.TrySetResult(true);
+            await presentationCompleted.Task;
+
+            Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
+            Assert.IsTrue(hub.IsLr2SongDbSyncRetryVisible);
+        }
+        finally
+        {
+            releaseDelay.TrySetResult(true);
+            if (completionScheduled)
             {
-                statusVisible.TrySetResult(true);
+                await presentationCompleted.Task;
             }
-        };
-        hub.UpdateLr2SongDbSyncStatus(incomplete);
-
-        Assert.IsFalse(hub.StartupProgress.IsFailed);
-        Assert.AreEqual(startupValue, hub.StartupProgress.Value);
-        Assert.AreEqual(startupMaximum, hub.StartupProgress.Maximum);
-
-        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
-
-        CompleteStartupProgress(hub.StartupProgress);
-        await delayEntered.Task;
-        releaseDelay.TrySetResult(true);
-        await statusVisible.Task;
-
-        Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
-        Assert.IsTrue(hub.IsLr2SongDbSyncRetryVisible);
+        }
     }
 
     private static void CompleteStartupProgress(StartupProgressWorkflowOwner owner)

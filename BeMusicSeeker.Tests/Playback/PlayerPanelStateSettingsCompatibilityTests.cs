@@ -25,105 +25,52 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         Assert.AreEqual("PlayerPanelState", metadata.Name);
         Assert.AreEqual("TITLE_SMALL", metadata.DefaultValue);
 
-        string configPath = PortableSettingsPath.UserConfigPath;
-        byte[]? originalConfig = File.Exists(configPath) ? File.ReadAllBytes(configPath) : null;
-        try
-        {
-            AssertRoundTrips(configPath, "TITLE_LARGE", PlayerPanelState.TITLE_LARGE);
-            AssertRoundTrips(configPath, "TITLE_SMALL", PlayerPanelState.TITLE_SMALL);
-            AssertRoundTrips(configPath, "BMS_PLAYER", PlayerPanelState.BMS_PLAYER);
-            AssertRoundTrips(
-                configPath,
-                "TITLE_SMALL, BMS_PLAYER",
-                PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER);
-        }
-        finally
-        {
-            if (originalConfig == null)
-            {
-                if (File.Exists(configPath))
-                {
-                    File.Delete(configPath);
-                }
-            }
-            else
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-                File.WriteAllBytes(configPath, originalConfig);
-            }
-        }
+        using var files = new PortableSettingsPersistenceTests.SettingsFiles();
+        string configPath = files.Path;
+        AssertRoundTrips(configPath, "TITLE_LARGE", PlayerPanelState.TITLE_LARGE);
+        AssertRoundTrips(configPath, "TITLE_SMALL", PlayerPanelState.TITLE_SMALL);
+        AssertRoundTrips(configPath, "BMS_PLAYER", PlayerPanelState.BMS_PLAYER);
+        AssertRoundTrips(
+            configPath,
+            "TITLE_SMALL, BMS_PLAYER",
+            PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER);
     }
-
     [TestMethod]
     public void PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue()
     {
-        string configPath = PortableSettingsPath.UserConfigPath;
-        byte[]? originalConfig = File.Exists(configPath) ? File.ReadAllBytes(configPath) : null;
-        FileAttributes originalAttributes = File.Exists(configPath)
-            ? File.GetAttributes(configPath)
-            : FileAttributes.Normal;
-        try
+        using var files = new PortableSettingsPersistenceTests.SettingsFiles();
+        string configPath = files.Path;
+        CreateConfig("12").Save(configPath);
+        byte[] legacyConfig = File.ReadAllBytes(configPath);
+
+        Exception? saveFailure = null;
+        using (var replaceBlocker = new FileStream(
+            configPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read))
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-            if (File.Exists(configPath))
+            try
             {
-                File.SetAttributes(configPath, FileAttributes.Normal);
+                PortableSettingsProvider.NormalizePortableConfig(configPath);
             }
-
-            CreateConfig("12").Save(configPath);
-            byte[] legacyConfig = File.ReadAllBytes(configPath);
-
-            Exception? saveFailure = null;
-            using (var replaceBlocker = new FileStream(
-                configPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read))
+            catch (Exception ex) when (ex is PortableSettingsException)
             {
-                try
-                {
-                    PortableSettingsProvider.NormalizeCurrentPortableConfig();
-                }
-                catch (Exception ex) when (ex is PortableSettingsException)
-                {
-                    saveFailure = ex;
-                }
-            }
-
-            Assert.IsNotNull(saveFailure, "The replace blocker must exercise the existing save failure contract.");
-            CollectionAssert.AreEqual(legacyConfig, File.ReadAllBytes(configPath));
-            Assert.AreEqual("12", GetPlayerPanelStateValue(XDocument.Load(configPath)));
-
-            var loaded = new Settings();
-            loaded.Reload();
-            Assert.AreEqual(
-                (PlayerPanelState)10,
-                loaded.PlayerPanelState,
-                "The generated Settings wrapper must consume the in-memory normalized value even when persistence fails.");
-        }
-        finally
-        {
-            if (File.Exists(configPath))
-            {
-                File.SetAttributes(configPath, FileAttributes.Normal);
-            }
-
-            if (originalConfig == null)
-            {
-                if (File.Exists(configPath))
-                {
-                    File.Delete(configPath);
-                }
-            }
-            else
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-                File.WriteAllBytes(configPath, originalConfig);
-                File.SetAttributes(configPath, originalAttributes);
+                saveFailure = ex;
             }
         }
+
+        Assert.IsNotNull(saveFailure, "The replace blocker must exercise the existing save failure contract.");
+        CollectionAssert.AreEqual(legacyConfig, File.ReadAllBytes(configPath));
+        Assert.AreEqual("12", GetPlayerPanelStateValue(XDocument.Load(configPath)));
+
+        Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+        loaded.Reload();
+        Assert.AreEqual(
+            (PlayerPanelState)10,
+            loaded.PlayerPanelState,
+            "The generated Settings wrapper must consume the in-memory normalized value even when persistence fails.");
     }
-
     private static string GetPlayerPanelStateValue(XDocument document)
     {
         return document.Root?
@@ -146,7 +93,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
         CreateConfig(persistedValue).Save(configPath);
 
-        var loaded = new Settings();
+        Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
         loaded.Reload();
         Assert.AreEqual(expected, loaded.PlayerPanelState);
 
@@ -169,7 +116,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
                 .Element("value")?
                 .Value);
 
-        var reloaded = new Settings();
+        Settings reloaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
         reloaded.Reload();
         Assert.AreEqual(expected, reloaded.PlayerPanelState);
     }

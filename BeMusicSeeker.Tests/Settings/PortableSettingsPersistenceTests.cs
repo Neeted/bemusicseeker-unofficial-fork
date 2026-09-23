@@ -251,7 +251,8 @@ public sealed class PortableSettingsPersistenceTests
         (key == null ? "" : $"<setting name=\"{key}\" serializeAs=\"String\"><value>{value}</value></setting>") +
         "</BeMusicSeeker.Properties.Settings></userSettings></configuration>";
 
-    private sealed class SettingsFiles : IDisposable
+    /// <summary>保存テストが独占する設定ファイルと一時ディレクトリを所有します。</summary>
+    internal sealed class SettingsFiles : IDisposable
     {
         internal string Directory { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BmsSettings-" + Guid.NewGuid().ToString("N"));
         internal string Path => System.IO.Path.Combine(Directory, "user.config");
