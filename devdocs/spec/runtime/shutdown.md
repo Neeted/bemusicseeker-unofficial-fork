@@ -65,6 +65,41 @@ LR2試聴の終了はプレイヤーの終端かプロセスの終了通知へ�
 
 モード変更の `RestartApplicationAsync` は、ミューテックスを解放して後継プロセスを起動するだけです。自身でWPFを終了しません。起動失敗の通知の完了・失敗・非表示も観測してから終端Taskを完了します。メイン画面だけがTaskの完了後に終了を認可します。後継の起動と旧プロセスの最終終了が短時間重なることは許容します。
 
+#### 終了準備から真の終端まで
+
+通常終了の制御順を示します。矢印は次へ進める条件、シーケンス内の待機はTaskの実完了を待つことを表し、UIスレッドの同期ブロックではありません。既知の失敗は記録し、規定された後片付けを継続します。`MainWindow` が所有するダイアログ等の終端と、その所有処理・後片付けの収束は、終了準備完了後からウィンドウ状態捕捉までの内部詳細として省略します。
+
+```mermaid
+sequenceDiagram
+    participant Window as MainWindow
+    participant Shutdown as 終了管理主体
+    participant Work as 追跡中の処理
+    participant Player as 再生・音声資源
+    participant Lifetime as IApplicationLifetimePort
+    Window->>Shutdown: 最初のOnClosingを取消し、終了要求
+    Shutdown->>Work: 新規受付停止・規定の取消
+    Work-->>Shutdown: 実完了・取消と後片付けの完了
+    Note over Window,Shutdown: 終了準備完了だけではCloseを認可しない
+    Shutdown-->>Window: 終了準備完了
+    Window->>Window: UI上でウィンドウ状態を捕捉
+    Window->>Shutdown: 捕捉した状態を渡し、終端処理を要求
+    Shutdown->>Player: 再生の新規受付を停止
+    Shutdown->>Player: 作業スレッドで終了・実解放を待つ
+    Player-->>Shutdown: 解放完了
+    Shutdown->>Shutdown: 最後の配置を含む設定保存（失敗は通知して継続）
+    Shutdown->>Shutdown: 音声基盤・一時領域・DBの最終確認
+    opt 再起動が必要
+        Shutdown->>Shutdown: 後継起動と起動失敗通知まで観測
+    end
+    Shutdown-->>Window: 終端Task完了
+    Window->>Window: 最終終了を認可
+    Window->>Shutdown: 最終のアプリ終了を要求
+    Shutdown->>Lifetime: RequestShutdown
+    Lifetime-->>Window: OnClosing再入（後片付けしない）
+```
+
+遅延警告の時間を超えても実処理を置き去りにしません。更新の `Proceed` と親プロセス終了の条件は[更新合意](../integration/portable-update.md#終了前の合意)を参照します。
+
 ### SQLiteと失敗の観測
 
 `SQLiteConnectionEx` は `ShutdownOperationTracker` で接続の寿命を追跡し、終了準備は接続数0まで待ちます。生の値を読む `GetRawValuesAsString` は例外時も準備済みの文を解放します。接続を閉じる失敗の件数は結果とログに保持します。

@@ -89,6 +89,30 @@ LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが�
 
 終了受付前のモード変更要求が失敗した場合は、元のモードへ戻し、設定の編集・取消を再び受け付けます。失敗は既定の通知処理から設定画面の共通表示窓口へ一度だけ渡します。通知処理を差し替えた場合は元の例外をその処理へ渡し、既定通知を重ねません。
 
+#### 保存と再読込みの状態を分ける
+
+通常設定のうち、有効なプロファイルがあり、保存後にスコア再読込みまたはファイル差分更新を行う経路を示します。矢印は利用者操作と結果による遷移です。再試行は追加の保存対象変更がない場合だけを描き、初回設定・全初期化・動作モード変更はこの図の対象外です。
+
+```mermaid
+stateDiagram-v2
+    state "編集中" as Editing
+    state "保存処理中" as Saving
+    state "保存後の再読込み中" as Reloading
+    state "再読込みの再試行待ち" as RetryPending
+    state "画面終了" as Closed
+    [*] --> Editing
+    Editing --> Saving: 変更があり、受付・検証・確認に成功
+    Saving --> Editing: 保存失敗（編集値を保持）
+    Saving --> Reloading: 保存成功
+    Reloading --> RetryPending: 再読込み失敗（使用中状態は解除）
+    RetryPending --> Reloading: 追加変更なしのOK（再保存なし）
+    Reloading --> Closed: 後続処理成功
+    Editing --> Closed: 取消（変更があれば保存済み値へ戻す）
+    Closed --> [*]
+```
+
+再試行待ちでは取消・手動同期を受け付けません。再読込み失敗は保存失敗への巻戻しではなく、保存済み値と再試行に必要な状態を維持します。その他の受付拒否や変更なしのOKは本文に従います。
+
 ### 反映範囲の型とスナップショット
 
 `SettingsPostSaveImpact` が保存後の対象を明示します。`CustomFolderSearchRootSync` は出力先とLR2検索ルート、`PlayerRuntime` はプレイヤー実行時状態、`Lr2BackupEnabledNotice` はバックアップ有効化の案内、`PlaylistUrlCompletion` はURL補完、`Lr2CoreSync` はモード・ルートの同期、`ExternalLr2FolderRowsSync` は必要な外部フォルダ行、`BeatorajaBmtExport` はBMT出力を扱います。LR2全体同期に含まれる外部行の同期を重ねません。

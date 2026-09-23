@@ -31,6 +31,26 @@ BMSとBMSONを同じ画面・操作から扱うためのモデルと、形式ご
 
 `BMSFiles` / `BmsonSongs` は保存行の読取り専用ビューです。DB読込み、明示的な全置換、形式固有の解析・保存では直接扱えますが、共通処理のために両一覧を繰り返し結合しません。内部の追加・削除・移転は変更窓口を通し、外部からの全置換だけを全体の無効化境界とします。格納順・世代・差分反映の詳細は[データと索引](../core/data-and-indexes.md)を参照します。
 
+#### 保存主体と共通の読取りモデル
+
+矢印は読込み・投影・表示への利用、破線は一時的な表示値の重ね合わせです。継承関係やDBテーブルの外部キーを示す図ではありません。
+
+```mermaid
+flowchart TB
+    Bms["BMSFile：BMS保存主体（song行）"]
+    Bmson["bmson_song：BMSON保存主体（bmson_song行）"]
+    Bms --> Projection["ChartFileProjection"]
+    Bmson --> Projection
+    Projection --> Chart["ChartFile：共通読取りモデル"]
+    Chart --> Owned["所持譜面集合・共通操作"]
+    Chart --> Entry["PackageChartEntry：パッケージの項目"]
+    Entry --> Row["LibraryChartRow：必要な行を投影"]
+    Chart --> Row
+    Transient["ChartFileTransientState：一時表示値"] -.-> Row
+```
+
+所持集合へ入るには以下の識別条件を満たす必要があります。全ての `ChartFile` が所持済みではなく、BMSONからBMSの保存行も作りません。項目・一時表示値からDBへ無条件に書き戻す経路はありません。
+
 ### 所持譜面の識別条件
 
 所持譜面は実パスとMD5を必須とし、正規化した絶対パスはBMS・BMSONを通じて一意です。同じMD5を持つ別配置は別の所持主体として数えます。

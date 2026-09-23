@@ -40,9 +40,40 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 ### 終了前の合意
 
-更新ツールは要求を解析できた時点で `current/updater-ready.txt` を公開します。アプリはこれを確認してから[終了準備](../runtime/shutdown.md)を実行し、成功した場合だけ `current/updater-decision.txt` に `proceed` を公開します。失敗・中断では `cancel` を公開します。受付確認前にツールが終了・起動失敗した場合は、アプリを終了せず更新失敗を通知します。
+更新ツールは要求を解析できた時点で `current/updater-ready.txt` を公開します。アプリはこれを確認してから[終了準備](../runtime/shutdown.md)を実行し、成功した場合だけ `current/updater-decision.txt` に `proceed` を公開します。失敗・中断では `cancel` を公開します。決定ファイルの公開に失敗した場合は更新ツールの停止を試みます。更新要求が終了準備を開始済みなら更新失敗として扱ってアプリの終了を継続し、終了・モード変更が先着していた場合はその終了を継続します。受付確認前にツールが終了・起動失敗した場合は、アプリを終了せず更新失敗を通知します。
 
 更新ツールは決定を受け取ってから親プロセスの終了待ちと適用を開始します。終了準備中にアプリが生存している間は決定待ちを延長し、終了待ちの60秒を先に消費しません。再起動したアプリは、動作中の更新ツールが使う `current/` を掃除しません。これは次回のツール準備で置き換えます。
+
+#### アプリと更新ツールの合意
+
+図は `updater-ready.txt` の確認後に、更新要求が終了受付を獲得できるかと、その後の合意を示します。受付確認前の起動失敗と、決定ファイルの公開自体が失敗する経路は本文に従います。矢印はプロセス間の通知と処理順です。`Proceed` は適用完了ではなく、親プロセスの終了と組み合わせて上書きを許可する条件です。取消側のアプリ終了可否は、既に終了を受理したかに応じて[終了仕様](../runtime/shutdown.md)に従います。
+
+```mermaid
+sequenceDiagram
+    participant App as 実行中アプリ
+    participant Updater as 更新ツール
+    App->>App: ZIPのサイズ・SHA-256を検証
+    App->>Updater: 待機状態で起動
+    Updater-->>App: updater-ready.txt
+    App->>App: 終了要求の先着受付を試みる
+    alt 更新要求が先着
+        App->>App: 終了準備
+        alt 終了準備が成功
+            App->>Updater: updater-decision.txt：proceed
+            App->>App: 共通の終端処理・プロセス終了
+            Updater->>Updater: proceed受領と親プロセス終了の両方を確認
+            Updater->>Updater: 事前検査・退避・更新適用
+        else 終了準備の失敗・中断
+            App->>Updater: updater-decision.txt：cancel
+            Updater->>Updater: 適用せず終了
+        end
+    else 終了・モード変更が先着
+        App->>Updater: updater-decision.txt：cancel
+        Updater->>Updater: 適用せず終了
+    end
+```
+
+受付確認前のツール終了・起動失敗では、アプリを終了せず更新失敗を通知します。決定待ち中に親が生存している間は待機を延長し、親終了待ちの60秒を先に消費しません。
 
 ### 引数と境界
 
@@ -72,6 +103,27 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 復元にも失敗した場合は再起動・確定を行いません。適用と復元の両原因を記録し、唯一の退避内容、作業領域、ジャーナルを削除しません。障害解消後にジャーナルから、旧版または新版の完全な構成へ収束できる状態を維持します。
 
 再起動先の起動成功が更新の確定点です。ZIP・展開領域の後片付けは再起動前に試み、失敗は警告として次回起動へ引き継ぎます。再起動後に更新ツールが同じ一時領域を並行して掃除しません。
+
+#### 更新の確定点と復元
+
+図は通常の更新適用で、本体変更の有無と復元が必要になる境界を示します。矢印は次の段階へ進む条件です。ライブラリ変更の補償とは別契約であり、ここでは再起動先の `Process.Start` 成功が更新確定点です。中断後のジャーナル回復は次節に従います。
+
+```mermaid
+flowchart TB
+    Preflight["管理ファイル全体の排他アクセスを事前確認"] -->|成功| Backup["退避を作成"]
+    Preflight -->|失敗| Untouched["本体・退避世代・ZIPを保持して失敗"]
+    Backup -->|本体変更開始前に失敗| BeforeMutation["本体は変更せず失敗"]
+    Backup -->|準備完了| Apply["本体適用"]
+    Apply -->|適用成功| Cleanup["再起動前の後片付け（失敗は警告）"]
+    Apply -->|本体変更後に失敗| Restore["退避から復元を試みる"]
+    Cleanup --> Restart["再起動先のProcess.Start"]
+    Restart -->|失敗| Restore
+    Restart -->|成功| Committed["更新確定：以後は巻戻さない"]
+    Restore -->|成功| Old["旧構成を保持し失敗記録：自動起動しない"]
+    Restore -->|失敗| Keep["両原因・唯一の退避・作業領域・ジャーナルを保持"]
+```
+
+再起動前の後片付けだけの失敗は警告として引き継ぎ、適用失敗とは区別します。再起動後に同じ一時領域を並行して掃除しません。
 
 ### 失敗記録と回復要求
 

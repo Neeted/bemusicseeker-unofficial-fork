@@ -31,7 +31,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 
 `Quick` はフィルターの有無によらず独立した整形検査を省き、通常のビルドで SDK 標準解析を実行します。`Functional` / `Full` はロックファイルに従う復元の後、空白整形の検査、SDK 標準解析を含む通常のビルド、出力検査、実テストの順に進みます。自動修正はしません。
 
-整形検査はプロジェクトを評価せず、ルートを `dotnet format whitespace --folder` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。
+整形検査はプロジェクトを評価せず、ルートを `dotnet format whitespace --folder` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
 
 SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK の `version` と `rollForward` の選択に従います。[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、テスト `BeMusicSeeker.Tests` にだけ `EnforceCodeStyleInBuild=true` を適用し、nullable 診断を警告ではなくビルドエラーとして扱います。nullable 解析そのものは各プロジェクトとソースの既存設定に従い、この共通設定から新しい解析範囲を有効化しません。補助ツールのプロジェクトにはこのビルド時スタイル検査と nullable 診断のエラー化を追加せず、SDK の既定解析を従来どおり実行します。
 

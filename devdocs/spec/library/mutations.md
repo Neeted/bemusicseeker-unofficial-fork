@@ -56,6 +56,28 @@
 
 行のパス変更通知には `LibraryStorageRowPathNotificationPolicy` を渡します。診断用の `reason` 文字列で挙動を分岐しません。操作全体の結果は `LibraryMutationSessionReceipt` を正本とします。`FileDbMutationReceipt` は、局所的な物理処理、保全、補償、確定後の後片付けに限り、その結果を集めて操作全体の確定成功と解釈しません。
 
+#### 通常の変更ライフサイクル
+
+受理済みの通常変更が成功する経路の順序です。物理成功分は一つの変更セッションへ収集します。外枠は論理的に追跡する操作、内枠は外側の排他権を保持する区間を表し、集合ロック・DBトランザクションの保持期間ではありません。失敗分岐は[ファイルとDBの整合](file-db-consistency.md#局所的なファイル処理と補償)、排他解放後に必須保守がある統合は[フォルダ統合](#フォルダ統合と確定後の保守)を参照します。
+
+```mermaid
+flowchart TB
+    subgraph Operation["受理から終端まで"]
+        direction TB
+        subgraph Lease["外側の排他権を保持"]
+            direction TB
+            Capture["現在の対象・設定を確定"] --> Collect["物理成功分を一括収集"]
+            Collect --> Commit["成功集合を永続確定"]
+            Commit --> Apply["必須の内部反映・後片付け・公開準備"]
+        end
+        Apply --> Release["排他権を解放"]
+        Release --> Publish["準備済み通知を公開"]
+        Publish --> Terminal["結果を保持して終端"]
+    end
+```
+
+内部反映・後片付け・公開準備の順序は操作ごとに異なります。図の永続確定は複数の保存先を一つの原子的トランザクションにする意味ではありません。異常結果の報告は、[通知と操作結果](#通知と操作結果)に従って受付・操作中表示等も解放した後に行います。
+
 ### 排他権とロック
 
 外側の排他権は、物理処理、カタログ反映、必須の後処理、後片付けまで保持します。対象を捕捉する短いロックは、初期化状態の読取り、保留集合の書込み、BMS集合の書込みの順で取得し、逆順に解放します。ファイルI/O、DB処理、補償、後片付け、通知に入る前に、不要な集合ロックを解放します。
@@ -99,6 +121,36 @@
 後続の保守対象は、カタログの保存主体を移転した後、入力元の後片付けより前に固定します。入力元の削除は永続確定後です。統合用の排他権を解放してから、既存の保守予約を取り直し、`forceUpdate: true`、`DeferOnUpdates`、`merge_folder` の条件で保守します。
 
 この保守は論理的には同じ操作の必須処理 `PostCommitMaintenance` です。例外や予約拒否による `Canceled` も同じ結果の `FinalizationFailure` に残します。`MergeApplied` と永続確定成功を取り消しませんが、画面は通常の完全成功として報告しません。第二の変更セッションや別の成功報告は作りません。
+
+#### 統合用の排他権と必須保守の寿命
+
+統合が適用された後の順序と、排他の持ち替えを示します。縦の活性区間はそれぞれの排他権・予約の保持期間で、左の操作は保守の結果まで追跡します。通知済みであることを完全成功の判定に使いません。
+
+```mermaid
+sequenceDiagram
+    participant Operation as 統合操作
+    participant Merge as 統合用の排他権
+    participant Maintenance as 保守処理
+    Operation->>Merge: 取得
+    activate Merge
+    Operation->>Operation: 物理処理・永続確定
+    Operation->>Operation: 保守対象を固定し、入力元を後片付け
+    Operation->>Merge: 解放
+    deactivate Merge
+    Operation->>Operation: 準備済み通知を公開
+    Operation->>Maintenance: 必須のPostCommitMaintenanceを要求
+    alt 保守予約を取得
+        activate Maintenance
+        Maintenance->>Maintenance: 保守を実行し、finallyで予約解放
+        deactivate Maintenance
+        Maintenance-->>Operation: 保守の成功または失敗
+    else 予約拒否
+        Maintenance-->>Operation: Canceled
+    end
+    Operation->>Operation: 保守結果を同じ操作結果へ反映して終端
+```
+
+保守失敗時も `MergeApplied` と永続確定成功は維持し、`FinalizationFailure` を含む結果を完全成功として報告しません。
 
 ### 削除対象と部分失敗
 

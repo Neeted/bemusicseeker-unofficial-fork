@@ -53,6 +53,39 @@ URL指定の複数行取込みは、取得を既存の上限内で並列化し�
 
 取得操作で受け付けるURIと、保存済み表の外部同期元は別契約です。取得操作は各遷移でHTTP(S)だけを許可します。保存済み外部同期元では相対・ローカル・ドライブ・`file:`・UNCを維持し、HTTP専用検証を流用しません。
 
+#### DB保存と画面反映の完了
+
+変更がある外部表の再読込みで、DB保存から画面反映までの主な境界を示します。矢印は処理順です。新規登録や変更なしの経路は含めません。対象表の読取りロックと内部の同期ロックはDB保存を保護しますが、UI反映の完了待ちへ持ち越しません。
+
+```mermaid
+sequenceDiagram
+    participant Owner as 再読込みの管理主体
+    participant State as 対象表・保存管理主体
+    participant DB as DB窓口
+    participant UI as UIスケジューラー
+    Owner->>Owner: UI外で取得・解析・変更内容を準備
+    Owner->>State: 再読込み適用を依頼
+    State->>State: 再読込み予約を取得
+    State->>State: 対象表の読取りロック・内部同期ロックで鮮度確認
+    State->>DB: 必要な変更を保存
+    DB-->>State: 確定・接続解放
+    State->>State: DB保護ロックを解放（再読込み予約は保持）
+    State->>UI: 表示集合の置換を予約
+    Note over State,UI: 表・集合・DBのロックを保持せずCompletionを待つ
+    alt UI反映完了
+        UI-->>State: 成功
+    else 拒否・取消・中断・例外
+        UI-->>State: 再読込み失敗
+        State->>State: 現在の公開状態に合わせてDBを再整合
+    end
+    State->>State: finallyで再読込み予約を解放
+    State-->>Owner: 成功・失敗
+```
+
+DB保存だけでは再読込み成功になりません。画面への置換が失敗した場合は現在の公開状態に合わせてDBの再整合を試み、その失敗も成功として扱いません。
+
+手動編集の保存前復元と、DB確定後のLR2/BMT出力失敗は「手動編集と失敗」に従います。特に非同期BMT出力の完了まで元編集の受付を延長しません。
+
 ### 更新検知と更新日時
 
 ヘッダーハッシュは `compat_prefix` を除き、明示接頭辞付きの `folder_order` を比較用に正規化して計算します。`tag`、`course`、`level_order`、`symbol` 等は含みます。データハッシュは取得したデータJSON全体が対象です。
