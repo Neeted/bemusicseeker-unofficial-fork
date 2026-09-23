@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="BeMusicSeeker.Views.Settings.Pages.RightClickSettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
+             xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings"
+             HorizontalContentAlignment="Stretch"
+             AutomationProperties.AutomationId="RightClickSettingsPage">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="../SettingsControls.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+      <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </ResourceDictionary>
+  </UserControl.Resources>
+  <StackPanel>
+    <settings:SettingsStatusBanner Margin="0,0,0,12"
+                                   Icon="!"
+                                   Status="Error"
+                                   Content="{Binding RightClickActionSettingsEditor.PersistedSettingsError}"
+                                   Visibility="{Binding RightClickActionSettingsEditor.IsInvalidPersistedSettings, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                   AutomationProperties.AutomationId="RightClickSettingsInvalidBanner" />
+    <Button HorizontalAlignment="Left"
+            Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_restore_defaults, Mode=OneWay}"
+            Command="{x:Null}"
+            Click="restoreDefaultsButtonClicked"
+            AutomationProperties.AutomationId="RightClickRestoreDefaults" />
+
+    <settings:SettingsSection Margin="0,20,0,0"
+                              Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions, Mode=OneWay}"
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions_description, Mode=OneWay}">
+      <settings:SettingsListEditor Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_web_actions, Mode=OneWay}">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <ListBox x:Name="webActionsListBox"
+                   MinHeight="104"
+                   Grid.Row="0"
+                   Grid.Column="0"
+                   ItemsSource="{Binding RightClickActionSettingsEditor.WebActions}"
+                   SelectedItem="{Binding RightClickActionSettingsEditor.SelectedWebAction, Mode=TwoWay}"
+                   DisplayMemberPath="DisplayName"
+                   AutomationProperties.AutomationId="RightClickWebActionsList" />
+          <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,0">
+            <Button Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_add, Mode=OneWay}"
+                    Click="addWebActionButtonClicked"
+                    AutomationProperties.AutomationId="RightClickWebAdd" />
+            <Button Margin="0,6,0,0"
+                    Style="{StaticResource SettingsQuietButtonStyle}"
+                    Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_delete, Mode=OneWay}"
+                    IsEnabled="{Binding RightClickActionSettingsEditor.CanDeleteWebAction}"
+                    Click="deleteWebActionButtonClicked"
+                    AutomationProperties.AutomationId="RightClickWebDelete" />
+          </StackPanel>
+          <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button MinWidth="88"
+                    Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_move_up, Mode=OneWay}"
+                    IsEnabled="{Binding RightClickActionSettingsEditor.CanMoveWebActionUp}"
+                    Click="moveWebActionUpButtonClicked"
+                    AutomationProperties.AutomationId="RightClickWebMoveUp" />
+            <Button Margin="8,0,0,0"
+                    MinWidth="88"
+                    Style="{StaticResource SettingsQuietButtonStyle}"
+                    Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_move_down, Mode=OneWay}"
+                    IsEnabled="{Binding RightClickActionSettingsEditor.CanMoveWebActionDown}"
+                    Click="moveWebActionDownButtonClicked"
+                    AutomationProperties.AutomationId="RightClickWebMoveDown" />
+          </StackPanel>
+          <Grid Grid.Row="2" Grid.ColumnSpan="2" Margin="0,14,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <settings:SettingsField Grid.Row="0"
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_name, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedWebAction.NameValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedWebAction.NameValidationStatus, Mode=OneWay}">
+              <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedWebAction.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
+                       AutomationProperties.AutomationId="RightClickWebName" />
+            </settings:SettingsField>
+            <settings:SettingsField Grid.Row="1" Margin="0,8,0,0"
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_url, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedWebAction.UrlTemplateValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedWebAction.UrlTemplateValidationStatus, Mode=OneWay}">
+              <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedWebAction.UrlTemplate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
+                       AutomationProperties.AutomationId="RightClickWebUrl" />
+            </settings:SettingsField>
+            <settings:SettingsField Grid.Row="2" Margin="0,8,0,0"
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_chart_kind, Mode=OneWay}">
+              <ComboBox ItemsSource="{Binding RightClickActionSettingsEditor.ChartKindOptions}"
+                        DisplayMemberPath="DisplayName"
+                        SelectedValuePath="Key"
+                        SelectedValue="{Binding RightClickActionSettingsEditor.SelectedWebAction.ChartKindKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        AutomationProperties.AutomationId="RightClickWebChartKind" />
+            </settings:SettingsField>
+            <CheckBox Grid.Row="3" Margin="0,8,0,0"
+                      Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_enabled, Mode=OneWay}"
+                      IsChecked="{Binding RightClickActionSettingsEditor.SelectedWebAction.Enabled, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="RightClickWebEnabled" />
+          </Grid>
+        </Grid>
+      </settings:SettingsListEditor>
+    </settings:SettingsSection>
+
+    <settings:SettingsSection Margin="0,28,0,0"
+                              Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions, Mode=OneWay}"
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions_description, Mode=OneWay}">
+      <settings:SettingsListEditor Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_program_actions, Mode=OneWay}">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <ListBox x:Name="programActionsListBox"
+                   MinHeight="104"
+                   Grid.Row="0"
+                   Grid.Column="0"
+                   ItemsSource="{Binding RightClickActionSettingsEditor.ProgramActions}"
+                   SelectedItem="{Binding RightClickActionSettingsEditor.SelectedProgramAction, Mode=TwoWay}"
+                   DisplayMemberPath="DisplayName"
+                   AutomationProperties.AutomationId="RightClickProgramActionsList" />
+          <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,0">
+            <Button Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_add, Mode=OneWay}"
+                    Click="addProgramActionButtonClicked"
+                    AutomationProperties.AutomationId="RightClickProgramAdd" />
+            <Button Margin="0,6,0,0"
+                    Style="{StaticResource SettingsQuietButtonStyle}"
+                    Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_delete, Mode=OneWay}"
+                    IsEnabled="{Binding RightClickActionSettingsEditor.CanDeleteProgramAction}"
+                    Click="deleteProgramActionButtonClicked"
+                    AutomationProperties.AutomationId="RightClickProgramDelete" />
+          </StackPanel>
+          <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button MinWidth="88"
+                    Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_move_up, Mode=OneWay}"
+                    IsEnabled="{Binding RightClickActionSettingsEditor.CanMoveProgramActionUp}"
+                    Click="moveProgramActionUpButtonClicked"
+                    AutomationProperties.AutomationId="RightClickProgramMoveUp" />
+            <Button Margin="8,0,0,0"
+                    MinWidth="88"
+                    Style="{StaticResource SettingsQuietButtonStyle}"
+                    Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_move_down, Mode=OneWay}"
+                    IsEnabled="{Binding RightClickActionSettingsEditor.CanMoveProgramActionDown}"
+                    Click="moveProgramActionDownButtonClicked"
+                    AutomationProperties.AutomationId="RightClickProgramMoveDown" />
+          </StackPanel>
+          <Grid Grid.Row="2" Grid.ColumnSpan="2" Margin="0,14,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <settings:SettingsField Grid.Row="0"
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_name, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedProgramAction.NameValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedProgramAction.NameValidationStatus, Mode=OneWay}">
+              <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedProgramAction.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
+                       AutomationProperties.AutomationId="RightClickProgramName" />
+            </settings:SettingsField>
+            <settings:SettingsField Grid.Row="1" Margin="0,8,0,0"
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_executable, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ExecutablePathValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ExecutablePathValidationStatus, Mode=OneWay}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         IsReadOnly="True"
+                         Style="{StaticResource SettingsValidatedTextBoxStyle}"
+                         Text="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ExecutablePath, Mode=OneWay}"
+                         AutomationProperties.AutomationId="RightClickProgramExecutable" />
+                <Button Grid.Column="1"
+                        Margin="8,0,0,0"
+                        Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}"
+                        Click="browseProgramExecutableButtonClicked"
+                        AutomationProperties.AutomationId="RightClickProgramExecutablePicker" />
+              </Grid>
+            </settings:SettingsField>
+            <settings:SettingsField Grid.Row="2" Margin="0,8,0,0"
+                                    Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_arguments, Mode=OneWay}"
+                                    ValidationMessage="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ArgumentTemplateValidationMessage, Mode=OneWay}"
+                                    ValidationStatus="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ArgumentTemplateValidationStatus, Mode=OneWay}">
+              <TextBox Text="{Binding RightClickActionSettingsEditor.SelectedProgramAction.ArgumentTemplate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource SettingsValidatedTextBoxStyle}"
+                       AutomationProperties.AutomationId="RightClickProgramArguments" />
+            </settings:SettingsField>
+            <CheckBox Grid.Row="3" Margin="0,8,0,0"
+                      Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_enabled, Mode=OneWay}"
+                      IsChecked="{Binding RightClickActionSettingsEditor.SelectedProgramAction.Enabled, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="RightClickProgramEnabled" />
+          </Grid>
+        </Grid>
+      </settings:SettingsListEditor>
+    </settings:SettingsSection>
+  </StackPanel>
+</UserControl>

@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="App.BackgroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.SurfaceBrush" Color="#FFF0F0F0" />
+  <SolidColorBrush x:Key="App.ControlBackgroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.ControlBackgroundActiveBrush" Color="#FFFFB6C1" />
+  <SolidColorBrush x:Key="App.ControlHoverBrush" Color="#FFE9EEF6" />
+  <SolidColorBrush x:Key="App.ControlSelectedBrush" Color="#FFD7E9FF" />
+  <SolidColorBrush x:Key="App.TextBrush" Color="#FF202020" />
+  <SolidColorBrush x:Key="App.SubtleTextBrush" Color="#FF505050" />
+  <SolidColorBrush x:Key="App.DisabledTextBrush" Color="#FF888888" />
+  <SolidColorBrush x:Key="App.BorderBrush" Color="#FF828790" />
+  <SolidColorBrush x:Key="App.StrongBorderBrush" Color="#FF000000" />
+  <SolidColorBrush x:Key="App.SeparatorBrush" Color="#FFEFEFEF" />
+  <SolidColorBrush x:Key="App.AccentBrush" Color="#FF4169E1" />
+  <SolidColorBrush x:Key="App.AccentForegroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.AccentFocusRingBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.AccentHoverBrush" Color="#FF3159C9" />
+  <SolidColorBrush x:Key="App.AccentPressedBrush" Color="#FF2447A6" />
+  <SolidColorBrush x:Key="App.AccentSubtleBrush" Color="#FF6495ED" />
+  <SolidColorBrush x:Key="App.DangerBrush" Color="#FFC42B1C" />
+  <SolidColorBrush x:Key="App.DangerForegroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.DangerHoverBrush" Color="#FFA4261A" />
+  <SolidColorBrush x:Key="App.DangerPressedBrush" Color="#FF821B16" />
+  <SolidColorBrush x:Key="App.ErrorTextBrush" Color="#FFB42318" />
+  <SolidColorBrush x:Key="App.SuccessTextBrush" Color="#FF167443" />
+  <SolidColorBrush x:Key="App.SliderTickBrush" Color="#FF505050" />
+  <SolidColorBrush x:Key="App.WarningTextBrush" Color="#FFD07A00" />
+  <SolidColorBrush x:Key="App.DialogOverlayBrush" Color="#FF000000" />
+  <SolidColorBrush x:Key="App.DialogBackgroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.DialogBorderBrush" Color="#FFB8BCC3" />
+  <SolidColorBrush x:Key="App.PopupBackgroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="App.SearchGlyphBrush" Color="#FF727272" />
+  <SolidColorBrush x:Key="App.ControlPressedBrush" Color="#FFE0E7F0" />
+  <SolidColorBrush x:Key="App.InputFocusBorderBrush" Color="#FF4169E1" />
+  <SolidColorBrush x:Key="App.MenuSelectedBackgroundBrush" Color="#FFD7E9FF" />
+  <SolidColorBrush x:Key="App.MenuSelectedTextBrush" Color="#FF000000" />
+
+  <SolidColorBrush x:Key="ScrollBar.TrackBackgroundBrush" Color="#FFF0F0F0" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbBackgroundBrush" Color="#FFC8C8C8" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbHoverBackgroundBrush" Color="#FFB0B0B0" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbDraggingBackgroundBrush" Color="#FF9A9A9A" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbBorderBrush" Color="#00FFFFFF" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonBackgroundBrush" Color="#FFF0F0F0" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonHoverBackgroundBrush" Color="#FFF0F0F0" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonPressedBackgroundBrush" Color="#FFE4E4E4" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonBorderBrush" Color="#00FFFFFF" />
+  <SolidColorBrush x:Key="ScrollBar.ArrowBrush" Color="#FF606060" />
+
+  <SolidColorBrush x:Key="Table.HeaderBackgroundBrush" Color="#FFF6F7F8" />
+  <SolidColorBrush x:Key="Table.RowBackgroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Table.AlternatingRowBackgroundBrush" Color="#FFF1F4F7" />
+  <SolidColorBrush x:Key="Table.WarningRowBackgroundBrush" Color="#FFFDE4E4" />
+  <SolidColorBrush x:Key="Table.SelectedRowBackgroundBrush" Color="#FFD7E9FF" />
+  <SolidColorBrush x:Key="Table.CurrentCellBackgroundBrush" Color="#FF1E90FF" />
+  <SolidColorBrush x:Key="Table.CurrentCellTextBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Table.ReorderSourceHeaderBrush" Color="#FFE1E5EA" />
+  <SolidColorBrush x:Key="Table.SortGlyphBrush" Color="#FF454A50" />
+  <SolidColorBrush x:Key="Table.GridLineBrush" Color="#FFE7E9EC" />
+  <SolidColorBrush x:Key="Table.HeaderGridLineBrush" Color="#FFC8CCD1" />
+  <SolidColorBrush x:Key="Table.ColumnReorderInsertBrush" Color="#FF000000" />
+  <SolidColorBrush x:Key="Table.CheckBoxBackgroundBrush" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Table.CheckBoxBorderBrush" Color="#FF454A50" />
+  <SolidColorBrush x:Key="Table.CheckBoxCheckBrush" Color="#FF202020" />
+  <SolidColorBrush x:Key="Table.TextBrush" Color="#FF000000" />
+  <SolidColorBrush x:Key="Table.SelectedTextBrush" Color="#FF000000" />
+  <SolidColorBrush x:Key="Table.SubtleTextBrush" Color="#FF808080" />
+  <SolidColorBrush x:Key="Table.UndefinedCellBackgroundBrush" Color="#FFFFF6D5" />
+
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.Static.Checked.Fill" Color="#FF595959" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.Static.Checked.Stroke" Color="#FF262626" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.MouseOver.Stroke" Color="#FF27C7F7" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.MouseOver.Fill" Color="#FFCCEEFB" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.MouseOver.Checked.Stroke" Color="#FF1CC4F7" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.MouseOver.Checked.Fill" Color="#FF82DFFB" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.Static.Fill" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="TreeViewItem.TreeArrow.Static.Stroke" Color="#FF818181" />
+
+  <LinearGradientBrush x:Key="NormalBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#EEE" Offset="0.0" />
+    <GradientStop Color="#CCC" Offset="1.0" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="NormalBorderBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#CCC" Offset="0.0" />
+    <GradientStop Color="#444" Offset="1.0" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="LightBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#FFF" Offset="0.0" />
+    <GradientStop Color="#EEE" Offset="1.0" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="MouseOverBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#FFF" Offset="0.0" />
+    <GradientStop Color="#AAA" Offset="1.0" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="PressedBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#BBB" Offset="0.0" />
+    <GradientStop Color="#EEE" Offset="0.1" />
+    <GradientStop Color="#EEE" Offset="0.9" />
+    <GradientStop Color="#FFF" Offset="1.0" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="PressedBorderBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#444" Offset="0.0" />
+    <GradientStop Color="#888" Offset="1.0" />
+  </LinearGradientBrush>
+  <SolidColorBrush x:Key="SelectedBackgroundBrush" Color="#DDD" />
+  <SolidColorBrush x:Key="DisabledForegroundBrush" Color="#888" />
+  <SolidColorBrush x:Key="DisabledBackgroundBrush" Color="#EEE" />
+  <SolidColorBrush x:Key="DisabledBorderBrush" Color="#AAA" />
+  <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#FFF" />
+  <LinearGradientBrush x:Key="DefaultedBorderBrush" EndPoint="0,1" StartPoint="0,0">
+    <GradientStop Color="#777" Offset="0.0" />
+    <GradientStop Color="#000" Offset="1.0" />
+  </LinearGradientBrush>
+  <SolidColorBrush x:Key="SolidBorderBrush" Color="#888" />
+  <SolidColorBrush x:Key="LightBorderBrush" Color="#AAA" />
+  <SolidColorBrush x:Key="LightColorBrush" Color="#DDD" />
+  <SolidColorBrush x:Key="GlyphBrush" Color="#444" />
+</ResourceDictionary>

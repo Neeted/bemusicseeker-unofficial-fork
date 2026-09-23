@@ -12,6 +12,15 @@ dist
 *.userosscache
 *.sln.docstates
 
+# Build logs
+*.log
+*.txt
+!third_party/licenses/*.txt
+!version.txt
+
+# LR2互換テストが必要とする元のカテゴリ情報。
+!BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/**/folderinfo.txt
+
 # Temporary files
 *.tmp
 *.bak
@@ -42,3 +51,10 @@ $RECYCLE.BIN/
 # We keep 'libs' as it contains required dependencies not restored via NuGet.
 
 .tmp/
+artifacts
+
+# Generated from local production DB comparisons.
+tools/chart-info-compare/reports/
+
+# C# Dev Kit.
+*.lscache

@@ -1,0 +1,7 @@
+; E1 existing-data acceptance fixture
+#PLAYER 1
+#TITLE E1 Fixture Song
+#ARTIST BeMusicSeeker
+#BPM 120
+#WAV01 e1-fixture.wav
+#00111:01

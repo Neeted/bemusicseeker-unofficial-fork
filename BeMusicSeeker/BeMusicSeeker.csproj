@@ -1,0 +1,121 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>BeMusicSeeker</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>False</GenerateTargetFrameworkAttribute>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>True</UseWPF>
+    <UseWindowsForms>True</UseWindowsForms>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>Assets\Icons\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>BeMusicSeeker</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\native\Everything3_x64.dll">
+      <Link>native\Everything3_x64.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>native\Everything3_x64.dll</TargetPath>
+    </None>
+    <None Include="..\native\EverythingBridge_x64.dll">
+      <Link>native\EverythingBridge_x64.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>native\EverythingBridge_x64.dll</TargetPath>
+    </None>
+    <None Include="..\vendor\native\x64\*.dll" Exclude="..\vendor\native\x64\7z.dll;..\vendor\native\x64\sqlite3.dll">
+      <Link>libs\x64\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
+    </None>
+    <None Include="..\lang\*.json">
+      <Link>lang\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>lang\%(Filename)%(Extension)</TargetPath>
+    </None>
+    <None Update="Assets\Audio\test.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>test.mp3</TargetPath>
+    </None>
+    <None Remove="Assets\Images\default_image.jpg" />
+    <None Remove="Assets\Fonts\sovjetboxbd_v0_9.otf" />
+    <None Remove="Assets\Images\icon_and_logo.png" />
+    <None Remove="Assets\Fonts\ligaturesymbols-2.11.otf" />
+    <None Remove="Assets\Fonts\commodore-20rounded-20v1.2.ttf" />
+    <Resource Include="Assets\Images\default_image.jpg" />
+    <Resource Include="Assets\Fonts\sovjetboxbd_v0_9.otf" />
+    <Resource Include="Assets\Images\icon_and_logo.png" />
+    <Resource Include="Assets\Fonts\ligaturesymbols-2.11.otf" />
+    <Resource Include="Assets\Fonts\commodore-20rounded-20v1.2.ttf" />
+  </ItemGroup>
+
+  <Target Name="VerifyEverythingNativeAssets" BeforeTargets="Build">
+    <Error Condition="!Exists('..\native\Everything3_x64.dll')"
+           Text="Everything SDK x64 native asset is missing: ..\native\Everything3_x64.dll" />
+    <Error Condition="!Exists('..\native\EverythingBridge_x64.dll')"
+           Text="Everything bridge x64 native asset is missing: ..\native\EverythingBridge_x64.dll" />
+  </Target>
+  <ItemGroup>
+    <PackageReference Include="LivetCask.Core" />
+    <PackageReference Include="LivetCask.EventListeners" />
+    <PackageReference Include="LivetCask.Mvvm" />
+    <PackageReference Include="Microsoft.Xml.SgmlReader" />
+    <PackageReference Include="sqlite-net-pcl" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
+    <PackageReference Include="NVorbis" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="NLog" />
+    <PackageReference Include="ManagedBass" />
+    <PackageReference Include="ManagedBass.Mix" />
+    <PackageReference Include="ManagedBass.Fx" />
+    <PackageReference Include="ManagedBass.Enc" />
+    <PackageReference Include="ManagedBass.Asio" />
+    <PackageReference Include="ManagedBass.Wasapi" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(PkgSevenZipExtractor)\build\x64\7z.dll" Condition="Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')">
+      <Link>libs\x64\7z.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="CopyFilesToOutputDirectory">
+    <RemoveDir Directories="$(OutDir)x86;$(OutDir)libs\x86" />
+  </Target>
+
+  <Target Name="VerifySevenZipNativeAsset" BeforeTargets="Build;Publish">
+    <Error Condition="!Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')"
+           Text="SevenZipExtractor x64 native asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
+  </Target>
+
+  <Target Name="CopyPublishedNativeAssets" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)native;$(PublishDir)libs\x64" />
+    <Copy SourceFiles="..\native\Everything3_x64.dll"
+          DestinationFiles="$(PublishDir)native\Everything3_x64.dll"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\native\EverythingBridge_x64.dll"
+          DestinationFiles="$(PublishDir)native\EverythingBridge_x64.dll"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\vendor\native\x64\bass.dll;..\vendor\native\x64\bassasio.dll;..\vendor\native\x64\bassenc.dll;..\vendor\native\x64\bassmix.dll;..\vendor\native\x64\basswasapi.dll;..\vendor\native\x64\bass_fx.dll"
+          DestinationFiles="$(PublishDir)libs\x64\bass.dll;$(PublishDir)libs\x64\bassasio.dll;$(PublishDir)libs\x64\bassenc.dll;$(PublishDir)libs\x64\bassmix.dll;$(PublishDir)libs\x64\basswasapi.dll;$(PublishDir)libs\x64\bass_fx.dll"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(PkgSevenZipExtractor)\build\x64\7z.dll"
+          DestinationFiles="$(PublishDir)libs\x64\7z.dll"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

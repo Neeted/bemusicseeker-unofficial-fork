@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="BeMusicSeeker.Views.KeywordSearchEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
+             x:Name="editor"
+             Focusable="False"
+             PreviewKeyDown="EditorPreviewKeyDown"
+             PreviewKeyUp="EditorPreviewKeyUp"
+             SnapsToDevicePixels="True"
+             UseLayoutRounding="True">
+  <UserControl.Resources>
+    <ItemsPanelTemplate x:Key="KeywordSearchVirtualizingItemsPanel">
+      <VirtualizingStackPanel />
+    </ItemsPanelTemplate>
+    <Style x:Key="KeywordSearchListBoxItemStyle" TargetType="{x:Type ListBoxItem}">
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="IsTabStop" Value="False" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type ListBoxItem}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="KeywordSearchItemRowStyle" TargetType="{x:Type Border}">
+      <Setter Property="Background" Value="Transparent" />
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="{DynamicResource App.ControlHoverBrush}" />
+        </Trigger>
+        <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type ListBoxItem}}, Path=IsSelected}" Value="True">
+          <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="KeywordSearchRowButtonStyle" TargetType="{x:Type Button}">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type Button}">
+            <Grid Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                Margin="{TemplateBinding Padding}"
+                                RecognizesAccessKey="True"
+                                TextElement.Foreground="{TemplateBinding Foreground}" />
+              <Border x:Name="FocusCue"
+                      BorderBrush="Transparent"
+                      BorderThickness="2"
+                      CornerRadius="2"
+                      IsHitTestVisible="False" />
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="FocusCue"
+                        Property="BorderBrush"
+                        Value="{DynamicResource App.InputFocusBorderBrush}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="KeywordSearchApplyButtonStyle"
+           TargetType="{x:Type Button}"
+           BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
+      <Setter Property="AutomationProperties.Name" Value="{Binding DisplayText}" />
+      <Setter Property="ToolTip" Value="{x:Null}" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Kind}"
+                     Value="{x:Static vm:KeywordSearchPresentationItemKind.Favorite}">
+          <Setter Property="ToolTip" Value="{Binding Query}" />
+        </DataTrigger>
+        <DataTrigger Binding="{Binding Kind}"
+                     Value="{x:Static vm:KeywordSearchPresentationItemKind.History}">
+          <Setter Property="ToolTip" Value="{Binding Query}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <ControlTemplate x:Key="KeywordSearchListBoxTemplate" TargetType="{x:Type ListBox}">
+      <Border Background="{TemplateBinding Background}"
+              BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}">
+        <ScrollViewer x:Name="PART_ScrollViewer"
+                      Focusable="False"
+                      CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}"
+                      HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                      VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                      MaxHeight="{TemplateBinding MaxHeight}"
+                      Padding="{TemplateBinding Padding}">
+          <ItemsPresenter />
+        </ScrollViewer>
+      </Border>
+    </ControlTemplate>
+    <DataTemplate x:Key="KeywordSearchItemTemplate">
+      <Border x:Name="SearchItemBorder"
+              Padding="2,1"
+              MinHeight="26"
+              Style="{StaticResource KeywordSearchItemRowStyle}"
+              Tag="{Binding}"
+              ToolTip="{Binding ToolTip, ElementName=ApplyButton}">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Button x:Name="ApplyButton"
+                  Style="{StaticResource KeywordSearchApplyButtonStyle}"
+                  Grid.Column="0"
+                  Tag="{Binding}"
+                  HorizontalContentAlignment="Left"
+                  HorizontalAlignment="Stretch"
+                  Padding="6,2"
+                  Focusable="False"
+                  IsTabStop="False"
+                  PreviewMouseLeftButtonDown="ApplyButtonPreviewMouseLeftButtonDown"
+                  Click="ApplyButtonClick">
+            <Button.Content>
+              <TextBlock Text="{Binding DisplayText}"
+                         FontFamily="Meiryo"
+                         FontSize="12"
+                         Foreground="{DynamicResource App.TextBrush}"
+                         TextWrapping="NoWrap"
+                         TextTrimming="CharacterEllipsis" />
+            </Button.Content>
+          </Button>
+          <Button x:Name="RemoveFavoriteButton"
+                  Grid.Column="1"
+                  Content="×"
+                  Tag="{Binding}"
+                  Width="24"
+                  Height="24"
+                  Padding="0"
+                  Margin="2,0,0,0"
+                  FontSize="14"
+                  Focusable="True"
+                  IsTabStop="True"
+                  Loaded="RemoveFavoriteButtonLoaded"
+                  PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
+                  Click="RemoveFavoriteButtonClick">
+            <Button.Style>
+              <Style TargetType="{x:Type Button}" BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding CanRemoveFavorite}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+          </Button>
+          <Button x:Name="AddFavoriteButton"
+                  Grid.Column="1"
+                  Content="★"
+                  Tag="{Binding}"
+                  Width="24"
+                  Height="24"
+                  Padding="0"
+                  Margin="2,0,0,0"
+                  FontSize="14"
+                  Focusable="True"
+                  IsTabStop="True"
+                  Loaded="AddFavoriteButtonLoaded"
+                  PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
+                  Click="AddFavoriteButtonClick">
+            <Button.Style>
+              <Style TargetType="{x:Type Button}" BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding CanAddFavorite}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+          </Button>
+          <Button x:Name="DeleteHistoryButton"
+                  Grid.Column="2"
+                  Content="×"
+                  Tag="{Binding}"
+                  Width="24"
+                  Height="24"
+                  Padding="0"
+                  Margin="2,0,0,0"
+                  FontSize="14"
+                  Focusable="True"
+                  IsTabStop="True"
+                  Loaded="DeleteHistoryButtonLoaded"
+                  PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
+                  Click="DeleteHistoryButtonClick">
+            <Button.Style>
+              <Style TargetType="{x:Type Button}" BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding CanDeleteHistory}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+          </Button>
+        </Grid>
+      </Border>
+    </DataTemplate>
+  </UserControl.Resources>
+  <Grid x:Name="editorSurface" Width="390" Height="22" Background="Transparent">
+    <TextBox x:Name="InputTextBox"
+             Width="390"
+             BorderThickness="0"
+           Style="{DynamicResource searchKeywordTextBoxStyle}"
+             Text="{Binding Text, ElementName=editor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+             TextChanged="InputTextBoxTextChanged"
+             SelectionChanged="InputTextBoxSelectionChanged"
+             GotKeyboardFocus="InputTextBoxGotKeyboardFocus"
+             LostKeyboardFocus="InputTextBoxLostKeyboardFocus"
+             PreviewKeyDown="InputTextBoxPreviewKeyDown" />
+    <Popup x:Name="AssistancePopup"
+           Placement="Bottom"
+           PlacementTarget="{Binding ElementName=editorSurface}"
+           VerticalOffset="4"
+           StaysOpen="True"
+           AllowsTransparency="True">
+      <Border BorderBrush="{DynamicResource App.BorderBrush}"
+              BorderThickness="1"
+              CornerRadius="4"
+              Background="{DynamicResource App.PopupBackgroundBrush}"
+              Padding="4"
+              Width="{Binding ActualWidth, ElementName=editorSurface}"
+              HorizontalAlignment="Left">
+      <StackPanel x:Name="SectionsHost" />
+      </Border>
+    </Popup>
+  </Grid>
+</UserControl>

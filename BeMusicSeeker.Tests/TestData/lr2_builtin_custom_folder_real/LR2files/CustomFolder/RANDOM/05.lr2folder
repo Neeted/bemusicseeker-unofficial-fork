@@ -1,0 +1,7 @@
+#COMMAND level>=0 AND mode=5
+#MAXTRACKS 1
+#CATEGORY カスタムフォルダ
+#TITLE 5KEYS
+#INFORMATION_A 5KEYSからランダムで一曲選びます。
+#INFORMATION_B 
+

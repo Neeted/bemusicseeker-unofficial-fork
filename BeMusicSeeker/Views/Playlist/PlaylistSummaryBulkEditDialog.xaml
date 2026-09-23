@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<v:ThemedWindow x:Class="BeMusicSeeker.Views.PlaylistSummaryBulkEditDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings" x:Name="playlistSummaryBulkEditDialog" Width="560" Height="640" MinWidth="560" MinHeight="420" ResizeMode="CanResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_edit, Mode=OneWay}" KeyDown="DialogKeyDown">
+  <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
+    <FrameworkElement.Resources>
+      <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+          <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
+          <ResourceDictionary Source="/BeMusicSeeker;component/Views/Settings/SettingsControls.xaml" />
+        </ResourceDictionary.MergedDictionaries>
+        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
+          <Setter Property="MinHeight" Value="24" />
+          <Setter Property="Padding" Value="10,2" />
+          <Setter Property="HorizontalContentAlignment" Value="Center" />
+          <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="{x:Type CheckBox}" BasedOn="{StaticResource {x:Type CheckBox}}">
+          <Setter Property="MinHeight" Value="20" />
+          <Setter Property="Padding" Value="4,1,0,1" />
+        </Style>
+        <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource {x:Type ComboBox}}">
+          <Setter Property="MinHeight" Value="24" />
+          <Setter Property="Padding" Value="5,1" />
+          <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+      </ResourceDictionary>
+    </FrameworkElement.Resources>
+    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" SnapsToDevicePixels="True">
+      <DockPanel LastChildFill="True">
+        <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+          <Button MinWidth="72" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistSummaryClose" Click="CloseDialog" />
+        </Grid>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+          <TextBlock FontSize="15" FontWeight="SemiBold" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_edit, Mode=OneWay}" />
+          <TextBlock Margin="16,2,4,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_target_count, Mode=OneWay}" />
+          <TextBlock Margin="0,2,0,0" Text="{Binding TargetCount}" />
+        </StackPanel>
+        <ScrollViewer Style="{StaticResource App.Canonical.ScrollViewerStyle}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding IsCustomFolderOutputEnabled}">
+              <DockPanel>
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding CanApplyCustomFolderOutput}" AutomationProperties.AutomationId="PlaylistSummaryApplyCustomFolderOutput" Click="ApplyCustomFolderOutput" />
+                <UniformGrid Columns="2" Margin="4,0,4,0">
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs_tooltip, Mode=OneWay}" IsChecked="{Binding OutputAllSongsFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user_tooltip, Mode=OneWay}" IsChecked="{Binding OutputUserFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level_tooltip, Mode=OneWay}" IsEnabled="{Binding IsLevelFolderBulkApplicable}" IsChecked="{Binding OutputLevelFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet_tooltip, Mode=OneWay}" IsChecked="{Binding OutputAlphabetFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear_tooltip, Mode=OneWay}" IsChecked="{Binding OutputClearFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel_tooltip, Mode=OneWay}" IsChecked="{Binding OutputDJLevelFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_tooltip, Mode=OneWay}" IsChecked="{Binding OutputCategoryAllFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc_tooltip, Mode=OneWay}" IsChecked="{Binding OutputOtherFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random_tooltip, Mode=OneWay}" IsChecked="{Binding OutputRandomFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort_tooltip, Mode=OneWay}" IsChecked="{Binding OutputBpmSortFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort_tooltip, Mode=OneWay}" IsChecked="{Binding OutputBpSortFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort_tooltip, Mode=OneWay}" IsChecked="{Binding OutputPlayCountSortFolder, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort_tooltip, Mode=OneWay}" IsChecked="{Binding OutputLastPlaySortFolder, Mode=TwoWay}" />
+                </UniformGrid>
+              </DockPanel>
+            </settings:SettingsSection>
+            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_output_base, Mode=OneWay}" IsEnabled="{Binding IsCustomFolderOutputEnabled}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="190" Margin="0,0,8,0" ItemsSource="{Binding OutputBaseOptions}" SelectedItem="{Binding OutputBaseOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_output_base, Mode=OneWay}" IsEnabled="{Binding CanApplyOutputBase}" AutomationProperties.AutomationId="PlaylistSummaryApplyOutputBase" Click="ApplyOutputBase" />
+              </Grid>
+            </settings:SettingsSection>
+            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_external_property_initialization, Mode=OneWay}">
+              <DockPanel>
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_property_initialization, Mode=OneWay}" IsEnabled="{Binding CanApplyExternalPropertyInitialization}" AutomationProperties.AutomationId="PlaylistSummaryApplyExternalPropertyInitialization" Click="ApplyExternalPropertyInitialization" />
+                <UniformGrid Columns="2" Margin="4,0,4,0">
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_playlist_name, Mode=OneWay}" IsChecked="{Binding InitializeNameFromExternal, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_symbol, Mode=OneWay}" IsChecked="{Binding InitializeSymbolFromExternal, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_compat_prefix, Mode=OneWay}" IsChecked="{Binding InitializeCompatPrefixFromExternal, Mode=TwoWay}" />
+                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_output_dir, Mode=OneWay}" IsChecked="{Binding InitializeOutputDirectoryFromExternal, Mode=TwoWay}" />
+                </UniformGrid>
+              </DockPanel>
+            </settings:SettingsSection>
+            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_root_folder, Mode=OneWay}" IsEnabled="{Binding IsCustomFolderOutputEnabled}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding BulkBooleanOptions}" SelectedItem="{Binding RootFolderOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_root_folder, Mode=OneWay}" IsEnabled="{Binding CanApplyRootFolder}" AutomationProperties.AutomationId="PlaylistSummaryApplyRootFolder" Click="ApplyRootFolder" />
+              </Grid>
+            </settings:SettingsSection>
+            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_external_sync, Mode=OneWay}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding BulkBooleanOptions}" SelectedItem="{Binding ExternalSyncOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_sync, Mode=OneWay}" IsEnabled="{Binding CanApplyExternalSync}" AutomationProperties.AutomationId="PlaylistSummaryApplyExternalSync" Click="ApplyExternalSync" />
+              </Grid>
+            </settings:SettingsSection>
+            <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_bmt_output, Mode=OneWay}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding BulkBooleanOptions}" SelectedItem="{Binding BmtOutputOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_bmt_output, Mode=OneWay}" IsEnabled="{Binding CanApplyBmtOutput}" AutomationProperties.AutomationId="PlaylistSummaryApplyBmtOutput" Click="ApplyBmtOutput" />
+              </Grid>
+            </settings:SettingsSection>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+  </Grid>
+</v:ThemedWindow>

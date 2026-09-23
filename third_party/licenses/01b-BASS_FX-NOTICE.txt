@@ -1,0 +1,36 @@
+BASS_FX third-party add-on notice
+
+Notice Summary (not authoritative full license text)
+====================================================
+
+Current classification: GREEN
+The current release is non-commercial, non-revenue end-user software and
+uses the retained BASS_FX package without modifying the DLL. BASS_FX is a
+third-party add-on and is not a component authored by Un4seen Developments.
+
+Copyright: (: JOBnik! :) [Arthur Aminov, ISRAEL]
+Component: bass_fx.dll 2.4.12.6 / API 0x02040C06 / x64
+
+Evidence for the retained package (retrieved 2026-08-09):
+- Upstream package: https://www.un4seen.com/files/z/0/bass_fx24.zip
+- Archive SHA-256: A4BAF602865941963127ACB15ED12627D108189F99C2757970432AE7DA0366CD
+- Retained x64 member: x64/bass_fx.dll
+- Retained x64 member SHA-256: A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A
+- Package readme: BASS_FX.TXT, SHA-256
+  6755A8555F0A77153EE752E0CD0ED22494FE2402094BDB4AE4EADCE4CE79D5E0
+- Normalized Copyright, Disclaimer section (BASS_FX.TXT lines 214-233)
+  SHA-256: D0B20C0F6DEAC846D7911E0C88281D9E979EB0187D9795351EA6370C8DAE7FB6
+
+The package readme states that the BASS_FX library is free, permits free
+distribution when no fee is charged and package files remain intact and
+unmodified, and states that BASS_FX is usable in commercial software when
+credit is given. The readme and any terms of the component's embedded sources
+remain authoritative. A future commercial or monetized release therefore
+requires a fresh license review; it is not a current YELLOW condition.
+
+Authoritative/current sources:
+- https://www.un4seen.com/bass.html (lists BASS_FX as a third-party add-on)
+- https://jobnik.net/projects/bass_fx/
+
+This is a notice summary, not a replacement for the package readme or other
+authoritative terms. Keep this notice with every distributed package.

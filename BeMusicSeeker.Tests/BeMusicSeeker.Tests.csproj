@@ -1,0 +1,87 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>14.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="MSTest.TestAdapter" />
+    <PackageReference Include="MSTest.TestFramework" />
+    <PackageReference Include="sqlite-net-pcl" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="ManagedBass" />
+    <PackageReference Include="ManagedBass.Mix" />
+    <PackageReference Include="ManagedBass.Fx" />
+    <PackageReference Include="ManagedBass.Enc" />
+    <PackageReference Include="ManagedBass.Asio" />
+    <PackageReference Include="ManagedBass.Wasapi" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeMusicSeeker\BeMusicSeeker.csproj" />
+    <ProjectReference Include="..\BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+    <Compile Include="..\tools\chart-info-compare\ChartInfoCompareCore.cs" Link="Tools\ChartInfoCompareCore.cs" />
+    <Compile Include="..\tools\chart-info-export\ChartInfoExportCore.cs" Link="Tools\ChartInfoExportCore.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
+    <PackageReference Include="NVorbis" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(PkgSevenZipExtractor)\build\x64\7z.dll" Condition="Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')">
+      <Link>libs\x64\7z.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="TestData\archives\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\audio\*.ogg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\lr2_builtin_custom_folder_real\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BMS_TEST_CHART_INFO_FULL)' == '1'">
+    <None Update="TestData\chart_info_real\expected.db">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_real\manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_real\charts\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_edge_cases\expected.db">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_edge_cases\manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_edge_cases\charts\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="VerifySevenZipNativeTestAsset" BeforeTargets="Build">
+    <Error Condition="!Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')"
+           Text="SevenZipExtractor x64 native test asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
+  </Target>
+
+</Project>

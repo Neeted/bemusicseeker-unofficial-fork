@@ -25,7 +25,7 @@ $devRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $distDir = Join-Path $devRoot "dist"
 
 function Get-AppVersion {
-    $asmInfoPath = Join-Path $devRoot "Properties\AssemblyInfo.cs"
+    $asmInfoPath = Join-Path $devRoot "BeMusicSeeker\Properties\AssemblyInfo.cs"
     $content = Get-Content $asmInfoPath -Raw
     if ($content -match 'AssemblyInformationalVersion\("([^"]+)"\)') {
         return $Matches[1]
@@ -117,7 +117,7 @@ $currentVersion = Get-AppVersion
 $sourcePackagePath = Resolve-PackagePath `
     $PackagePath `
     "bemusicseeker-unofficial-fork-v$currentVersion.zip" `
-    "通常版 package が見つかりません。先に .\scripts\publish.ps1 -PackageOnly -SkipDocHtml を実行してください。"
+    "通常版 package が見つかりません。先に .\scripts\publish.ps1 -SkipDocHtml を実行してください。"
 $sourceMetadataPackagePath = Resolve-PackagePath `
     $MetadataPackagePath `
     "bemusicseeker-unofficial-fork-v$currentVersion-with-metadata.zip" `
@@ -169,7 +169,7 @@ Write-Host "manifest URL:"
 Write-Host "  $baseUrl/update.json"
 Write-Host ""
 Write-Host "app 起動例:"
-Write-Host "  .\bin\x64\Release\net472\BeMusicSeeker.exe --update-manifest-url=$baseUrl/update.json"
+Write-Host "  .\BeMusicSeeker\bin\x64\Release\net10.0-windows\BeMusicSeeker.exe --update-manifest-url=$baseUrl/update.json"
 
 if ($StartServer) {
     Stop-ExistingServer $pidPath

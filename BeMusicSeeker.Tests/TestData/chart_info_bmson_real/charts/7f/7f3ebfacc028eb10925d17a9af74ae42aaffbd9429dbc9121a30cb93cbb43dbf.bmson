@@ -1,0 +1,83 @@
+{
+    "bga": {
+        "bga_events": [
+            {
+                "id": 1,
+                "y": 0
+            }
+        ],
+        "bga_header": [
+            {
+                "id": 1,
+                "name": "bgi.bmp"
+            }
+        ],
+        "layer_events": [
+        ],
+        "poor_events": [
+        ]
+    },
+    "bpm_events": [
+    ],
+    "info": {
+        "artist": "イオン株式会社",
+        "back_image": "",
+        "banner_image": "",
+        "chart_name": "",
+        "eyecatch_image": "",
+        "genre": "PAYMENT SOUND",
+        "init_bpm": 530,
+        "judge_rank": 40,
+        "level": 0,
+        "mode_hint": "keyboard-24k",
+        "preview_music": "",
+        "resolution": 240,
+        "subartists": [
+        ],
+        "subtitle": "",
+        "title": "WAON決済音[24keys]",
+        "title_image": "",
+        "total": 100
+    },
+    "lines": [
+        {
+            "y": 0
+        },
+        {
+            "y": 960
+        },
+        {
+            "y": 1920
+        },
+        {
+            "y": 2880
+        }
+    ],
+    "sound_channels": [
+        {
+            "name": "WAON_001.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 17,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "WAON_002.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 20,
+                    "y": 1200
+                }
+            ]
+        }
+    ],
+    "stop_events": [
+    ],
+    "version": "1.0.0"
+}

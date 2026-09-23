@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="BeMusicSeeker.Views.LoadPlaylistURIDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" x:Name="settingDialog">
+  <Grid Name="loadPlaylistURIDialogRootGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
+    <FrameworkElement.Resources>
+      <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+          <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
+        </ResourceDictionary.MergedDictionaries>
+      </ResourceDictionary>
+    </FrameworkElement.Resources>
+    <Rectangle Style="{StaticResource App.Canonical.DialogOverlayStyle}" />
+    <Border Style="{StaticResource App.Canonical.DialogContentStyle}" Width="560" Height="220">
+      <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Margin="5,5,5,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_PlaylistURI, Mode=OneWay}" />
+        <TextBox Grid.Row="1" Style="{StaticResource App.Canonical.TextBoxStyle}" Name="textBoxURIInput" Margin="5,0,5,0" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,2,0,0">
+          <Button x:Name="openLocalFileButton" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="Open" MinWidth="50" Margin="5,3" AutomationProperties.AutomationId="LoadPlaylistUriOpenLocalFile" Click="OpenLocalFile" />
+          <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="50" Margin="5,3" AutomationProperties.AutomationId="LoadPlaylistUriAccept" Click="SaveAndClose" />
+          <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="50" Margin="5,3" AutomationProperties.AutomationId="LoadPlaylistUriCancel" Click="CancelAndClose" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

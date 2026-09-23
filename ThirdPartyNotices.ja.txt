@@ -1,7 +1,7 @@
 BeMusicSeeker サードパーティ・ノーティス
 
-最終更新: 2026-04-21
-適用範囲: BeMusicSeeker.csproj によって参照され、bin/Release/net472、vendor/native/{x86,x64}、native/、および resources/ 下で配布されるサードパーティ製ファイル。
+最終更新: 2026-08-09
+適用範囲: 現行の .NET 10 x64 プロジェクトによって参照され、self-contained x64 publish/package 出力、native/、および BeMusicSeeker/Assets/ 下で配布されるサードパーティ製ファイル。
 
 ステータスの凡例:
 - GREEN (緑): 一次情報と再配布の条件が確認されています。
@@ -13,47 +13,88 @@ BeMusicSeeker サードパーティ・ノーティス
 - 本リポジトリに同梱されているライセンス本文のファイルについては、`third_party/licenses/` を参照してください。
 
 ================================================================================
-1) BASS Audio Library (ネイティブバイナリ)
+1) BASS core と公式 add-on（ネイティブバイナリ）
 ================================================================================
 ステータス: GREEN
-コンポーネント: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll (x86/x64)
-著作権所有者: un4seen developments
-ライセンス: プロプライエタリ（非商用利用は無料、商用利用はライセンスが必要）
+コンポーネント: bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll (x64)
+著作権所有者: Un4seen Developments Ltd.
+ライセンス: プロプライエタリなアップストリーム条項（現行の非商用・
+            非収益のエンドユーザー向けリリースでは無料）
 ソース: https://www.un4seen.com/bass.html, https://www.un4seen.com/doc/bass/bass.html
-ライセンス本文: third_party/licenses/01-BASS-NOTICE.txt
+        https://www.un4seen.com/bassmix.html, https://www.un4seen.com/bassenc.html
+        https://www.un4seen.com/basswasapi.html
+Notice Summary: third_party/licenses/01-BASS-NOTICE.txt
+NET10で保持するx64セット: bass.dll 2.4.18.3（API 0x02041203、SHA-256 FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4）、bassmix.dll 2.4.12.0（API 0x02040C00、SHA-256 F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D）、bassenc.dll 2.4.17.0（API 0x02041100、SHA-256 9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8）、basswasapi.dll 2.4.4.1（API 0x02040401、SHA-256 6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1）
 再配布時の注意事項:
 - 本リポジトリのMITライセンス適用外です。
-- 原則として非商用利用はアップストリームの条項により許可されています。
-- 商用利用の際は un4seen から BASS 商用ライセンスを取得する必要があります。
+- 現行リリースは非商用・非収益のエンドユーザー向けであり、GREENです。
+- 将来、商用または収益化する場合はアップストリーム条項を再確認します。
+  この将来のトリガーは現行のYELLOW理由ではありません。
 - 配布パッケージにはBASS特有のノーティスを残してください。
 
 ================================================================================
-2) Bass.Net (マネージドラッパー)
+1a) BASSASIO（ネイティブの独立コンポーネント）
 ================================================================================
 ステータス: GREEN
-コンポーネント: Bass.Net.dll
-著作権所有者: radio42
-ライセンス: ベンダー提供ラッパー利用許諾条項 (MIT ではありません)
-ソース: https://www.radio42.com/bass/bass_purchase.html, https://www.radio42.com/bass/bass_register.html
-ライセンス本文: third_party/licenses/02-BASS.NET-NOTICE.txt
+コンポーネント: bassasio.dll (x64)
+著作権所有者: Un4seen Developments Ltd.
+ライセンス: BASSとは別のプロプライエタリなアップストリーム条項
+            （現行の非商用・非収益のエンドユーザー向けリリースでは無料）
+ソース: https://www.un4seen.com/bassasio.html, https://www.un4seen.com/doc/bassasio/bassasio.html
+Notice Summary: third_party/licenses/01a-BASSASIO-NOTICE.txt
+NET10で保持するx64セット: bassasio.dll 1.4.3.0（API 0x01040300、SHA-256 73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96）
 再配布時の注意事項:
-- マネージドラッパーはネイティブのBASSバイナリとは別物であり、個別に管理する必要があります。
-- 個人による非商用かつ非収益の（利益を得ない）エンドユーザー向けソフトウェアの場合、アップストリーム条項によりフリーウェアとしての利用が許可されている見込みです。
-- 利用条件は厳格であり（個人利用の範囲、再配布時の制限、サブライセンス不可等）、ノーティスを保持する必要があります。
-- 同梱するBASSのDLL（ネイティブ版）のライセンス条項も同時に満たす必要があります。
+- BASSASIOはBASS coreおよび公式add-onとは別のアップストリームライセンスです。
+- 現行リリースは非商用・非収益のエンドユーザー向けであり、GREENです。
+- 将来、商用または収益化する場合はライセンスを再確認します。
+  この将来のトリガーは現行のYELLOW理由ではありません。
+
+================================================================================
+1b) BASS_FX（third-party add-on）
+================================================================================
+ステータス: GREEN
+コンポーネント: bass_fx.dll (x64)
+著作権所有者: (: JOBnik! :) [Arthur Aminov, ISRAEL]
+ライセンス: BASS_FX third-party package条項（独立したnotice summaryを参照）
+ソース: https://www.un4seen.com/bass.html（third-party add-onの掲載）
+        https://jobnik.net/projects/bass_fx/
+        https://www.un4seen.com/files/z/0/bass_fx24.zip
+Notice Summary: third_party/licenses/01b-BASS_FX-NOTICE.txt
+NET10で保持するx64セット: bass_fx.dll 2.4.12.6（API 0x02040C06、SHA-256 A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A）
+再配布時の注意事項:
+- BASS_FXはUn4seenの著作物ではありません。JOBnik / Arthur Aminovの帰属を残してください。
+- 現行リリースは非商用・非収益のエンドユーザー向けであり、GREENです。
+- 保持するDLLは変更せずに配布します。将来、商用または収益化する場合は
+  package readmeと内包ソースの条項を再確認します。この将来のトリガーは
+  現行のYELLOW理由ではありません。
+
+================================================================================
+2) ManagedBass（マネージドバインディング）
+================================================================================
+ステータス: GREEN
+コンポーネント: ManagedBass, ManagedBass.Mix, ManagedBass.Fx, ManagedBass.Enc, ManagedBass.Asio, ManagedBass.Wasapi 4.0.2
+著作権所有者: Mathew Sachin
+ライセンス: MIT
+ソース: https://www.nuget.org/packages/ManagedBass/4.0.2
+ライセンス本文: third_party/licenses/02-ManagedBass-MIT.txt
+正規化したライセンス本文 SHA-256: 41810CB2403489DB4FB5B2F961B78DC3629CE5B9DF06251D939A89ED3FB05063
+再配布時の注意事項:
+- ManagedBassアセンブリはexact 4.0.2のパッケージセットから供給し、プロプライエタリなネイティブBASSとは別に扱います。
+- framework-dependent buildでは6つのマネージドアセンブリを配置し、single-file publishではbundleします。
+- ネイティブBASSのライセンスは別契約であり、1)、1a)、1b) のノーティスを適用します。
 
 ================================================================================
 3) 7-Zip コアライブラリ
 ================================================================================
 ステータス: GREEN
-コンポーネント: 7z.dll (x86/x64)
+コンポーネント: 7z.dll (x64、SevenZipExtractor 1.0.19 build アセット)
 著作権所有者: Igor Pavlov
 ライセンス: GNU LGPL または unRAR 制限に関する特約付きの混在ライセンス
 ソース: https://www.7-zip.org/
 ライセンス本文: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
 再配布時の注意事項:
 - 個別のDLLとして配布しています（動的リンク）。
-- リポジトリの x86/x64 バイナリのSHA256値が、SevenZipExtractor 1.0.19 パッケージ同梱の build/x86, build/x64 の 7z.dll と一致していることを確認済みです。
+- 実行時はパッケージの build/x64 7z.dll のみを配布します（FileVersion/ProductVersion 24.07、SHA256 3691ADCEFC6DA67EEDD02A1B1FC7A21894AFD83ECF1B6216D303ED55A5F8D129）。
 - LGPLの本文と unRAR 制限事項のノーティスを配布物に同梱してください。
 
 ================================================================================
@@ -66,108 +107,57 @@ BeMusicSeeker サードパーティ・ノーティス
 ソース: https://www.nuget.org/packages/SevenZipExtractor/1.0.19
 ライセンス本文: third_party/licenses/04-SevenZipExtractor-MIT.txt
 再配布時の注意事項:
-- リポジトリのバイナリのSHA256値が、NuGet 1.0.19 lib/net45 のファイルと一致していることを確認済みです。
+- マネージドラッパーはNuGetパッケージの lib/netstandard2.0 アセットから解決し、リポジトリ管理のラッパーバイナリは配布しません。
 - MITライセンス本文を配布物に同梱してください。
 
-================================================================================
-5) Blend SDK WPF バイナリ
-================================================================================
-ステータス: GREEN
-コンポーネント: System.Windows.Interactivity.dll, Microsoft.Expression.Interactions.dll,
-           Microsoft.Expression.Drawing.dll, Microsoft.Expression.Effects.dll
-著作権所有者: Microsoft Corporation
-ライセンス: Microsoft SDK/EULA 再配布条件
-ソース: https://www.nuget.org/packages/Expression.Blend.Sdk (旧公式DLページは提供終了)
-ライセンス本文: third_party/licenses/05-Microsoft-SDK-NOTICE.txt
-再配布時の注意事項:
-- OSI 準拠のオープンソース・パッケージではなく、再配布可能な SDK バイナリとして扱います。
-- Microsoft 公式のダウンロードセンターからの単体提供は終了していますが、デファクトの NuGet パッケージ経由等で同等のライセンス下にて流通しています。製品の注意事項を残してください。
-
-================================================================================
-6) Windows API Code Pack
+7) LivetCask ランタイム
 ================================================================================
 ステータス: GREEN
-コンポーネント: Microsoft.WindowsAPICodePack.dll, Microsoft.WindowsAPICodePack.Shell.dll
-著作権所有者: Microsoft Corporation
-ライセンス: MIT
-ソース: https://www.nuget.org/packages/WindowsAPICodePack/
-ライセンス本文: third_party/licenses/06-WindowsAPICodePack-MIT.txt
-再配布時の注意事項:
-- ライセンス本文を配布物に同梱してください。
-
-================================================================================
-7) Livet
-================================================================================
-ステータス: GREEN
-コンポーネント: Livet.dll, Livet.Extensions.dll
-著作権所有者: Livet Project
+コンポーネント: Livet.Core.dll, Livet.EventListeners.dll, Livet.Messaging.dll, Livet.Mvvm.dll
+著作権所有者: Livet Project (2010-2019)
 ライセンス: zlib/libpng
-ソース: https://github.com/runceel/Livet
+ソース: https://github.com/runceel/Livet; LivetCask.Core／EventListeners／Messaging／Mvvm 4.0.2
 ライセンス本文: third_party/licenses/07-Livet-zlib.txt
 再配布時の注意事項:
 - ライセンスと著作権表示を残してください。
 
 ================================================================================
-8) MetroRadiance
+7a) Microsoft.Xaml.Behaviors.Wpf ランタイム依存
 ================================================================================
 ステータス: GREEN
-コンポーネント: MetroRadiance.dll, MetroRadiance.Core.dll, MetroRadiance.Chrome.dll
-著作権所有者: Manato KAMEYA
+コンポーネント: Microsoft.Xaml.Behaviors.dll（transitive Microsoft.Xaml.Behaviors.Wpf 1.1.31）
+著作権所有者: Microsoft Corporation
 ライセンス: MIT
-ソース: https://github.com/Grabacr07/MetroRadiance
-ライセンス本文: third_party/licenses/08-MetroRadiance-MIT.txt
-再配布時の注意事項:
-- ライセンス本文と著作権表示を同梱してください。
-
-================================================================================
-9) QuickConverter
-================================================================================
-ステータス: GREEN
-コンポーネント: QuickConverter.dll
-著作権所有者: JohannesMoersch
-ライセンス: MIT
-ソース: https://github.com/JohannesMoersch/QuickConverter
-ライセンス本文: third_party/licenses/09-QuickConverter-MIT.txt
+ソース: https://github.com/microsoft/XamlBehaviorsWpf
+ライセンス本文: third_party/licenses/17-Microsoft.Xaml.Behaviors-MIT.txt
 再配布時の注意事項:
 - MIT ライセンス本文と著作権表示を同梱してください。
-
-================================================================================
-10) DynamicJson
-================================================================================
-ステータス: GREEN
-コンポーネント: DynamicJson.dll
-著作権所有者: neuecc
-ライセンス: MS-PL
-ソース: https://github.com/neuecc/DynamicJson
-ライセンス本文: third_party/licenses/10-DynamicJson-MS-PL.txt
-再配布時の注意事項:
-- MS-PL ライセンス本文を同梱してください。
 
 ================================================================================
 11) SgmlReader
 ================================================================================
 ステータス: GREEN
-コンポーネント: SgmlReaderDll.dll
+コンポーネント: Microsoft.Xml.SgmlReader 1.8.30 (SgmlReaderDll.dll)
 著作権所有者: Microsoft Corporation; MindTouch
 ライセンス: Apache-2.0
-ソース: https://github.com/MindTouch/SGMLReader
+ソース: https://www.nuget.org/packages/Microsoft.Xml.SgmlReader/1.8.30（上流: https://github.com/lovettchris/SgmlReader）
 ライセンス本文: third_party/licenses/11-Apache-2.0.txt
 再配布時の注意事項:
-- v1.8.11 (MindTouchフォーク) のバイナリであることを確認済みです。
+- パッケージが提供するバージョン1.8.30のSgmlReaderDll.dllを使用します。
 - Apache 2.0 ライセンスの本文および著作権表示を同梱してください。
 
 ================================================================================
 12) SQLite
 ================================================================================
 ステータス: GREEN
-コンポーネント: sqlite3.dll, sqlite.net.dll
-著作権所有者: sqlite3: D. Richard Hipp およびコントリビューター; sqlite.net: Frank A. Krueger およびコントリビューター
-ライセンス: sqlite3: パブリックドメイン; sqlite.net.dll: MIT
-ソース: https://www.sqlite.org/ (sqlite3), https://github.com/praeclarum/sqlite-net (sqlite.net.dll)
-ライセンス本文: third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
+コンポーネント: SQLite-net.dll 1.11.285、SQLitePCLRaw 3.0.4、SourceGear e_sqlite3.dll 3.53.3
+著作権所有者: sqlite-net: Frank A. Krueger およびコントリビューター; SQLitePCLRaw／SourceGear: SourceGear, LLC; SQLite: D. Richard Hipp およびコントリビューター
+ライセンス: sqlite-net: MIT; SQLitePCLRaw: Apache-2.0; SourceGear e_sqlite3: SQLite パブリックドメイン
+ソース: https://github.com/praeclarum/sqlite-net、https://github.com/ericsink/SQLitePCL.raw、https://www.nuget.org/packages/SourceGear.sqlite3/3.53.3、https://www.sqlite.org/
+ライセンス本文: third_party/licenses/11-Apache-2.0.txt, third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
 再配布時の注意事項:
-- sqlite3 そのものはパブリックドメインです。
-- sqlite.net.dll は praeclarum/sqlite-net を元アプリ開発者がビルドした同一系譜のアーティファクトとして扱われます。MITライセンス本文を同梱してください。
+- SQLite-net.dll は sqlite-net-pcl 1.11.285、SQLitePCLRaw は 3.0.4 のパッケージバンドルが提供するものです。
+- e_sqlite3.dll は SourceGear.sqlite3 3.53.3 パッケージが提供する SQLite ネイティブランタイムです。SQLitePCLRaw の Apache-2.0 表示と SQLite のパブリックドメイン表示を同梱してください。
 
 ================================================================================
 13) NLog
@@ -185,12 +175,13 @@ BeMusicSeeker サードパーティ・ノーティス
 14) System.Collections.Immutable
 ================================================================================
 ステータス: GREEN
-コンポーネント: System.Collections.Immutable.dll
+コンポーネント: .NET 10 ランタイムパックの System.Collections.Immutable.dll
 著作権所有者: .NET Foundation およびコントリビューター
 ライセンス: MIT
-ソース: https://www.nuget.org/packages/System.Collections.Immutable/
+ソース: https://github.com/dotnet/runtime/tree/main/src/libraries/System.Collections.Immutable
 ライセンス本文: third_party/licenses/14-System.Collections.Immutable-MIT.txt
 再配布時の注意事項:
+- ランタイムパックが供給するアセンブリであり、旧式の単独DLLは再配布しません。
 - MIT ライセンス本文を同梱してください。
 
 ================================================================================
@@ -223,39 +214,26 @@ BeMusicSeeker サードパーティ・ノーティス
 17) EverythingBridge
 ================================================================================
 ステータス: GREEN
-コンポーネント: EverythingBridge_x64.dll (ローカルで任意にビルドされたもの)
+コンポーネント: EverythingBridge_x64.dll（追跡済みソースからローカルでビルドする必須資産）
 著作権所有者: ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ@CyanHowan
 ライセンス: MIT (本プロジェクトの LICENSEに準拠)
 ソース: native/EverythingBridge
 ライセンス本文: LICENSE
 再配布時の注意事項:
-- native/EverythingBridge ソースコードからビルドされたファーストパーティ製のブリッジDLLです。
+- native/EverythingBridge ソースコードからビルドされ、Everything3_x64.dll と同じ場所に配置する必須のファーストパーティ製ブリッジDLLです。
 
 ================================================================================
-18) OggVorbis.NET バイナリ
+18) NVorbis
 ================================================================================
 ステータス: GREEN
-コンポーネント: OggVorbis.NET.dll, OggVorbis.NET64.dll
-著作権所有者: tu-sa; Xiph.org Foundation
-ライセンス: BSD 3条項スタイル（ラッパーに加えて libogg / libvorbis の注意書きを含む）
-ソース: https://github.com/ttsuki/OggVorbis.NET
-ライセンス本文: third_party/licenses/18-OggVorbis.NET-COPYING.txt
+コンポーネント: NVorbis.dll（NuGet NVorbis 0.10.5）
+著作権所有者: Andrew Ward
+ライセンス: MIT
+ソース: https://github.com/NVorbis/NVorbis
+ライセンス本文: third_party/licenses/18-NVorbis-MIT.txt
 再配布時の注意事項:
-- 上流となるアップストリームリポジトリおよび COPYING （コピー条項）については確認済みです。
-- デコンパイル調査により、同梱のバイナリが ttsuki/OggVorbis.NET のソースコードと完全に一致することが確認されました。
-- COPYING ファイル（libogg / libvorbis の著作権表示を含む）を同梱してください。
-
-================================================================================
-19) IniLibrary
-================================================================================
-ステータス: GREEN
-コンポーネント: IniLibrary.dll
-著作権所有者: フォーク元である BeMusicSeeker の由来
-ライセンス: フォーク元作成者によるバイナリとして採用（メンテナの出自判定）
-ソース: 元アプリのインストールおよびビルドパスの証拠に基づく
-ライセンス本文: 
-再配布時の注意事項:
-- オリジナルの BeMusicSeeker ビルド環境で生成された同一系譜の成果物であるというメンテナによる判断です。
+- マネージド Ogg Vorbis デコードはパッケージから供給し、OggVorbis.NET のネイティブバイナリは配布しません。
+- パッケージのライセンス本文をリポジトリおよびリリース成果物に同梱します。
 
 ================================================================================
 20) フォントファイル (Fonts)
@@ -302,10 +280,15 @@ GitHub リリース準備状況におけるアクション・サマリー
 (なし)
 
 準備完了（GREEN）:
-- 7z.dll, Livet, MetroRadiance, QuickConverter, DynamicJson,
-  Windows API Code Pack, NLog, .NET の MIT ランタイム依存関係,
-  System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
-  SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
-  SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
-  フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
-  BASS ネイティブバイナリ群, Bass.Net.dll, Blend SDK バイナリ群
+- BASS core と公式 add-on（bass.dll, bassmix.dll, bassenc.dll, basswasapi.dll）、
+  BASSASIO、BASS_FX、ManagedBass 4.0.2、
+  7z.dll, Livet, NLog, .NET の MIT ランタイム依存関係,
+  Everything3_x64.dll, EverythingBridge_x64.dll,
+  SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
+  SgmlReaderDll.dll, NVorbis.dll,
+  フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf
+
+現行リリースの方針:
+- 現行リリースは非商用・非収益のエンドユーザー向けです。
+- 将来、商用または収益化する場合はアップストリーム条項を再確認します。
+  これは現行のYELLOW理由ではありません。

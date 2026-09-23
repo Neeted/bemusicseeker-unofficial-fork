@@ -1,0 +1,26 @@
+[agents]
+enabled = true
+# 全担当をルートが直接呼び、テスト設計の後に引継ぎを点検する。
+# 停止・待機中も上限に含め、障害解決担当の枠を確保する。
+# 書込み担当を終了してから凍結した変更をレビューする。
+max_concurrent_threads_per_session = 3
+
+[features.multi_agent_v2]
+enabled = true
+
+min_wait_timeout_ms = 900000
+default_wait_timeout_ms = 900000
+max_wait_timeout_ms = 3600000
+
+root_agent_usage_hint_text = """
+委譲した担当の完了はイベントで待ってください。完了確認だけを目的に、状態一覧、
+担当の会話、差分、ログを繰り返し読み取ったり、待機中という進捗だけを通知したりしません。
+
+委譲後は、原則として timeout_ms=900000 の wait_agent を一度呼びます。
+実際の担当からの連絡か利用者の入力があった場合に早く復帰します。
+意味のある状態変化がないまま期限に達した場合は、進捗通知や
+list_agents / read_thread による確認を挟まず、再び待機します。
+
+担当の確認や進捗報告は、新しい情報、完了・判断依頼、利用者の入力、
+または別の独立した作業理由がある場合に行います。
+"""

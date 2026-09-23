@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "sourceCommit": "43fc8e650f211fc118322cfeb55413d1c53c8a09",
+    "description": "Compact, deterministic existing-data acceptance fixture. legacy-song.db is a tracked SQLite artifact generated from the independent legacy-song-db.sql schema; the runner only relocates path values into its temporary sandbox."
+  },
+  "database": {
+    "fixtureFile": "legacy-song.db",
+    "fixtureSha256": "fc1fbae76b2aca6f7fe72fe424e6c66121c4dd02a60723a9caaf4374233f32ec",
+    "songHash": "839194ef691f63a91a97b2a7c481bb1d",
+    "songTitle": "E1 Fixture Song",
+    "songRelativePath": "Fixture\\e1-fixture.bms",
+    "folderTitle": "E1 Fixture Folder",
+    "folderRelativePath": "Fixture",
+    "installRelativePath": "Fixture\\package",
+    "playlistId": 7001,
+    "playlistName": "E1 Fixture Playlist",
+    "playlistSymbol": "E1",
+    "courseId": 7002,
+    "courseJson": "{\"name\":\"E1 Course\",\"items\":[\"839194ef691f63a91a97b2a7c481bb1d\"]}",
+    "entryMd5": "839194ef691f63a91a97b2a7c481bb1d",
+    "entryTitle": "E1 Fixture Song",
+    "entryFolder": "E1 Fixture Folder"
+  },
+  "settings": {
+    "language": "ja-JP",
+    "appearanceTheme": "Light",
+    "assemblyVersion": "0.1.0.0"
+  },
+  "profiles": [
+    {
+      "name": "standalone",
+      "operationModeLr2Db": false,
+      "bmsRootDirectory": "bms",
+      "legacyConfigDirectory": "BeMusicSeeker.exe_Url_E1Standalone\\1.0.0.0"
+    },
+    {
+      "name": "lr2",
+      "operationModeLr2Db": true,
+      "lr2RootDirectory": "lr2",
+      "lr2ConfigRelativePath": "lr2\\LR2files\\Config\\config.xml",
+      "lr2SongDbRelativePath": "lr2\\LR2files\\song.db",
+      "legacyConfigDirectory": "BeMusicSeeker.exe_Url_E1Lr2\\1.0.0.0"
+    }
+  ]
+}

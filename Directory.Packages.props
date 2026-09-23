@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="3.6.4" />
+    <PackageVersion Include="MSTest.TestFramework" Version="3.6.4" />
+    <PackageVersion Include="LivetCask.Core" Version="4.0.2" />
+    <PackageVersion Include="LivetCask.EventListeners" Version="4.0.2" />
+    <PackageVersion Include="LivetCask.Mvvm" Version="4.0.2" />
+    <PackageVersion Include="Microsoft.Xml.SgmlReader" Version="1.8.30" />
+    <PackageVersion Include="NLog" Version="6.1.4" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="ManagedBass" Version="[4.0.2]" />
+    <PackageVersion Include="ManagedBass.Mix" Version="[4.0.2]" />
+    <PackageVersion Include="ManagedBass.Fx" Version="[4.0.2]" />
+    <PackageVersion Include="ManagedBass.Enc" Version="[4.0.2]" />
+    <PackageVersion Include="ManagedBass.Asio" Version="[4.0.2]" />
+    <PackageVersion Include="ManagedBass.Wasapi" Version="[4.0.2]" />
+    <PackageVersion Include="sqlite-net-pcl" Version="1.11.285" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.4" />
+    <PackageVersion Include="SevenZipExtractor" Version="1.0.19" />
+    <PackageVersion Include="NVorbis" Version="0.10.5" />
+  </ItemGroup>
+</Project>

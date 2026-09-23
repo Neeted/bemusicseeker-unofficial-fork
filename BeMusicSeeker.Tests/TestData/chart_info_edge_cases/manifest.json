@@ -1,0 +1,99 @@
+{
+  "selected_at": "2026-04-25T00:00:00+09:00",
+  "source_databases": {
+    "songinfo": "D:\\beatoraja\\songinfo.db",
+    "songdata": "D:\\beatoraja\\songdata.db"
+  },
+  "charts": [
+    {
+      "md5": "748806bd3ac10949b384f648918327da",
+      "fixture_path": "charts/72da217460aef7ac73638d7e8c812ff0dd64d582614a1ef116f0997494355988.bms",
+      "fixture_id": 1,
+      "source_path": "D:\\BMS\\0 ■OTHER\\[☆リズムに合わせてボタンを叩き達成率を競うゲームです☆] 全宇宙共通リズム感テスト\\5_FD.bms",
+      "sha256": "72da217460aef7ac73638d7e8c812ff0dd64d582614a1ef116f0997494355988",
+      "has_beatoraja_song": true,
+      "reason": "overflow_retry"
+    },
+    {
+      "md5": "95d69adc99abaade1df4dcf62481a6e4",
+      "fixture_path": "charts/867ca8e8551c4f36c5fa48a9b696e6b7324073c3802926bfb364cfe600e60fda.bms",
+      "fixture_id": 2,
+      "source_path": "D:\\BMS\\0 ■OTHER\\[☆リズムに合わせてボタンを叩き達成率を競うゲームです☆] 全宇宙共通リズム感テスト\\4_MASTER.bms",
+      "sha256": "867ca8e8551c4f36c5fa48a9b696e6b7324073c3802926bfb364cfe600e60fda",
+      "has_beatoraja_song": true,
+      "reason": "overflow_retry"
+    },
+    {
+      "md5": "af6c77b4f516310f109af58adccb6c41",
+      "fixture_path": "charts/e80fe029e8954d89dcc11629436ae2e7f3c4ea246e1143ac7bb9e5fdfa3553fb.bms",
+      "fixture_id": 3,
+      "source_path": "D:\\BMS\\1 EVENT\\160924 BOF2016\\449. maru-NewPeriod\\NewPeriod,memory.bms",
+      "sha256": "e80fe029e8954d89dcc11629436ae2e7f3c4ea246e1143ac7bb9e5fdfa3553fb",
+      "has_beatoraja_song": true,
+      "reason": "overflow_retry"
+    },
+    {
+      "md5": "ccc86f0e28a4f5539f7cb005c9d43d06",
+      "fixture_path": "charts/178af901088e01bbf7bb0b8c8f3ca86aa61b74a966783c02e04a7060f4ae63a2.bms",
+      "fixture_id": 4,
+      "source_path": "D:\\BMS\\1 EVENT\\160924 BOF2016\\449. maru-NewPeriod\\NewPeriod,memory_2.bms",
+      "sha256": "178af901088e01bbf7bb0b8c8f3ca86aa61b74a966783c02e04a7060f4ae63a2",
+      "has_beatoraja_song": true,
+      "reason": "overflow_retry"
+    },
+    {
+      "md5": "9686401c5f6a735c5817522737cd165e",
+      "fixture_path": "charts/b5d2528bd463014ac62db88dc1c148c1f162ee518d1bb4c47a82ea084e001a76.bme",
+      "fixture_id": 5,
+      "source_path": "D:\\BMS\\1 EVENT\\021222 戦國\\NO.04 Process 2.3.1 vs Y-Itoh [Trance] Le Specimen d'un Papillon\\papillon_bga_hyouhon7_fix_fix.bme",
+      "sha256": "b5d2528bd463014ac62db88dc1c148c1f162ee518d1bb4c47a82ea084e001a76",
+      "has_beatoraja_song": true,
+      "reason": "initial_bpm_success"
+    },
+    {
+      "md5": "da9b3ef6c35c1afed173a4d4d97a4efe",
+      "fixture_path": "charts/588e0446260613c5e6fed089269f598beea08e09bdb4fed1c612d125b731044a.bms",
+      "fixture_id": 6,
+      "source_path": "D:\\BMS\\0 ■OTHER\\[S.DIE] 空条承太郎の愉快な冒険\\jojo.bms",
+      "sha256": "588e0446260613c5e6fed089269f598beea08e09bdb4fed1c612d125b731044a",
+      "has_beatoraja_song": false,
+      "reason": "initial_bpm_fatal_reference"
+    },
+    {
+      "md5": "4532327e0551bc28142fa71d2983adde",
+      "fixture_path": "charts/d19e71af75da61e048c6a2af18d4430ab972c505bf8e41fe5511751bc3729b33.bms",
+      "fixture_id": 7,
+      "source_path": "D:\\BMS\\0 ■OTHER\\[d__t] w\\w.bms",
+      "sha256": "d19e71af75da61e048c6a2af18d4430ab972c505bf8e41fe5511751bc3729b33",
+      "has_beatoraja_song": false,
+      "reason": "initial_bpm_fatal_reference"
+    },
+    {
+      "md5": "5cce7a6928322b8126d276d8db918415",
+      "fixture_path": "charts/795c3568c59ddba6d5b5c757b8997d8fddf1a1046c4f0f709cf0efa684e80bae.bms",
+      "fixture_id": 8,
+      "source_path": "D:\\BMS\\0 ■OTHER\\[Hbk Akazawa／Yamajet] I will (rock you)\\iwillkill_re.bms",
+      "sha256": "795c3568c59ddba6d5b5c757b8997d8fddf1a1046c4f0f709cf0efa684e80bae",
+      "has_beatoraja_song": true,
+      "reason": "timeline_long_reference"
+    },
+    {
+      "md5": "c4ed9f01b82b8fbec2da4d348ed442ee",
+      "fixture_path": "charts/2fae03a78d2e8a7293437bfb470b4c8bcda0c077198809074b8db506029a1ef2.bme",
+      "fixture_id": 9,
+      "source_path": "D:\\BMS\\1 EVENT\\030726 LiZ vs OMT\\[455-38B] G e n g a o z o\\gengaozo_god999.bme",
+      "sha256": "2fae03a78d2e8a7293437bfb470b4c8bcda0c077198809074b8db506029a1ef2",
+      "has_beatoraja_song": true,
+      "reason": "timeline_long_reference"
+    },
+    {
+      "md5": "a0dfd7d70a53e4752d39e09b23877cff",
+      "fixture_path": "charts/b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01.bms",
+      "fixture_id": 10,
+      "source_path": "D:\\BMS\\1 EVENT\\160227 PORTABLE MEMORIES MARCH\\[DashRaver feat. RainbowColors] Taken The First Step\\_dr_ttfs_silver_yume.bms",
+      "sha256": "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01",
+      "has_beatoraja_song": true,
+      "reason": "random_endif_scope_reference"
+    }
+  ]
+}

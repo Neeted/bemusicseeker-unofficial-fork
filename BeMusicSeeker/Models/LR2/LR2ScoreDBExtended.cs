@@ -1,0 +1,80 @@
+using System;
+using System.Diagnostics;
+using System.Threading;
+using SQLite;
+
+namespace BeMusicSeeker.Models.LR2;
+
+public sealed class LR2ScoreDBExtended : LR2ScoreDB
+{
+    private bool doNotUnlock;
+
+    private static readonly object lockObject = new();
+
+    public static bool Lock(TimeSpan timespan)
+    {
+        if (Monitor.IsEntered(lockObject))
+        {
+            return true;
+        }
+        bool lockTaken = false;
+        Monitor.TryEnter(lockObject, timespan, ref lockTaken);
+        return lockTaken;
+    }
+
+    public static void Unlock()
+    {
+        if (Monitor.IsEntered(lockObject))
+        {
+            Monitor.Exit(lockObject);
+        }
+    }
+
+    public LR2ScoreDBExtended(string dbPath)
+        : base(dbPath)
+    {
+        AcquireProcessLock();
+        base.BusyTimeout = new TimeSpan(0, 0, 60);
+    }
+
+    internal LR2ScoreDBExtended(string dbPath, SQLiteOpenFlags openFlags, bool acquireProcessLock)
+        : base(dbPath, openFlags)
+    {
+        IsReadOnlyConnection = (openFlags & SQLiteOpenFlags.ReadOnly) == SQLiteOpenFlags.ReadOnly;
+        if (acquireProcessLock)
+        {
+            AcquireProcessLock();
+        }
+        else
+        {
+            doNotUnlock = true;
+        }
+        base.BusyTimeout = new TimeSpan(0, 0, 60);
+    }
+
+    public bool IsReadOnlyConnection { get; }
+
+    public long ProcessLockWaitMs { get; private set; }
+
+    private void AcquireProcessLock()
+    {
+        if (Monitor.IsEntered(lockObject))
+        {
+            doNotUnlock = true;
+            return;
+        }
+        var stopwatch = Stopwatch.StartNew();
+        Monitor.Enter(lockObject);
+        stopwatch.Stop();
+        ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (Monitor.IsEntered(lockObject) && !doNotUnlock)
+        {
+            Monitor.Exit(lockObject);
+        }
+        base.Dispose(disposing);
+    }
+}

@@ -1,0 +1,213 @@
+using System;
+using System.CodeDom.Compiler;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Threading;
+using System.Windows;
+using System.Windows.Markup;
+using System.Windows.Threading;
+using BeMusicSeeker.Views;
+
+namespace Parago.Windows;
+
+public partial class ProgressDialog : ThemedWindow, IComponentConnector
+{
+    private volatile bool _isBusy;
+
+    private BackgroundWorker _worker;
+
+    public string Label
+    {
+        get
+        {
+            return TextLabel.Text;
+        }
+        set
+        {
+            TextLabel.Text = value;
+        }
+    }
+
+    public string SubLabel
+    {
+        get
+        {
+            return SubTextLabel.Text;
+        }
+        set
+        {
+            SubTextLabel.Text = value;
+        }
+    }
+
+    internal ProgressDialogResult Result { get; private set; }
+
+    public ProgressDialog(ProgressDialogSettings settings)
+    {
+        InitializeComponent();
+        settings ??= ProgressDialogSettings.WithLabelOnly;
+        if (settings.ShowSubLabel)
+        {
+            SubTextLabel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SubTextLabel.Visibility = Visibility.Collapsed;
+        }
+        CancelButton.Visibility = ((!settings.ShowCancelButton) ? Visibility.Collapsed : Visibility.Visible);
+        ProgressBar.IsIndeterminate = settings.ShowProgressBarIndeterminate;
+    }
+
+    internal ProgressDialogResult Execute(object operation)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException("operation");
+        }
+        ProgressDialogResult result = null;
+        _isBusy = true;
+        _worker = new BackgroundWorker
+        {
+            WorkerReportsProgress = true,
+            WorkerSupportsCancellation = true
+        };
+        _worker.DoWork += delegate (object s, DoWorkEventArgs e)
+        {
+            ProgressDialogContext current = null;
+            try
+            {
+                current = new ProgressDialogContext(s as BackgroundWorker, e);
+                if (operation is Action)
+                {
+                    ((Action)operation)();
+                }
+                else if (operation is Action<ProgressDialogContext>)
+                {
+                    ((Action<ProgressDialogContext>)operation)(current);
+                }
+                else
+                {
+                    if (operation is not Func<object>)
+                    {
+                        throw new InvalidOperationException("Operation type is not supoorted");
+                    }
+                    e.Result = ((Func<object>)operation)();
+                }
+                current.CheckCancellationPending();
+            }
+            catch (ProgressDialogCancellationExcpetion)
+            {
+            }
+            catch (Exception)
+            {
+                if (current == null || !current.CheckCancellationPending())
+                {
+                    throw;
+                }
+            }
+        };
+        _worker.RunWorkerCompleted += delegate (object s, RunWorkerCompletedEventArgs e)
+        {
+            result = new ProgressDialogResult(e);
+            base.Dispatcher.BeginInvoke(DispatcherPriority.Send, (SendOrPostCallback)delegate
+            {
+                _isBusy = false;
+                Close();
+            }, null);
+        };
+        _worker.ProgressChanged += delegate (object s, ProgressChangedEventArgs e)
+        {
+            if (!_worker.CancellationPending)
+            {
+                SubLabel = (e.UserState as string) ?? string.Empty;
+                ProgressBar.Value = e.ProgressPercentage;
+            }
+        };
+        _worker.RunWorkerAsync();
+        ShowDialog();
+        return result;
+    }
+
+    private void OnCancelButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (_worker != null && _worker.WorkerSupportsCancellation)
+        {
+            SubLabel = "aborting ...";
+            CancelButton.IsEnabled = false;
+            _worker.CancelAsync();
+        }
+    }
+
+    private void OnClosing(object sender, CancelEventArgs e)
+    {
+        e.Cancel = _isBusy;
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Action operation)
+    {
+        return ExecuteInternal(owner, title, label, operation, null);
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Action operation, ProgressDialogSettings settings)
+    {
+        return ExecuteInternal(owner, title, label, operation, settings);
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Action<ProgressDialogContext> operation, ProgressDialogSettings settings)
+    {
+        return ExecuteInternal(owner, title, label, operation, settings);
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Action<ProgressDialogContext> operation, ProgressDialogSettings settings, Func<Window, IDisposable> modalScopeFactory)
+    {
+        return ExecuteInternal(owner, title, label, operation, settings, modalScopeFactory);
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Func<object> operationWithResult)
+    {
+        return ExecuteInternal(owner, title, label, operationWithResult, null);
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Func<object> operationWithResult, ProgressDialogSettings settings)
+    {
+        return ExecuteInternal(owner, title, label, operationWithResult, settings);
+    }
+
+    internal static void Execute(Window owner, string title, string label, Action operation, Action<ProgressDialogResult> successOperation, Action<ProgressDialogResult> failureOperation = null, Action<ProgressDialogResult> cancelledOperation = null)
+    {
+        ProgressDialogResult progressDialogResult = ExecuteInternal(owner, title, label, operation, null);
+        if (progressDialogResult.Cancelled && cancelledOperation != null)
+        {
+            cancelledOperation(progressDialogResult);
+        }
+        else if (progressDialogResult.OperationFailed && failureOperation != null)
+        {
+            failureOperation(progressDialogResult);
+        }
+        else
+        {
+            successOperation?.Invoke(progressDialogResult);
+        }
+    }
+
+    internal static ProgressDialogResult ExecuteInternal(Window owner, string title, string label, object operation, ProgressDialogSettings settings, Func<Window, IDisposable> modalScopeFactory = null)
+    {
+        var progressDialog = new ProgressDialog(settings)
+        {
+            Owner = owner
+        };
+        if (!string.IsNullOrEmpty(title))
+        {
+            progressDialog.Title = title;
+        }
+        if (!string.IsNullOrEmpty(label))
+        {
+            progressDialog.Label = label;
+        }
+        using IDisposable modalScope = modalScopeFactory?.Invoke(progressDialog);
+        return progressDialog.Execute(operation);
+    }
+
+
+
+}

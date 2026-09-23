@@ -1,0 +1,1707 @@
+
+*---------------------- HEADER FIELD
+
+#PLAYER 1
+#GENRE HARD CORE
+#TITLE ‹SšL[INSANE]
+#ARTIST ‚­‚é‚â‚Ì‚Ô
+#BPM 180
+#PLAYLEVEL 12
+#RANK 3
+#TOTAL 668
+#STAGEFILE 
+
+#WAV01 sub kick normal.ogg
+#WAV02 sub kick 8.ogg
+#WAV03 sub kick 16.ogg
+#WAV04 sub kick 24.ogg
+#WAV05 sub kick normal P1 - Marker #1.ogg
+#WAV06 sub kick normal P1 - Marker #2.ogg
+#WAV07 sub kick normal P1 - Marker #3.ogg
+#WAV08 sub kick normal P1 - Marker #4.ogg
+#WAV09 sub kick normal P1 - Marker #5.ogg
+#WAV0A sub kick normal P1 - Marker #6.ogg
+#WAV0B sub kick normal P1 - Marker #7.ogg
+#WAV0C sub kick normal P1 - Marker #8.ogg
+#WAV0D sub kick normal P1 - Marker #9.ogg
+#WAV0E sub kick normal P1 - Marker #10.ogg
+#WAV0F sub kick normal P1 - Marker #11.ogg
+#WAV0G sub kick normal P1 - Marker #12.ogg
+#WAV0H sub kick normal P1 - Marker #13.ogg
+#WAV0I sub kick normal P1 - Marker #14.ogg
+#WAV0J sub kick normal P1 - Marker #15.ogg
+#WAV0K sub kick normal P1 - Marker #16.ogg
+#WAV0L sub kick normal P1 - Marker #17.ogg
+#WAV0M sub kick normal P1 - Marker #18.ogg
+#WAV0N sub kick normal P1 - Marker #19.ogg
+#WAV0O sub kick normal P1 - Marker #20.ogg
+#WAV0P sub kick normal P1 - Marker #21.ogg
+#WAV0Q sub kick normal P1 - Marker #22.ogg
+#WAV0R sub kick normal P1 - Marker #23.ogg
+#WAV0S sub kick normal P1 - Marker #24.ogg
+#WAV0T sub kick normal P1 - Marker #25.ogg
+#WAV0U sub kick normal P1 - Marker #26.ogg
+#WAV0V sub kick normal P1 - Marker #27.ogg
+#WAV0W sub kick normal P1 - Marker #28.ogg
+#WAV0X sub kick normal P1 - Marker #29.ogg
+#WAV0Y sub kick normal P1 - Marker #30.ogg
+#WAV0Z sub kick normal P1 - Marker #31.ogg
+#WAV10 sub kick normal P1 - Marker #32.ogg
+#WAV11 sub kick normal P1 - Marker #33.ogg
+#WAV12 sub kick normal P1 - Marker #34.ogg
+#WAV13 sub kick normal P1 - Marker #35.ogg
+#WAV14 sub kick normal P1 - Marker #36.ogg
+#WAV15 sub kick normal P1 - Marker #37.ogg
+#WAV16 sub kick normal P2 - Marker #1.ogg
+#WAV17 sub kick normal P2 - Marker #2.ogg
+#WAV18 sub kick normal P2 - Marker #3.ogg
+#WAV19 sub kick normal P2 - Marker #4.ogg
+#WAV1A sub kick normal P2 - Marker #5.ogg
+#WAV1B sub kick normal P2 - Marker #6.ogg
+#WAV1C sub kick normal P2 - Marker #7.ogg
+#WAV1D sub kick normal P2 - Marker #8.ogg
+#WAV1E sub kick normal P2 - Marker #9.ogg
+#WAV1F sub kick normal P2 - Marker #10.ogg
+#WAV1G sub kick normal P2 - Marker #11.ogg
+#WAV1H sub kick normal P2 - Marker #12.ogg
+#WAV1I sub kick normal P2 - Marker #13.ogg
+#WAV1J sub kick normal P2 - Marker #14.ogg
+#WAV1K sub kick normal P2 - Marker #15.ogg
+#WAV1L sub kick normal P2 - Marker #16.ogg
+#WAV1M sub kick normal P2 - Marker #17.ogg
+#WAV1N sub kick normal P2 - Marker #18.ogg
+#WAV1O sub kick normal P2 - Marker #19.ogg
+#WAV1P sub kick normal P2 - Marker #20.ogg
+#WAV1Q sub kick normal P2 - Marker #21.ogg
+#WAV1R sub kick normal P2 - Marker #22.ogg
+#WAV1S sub kick normal P2 - Marker #23.ogg
+#WAV1T sub kick normal P2 - Marker #24.ogg
+#WAV1U sub kick normal P2 - Marker #25.ogg
+#WAV1V sub kick normal P2 - Marker #26.ogg
+#WAV1W sub kick normal P2 - Marker #27.ogg
+#WAV1X sub kick normal P2 - Marker #28.ogg
+#WAV1Y sub kick normal P2 - Marker #29.ogg
+#WAV1Z sub kick normal P2 - Marker #30.ogg
+#WAV20 sub kick normal P2 - Marker #31.ogg
+#WAV21 sub kick normal P2 - Marker #32.ogg
+#WAV22 sub kick normal P2 - Marker #33.ogg
+#WAV23 sub kick normal P2 - Marker #34.ogg
+#WAV24 sub kick normal P2 - Marker #35.ogg
+#WAV25 sub kick normal P2 - Marker #36.ogg
+#WAV26 sub kick normal P2 - Marker #37.ogg
+#WAV27 sub kick normal P2 - Marker #38.ogg
+#WAV28 sub kick normal P2 - Marker #39.ogg
+#WAV29 sub kick normal P2 - Marker #40.ogg
+#WAV2A sub kick normal P2 - Marker #41.ogg
+#WAV2B sub kick last - Marker #1.ogg
+#WAV2C sub kick last - Marker #2.ogg
+#WAV2D kick normal.ogg
+#WAV2E kick normal 4.ogg
+#WAV2F kick normal 6.ogg
+#WAV2G kick normal 8.ogg
+#WAV2H kick normal 16.ogg
+#WAV2I kick P1 - Marker #1.ogg
+#WAV2J kick P1 - Marker #2.ogg
+#WAV2K kick P1 - Marker #3.ogg
+#WAV2L kick P1 - Marker #4.ogg
+#WAV2M kick P1 - Marker #5.ogg
+#WAV2N kick P1 - Marker #6.ogg
+#WAV2O kick P1 - Marker #7.ogg
+#WAV2P kick P1 - Marker #8.ogg
+#WAV2Q kick P1 - Marker #9.ogg
+#WAV2R kick P1 - Marker #10.ogg
+#WAV2S kick P1 - Marker #11.ogg
+#WAV2T kick P1 - Marker #12.ogg
+#WAV2U kick P1 - Marker #13.ogg
+#WAV2V kick P1 - Marker #14.ogg
+#WAV2W kick P1 - Marker #15.ogg
+#WAV2X kick P1 - Marker #16.ogg
+#WAV2Y kick P1 - Marker #17.ogg
+#WAV2Z kick P1 - Marker #18.ogg
+#WAV30 kick P1 - Marker #19.ogg
+#WAV31 kick P1 - Marker #20.ogg
+#WAV32 kick P1 - Marker #21.ogg
+#WAV33 kick P1 - Marker #22.ogg
+#WAV34 kick P1 - Marker #23.ogg
+#WAV35 kick P1 - Marker #24.ogg
+#WAV36 kick P1 - Marker #25.ogg
+#WAV37 kick P1 - Marker #26.ogg
+#WAV38 kick P1 - Marker #27.ogg
+#WAV39 kick P2 - Marker #1.ogg
+#WAV3A kick P2 - Marker #2.ogg
+#WAV3B kick P2 - Marker #3.ogg
+#WAV3C kick P2 - Marker #4.ogg
+#WAV3D kick P2 - Marker #5.ogg
+#WAV3E kick P2 - Marker #6.ogg
+#WAV3F kick P2 - Marker #7.ogg
+#WAV3G kick P2 - Marker #8.ogg
+#WAV3H kick P3-1 - Marker #1.ogg
+#WAV3I kick P3-1 - Marker #2.ogg
+#WAV3J kick P3-1 - Marker #3.ogg
+#WAV3K kick P3-1 - Marker #4.ogg
+#WAV3L kick P3-1 - Marker #5.ogg
+#WAV3M kick P3-1 - Marker #6.ogg
+#WAV3N kick P3-1 - Marker #7.ogg
+#WAV3O kick P3-1 - Marker #8.ogg
+#WAV3P kick P3-1 - Marker #9.ogg
+#WAV3Q kick P3-1 - Marker #10.ogg
+#WAV3R kick P3-1 - Marker #11.ogg
+#WAV3S kick P3-1 - Marker #12.ogg
+#WAV3T kick P3-1 - Marker #13.ogg
+#WAV3U kick P3-1 - Marker #14.ogg
+#WAV3V kick P3-1 - Marker #15.ogg
+#WAV3W kick P3-1 - Marker #16.ogg
+#WAV3X kick P3-1 - Marker #17.ogg
+#WAV3Y kick P3-1 - Marker #18.ogg
+#WAV3Z kick P3-1 - Marker #19.ogg
+#WAV40 kick P3-1 - Marker #20.ogg
+#WAV41 kick P3-1 - Marker #21.ogg
+#WAV42 kick P3-1 - Marker #22.ogg
+#WAV43 kick P3-1 - Marker #23.ogg
+#WAV44 kick P3-1 - Marker #24.ogg
+#WAV45 kick P3-1 - Marker #25.ogg
+#WAV46 kick P3-1 - Marker #26.ogg
+#WAV47 kick P3-1 - Marker #27.ogg
+#WAV48 kick P3-1 - Marker #28.ogg
+#WAV49 kick P3-1 - Marker #29.ogg
+#WAV4A kick P3-1 - Marker #30.ogg
+#WAV4B kick P3-1 - Marker #31.ogg
+#WAV4C kick P3-1 - Marker #32.ogg
+#WAV4D kick P3-1 - Marker #33.ogg
+#WAV4E kick P3-1 - Marker #34.ogg
+#WAV4F kick P3-1 - Marker #35.ogg
+#WAV4G kick P3-2 - Marker #1.ogg
+#WAV4H kick P3-2 - Marker #2.ogg
+#WAV4I kick P3-2 - Marker #3.ogg
+#WAV4J kick P3-2 - Marker #4.ogg
+#WAV4K kick P3-2 - Marker #5.ogg
+#WAV4L kick P3-2 - Marker #6.ogg
+#WAV4M kick P3-2 - Marker #7.ogg
+#WAV4N kick P3-2 - Marker #8.ogg
+#WAV4O kick P3-2 - Marker #9.ogg
+#WAV4P kick P3-2 - Marker #10.ogg
+#WAV4Q kick P3-2 - Marker #11.ogg
+#WAV4R kick P3-2 - Marker #12.ogg
+#WAV4S kick P3-2 - Marker #13.ogg
+#WAV4T kick P3-2 - Marker #14.ogg
+#WAV4U kick P3-2 - Marker #15.ogg
+#WAV4V kick P3-2 - Marker #16.ogg
+#WAV4W hi kick P1-1 - Marker #1.ogg
+#WAV4X hi kick P1-1 - Marker #2.ogg
+#WAV4Y hi kick P1-1 - Marker #3.ogg
+#WAV4Z hi kick P1-1 - Marker #4.ogg
+#WAV50 hi kick P1-1 - Marker #5.ogg
+#WAV51 hi kick P1-1 - Marker #6.ogg
+#WAV52 hi kick P1-1 - Marker #7.ogg
+#WAV53 hi kick P1-1 - Marker #8.ogg
+#WAV54 hi kick P1-2 - Marker #1.ogg
+#WAV55 hi kick P1-2 - Marker #2.ogg
+#WAV56 hi kick P1-2 - Marker #3.ogg
+#WAV57 hi kick P1-2 - Marker #4.ogg
+#WAV58 hi kick P2-1 - Marker #1.ogg
+#WAV59 hi kick P2-1 - Marker #2.ogg
+#WAV5A hi kick P2-1 - Marker #3.ogg
+#WAV5B hi kick P2-2 - Marker #1.ogg
+#WAV5C hi kick P2-2 - Marker #2.ogg
+#WAV5D hi kick P2-2 - Marker #3.ogg
+#WAV5E hi kick P2-2 - Marker #4.ogg
+#WAV5F hi kick P2-2 - Marker #5.ogg
+#WAV5G hi kick P2-2 - Marker #6.ogg
+#WAV5H hi kick P2-2 - Marker #7.ogg
+#WAV5I hi kick P2-2 - Marker #8.ogg
+#WAV5J hi kick P2-2 - Marker #9.ogg
+#WAV5K hi kick P2-2 - Marker #10.ogg
+#WAV5L hi kick P2-2 - Marker #11.ogg
+#WAV5M hi kick P3-1 - Marker #1.ogg
+#WAV5N hi kick P3-1 - Marker #2.ogg
+#WAV5O hi kick P3-2 - Marker #1.ogg
+#WAV5P hi kick P3-2 - Marker #2.ogg
+#WAV5Q hi kick P3-2 - Marker #3.ogg
+#WAV5R hi kick P3-2 - Marker #4.ogg
+#WAV5S hi kick P3-2 - Marker #5.ogg
+#WAV5T hi kick P3-2 - Marker #6.ogg
+#WAV5U hi kick P3-2 - Marker #7.ogg
+#WAV5V hi kick P3-2 - Marker #8.ogg
+#WAV5W hi kick P3-2 - Marker #9.ogg
+#WAV5X hi kick Lnormal.ogg
+#WAV5Y hi kick P4 - Marker #1.ogg
+#WAV5Z hi kick P4 - Marker #2.ogg
+#WAV60 hi kick P4 - Marker #3.ogg
+#WAV61 hi kick P4 - Marker #4.ogg
+#WAV62 hi kick P4 - Marker #5.ogg
+#WAV63 hi kick P4 - Marker #6.ogg
+#WAV64 hi kick P4 - Marker #7.ogg
+#WAV65 hi kick P4 - Marker #8.ogg
+#WAV66 hi kick P4 - Marker #9.ogg
+#WAV67 hi kick P4 - Marker #10.ogg
+#WAV68 hi kick P5(break) - Marker #1.ogg
+#WAV69 hi kick P5(break) - Marker #2.ogg
+#WAV6A hi kick P5(break) - Marker #3.ogg
+#WAV6B hi kick P5(break) - Marker #4.ogg
+#WAV6C hi kick normal left.ogg
+#WAV6D hi kick normal right.ogg
+#WAV6E hi kick P6 - Marker #1.ogg
+#WAV6F hi kick P6 - Marker #2.ogg
+#WAV6G hi kick P6 - Marker #3.ogg
+#WAV6H hi kick P7 - Marker #1.ogg
+#WAV6I hi kick P7 - Marker #2.ogg
+#WAV6J hi kick P7 - Marker #3.ogg
+#WAV6K hi kick P7 - Marker #4.ogg
+#WAV6L hi kick P7 - Marker #5.ogg
+#WAV6M hi kick P7 - Marker #6.ogg
+#WAV6N hi kick P7 - Marker #7.ogg
+#WAV6O hi kick P7 - Marker #8.ogg
+#WAV6P hi kick P8 - Marker #1.ogg
+#WAV6Q hi kick P8 - Marker #2.ogg
+#WAV6R hi kick P8 - Marker #3.ogg
+#WAV6S hi kick P9 - Marker #1.ogg
+#WAV6T hi kick P9 - Marker #2.ogg
+#WAV6U hi kick P9 - Marker #3.ogg
+#WAV6V hi kick P9 - Marker #4.ogg
+#WAV6W hi kick P9 - Marker #5.ogg
+#WAV6X hi kick P9 - Marker #6.ogg
+#WAV6Y hi kick P9 - Marker #7.ogg
+#WAV6Z hi kick P9 - Marker #8.ogg
+#WAV70 hi kick P9 - Marker #9.ogg
+#WAV71 hi kick P9 - Marker #10.ogg
+#WAV72 hi kick P9 - Marker #11.ogg
+#WAV73 hi kick P9 - Marker #12.ogg
+#WAV74 hi kick P9 - Marker #13.ogg
+#WAV75 hi kick P9 - Marker #14.ogg
+#WAV76 hi kick P10 - Marker #1.ogg
+#WAV77 hi kick P10 - Marker #2.ogg
+#WAV78 hi kick P10 - Marker #3.ogg
+#WAV79 hi kick P11 - Marker #1.ogg
+#WAV7A hi kick P11 - Marker #2.ogg
+#WAV7B hi kick P11 - Marker #3.ogg
+#WAV7C hi kick P11 - Marker #4.ogg
+#WAV7D hi kick P11 - Marker #5.ogg
+#WAV7E hi kick P11 - Marker #6.ogg
+#WAV7F hi kick P11 - Marker #7.ogg
+#WAV7G hi kick P11 - Marker #8.ogg
+#WAV7H hi kick P11 - Marker #9.ogg
+#WAV7I hi kick P11 - Marker #10.ogg
+#WAV7J hi kick P11 - Marker #11.ogg
+#WAV7K hi kick P11 - Marker #12.ogg
+#WAV7L hi kick P11 - Marker #13.ogg
+#WAV7M hi kick P12 - Marker #1.ogg
+#WAV7N hi kick P12 - Marker #2.ogg
+#WAV7O hi kick P12 - Marker #3.ogg
+#WAV7P hi kick P12 - Marker #4.ogg
+#WAV7Q hi kick P12 - Marker #5.ogg
+#WAV7R hi kick P13 - Marker #1.ogg
+#WAV7S hi kick P13 - Marker #2.ogg
+#WAV7T hi kick P13 - Marker #3.ogg
+#WAV7U hi kick P13 - Marker #4.ogg
+#WAV7V hi kick P13 - Marker #5.ogg
+#WAV7W hi kick P13 - Marker #6.ogg
+#WAV7X hi kick P13 - Marker #7.ogg
+#WAV7Y hi kick P13 - Marker #8.ogg
+#WAV7Z hi kick P13 - Marker #9.ogg
+#WAV80 hi kick P13 - Marker #10.ogg
+#WAV81 hi kick P13 - Marker #11.ogg
+#WAV82 hi kick P13 - Marker #12.ogg
+#WAV83 hi kick P13 - Marker #13.ogg
+#WAV84 hi kick P13 - Marker #14.ogg
+#WAV85 hi kick P14 - Marker #1.ogg
+#WAV86 hi kick P14 - Marker #2.ogg
+#WAV87 hi kick P14 - Marker #3.ogg
+#WAV88 hi kick P14 - Marker #4.ogg
+#WAV89 hi kick P14 - Marker #5.ogg
+#WAV8A hi kick P15 - Marker #1.ogg
+#WAV8B hi kick P15 - Marker #2.ogg
+#WAV8C hi kick P16 - Marker #1.ogg
+#WAV8D hi kick P16 - Marker #2.ogg
+#WAV8E hi kick P16 - Marker #3.ogg
+#WAV8F hi kick P16 - Marker #4.ogg
+#WAV8G hi kick P16 - Marker #5.ogg
+#WAV8H hi kick P16 - Marker #6.ogg
+#WAV8I hi kick P16 - Marker #7.ogg
+#WAV8J hi kick P16 - Marker #8.ogg
+#WAV8K hi kick P16 - Marker #9.ogg
+#WAV8L hi kick P16 - Marker #10.ogg
+#WAV8M hi kick P16 - Marker #11.ogg
+#WAV8N hi kick P16 - Marker #12.ogg
+#WAV8O hi kick P16 - Marker #13.ogg
+#WAV8P hi kick P16 - Marker #14.ogg
+#WAV8Q hi kick P16 - Marker #15.ogg
+#WAV8R hi kick P16 - Marker #16.ogg
+#WAV8S Hi hat1 P1 - Marker #1.ogg
+#WAV8T Hi hat1.ogg
+#WAV8U Hi hat1 short.ogg
+#WAV8V Hi hat2.ogg
+#WAV8W Hi hat1 P1 - Marker #1.ogg
+#WAV8X Hi hat1 P1 - Marker #2.ogg
+#WAV8Y Hi hat1 P1 - Marker #3.ogg
+#WAV8Z Hi hat1 P1 - Marker #4.ogg
+#WAV90 Hi hat1 P1 - Marker #5.ogg
+#WAV91 Hi hat1 P1 - Marker #6.ogg
+#WAV92 Hi hat1 P1 - Marker #7.ogg
+#WAV93 Hi hat1 P1 - Marker #8.ogg
+#WAV94 Hi hat1 P1 - Marker #9.ogg
+#WAV95 Hi hat1 P1 - Marker #10.ogg
+#WAV96 Hi hat1 P1 - Marker #11.ogg
+#WAV97 Hi hat1 P1 - Marker #12.ogg
+#WAV98 Hi hat1 P1 - Marker #13.ogg
+#WAV99 Hi hat1 P1 - Marker #14.ogg
+#WAV9A Hi hat1 P1 - Marker #15.ogg
+#WAV9B Hi hat1 P1 - Marker #16.ogg
+#WAV9C bom snare normal.ogg
+#WAV9D bom snare 4.ogg
+#WAV9E bom snare 8.ogg
+#WAV9F bom snare 16.ogg
+#WAV9G bom snare 32.ogg
+#WAV9H bom snare P1 - Marker #1.ogg
+#WAV9I bom snare P1 - Marker #2.ogg
+#WAV9J bom snare P1 - Marker #3.ogg
+#WAV9K bom snare P1 - Marker #4.ogg
+#WAV9L bom snare P1 - Marker #5.ogg
+#WAV9M bom snare P1 - Marker #6.ogg
+#WAV9N bom snare P1 - Marker #7.ogg
+#WAV9O bom snare P1 - Marker #8.ogg
+#WAV9P bom snare P1 - Marker #9.ogg
+#WAV9Q bom snare P2 - Marker #1.ogg
+#WAV9R bom snare P2 - Marker #2.ogg
+#WAV9S mero1 - Marker #1.ogg
+#WAV9T mero1 - Marker #2.ogg
+#WAV9U mero1 - Marker #3.ogg
+#WAV9V mero1 - Marker #4.ogg
+#WAV9W mero1 - Marker #5.ogg
+#WAV9X mero1 - Marker #6.ogg
+#WAV9Y mero1 - Marker #7.ogg
+#WAV9Z mero1 - Marker #8.ogg
+#WAVA0 mero1 - Marker #9.ogg
+#WAVA1 mero1 - Marker #10.ogg
+#WAVA2 mero1 - Marker #11.ogg
+#WAVA3 mero1 - Marker #12.ogg
+#WAVA4 mero1 - Marker #13.ogg
+#WAVA5 mero1 - Marker #14.ogg
+#WAVA6 mero1 - Marker #15.ogg
+#WAVA7 mero1 - Marker #16.ogg
+#WAVA8 mero1 - Marker #17.ogg
+#WAVA9 mero1 - Marker #18.ogg
+#WAVAA mero1 - Marker #19.ogg
+#WAVAB mero1 - Marker #20.ogg
+#WAVAC mero1 - Marker #21.ogg
+#WAVAD mero1 - Marker #22.ogg
+#WAVAE mero1 - Marker #23.ogg
+#WAVAF mero1 - Marker #24.ogg
+#WAVAG mero1 - Marker #25.ogg
+#WAVAH mero1 - Marker #26.ogg
+#WAVAI mero1 - Marker #27.ogg
+#WAVAJ mero1 - Marker #28.ogg
+#WAVAK mero1 P1 - Marker #1.ogg
+#WAVAL mero1 P1 - Marker #2.ogg
+#WAVAM mero1 P1 - Marker #3.ogg
+#WAVAN mero1 P1 - Marker #4.ogg
+#WAVAO mero1 P1 - Marker #5.ogg
+#WAVAP mero1 P1 - Marker #6.ogg
+#WAVAQ mero1 P1 - Marker #7.ogg
+#WAVAR mero1 P1 - Marker #8.ogg
+#WAVAS mero1 P1 - Marker #9.ogg
+#WAVAT mero1 P1 - Marker #10.ogg
+#WAVAU mero1 P1 - Marker #11.ogg
+#WAVAV mero1 P1 - Marker #12.ogg
+#WAVAW mero1 P1 - Marker #13.ogg
+#WAVAX mero1 P1 - Marker #14.ogg
+#WAVAY mero1 P1 - Marker #15.ogg
+#WAVAZ mero1 P1 - Marker #16.ogg
+#WAVB0 mero1 P1 - Marker #17.ogg
+#WAVB1 mero1 P1 - Marker #18.ogg
+#WAVB2 mero1 P1 - Marker #19.ogg
+#WAVB3 mero1 P1 - Marker #20.ogg
+#WAVB4 mero1 P1 - Marker #21.ogg
+#WAVB5 mero1 P1 - Marker #22.ogg
+#WAVB6 mero1 P1 - Marker #23.ogg
+#WAVB7 mero1 P1 - Marker #24.ogg
+#WAVB8 mero1 P1 - Marker #25.ogg
+#WAVB9 mero1 P1 - Marker #26.ogg
+#WAVBA mero1 P1 - Marker #27.ogg
+#WAVBB mero1 P1 - Marker #28.ogg
+#WAVBC mero1 P1 - Marker #29.ogg
+#WAVBD mero1 P1 - Marker #30.ogg
+#WAVBE mero1 P1 - Marker #31.ogg
+#WAVBF mero1 P1 - Marker #32.ogg
+#WAVBG mero1 P1 - Marker #33.ogg
+#WAVBH mero1 P1 - Marker #34.ogg
+#WAVBI mero1 P1 - Marker #35.ogg
+#WAVBJ mero1 P1 - Marker #36.ogg
+#WAVBK mero1 P1 - Marker #37.ogg
+#WAVBL mero1 P1 - Marker #38.ogg
+#WAVBM mero1 P1 - Marker #39.ogg
+#WAVBN mero1 P1 - Marker #40.ogg
+#WAVBO mero1 P1 - Marker #41.ogg
+#WAVBP mero1 P1 - Marker #42.ogg
+#WAVBQ mero1 P1 - Marker #43.ogg
+#WAVBR mero1 P1 - Marker #44.ogg
+#WAVBS mero1 P1 - Marker #45.ogg
+#WAVBT mero1 P1 - Marker #46.ogg
+#WAVBU mero1 P1 - Marker #47.ogg
+#WAVBV mero1 P1 - Marker #48.ogg
+#WAVBW mero1 P1 - Marker #49.ogg
+#WAVBX mero2 - Marker #1.ogg
+#WAVBY mero2 - Marker #2.ogg
+#WAVBZ mero2 - Marker #3.ogg
+#WAVC0 mero2 - Marker #4.ogg
+#WAVC1 mero2 - Marker #5.ogg
+#WAVC2 mero2 - Marker #6.ogg
+#WAVC3 mero2 - Marker #7.ogg
+#WAVC4 mero2 - Marker #8.ogg
+#WAVC5 mero2 - Marker #9.ogg
+#WAVC6 mero2 - Marker #10.ogg
+#WAVC7 mero2 - Marker #11.ogg
+#WAVC8 mero2 - Marker #12.ogg
+#WAVC9 mero2 - Marker #13.ogg
+#WAVCA mero2 - Marker #14.ogg
+#WAVCB mero2 - Marker #15.ogg
+#WAVCC mero2 - Marker #16.ogg
+#WAVCD mero2 - Marker #17.ogg
+#WAVCE mero2 - Marker #18.ogg
+#WAVCF mero2 - Marker #19.ogg
+#WAVCG mero2 - Marker #20.ogg
+#WAVCH mero2 - Marker #21.ogg
+#WAVCI FX P1 - Marker #1.ogg
+#WAVCJ FX P1 - Marker #2.ogg
+#WAVCK FX P1 - Marker #3.ogg
+#WAVCL FX P1 - Marker #4.ogg
+#WAVCM FX P1 - Marker #5.ogg
+#WAVCN FX P1 - Marker #6.ogg
+#WAVCO FX P1 - Marker #7.ogg
+#WAVCP FX P1 - Marker #8.ogg
+#WAVCQ FX P1 - Marker #9.ogg
+#WAVCR FX P1 - Marker #10.ogg
+#WAVCS FX P1 - Marker #11.ogg
+#WAVCT FX P1 - Marker #12.ogg
+#WAVCU FX P2 - Marker #1.ogg
+#WAVCV FX P2 - Marker #2.ogg
+#WAVCW FX P2 - Marker #3.ogg
+#WAVCX FX P2 - Marker #4.ogg
+#WAVCY FX P2 - Marker #5.ogg
+#WAVCZ FX P2 - Marker #6.ogg
+#WAVD0 FX P2 - Marker #7.ogg
+#WAVD1 FX P2 - Marker #8.ogg
+#WAVD2 FX P2 - Marker #9.ogg
+#WAVD3 FX P2 - Marker #10.ogg
+#WAVD4 FX P2 - Marker #11.ogg
+#WAVD5 FX P2 - Marker #12.ogg
+#WAVD6 FX P2 - Marker #13.ogg
+#WAVD7 FX P2 - Marker #14.ogg
+#WAVD8 FX P2 - Marker #15.ogg
+#WAVD9 FX P2 - Marker #16.ogg
+#WAVDA FX P2 - Marker #17.ogg
+#WAVDB FX P2 - Marker #18.ogg
+#WAVDC FX P2 - Marker #19.ogg
+#WAVDD FX P2 - Marker #20.ogg
+#WAVDE FX P2 - Marker #21.ogg
+#WAVDF FX P2 - Marker #22.ogg
+#WAVDG FX P2 - Marker #23.ogg
+#WAVDH FX P2 - Marker #24.ogg
+#WAVDI FX P2 - Marker #25.ogg
+#WAVDJ FX P2 - Marker #26.ogg
+#WAVDK FX P2 - Marker #27.ogg
+#WAVDL FX P2 - Marker #28.ogg
+#WAVDM FX P2 - Marker #29.ogg
+#WAVDN FX P2re - Marker #1.ogg
+#WAVDO FX P2re - Marker #2.ogg
+#WAVDP FX P2re - Marker #3.ogg
+#WAVDQ FX P2re - Marker #4.ogg
+#WAVDR FX P2re - Marker #5.ogg
+#WAVDS FX P2re - Marker #6.ogg
+#WAVDT FX P2re - Marker #7.ogg
+#WAVDU FX P2re - Marker #8.ogg
+#WAVDV FX P2re - Marker #9.ogg
+#WAVDW FX P2re - Marker #10.ogg
+#WAVDX FX P2re - Marker #11.ogg
+#WAVDY FX P2re - Marker #12.ogg
+#WAVDZ FX P2re - Marker #13.ogg
+#WAVE0 FX P2re - Marker #14.ogg
+#WAVE1 FX P2re - Marker #15.ogg
+#WAVE2 FX P2re - Marker #16.ogg
+#WAVE3 FX P2re - Marker #17.ogg
+#WAVE4 FX P2re - Marker #18.ogg
+#WAVE5 FX P2re - Marker #19.ogg
+#WAVE6 FX P2re - Marker #20.ogg
+#WAVE7 FX P2re - Marker #21.ogg
+#WAVE8 FX P2re - Marker #22.ogg
+#WAVE9 FX P2re - Marker #23.ogg
+#WAVEA FX P2re - Marker #24.ogg
+#WAVEB FX P2re - Marker #25.ogg
+#WAVEC FX P2re - Marker #26.ogg
+#WAVED FX P2re - Marker #27.ogg
+#WAVEE FX P2re - Marker #28.ogg
+#WAVEF FX P2re - Marker #29.ogg
+#WAVEG FX P2re - Marker #30.ogg
+#WAVEH FX P2re - Marker #31.ogg
+#WAVEI FX P2re - Marker #32.ogg
+#WAVEJ FX P2re - Marker #33.ogg
+#WAVEK FX P2re - Marker #34.ogg
+#WAVEL FX P2re - Marker #35.ogg
+#WAVEM FX P2re - Marker #36.ogg
+#WAVEN FX P2re - Marker #37.ogg
+#WAVEO FX P2re - Marker #38.ogg
+#WAVEP FX P2re - Marker #39.ogg
+#WAVEQ FX P2re - Marker #40.ogg
+#WAVER FX P2re - Marker #41.ogg
+#WAVES FX P2re - Marker #42.ogg
+#WAVET FX P2re - Marker #43.ogg
+#WAVEU FX P2re - Marker #44.ogg
+#WAVEV FX P2re - Marker #45.ogg
+#WAVEW FX P2re - Marker #46.ogg
+#WAVEX FX P2re - Marker #47.ogg
+#WAVEY FX P2re - Marker #48.ogg
+#WAVEZ FX P2re - Marker #49.ogg
+#WAVF0 FX P2re - Marker #50.ogg
+#WAVF1 FX P2re - Marker #51.ogg
+#WAVF5 FX P3 - Marker #1.ogg
+#WAVF6 FX P3 - Marker #2.ogg
+#WAVF7 FX P3 - Marker #3.ogg
+#WAVF8 FX P3 - Marker #4.ogg
+#WAVF9 FX P3 - Marker #5.ogg
+#WAVFA FX P3 - Marker #6.ogg
+#WAVFB FX P3 - Marker #7.ogg
+#WAVFC FX P3 - Marker #8.ogg
+#WAVFD FX P3 - Marker #9.ogg
+#WAVFE FX P3 - Marker #10.ogg
+#WAVFF FX P3 - Marker #11.ogg
+#WAVFG FX P3 - Marker #12.ogg
+#WAVFH FX P3 - Marker #13.ogg
+#WAVFI FX P3 - Marker #14.ogg
+#WAVFJ FX P3 - Marker #15.ogg
+#WAVFK FX P3 - Marker #16.ogg
+#WAVFL FX P3 - Marker #17.ogg
+#WAVFM FX P3 - Marker #18.ogg
+#WAVFN FX P3 - Marker #19.ogg
+#WAVFO FX P3 - Marker #20.ogg
+#WAVFP FX P3 - Marker #21.ogg
+#WAVFQ FX P3 - Marker #22.ogg
+#WAVFR FX P3 - Marker #23.ogg
+#WAVFS FX P3 - Marker #24.ogg
+#WAVFT FX P3 - Marker #25.ogg
+#WAVFU FX P3 - Marker #26.ogg
+#WAVFV FX P3 - Marker #27.ogg
+#WAVFW FX P3 - Marker #28.ogg
+#WAVFX FX P3 - Marker #29.ogg
+#WAVFY FX P3 - Marker #30.ogg
+#WAVFZ FX P3 - Marker #31.ogg
+#WAVG0 FX P3 - Marker #32.ogg
+#WAVG1 FX P3 - Marker #33.ogg
+#WAVG2 FX P3 - Marker #34.ogg
+#WAVG3 FX P3 - Marker #35.ogg
+#WAVG4 FX P3 - Marker #36.ogg
+#WAVG5 FX P3 - Marker #37.ogg
+#WAVG6 FX P3 - Marker #38.ogg
+#WAVG7 FX P3 - Marker #39.ogg
+#WAVG8 FX P3 - Marker #40.ogg
+#WAVG9 FX P3 - Marker #41.ogg
+#WAVGA FX P3 - Marker #42.ogg
+#WAVGB FX P3 - Marker #43.ogg
+#WAVGC FX P3 - Marker #44.ogg
+#WAVGD FX P3 - Marker #45.ogg
+#WAVGE FX P3 - Marker #46.ogg
+#WAVGF FX P3 - Marker #47.ogg
+#WAVGG FX P3 - Marker #48.ogg
+#WAVGH FX P3 - Marker #49.ogg
+#WAVGI FX P3 - Marker #50.ogg
+#WAVGJ FX P3 - Marker #51.ogg
+#WAVGK FX P3 - Marker #52.ogg
+#WAVGL FX P3 - Marker #53.ogg
+#WAVGM FX P3 - Marker #54.ogg
+#WAVGN FX P3 - Marker #55.ogg
+#WAVGO FX P3 - Marker #56.ogg
+#WAVGP FX P3 - Marker #57.ogg
+#WAVGQ FX P3 - Marker #58.ogg
+#WAVGR FX P3 - Marker #59.ogg
+#WAVGS FX P3 - Marker #60.ogg
+#WAVGT FX P3 - Marker #61.ogg
+#WAVGU FX P3 - Marker #62.ogg
+#WAVGV FX P3 - Marker #63.ogg
+#WAVGW FX P3 - Marker #64.ogg
+#WAVGX FX P3 - Marker #65.ogg
+#WAVGY FX P3 - Marker #66.ogg
+#WAVGZ FX P3 - Marker #67.ogg
+#WAVH0 FX P3 - Marker #68.ogg
+#WAVH1 FX P3 - Marker #69.ogg
+#WAVH2 FX P3 - Marker #70.ogg
+#WAVH3 FX P3 - Marker #71.ogg
+#WAVH4 FX P3 - Marker #72.ogg
+#WAVH5 FX P3 - Marker #73.ogg
+#WAVH6 FX P3 - Marker #74.ogg
+#WAVH7 FX P3 - Marker #75.ogg
+#WAVH8 FX P3 - Marker #76.ogg
+#WAVH9 FX P3 - Marker #77.ogg
+#WAVHA FX P3 - Marker #78.ogg
+#WAVHB FX P3 - Marker #79.ogg
+#WAVHC FX P3 - Marker #80.ogg
+#WAVHD FX P3 - Marker #81.ogg
+#WAVHE FX P3 - Marker #82.ogg
+#WAVHF FX P3 - Marker #83.ogg
+#WAVHG FX P3 - Marker #84.ogg
+#WAVHH FX P3 - Marker #85.ogg
+#WAVHI FX P3 - Marker #86.ogg
+#WAVHJ FX P3 - Marker #87.ogg
+#WAVHK FX P3 - Marker #88.ogg
+#WAVHL FX P3 - Marker #89.ogg
+#WAVHM FX P3 - Marker #90.ogg
+#WAVHN FX P3 - Marker #91.ogg
+#WAVHO FX P4 - Marker #1.ogg
+#WAVHP FX P4 - Marker #2.ogg
+#WAVHQ FX P4 - Marker #3.ogg
+#WAVHR FX P4 - Marker #4.ogg
+#WAVHS FX P4 - Marker #5.ogg
+#WAVHT FX P4 - Marker #6.ogg
+#WAVHU FX P4 - Marker #7.ogg
+#WAVHV FX P4 - Marker #8.ogg
+#WAVHW FX P4 - Marker #9.ogg
+#WAVHX FX P4 - Marker #10.ogg
+#WAVHY FX P4 - Marker #11.ogg
+#WAVHZ FX P4 - Marker #12.ogg
+#WAVI0 FX P4 - Marker #13.ogg
+#WAVI1 FX P4 - Marker #14.ogg
+#WAVI2 FX P4 - Marker #15.ogg
+#WAVI3 FX P4 - Marker #16.ogg
+#WAVI4 FX P4 - Marker #17.ogg
+#WAVI5 FX P4 - Marker #18.ogg
+#WAVI6 FX P4 - Marker #19.ogg
+#WAVI7 FX P4 - Marker #20.ogg
+#WAVI8 FX P4 - Marker #21.ogg
+#WAVI9 FX P4 - Marker #22.ogg
+#WAVIA FX P4 - Marker #23.ogg
+#WAVIB FX P4 - Marker #24.ogg
+#WAVIC FX P4 - Marker #25.ogg
+#WAVID FX P4 - Marker #26.ogg
+#WAVIE cord P1-1 - Marker #1.ogg
+#WAVIF cord P1-1 - Marker #2.ogg
+#WAVIG cord P1-1 - Marker #3.ogg
+#WAVIH cord P1-2 - Marker #1.ogg
+#WAVII cord P1-2 - Marker #2.ogg
+#WAVIJ cord P1-2 - Marker #3.ogg
+#WAVIK cord P1-2 - Marker #4.ogg
+#WAVIL cord P1-2 - Marker #5.ogg
+#WAVIM cord P1-2 - Marker #6.ogg
+#WAVIN cord P1-2 - Marker #7.ogg
+#WAVIO cord P2 - Marker #1.ogg
+#WAVIP cord P2 - Marker #2.ogg
+#WAVIQ cord P2 - Marker #3.ogg
+#WAVIR cord P2 - Marker #4.ogg
+#WAVIS cord P2 - Marker #5.ogg
+#WAVIT cord P2 - Marker #6.ogg
+#WAVIU cord P3-1 - Marker #1.ogg
+#WAVIV cord P3-1 - Marker #2.ogg
+#WAVIW cord P3-1 - Marker #3.ogg
+#WAVIX cord P3-1 - Marker #4.ogg
+#WAVIY cord P3-2 - Marker #1.ogg
+#WAVIZ cord P3-2 - Marker #2.ogg
+#WAVJ0 cord P3-2 - Marker #3.ogg
+#WAVJ1 cord P3-2 - Marker #4.ogg
+#WAVJ2 cord P4 - Marker #1.ogg
+#WAVJ3 cord P4 - Marker #2.ogg
+#WAVJ4 uweeeeee P1 - Marker #1.ogg
+#WAVJ5 uweeeeee P1 - Marker #2.ogg
+#WAVJ6 uweeeeee P2 - Marker #1.ogg
+#WAVJ7 uweeeeee P2 - Marker #2.ogg
+#WAVJ8 uweeeeee P2 - Marker #3.ogg
+#WAVJ9 uweeeeee P2 - Marker #4.ogg
+#WAVJA uweeeeee P2 - Marker #5.ogg
+#WAVJB uweeeeee P2 - Marker #6.ogg
+#WAVJC uweeeeee P2 - Marker #7.ogg
+#WAVJD uweeeeee P2 - Marker #8.ogg
+#WAVJE uweeeeee P2 - Marker #9.ogg
+#WAVJF uweeeeee P2 - Marker #10.ogg
+#WAVJG uweeeeee P2 - Marker #11.ogg
+#WAVJH uweeeeee P3 - Marker #1.ogg
+#WAVJI uweeeeee P3 - Marker #2.ogg
+#WAVJJ uweeeeee P3 - Marker #3.ogg
+#WAVJK lead P1 - Marker #1.ogg
+#WAVJL lead P1 - Marker #2.ogg
+#WAVJM lead P1 - Marker #3.ogg
+#WAVJN lead P1 - Marker #4.ogg
+#WAVJO lead P1 - Marker #5.ogg
+#WAVJP lead P1 - Marker #6.ogg
+#WAVJQ lead P1 - Marker #7.ogg
+#WAVJR lead P1 - Marker #8.ogg
+#WAVJS lead P1 - Marker #9.ogg
+#WAVJT lead P1 - Marker #10.ogg
+#WAVJU lead P1 - Marker #11.ogg
+#WAVJV lead P1 - Marker #12.ogg
+#WAVJW lead P1 - Marker #13.ogg
+#WAVJX lead P1 - Marker #14.ogg
+#WAVJY lead P1 - Marker #15.ogg
+#WAVJZ lead P1 - Marker #16.ogg
+#WAVK0 lead P1 - Marker #17.ogg
+#WAVK1 lead P1 - Marker #18.ogg
+#WAVK2 lead P1 - Marker #19.ogg
+#WAVK3 lead P1 - Marker #20.ogg
+#WAVK4 lead P1 - Marker #21.ogg
+#WAVK5 lead P2 - Marker #1.ogg
+#WAVK6 lead P2 - Marker #2.ogg
+#WAVK7 lead P2 - Marker #3.ogg
+#WAVK8 lead P2 - Marker #4.ogg
+#WAVK9 lead P2 - Marker #5.ogg
+#WAVKA lead P2 - Marker #6.ogg
+#WAVKB lead P2 - Marker #7.ogg
+#WAVKC lead P2 - Marker #8.ogg
+#WAVKD lead P2 - Marker #9.ogg
+#WAVKE lead P2 - Marker #10.ogg
+#WAVKF lead P2 - Marker #11.ogg
+#WAVKG lead P2 - Marker #12.ogg
+#WAVKH lead P2 - Marker #13.ogg
+#WAVKI lead P2 - Marker #14.ogg
+#WAVKJ lead P2 - Marker #15.ogg
+#WAVKK lead P2 - Marker #16.ogg
+#WAVKL lead P2 - Marker #17.ogg
+#WAVKM lead P2 - Marker #18.ogg
+#WAVKN lead P2 - Marker #19.ogg
+#WAVKO lead P2 - Marker #20.ogg
+#WAVKP lead P2 - Marker #21.ogg
+#WAVKQ lead P2 - Marker #22.ogg
+#WAVKR lead P2 - Marker #23.ogg
+#WAVKS lead P2 - Marker #24.ogg
+#WAVKT lead P2 - Marker #25.ogg
+#WAVKU lead P2 - Marker #26.ogg
+#WAVKV lead P2 - Marker #27.ogg
+#WAVKW lead P2 - Marker #28.ogg
+#WAVKX lead P2 - Marker #29.ogg
+#WAVKY lead P2 - Marker #30.ogg
+#WAVKZ lead P2 - Marker #31.ogg
+#WAVL0 lead P2 - Marker #32.ogg
+#WAVL1 lead P3 - Marker #1.ogg
+#WAVL2 lead P3 - Marker #2.ogg
+#WAVL3 lead P3 - Marker #3.ogg
+#WAVL4 lead P3 - Marker #4.ogg
+#WAVL5 lead P3 - Marker #5.ogg
+#WAVL6 lead P3 - Marker #6.ogg
+#WAVL7 lead P3 - Marker #7.ogg
+#WAVL8 lead P3 - Marker #8.ogg
+#WAVL9 lead P3 - Marker #9.ogg
+#WAVLA lead P3 - Marker #10.ogg
+#WAVLB lead P3 - Marker #11.ogg
+#WAVLC lead P3 - Marker #12.ogg
+#WAVLD lead P3 - Marker #13.ogg
+#WAVLE lead P3 - Marker #14.ogg
+#WAVLF lead P3 - Marker #15.ogg
+#WAVLG lead P3 - Marker #16.ogg
+#WAVLH lead P3 - Marker #17.ogg
+#WAVLI lead P3 - Marker #18.ogg
+#WAVLJ lead P3 - Marker #19.ogg
+#WAVLK lead P3 - Marker #20.ogg
+#WAVLL lead P4 - Marker #1.ogg
+#WAVLM lead P4 - Marker #2.ogg
+#WAVLN lead P4 - Marker #3.ogg
+#WAVLO lead P4 - Marker #4.ogg
+#WAVLP lead P4 - Marker #5.ogg
+#WAVLQ lead P4 - Marker #6.ogg
+#WAVLR lead P4 - Marker #7.ogg
+#WAVLS lead P4 - Marker #8.ogg
+#WAVLT shinval normal.ogg
+#WAVLU shinval short - Marker #1.ogg
+#WAVLV shinval short - Marker #2.ogg
+#WAVLW bye.ogg
+#WAVLX bgm - Marker #1.ogg
+#WAVLY bgm - Marker #2.ogg
+#WAVLZ bgm - Marker #3.ogg
+#WAVM0 bgm - Marker #4.ogg
+#WAVM1 bgm - Marker #5.ogg
+#WAVM2 uweeeeee long.ogg
+
+#BMP01 bga.png
+
+
+
+
+#DIFFICULTY 5
+#SUBARTIST BGA:CORAL
+
+
+
+*---------------------- MAIN DATA FIELD
+
+
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:00
+#00101:LX
+#00104:01
+
+
+#00311:000000000000009U
+#00312:IE
+#00313:0000009X
+#00314:IH00009X00000000
+#00315:0000A10000A10000
+#00318:00A50000A5000000
+#00319:AA
+
+#00411:00000000IF00009U
+#00413:0000II9X
+#00414:0000009X00000000
+#00415:0000A10000A10000
+#00418:00A50000A5000000
+#00419:AA
+
+#00511:000000000000009T
+#00512:IE00009V00000000
+#00513:0000009V
+#00514:IH009Z00009Z0000
+#00515:00A30000A3000000
+#00518:A8
+
+#00611:00000000IF00009T
+#00612:0000009V00000000
+#00613:0000II9V
+#00614:00009Z00009Z0000
+#00615:00A30000A3000000
+#00618:A8
+
+#00711:000000000000009U
+#00712:IE
+#00713:0000009X00009X00
+#00714:IH00A10000A10000
+#00715:00A50000A5000000
+#00718:J4
+#00719:AA
+#00758:00J50000000000000000000000000000
+
+#00811:00000000IF00009U
+#00813:0000II9X
+#00814:0000009X00000000
+#00815:0000A10000A10000
+#00818:00A50000A5000000
+#00819:AA
+#00858:M3
+
+#00911:000000000000009T
+#00912:IE00009V00000000
+#00913:0000009V
+#00914:IJ009Z00009Z0000
+#00915:00A30000A3000000
+#00918:J4
+#00919:A8
+#00958:00J50000000000000000000000000000
+
+#01011:00IF
+#01012:0000009V0000009T
+#01013:0000IK9V
+#01014:00009Z00009Z0000
+#01015:00A30000A3000000
+#01019:A8
+#01058:M3
+
+#01111:2I2J2K2L
+#01112:0100000000A10000
+#01113:IE010101
+#01114:IL00A19X0000009U
+#01115:00A5000000009X00
+#01118:0000JK0000JL00JM
+#01119:AAA5
+
+#01211:2M002N002O002P2Q
+#01212:00IF
+#01213:01000100II000101
+#01214:00JN009X0000009U
+#01215:00A1019X
+#01218:00A5000000A10000
+#01219:AAA5
+
+#01311:2R2S2T2U
+#01312:01000000009Z0000
+#01313:IE010101
+#01314:00009Z00A300009T
+#01315:IHA3009V00000000
+#01318:0000JO0000JP00JQ
+#01319:A800009V
+
+#01411:2V002W002X002Y2Z
+#01412:00IF
+#01413:010001009Y000101
+#01414:00A30000II000000
+#01415:A800009V00A200A2
+#01418:009Z01A7
+#01419:00JR000000000000
+
+#01511:30313233
+#01512:01010100
+#01513:IE00009X00000100
+#01514:IH00A10000A1009U
+#01515:00A5JS0000JT9X00
+#01518:J4
+#01519:AA000000A50000JU
+#01558:00J50000000000000000000000000000
+
+#01611:3400350036003738
+#01612:0000009XIF000000
+#01613:010001000100009U
+#01614:00A1II9X
+#01615:00A5000000A10000
+#01618:00JV0000JW00JX00
+#01619:AA000000A5000101
+#01658:M3
+
+#01711:2G2G2G2G2G2G2G2G
+#01712:0000009X00000000
+#01713:IM00A1000000009X
+#01714:01A500000000A100
+#01715:IE00JZ0000A500K1
+#01716:M2
+#01718:JY000000AAK00000
+#01719:AA01010101010101
+
+#01801:00
+#01801:0003
+#01811:2H2H2H2H393BA43F
+#01812:002H002H00000300IG0000003D000000
+#01813:03000300002H002H003A003C00009Z00
+#01814:00000000A0000000K300030003000003
+#01815:000300030003000300030000K4000300
+#01818:A900A40003000000IN000003003E003G
+#01819:0000K20000009W00AE00AA0000030000
+
+#01911:2D
+#01916:2D
+
+#02011:00CL0000
+#02012:000000000000CM009K009M9O00000000
+#02013:00CJ009J00000000
+#02014:000000000000CK0000000000M300000000009L00009N00000000000000000000
+#02015:M300009I000000CN0000000000000000
+#02016:00000000000000000000CP00CQCRCSCT
+#02018:CI0000M3000000000000000000000000
+#02019:9H00CO9P
+
+#02111:2E2E2E2E
+#02112:00M300M30000CW0000M3000000M300D2
+#02113:05060708
+#02114:0000M30000000000000000M30000D100
+#02115:K500CV00K7M30000
+#02116:LT
+#02118:00000000K60000CX0000K800D000K900
+#02119:CU0000000000M300CY00CZ00000000M3
+
+#02211:2E002E002E002G2G
+#02212:00D400M3D800DB0D
+#02213:09000A000BM30C00
+#02214:000000M3000000D700M3000000000000
+#02215:D300KA0000M30000KB0000DA0000DC00
+#02218:000000D60000KC00
+#02219:00M30000D50000000000D90000M30000
+
+#02311:2E2E2E2E
+#02312:00M300M3DHDI00DL
+#02313:0E000F000G000HM3
+#02314:00000000DE00000000M300DJ00000000
+#02315:KD00M3000000DF00KF000000DK0000DM
+#02316:DD
+#02318:0000KE0000KG00KH
+#02319:00M300M3000000DG0000000000000000
+
+#02411:2E002E002G2G2G2G
+#02412:0000DO00000000M30000000000000000
+#02413:0I0J0K0M
+#02414:00M300DP0000000000000L0000000N00
+#02415:0000KI0000M30000KJ00M300DU000000
+#02418:DN0000000000DR000000DT0000M300M3
+#02419:00DQDSKK
+
+#02511:2E2E2E2E
+#02512:00DW00DZ00E200E5
+#02513:0O0P0Q0R
+#02514:DV0000DX00M300M30000000000M30000
+#02515:KL00M300DY000000KN0000E3000000E6
+#02518:0000KM00E1KO00KP
+#02519:00M30000000000E000000000E4000000
+
+#02611:2E002E002E002G2G
+#02612:00E800M3ED00EF00
+#02613:0S000T000U000V0W
+#02614:00000000000000EC0000EE0000000000
+#02615:0000KQ00EA00EB00KR0000M300000000
+#02618:00M300E90000000000M30000KS000000
+#02619:E700000000M300000000M30000000000
+
+#02711:2G2G2G2G2G2G2G2G
+#02712:0000EJ00000000EQ
+#02713:0X000Y000000EK00EM0000EO00000000
+#02714:KTKV
+#02715:00000000KU0000EL0000KW00EP0000ER
+#02718:000000EI000000000000EN000000KX00
+#02719:EGEH0Z1011121314
+
+#02801:00
+#02801:00
+#02801:00KY000000000000
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:00
+#02801:LY
+#02811:4W004X00505152530000000000550000
+#02812:02000000EW03030300002G0000030057
+#02813:ES000000000000004Y004Z000000000000000000000000002G00000000008T00000000000000008U0000000000030000
+#02814:000000EV0000000000000000540000M3
+#02815:000000ET0000000004000400000000000000EY0000000000KZ0000000000000000000000030000000000560000000000
+#02816:000000F1
+#02818:0000EU0000EX00EZ000000008T008T00
+#02819:00040300F000L003
+
+#02911:2E002E002E002EFD
+#02912:0000M300F60000M30000FA0000M30000
+#02913:000000000000F700L2000000FC0000M3
+#02914:00008T0000M300M300008T0000008T00
+#02915:L10000M300008T00F9000000M30000FE
+#02916:LT
+#02918:00M30000L90000000000LA000000LA00
+#02919:F5000000000000F800M300FB00000000
+
+#03011:2E002EM32E002G00
+#03012:0000FG0000M3000000008T0000002G00
+#03013:00M300FH00008T00FL000000FO000000
+#03014:M3008T00FI00000000M300FN0000FP00
+#03015:000000FJL8M3008T
+#03018:0000L70000M300M300000000LA000000
+#03019:FF0000M3000000FK0000FM0000M300M3
+
+#03111:2EM32E002E002E00
+#03112:0000000000M300M30000FV0000008T00
+#03113:M3008T0000008T00M30000FW00M30000
+#03114:00000000FR0000FT00008T000000FY00
+#03115:L10000M300000000L2000000FX0000FZ
+#03116:FQ
+#03118:00M3L90000LA00LA
+#03119:00M300000000FS00FU000000M3000000
+
+#03211:2E002E002G2G2G2G
+#03212:00G100G400M300M3
+#03213:00M30000G3000000G600G8008V008T00
+#03214:G00000G200M300M300G7000000GB00GD
+#03215:008T008T008UGA00
+#03218:00000000M30000G500000000L800GC00
+#03219:0000LB0000000000LC0000G900000000
+
+#03311:2EM32E002EGJ2E00
+#03312:000000M30000M30000M300GK0000GM00
+#03313:L1000000GF000000GI00M30000M30000
+#03314:00M300M300008T00000000M3000000M3
+#03315:M3008T0000M30000L2008T00GL008T00
+#03316:GE
+#03318:00M30000L90000GH000000M3000000GN
+#03319:000000M30000GG000000LA000000LA00
+
+#03411:2E002E002E002G2G
+#03412:0000GP0000M300GT00M300GW00000000
+#03413:GO00GR00GU00GXGY
+#03414:00M300GQ00M30000L80000M300000000
+#03415:008T008T008T008T
+#03418:00M30000M3000000M3000000LA000000
+#03419:0000L7000000GS00M300GV00000000M3
+
+#03501:00
+#03501:00
+#03501:00
+#03501:00
+#03501:00
+#03501:00
+#03501:00
+#03501:00
+#03501:00000000000000H20000000000000000
+#03501:00
+#03501:00
+#03501:00
+#03501:L1L90000
+#03511:580059035A00H1002H002H002H002H00
+#03512:0200035902005A000000H40000000000
+#03513:0000000000000000000000H50000LA00
+#03514:00000000L200008T
+#03515:GZ008TM3H0000200H3008T00H600002H
+#03518:0000000000LA00H7
+#03519:0000000000008T00002H002H002H00H8
+
+#03601:00
+#03601:00
+#03601:00
+#03601:00
+#03601:0000000000HD000000008U008U008T00
+#03601:00
+#03601:00
+#03601:000000000000HEHF00HH00HJHKHL00HN
+#03601:00
+#03601:00
+#03601:00
+#03601:00
+#03601:00LB0000LC00LF00
+#03601:00
+#03601:LZ
+#03611:5B5B5B5B5C005C00HG005F5G00000000
+#03612:00000000000000000000030300005J2H
+#03613:0303030302000200000000008V002H5K
+#03615:00000000HC008T000000HI002H2H0000
+#03618:H90000HB00000000030300005H5I0000
+#03619:0000HA00000000005D5E00000000HM00
+
+#03701:F5
+#03701:5L
+#03711:2E2E2E2E
+#03712:000000M30000F700F900FA0000M30000
+#03713:00008T0000M300F800000000FC00FD00
+#03714:L10000M300000000L20000FB000000FE
+#03715:00M30000F6008T0000008T00M3008T00
+#03716:LT
+#03719:0000L90000LA00LA
+#03758:M2
+
+#03811:2E2E2E2G
+#03812:00M300000000FJ000000FM0000002G00
+#03813:FF00L700M3000000FL000000FO0000M3
+#03814:000000FH000000FK000000FN0000FP00
+#03815:00008T0000008T0000008T0000M30000
+#03818:000000M300M30000L8000000LA000000
+#03819:0000FG00FI0000M300M300M300008T00
+#03858:M3
+
+#03911:2E2E2E2E
+#03912:00M300000000FS00FU00FV0000M30000
+#03913:00000000FR0000M300000000FX00FY00
+#03914:00008T0000000000L20000FW000000FZ
+#03915:L10000M300008T0000008T0000008T00
+#03916:FQ
+#03918:00M3000000M300FT00M300M300M30000
+#03919:0000L90000LA00LA
+
+#04011:2E002E002G2G2G2G
+#04012:00G10000M3008V00
+#04013:G00000G20000G400G600G800L800GC00
+#04014:00M30000M30000G500M3000000000000
+#04015:008T008T008UGA8T
+#04018:M3000000G300000000G7000000GB0000
+#04019:0000LB0000M30000LC0000G9000000GD
+
+#04111:2EM32E002E002GGM
+#04112:00000000GF008T0000008T0000M300M3
+#04113:GE8T00GGGI00GL00
+#04114:00M300M3000000GH00M300GK00008T00
+#04115:L300000000M30000L400GJ00000000GN
+#04119:0000LBM300LC00LC
+#04158:M2
+
+#04211:2G002G002G002G2G
+#04212:000000M300008T0000008T00GX000000
+#04213:GO8TGR00M30000GY
+#04214:00M3000000M300GT0000GV00M3000000
+#04215:0000GP00M300GS0000M300GW00008T00
+#04218:000000GQ00000000GU00000000M30000
+#04219:0000LD0000M30000LE00M300LF000000
+#04258:M3
+
+#04301:00
+#04301:00
+#04301:00
+#04301:00
+#04301:00
+#04301:00
+#04301:00
+#04301:00
+#04301:000000000000H1H20000H4H50000H7H8
+#04301:00
+#04301:00LG0000
+#04301:00
+#04301:L5000000L6LH00LH
+#04311:02000303020002002H00000000000000
+#04312:00000000002H0000
+#04313:5M005N5N5M005M00002H00002H008T00
+#04314:00000000000000000000002H00000000
+#04315:00008T00H0000000H3000000002H002H
+#04316:GZ00000000000000J8J9JAJBJCJDJEJF
+#04318:J6000000008T0000
+#04319:0000008T0000H62H
+#04358:00J700000000M3000000000000000000
+
+#04401:00
+#04401:0000000000000000000000002H2H2H2H
+#04401:00
+#04401:00
+#04401:00000000000000HF00HH8U008U008U00
+#04401:000000000000000000000000008V0000
+#04401:00
+#04401:00
+#04401:H900HAHB00HD000000000000000000HN
+#04401:00
+#04401:00
+#04401:00
+#04401:00LI0000LJ00LK00
+#04411:0000000000008T005Q5R000000000000
+#04412:000000000200HE000303005S5T5U0000
+#04413:00000000HC005P000000000303030000
+#04414:00005P02000000HM
+#04415:0000HGHK
+#04416:JG
+#04418:5O5O5O5O000000000000HI0000HL005V
+#04419:0303030300000000000000HJ00000003
+
+#04501:00
+#04501:00
+#04501:00
+#04501:00
+#04501:8W
+#04511:2D0000009C0000A5
+#04512:IO0000AA0000AA00
+#04513:0100AF0000AF0000
+#04514:5WAH0000AH000000
+#04515:AJ8X8Y8Z
+#04516:LT
+#04558:LL
+#04559:M2
+
+#04611:000000AA00000000
+#04612:0000AF009C0000A5
+#04613:00AH00000000AA00
+#04614:AJ00000000AF0000
+#04615:90919293
+#04619:00AH
+#04659:M3
+
+#04711:5X000000000000A3
+#04712:019C
+#04713:000000A80000A800
+#04714:9400AE0000AE0000
+#04718:00AG0000AG000000
+#04719:AI959697
+#04755:LM
+#04758:M3
+
+#04811:00A1
+#04812:000000A89C000000
+#04813:0000AE0000A80000
+#04814:00AG00000000AE00
+#04818:AI000000000000AG
+#04819:98999A9B
+
+#04911:5Y0000AA000000A5
+#04912:01AE9C00
+#04913:IQAF005Z0000AA00
+#04914:AJ00000000AF0000
+#04915:0000AH60
+#04955:M3
+#04958:LN
+#04959:M2
+
+#05011:000000AA00000000
+#05012:006100009C0000A5
+#05013:00AF00AA
+#05014:00AH000000AF0000
+#05015:AJ
+#05019:00AH
+#05058:0000000000M3LO00
+#05059:M3
+
+#05111:IR0000A8000000A3
+#05112:01AE00A8
+#05113:6200000000AE0000
+#05114:00AG0000AG006400
+#05115:AI0000639C000000
+#05158:M3
+#05159:LP
+
+#05211:000000A867000000
+#05212:0000AE00000000AN
+#05213:0000AG000000006600000000AM000000
+#05214:AI0000009CAL0000
+#05215:00650000AK000000
+#05259:00000000000000M3
+
+#05311:3H003I5Z3J003KAR
+#05312:0100AQAR9C00AU00
+#05313:5Y010101
+#05314:AOAP000000AT6000
+#05315:IO8T008TAS8T008T
+#05316:LT
+#05358:LL
+#05359:M2
+
+#05411:3L003M003N003O3P
+#05412:006100AY00000000
+#05413:01000000AX0000009C00008T00000100
+#05414:00AW000000B1B200
+#05415:AV8T008T008T008T
+#05418:00B0
+#05419:00000100010001AZ
+#05459:M3
+
+#05511:3Q3R3S3T
+#05512:628T00B6008TB9BA
+#05513:IPB4008T00000000
+#05514:0100B5009CB86400
+#05518:00000063B700008T
+#05519:B3010101
+#05555:LM
+#05558:M3
+
+#05601:00
+#05601:00
+#05601:00
+#05601:00
+#05601:000000000000000000000000008V0000
+#05601:00
+#05601:00
+#05601:00
+#05601:00000000BFBGBHBI
+#05611:3U003V003W3X3Y3Z
+#05612:000000BE00000000
+#05613:008TBD8T9C008U00
+#05614:00BC0000008U008U
+#05618:BB000000000000666700000000000000
+#05619:0165010001010101
+
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:BJ
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:00
+#05701:M0
+#05711:4041424344454647
+#05712:0100BL0101010101
+#05713:IS0100BM9C0060BQ
+#05714:5YBK018T00BO0000
+#05715:008T005ZBN8TBP8T
+#05755:M3
+#05758:LQ
+#05759:M2
+
+#05811:01494A4B4C4D4E42
+#05812:48
+#05813:00BS00BU9C010101
+#05814:0061BT00BV000000
+#05815:BR8T008T008T008T
+#05819:0001010101000000
+#05858:0000000000M3LR00
+#05859:M3
+
+#05911:2G2G2G2G2G2G2G2G
+#05912:01010100
+#05913:620100009C000100
+#05914:0000000100016400
+#05915:IT8T008T008T008T
+#05918:0000006300000001
+#05958:M3
+#05959:LS
+
+#06011:4G4K4O4S
+#06012:00004I000000006600008U00008V0000
+#06013:008T004M67008U4U
+#06014:004H004J000000009C004Q0000000000
+#06015:00000000004L004N00000000004T004V
+#06018:0000650000008T00004P004R00008U00
+
+#06111:2D
+#06114:J6
+#06116:0000000000000000J8J9JAJBJCJDJEJF
+#06154:00J700000000M3000000000000000000
+#06159:M3
+
+#06211:00002H2F
+#06212:000000M30000000000002H0000000000
+#06213:M300002F0000M300000000006B000000
+#06214:2F0000690000M3000000000000000000
+#06215:680000M300002G00002H000000000000
+#06216:M300009C
+#06218:M300000000006A000000002H00000000
+#06219:0000M3M3
+
+#06311:2G002E0000002H2F00002E0000002H2F
+#06314:008T008T008T008T
+#06315:BX
+#06316:LT
+#06318:006D6D6D
+#06319:0000C10000C50000
+
+#06411:002E002HM300002G
+#06412:000000000300M38T
+#06413:000000006EM3CC00
+#06414:008T008TM3M303C6
+#06415:00000000M3036G00
+#06418:6D0000006D00002E00006F00M3000000
+#06419:C40000CB008T0000
+
+#06511:2G002E0000002H2F00002E0000002H2F
+#06513:008T0000008T0000
+#06514:0000000000008T0000000000008T0000
+#06515:BX
+#06518:006D6D6D
+#06519:0000C10000C50000
+
+#06601:00
+#06601:0000000000000003
+#06611:002E002H6H00CC00
+#06612:0000000000000000036I00006L030000
+#06613:00008T0000008T0000030000036M0000
+#06614:00000000000000000000000000000003
+#06615:000000000000002E0000000300002G6O
+#06618:6D0000006D0000000000036K00006N00
+#06619:C40000CB006J00CE
+
+#06711:2G002H2F00002H2F00002E0000002H2F
+#06713:BX000000008T0000
+#06714:0000008T0000008T
+#06718:000000006D0000006D0000006D6D0000
+#06719:0000C10000C50000
+
+#06811:002E002H008T0000
+#06812:000000000000002H00002G00M3000000
+#06813:008T0000M36QM3C6
+#06814:0000008TM3M32E00
+#06815:000000002GM36R00
+#06818:6D006DCB6P00CC8T
+#06819:C4M3
+
+#06911:2G002E0000002H2F00002E0003000300
+#06912:BY00000000006S8T
+#06913:008T00000000M36U
+#06914:0000000000008T0000008T0000M3002H
+#06915:000000000000M32H
+#06918:000000006C0000006C00000000030003
+#06919:0000C2000000C3000000C500006T006V
+
+#07001:00
+#07001:00
+#07001:00
+#07001:00
+#07001:00
+#07001:00
+#07001:00
+#07001:0000000000CCCECG
+#07011:030003009G709F9C
+#07012:6W00000003037200
+#07013:C60000000000000000000000CC000000009G0000000003000000000074000000
+#07014:00008T00000000000003009F009F0075
+#07015:M300000000008T00009F007100030000
+#07016:9E9E0000
+#07018:0000CC0000000000006Z000000730000
+#07019:000000006X0000006Y009F0003000303
+
+#07111:2G002G002G002H2F00002G002G002H00
+#07113:BX0000000000000000008T000000002H
+#07114:008T008T0000008T
+#07115:J4
+#07118:000000006D0000006D6D00006D000000
+#07119:0000C10000C50000
+#07155:00J50000000000000000000000000000
+
+#07211:2G002G002G002H2H008T000000002G00
+#07212:002G
+#07213:008T0000762G008T
+#07214:00000000008T0000M3007700CC00C600
+#07215:00000000M3M32G00
+#07218:6D0000006D6D00000000M30078000000
+#07219:C40000CB0000M300
+#07255:M3
+
+#07311:2G002G002G002H002G002G002G002H2G
+#07313:000000000000002H000000007B000000
+#07314:008T0000007A0000
+#07315:BX00008T7900008T
+#07318:00006D0000C50000
+#07319:0000C100008T0000
+
+#07401:00
+#07401:00
+#07401:00
+#07401:00
+#07401:00
+#07401:00
+#07401:00
+#07401:000000000000CCCE
+#07411:002H2G002G002H00007F0000007J0000
+#07412:00000000000000000003002H00030000
+#07413:0000008T7E007I7K
+#07414:C4000000037G0303
+#07415:00008T000000002G000003002G00007L
+#07418:000000007D000000002G000300000003
+#07419:7C0000000000CB000000007H00002G00
+
+#07511:BZ
+#07512:000000006C0000006C0000006C6C0000
+#07513:008T008T008T008T
+#07514:00C50000
+#07515:0000002H0000002H0000000000000000
+#07518:0000000000C80000
+#07519:2G002H002G002H002G002G002G002H2F
+
+#07611:00000000007P0000
+#07612:7M0000007N008T0000002G000000002H
+#07613:008T0000M38T2G2H
+#07614:000000007OM37Q00
+#07615:000000002G00M3CA
+#07618:C70000CDM300CE00
+#07619:00002G002G002H2H00000000M3008T00
+
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:00
+#07701:M1
+#07711:2H2H2G2H2G2G2G2H
+#07712:000000000000002H000000007R007T00
+#07713:002H002H000000000000000000008T00
+#07714:C0006C8T008T0000
+#07715:00008T00000000006C0000000000002H
+#07718:0000C9000000CA0000000000007S007U
+#07719:00000000000000000000CB0000M300M3
+
+#07801:00000000000000000000000300030000
+#07801:00
+#07801:00
+#07801:00
+#07801:00
+#07801:00
+#07801:00
+#07801:0000000000CF00CH
+#07811:002G2H2H032H032H
+#07812:2G000000007Z0083
+#07813:7V000000002H002H0003002H0000002H
+#07814:CC008T00CC0000002H000080002H0000
+#07815:00000000M3008T007X00030000820084
+#07816:007W0000
+#07818:000000000000CF00002H00002H000300
+#07819:00000000M3000000007Y000081000003
+
+#07911:01
+#07914:JH
+#07918:2D
+#07954:00JI000000000000000000000000M300
+
+#08011:00002G002G2G2G2G
+#08013:0000860000008888
+#08015:2G00000087870000
+#08019:85
+#08054:JJ
+
+#08111:2D171819
+#08112:890000000000009U
+#08113:1600009X00009X00
+#08114:00A10000
+#08115:AAA5000000A10000
+#08116:LT
+#08118:IEA5
+#08119:IH
+#08154:M3
+
+#08211:1A001B001C001D1E
+#08212:00000000A500009U
+#08213:0000IF9X
+#08214:0000009X00000000
+#08215:0000A100IIA10000
+#08218:00A5000000000000
+#08219:AA
+
+#08311:5X1G1H1I
+#08312:2D0000000000009T
+#08313:1F00009V00000000
+#08314:IE9Z009V
+#08315:00A30000009Z0000
+#08318:IHA3
+#08319:A8
+
+#08411:1J1K1L1M
+#08412:0000009V00000000
+#08413:00IF
+#08414:00009Z00000000A3
+#08415:00A30000II009Z00
+#08418:00000000009V0000
+#08419:A89S
+
+#08511:2D1O1P1Q1R1S1T1U
+#08512:1N
+#08513:5X
+#08514:IU0000A60000A300
+#08515:0000A30000A60000
+#08516:LU
+#08518:IYA6000000000000
+#08519:AB000000AB0000A6
+
+#08611:1V1X1Z2123252729
+#08612:8A000000000000002G00M30000M30000
+#08613:IV00A8000000M300AC0000M3000000M3
+#08614:AC00A400J000A4A8
+#08615:IZ0000A88BA800M3
+#08616:LVLV
+#08618:001W001Y00000000IW000000M3000000
+#08619:2G00000000200022002400260028002A
+
+#08711:2D
+#08712:5X
+#08714:J1
+#08715:AD
+#08716:LT
+#08718:IX
+
+#08811:0000002B
+#08816:000000LW
+#08819:0000009D
+
+#08901:00000000002C00000000000000000000
+#08901:00
+#08901:00
+#08901:00
+#08901:00
+#08901:00000000000000HS0000000000000000
+#08911:2H002H2H002H002H002H002H002H002H
+#08912:002H00002C002C002H00002C009E0000
+#08913:002C002C00009F002C002C002C00009R
+#08915:008T008T00HQ002C002C00009F002C00
+#08916:LT0000008C9F8D0000008E00HX008G00
+#08918:2C002C009F00HR00HT00HV008F00002C
+#08919:HO000000HP00009Q00HU00HW002C0000
+#08954:J2
+
+#09011:2H00002H00002H00002H002H00002H00
+#09012:00009D00008K00M30000I800008P002H
+#09013:00I08JI48M008O8Q
+#09014:000000M30000008L00008N00008V0000
+#09015:8T008I00I200000000I700M3000000ID
+#09016:HY00008T0000008T00008T008T008T00
+#09018:008H00I100I300I500009D00IA00IC00
+#09019:00HZ000000009D00I60000I900IB00M3
+#09054:M3
+
+#09111:2D
+#09135:J3
+#09138:J3
+#09139:J3
+#09154:J3
+
+#09254:M3
+

@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="utf-8"?>
+<v:ThemedWindow x:Class="BeMusicSeeker.Views.PlaylistPropertyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" x:Name="playlistPropertyDialog" Width="640" Height="720" MinWidth="560" MinHeight="420" ResizeMode="CanResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Property, Mode=OneWay}" KeyDown="DialogKeyDown">
+  <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
+    <FrameworkElement.Resources>
+      <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+          <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
+          <ResourceDictionary Source="/BeMusicSeeker;component/Views/Settings/SettingsControls.xaml" />
+        </ResourceDictionary.MergedDictionaries>
+        <v:objectToBoolConverter x:Key="objectToBoolConverter" />
+        <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
+        <v:folderSortKeyConverter x:Key="folderSortKeyConverter" />
+        <v:folderSortKeyListConverter x:Key="folderSortKeyListConverter" />
+        <v:entryUnitTypeConverter x:Key="entryUnitTypeConverter" />
+        <v:entryUnitTypeListConverter x:Key="entryUnitTypeListConverter" />
+        <v:customfolderOutputCheckBoxConverter x:Key="customfolderOutputCheckBoxConverter" />
+        <v:emptyFolderNameConverter x:Key="emptyFolderNameConverter" />
+        <v:entryUnitTypeIsFileConverter x:Key="entryUnitTypeIsFileConverter" />
+        <Style x:Key="WrappingOutputCheckBoxStyle"
+               TargetType="{x:Type CheckBox}"
+               BasedOn="{StaticResource App.Canonical.CheckBoxStyle}">
+          <Setter Property="HorizontalAlignment" Value="Stretch" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="VerticalAlignment" Value="Top" />
+          <Setter Property="Margin" Value="0,0,0,10" />
+          <Setter Property="ContentTemplate">
+            <Setter.Value>
+              <DataTemplate>
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+              </DataTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+        <Style x:Key="PropertyCategoryPageStyle" TargetType="{x:Type Grid}">
+          <Setter Property="Visibility" Value="Collapsed" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding SelectedIndex, ElementName=propertyNavigation}" Value="0">
+              <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+        <Style x:Key="PropertyFolderPageStyle" TargetType="{x:Type Grid}">
+          <Setter Property="Visibility" Value="Collapsed" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding SelectedIndex, ElementName=propertyNavigation}" Value="1">
+              <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+        <Style x:Key="PropertyCustomPageStyle" TargetType="{x:Type Grid}">
+          <Setter Property="Visibility" Value="Collapsed" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding SelectedIndex, ElementName=propertyNavigation}" Value="2">
+              <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </ResourceDictionary>
+    </FrameworkElement.Resources>
+    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" SnapsToDevicePixels="True">
+      <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
+        <Grid DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0"
+                     VerticalAlignment="Center"
+                     Foreground="{DynamicResource App.TextBrush}"
+                     Text="{Binding last_update, StringFormat=&quot;Update: {0:yyyy'/'MM'/'dd}&quot;}" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="64" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistPropertyAccept" Click="SaveAndClose" />
+            <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="64" AutomationProperties.AutomationId="PlaylistPropertyCancel" Click="CancelAndClose" />
+          </StackPanel>
+        </Grid>
+        <ListBox x:Name="propertyNavigation"
+                 DockPanel.Dock="Top"
+                 Margin="0,0,0,8"
+                 SelectedIndex="0"
+                 SelectionMode="Single"
+                 KeyboardNavigation.TabIndex="1"
+                 Style="{StaticResource App.Canonical.TopNavigationStyle}"
+                 SelectionChanged="PropertyNavigationSelectionChanged">
+          <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}" />
+          <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}" />
+          <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Custom_folder, Mode=OneWay}" IsEnabled="{Binding OperationModeLR2DB, Mode=OneWay}" />
+        </ListBox>
+        <ContentControl x:Name="propertyContent"
+                        DockPanel.Dock="Top"
+                        KeyboardNavigation.TabIndex="2"
+                        Style="{StaticResource App.Canonical.TopNavigationContentStyle}">
+          <ScrollViewer x:Name="propertyContentScrollViewer"
+                        Style="{StaticResource App.Canonical.ScrollViewerStyle}"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+              <Grid x:Name="generalPage" Style="{StaticResource PropertyCategoryPageStyle}">
+                <StackPanel>
+                  <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}">
+                    <StackPanel>
+                      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_playlist_name, Mode=OneWay}">
+                        <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                 Text="{Binding name, Mode=TwoWay}" />
+                      </settings:SettingsField>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="1*" />
+                          <ColumnDefinition Width="2*" />
+                        </Grid.ColumnDefinitions>
+                        <settings:SettingsField Grid.Column="0"
+                                                Margin="0,0,14,14"
+                                                Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_symbol, Mode=OneWay}">
+                          <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                   Text="{Binding symbol, Mode=TwoWay}" />
+                        </settings:SettingsField>
+                        <settings:SettingsField Grid.Column="1"
+                                                Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_prefix, Mode=OneWay}">
+                          <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                   Text="{Binding compat_prefix, Mode=TwoWay}" />
+                        </settings:SettingsField>
+                      </Grid>
+                      <settings:SettingsField Margin="0"
+                                              Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_entrytype, Mode=OneWay}">
+                        <ComboBox Name="comboBox"
+                                  Style="{StaticResource App.Canonical.ComboBoxStyle}"
+                                  IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}"
+                                  ItemsSource="{Binding entry_type_list, Converter={StaticResource entryUnitTypeListConverter}, Mode=OneWay}"
+                                  SelectedItem="{Binding entry_type, Converter={StaticResource entryUnitTypeConverter}, Mode=TwoWay}" />
+                      </settings:SettingsField>
+                    </StackPanel>
+                  </settings:SettingsSection>
+                  <settings:SettingsSection Margin="0"
+                                            Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_syncmode, Mode=OneWay}"
+                                            Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_sync_description, Mode=OneWay}">
+                    <StackPanel>
+                      <CheckBox Name="checkBox"
+                                Style="{StaticResource App.Canonical.CheckBoxStyle}"
+                                Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Enable, Mode=OneWay}"
+                                IsChecked="{Binding is_external_sync, Mode=TwoWay}" />
+                      <StackPanel Margin="0,10,0,0"
+                                  IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
+                        <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_pageuri, Mode=OneWay}">
+                          <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                   Text="{Binding Page_url, Mode=TwoWay}" />
+                        </settings:SettingsField>
+                        <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_headeruri, Mode=OneWay}">
+                          <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                   Text="{Binding Header_url, Mode=TwoWay}" />
+                        </settings:SettingsField>
+                        <settings:SettingsField Margin="0"
+                                                Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_datauri, Mode=OneWay}">
+                          <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                   Text="{Binding Data_url, Mode=TwoWay}" />
+                        </settings:SettingsField>
+                      </StackPanel>
+                    </StackPanel>
+                  </settings:SettingsSection>
+                </StackPanel>
+              </Grid>
+              <Grid x:Name="folderPage"
+                    MinHeight="{Binding ViewportHeight, ElementName=propertyContentScrollViewer, Mode=OneWay}"
+                    Style="{StaticResource PropertyFolderPageStyle}">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <settings:SettingsSection Grid.Row="0"
+                                          Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_sortorder_song, Mode=OneWay}"
+                                          Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_sort_description, Mode=OneWay}"
+                                          IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="3*" />
+                      <ColumnDefinition Width="2*" />
+                    </Grid.ColumnDefinitions>
+                    <settings:SettingsField Grid.Column="0"
+                                            Margin="0,0,14,0"
+                                            Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_sortkey, Mode=OneWay}">
+                      <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}"
+                                ItemsSource="{Binding folder_sort_key_list, Converter={StaticResource folderSortKeyListConverter}, Mode=OneWay}"
+                                SelectedItem="{Binding folder_sort_key, Converter={StaticResource folderSortKeyConverter}, Mode=TwoWay}" />
+                    </settings:SettingsField>
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,0,4">
+                      <RadioButton Style="{StaticResource App.Canonical.RadioButtonStyle}"
+                                   GroupName="SortOrder"
+                                   Margin="0,0,20,0"
+                                   Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_asc, Mode=OneWay}"
+                                   IsChecked="{Binding folder_sort_ascending, Mode=TwoWay}" />
+                      <RadioButton Style="{StaticResource App.Canonical.RadioButtonStyle}"
+                                   GroupName="SortOrder"
+                                   Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_desc, Mode=OneWay}"
+                                   IsChecked="{Binding folder_sort_ascending, Converter={StaticResource notOperatorBoolConverter}, Mode=TwoWay}" />
+                    </StackPanel>
+                  </Grid>
+                </settings:SettingsSection>
+                <settings:SettingsSection Grid.Row="1"
+                                          Margin="0"
+                                          Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_order, Mode=OneWay}"
+                                          Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_order_description, Mode=OneWay}"
+                                          IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ListBox Name="foldersListBox"
+                             Grid.Column="0"
+                             MaxHeight="{Binding ViewportHeight, ElementName=propertyContentScrollViewer, Mode=OneWay}"
+                             Style="{StaticResource App.Canonical.ListBoxStyle}"
+                             VerticalAlignment="Stretch"
+                             SelectionMode="Extended"
+                             ItemsSource="{Binding folder_order, Mode=OneWay}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <ContentPresenter Content="{Binding Converter={StaticResource emptyFolderNameConverter}}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ListBox>
+                    <StackPanel Grid.Column="1"
+                                Margin="14,0,0,0"
+                                VerticalAlignment="Stretch">
+                      <CheckBox Name="checkBoxFolderNatueralSort"
+                                Style="{StaticResource App.Canonical.CheckBoxStyle}"
+                                Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Auto, Mode=OneWay}"
+                                IsChecked="{Binding is_auto_folder_sort, Mode=TwoWay}"
+                                Checked="folderNaturalSort" />
+                      <StackPanel VerticalAlignment="Center">
+                        <Button Style="{StaticResource App.Canonical.DialogActionStyle}"
+                                FontFamily="Marlett"
+                                Content="5"
+                                Margin="0,14,0,4"
+                                AutomationProperties.AutomationId="PlaylistPropertyFolderMoveUp"
+                                IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort, Mode=OneWay}"
+                                Click="folderListUp" />
+                        <Button Style="{StaticResource App.Canonical.DialogActionStyle}"
+                                FontFamily="Marlett"
+                                Content="6"
+                                Margin="0,4,0,0"
+                                AutomationProperties.AutomationId="PlaylistPropertyFolderMoveDown"
+                                IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort, Mode=OneWay}"
+                                Click="folderListDown" />
+                      </StackPanel>
+                    </StackPanel>
+                  </Grid>
+                </settings:SettingsSection>
+              </Grid>
+              <Grid x:Name="customPage" Style="{StaticResource PropertyCustomPageStyle}">
+                <StackPanel>
+                  <settings:SettingsSection AutomationProperties.AutomationId="PlaylistPropertyOutputTypesSection"
+                                            Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_type, Mode=OneWay}"
+                                            Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_desc, Mode=OneWay}">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*" />
+                        <ColumnDefinition Width="1*" />
+                      </Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+                      <CheckBox Grid.Row="0" Grid.Column="0" Margin="0,0,10,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=AllSongsFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="0" Grid.Column="1" Margin="10,0,0,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=UserFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="1" Grid.Column="0" Margin="0,0,10,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level_tooltip, Mode=OneWay}" IsEnabled="{Binding SelectedValue, ElementName=comboBox, Converter={StaticResource entryUnitTypeIsFileConverter}, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=LevelFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="1" Grid.Column="1" Margin="10,0,0,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=AlphabetFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="2" Grid.Column="0" Margin="0,0,10,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=ClearFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="2" Grid.Column="1" Margin="10,0,0,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=DJLevelFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="3" Grid.Column="0" Margin="0,0,10,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=CategoryAllFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="3" Grid.Column="1" Margin="10,0,0,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=OtherFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="4" Grid.Column="0" Margin="0,0,10,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=RandomFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="4" Grid.Column="1" Margin="10,0,0,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=BpmSortFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="5" Grid.Column="0" Margin="0,0,10,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=BpSortFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="5" Grid.Column="1" Margin="10,0,0,10" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=PlayCountSortFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                      <CheckBox Grid.Row="6" Grid.Column="0" Margin="0,0,10,0" Style="{StaticResource WrappingOutputCheckBoxStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=LastPlaySortFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}, Mode=TwoWay}" />
+                    </Grid>
+                  </settings:SettingsSection>
+                  <settings:SettingsSection Margin="0"
+                                            Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_output_dst, Mode=OneWay}"
+                                            Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_output_description, Mode=OneWay}">
+                    <StackPanel>
+                      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_base, Mode=OneWay}">
+                        <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}"
+                                  ItemsSource="{Binding OutputBaseOptions, Mode=OneWay}"
+                                  SelectedItem="{Binding custom_folder_output_base_option, Mode=TwoWay}"
+                                  DisplayMemberPath="Label" />
+                      </settings:SettingsField>
+                      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_save_name, Mode=OneWay}">
+                        <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
+                                 Text="{Binding output_dir, Mode=TwoWay}" />
+                      </settings:SettingsField>
+                      <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}"
+                                Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_make_root, Mode=OneWay}"
+                                IsChecked="{Binding is_root_folder, Mode=TwoWay}" />
+                    </StackPanel>
+                  </settings:SettingsSection>
+                </StackPanel>
+              </Grid>
+            </Grid>
+          </ScrollViewer>
+        </ContentControl>
+      </DockPanel>
+    </Border>
+  </Grid>
+</v:ThemedWindow>

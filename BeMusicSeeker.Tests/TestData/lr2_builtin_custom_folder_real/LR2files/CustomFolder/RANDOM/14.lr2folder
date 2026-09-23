@@ -1,0 +1,7 @@
+#COMMAND level>=0 AND mode=14
+#MAXTRACKS 1
+#CATEGORY カスタムフォルダ
+#TITLE 14KEYS
+#INFORMATION_A 14KEYSからランダムで一曲選びます。
+#INFORMATION_B 
+

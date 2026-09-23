@@ -1,0 +1,46 @@
+namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+internal sealed class IrCacheRefreshResult
+{
+    public long ElapsedMs { get; set; }
+
+    public long DbReadMs { get; set; }
+
+    public long IrDataDbReadMs { get; set; }
+
+    public long IrDataMaterializeMs { get; set; }
+
+    public long IrDataDbLockWaitMs { get; set; }
+
+    public int DbRows { get; set; }
+
+    public long IndexBuildMs { get; set; }
+
+    public int CacheFilesScanned { get; set; }
+
+    public long XmlCheckMs { get; set; }
+
+    public int CacheFilesReloaded { get; set; }
+
+    public long XmlReloadMs { get; set; }
+
+    public int XmlReloadDegree { get; set; }
+
+    public int XmlScoresParsed { get; set; }
+
+    public int XmlParseFailedCount { get; set; }
+
+    public int XmlFallbackLoadCount { get; set; }
+
+    public int IrDataUpsertCount { get; set; }
+
+    public bool BulkInsertUsed { get; set; }
+
+    public long UpsertMs { get; set; }
+
+    public int DbFallbackAppliedCount { get; set; }
+
+    public int XmlAppliedCount { get; set; }
+
+    public int OfflineEstimateXmlLoadCount { get; set; }
+}

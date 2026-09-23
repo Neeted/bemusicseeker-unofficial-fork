@@ -1,0 +1,1155 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>
+/// Library chart rows use the current sort profiles expected by the main and playlist views.
+/// </summary>
+[TestClass]
+public sealed class LibraryChartRowSortEngineTests
+{
+    /// <summary>
+    /// 通常一覧の LEVEL 列は文字列順ではなく数値順で並ぶことを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_LevelColumn_UsesNumericKeyForRegularRows()
+    {
+        LibraryChartRow regularLevel12 = CreateLibraryChartRow("z_regular_12.bms", "Regular12", level: 12);
+        LibraryChartRow regularLevel3 = CreateLibraryChartRow("m_regular_3.bms", "Regular3", level: 3);
+        List<LibraryChartRow> source = [regularLevel12, regularLevel3];
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Level),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+        string[] sortedPaths = [.. sorted.Select(row => row.path)];
+
+        CollectionAssert.AreEqual(
+            new[] { "m_regular_3.bms", "z_regular_12.bms" },
+            sortedPaths,
+            "LEVEL must be sorted numerically instead of lexicographically.");
+        Assert.AreEqual("library_chart_level_mixed_double", sortProfile);
+    }
+
+    /// <summary>
+    /// FOLDER 列は通常一覧では高速文字列比較を利用することを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_FolderColumn_UsesFastStringProfileInRegularView()
+    {
+        LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
+        LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
+
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Folder),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "z.bms", "a.bms" }, sorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
+    }
+
+    /// <summary>
+    /// FOLDER 列はプレイリスト明細では legacy 自然順を利用することを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_FolderColumn_UsesLegacyNaturalProfileInPlaylistDetailView()
+    {
+        LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
+        LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
+
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Folder),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
+    }
+
+    /// <summary>
+    /// 主要 string 列は fast 経路で高速比較プロファイルになることを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_TitleColumn_UsesFastStringProfile()
+    {
+        LibraryChartRow row1 = CreateLibraryChartRow("b.bms", "bbb", level: 1);
+        LibraryChartRow row2 = CreateLibraryChartRow("a.bms", "AAA", level: 1);
+
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([row1, row2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "a.bms", "b.bms" }, sorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_StringColumnsRespectFastSortSetting()
+    {
+        LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
+        LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> legacySorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string legacyProfile);
+        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile);
+
+        CollectionAssert.AreEqual(new[] { "a_item2.bms", "z_item10.bms" }, legacySorted.Select(row => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_legacy_string", legacyProfile);
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_StringSortMetricsDescribeFastPath()
+    {
+        LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
+        LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile, out LibraryChartSortMetrics metrics);
+
+        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
+        Assert.AreEqual(2, metrics.RowCount);
+        Assert.AreEqual(nameof(LibraryChartRow.Title), metrics.ColumnName);
+        Assert.AreEqual(ListSortDirection.Ascending, metrics.Direction);
+        Assert.AreEqual("String", metrics.PropertyTypeName);
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", metrics.SortProfile);
+        Assert.AreEqual("ordinal_ignore_case", metrics.StringSortKind);
+        Assert.IsTrue(metrics.SortMs >= 0);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void VirtualNormalLibraryModeSupport_CoversNormalListRefreshAndFilterUpdates()
+    {
+        MainViewUpdateMode[] supportedModes =
+        [
+            MainViewUpdateMode.TreeViewFilterNotChanged,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
+            MainViewUpdateMode.KeywordFilterUpdated,
+            MainViewUpdateMode.ModeFilterUpdated,
+            MainViewUpdateMode.SortUpdated
+        ];
+
+        foreach (MainViewUpdateMode mode in Enum.GetValues(typeof(MainViewUpdateMode)).Cast<MainViewUpdateMode>())
+        {
+            Assert.AreEqual(
+                supportedModes.Contains(mode),
+                MainViewRefreshDecisionService.IsVirtualNormalLibraryModeSupported(mode),
+                mode.ToString());
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesMissingFilesBeforeViewPipelines()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            hasFiles: false);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.MissingFiles, route.Kind);
+        Assert.IsFalse(route.IsPlaylistTreeActive);
+        Assert.IsFalse(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesPlayHistoryIncrementalUpdatesToPlayHistoryView()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.PlayHistorySelected,
+            hasFiles: true);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.ApplyPlayHistoryView, route.Kind);
+        Assert.IsFalse(route.IsPlaylistTreeActive);
+        Assert.IsFalse(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesPlaylistIncrementalUpdatesToPlaylistBuild()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            MainViewUpdateMode.KeywordFilterUpdated,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            hasFiles: true);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.RegisterPlaylistSourceBuild, route.Kind);
+        Assert.IsTrue(route.IsPlaylistTreeActive);
+        Assert.IsFalse(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesNormalLibraryWithBmsonRows()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            hasFiles: true);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.ContinueMainLibrary, route.Kind);
+        Assert.IsFalse(route.IsPlaylistTreeActive);
+        Assert.IsTrue(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_ExcludesBmsonRowsForMaintenanceAndInstallViews()
+    {
+        var excludedModes = new HashSet<MainViewUpdateMode>
+        {
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistNotOwnedFilterSelected,
+            MainViewUpdateMode.FileMissingFilterSelected,
+            MainViewUpdateMode.FileMissingIgnoredFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.GarbledFilterSelected,
+            MainViewUpdateMode.GarbleFixedFilterSelected,
+            MainViewUpdateMode.UnregisteredFilterSelected,
+            MainViewUpdateMode.ZeroNoteFilterSelected,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected,
+            MainViewUpdateMode.NewlyInstalledFolderSelected,
+            MainViewUpdateMode.PendingInstallFolderSelected
+        };
+
+        foreach (MainViewUpdateMode mode in (MainViewUpdateMode[])Enum.GetValues(typeof(MainViewUpdateMode)))
+        {
+            bool expected = mode == MainViewUpdateMode.FullScanAllChartsFilterSelected
+                || !excludedModes.Contains(mode);
+            Assert.AreEqual(
+                expected,
+                ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows(mode, mode),
+                mode.ToString());
+        }
+
+        Assert.IsTrue(ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows((MainViewUpdateMode)999, (MainViewUpdateMode)999));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
+    {
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(null));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(string.Empty));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.Title)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.path)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.Folder)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.Artist)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.genre)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.mode)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.tag)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.hash)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.sha256)));
+        Assert.IsFalse(RegularChartListOwner.IsSortCacheCandidate("Path"));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.instl_dst)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.RefTablesSymbols)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.clear)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.rateDouble)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.score)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.maxcombo)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.minbp)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.ChartLevelSortKey)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.ChartTotalSortKey)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.WarningDigestText)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.WAVHealth)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.BGAHealth)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.MovieHealth)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.encoding)));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibraryVirtualSortKeyProperty_UsesVirtualRegistryColumns()
+    {
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Title));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.path));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Folder));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Artist));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.genre));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.mode));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.tag));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.hash));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.sha256));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.instl_dst));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.InstallDestinationTitle));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.InstallDestinationArtist));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.RefTablesSymbols));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.clear));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.rateDouble));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.score));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.maxcombo));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.minbp));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.ChartLevelSortKey));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.WarningDigestText));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.WAVHealth));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.BGAHealth));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.MovieHealth));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.encoding));
+    }
+
+    private static void AssertIsVirtualSortColumn(string columnName)
+    {
+        Assert.IsTrue(ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out _), columnName);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewSortColumnDependency_ClassifiesMainColumnFamilies()
+    {
+        foreach (ChartListOrderColumnMetadata column in ChartListOrder.GetVirtualSortColumnMetadata())
+        {
+            Assert.AreEqual(column.Dependency, MainViewRefreshDecisionService.GetSortColumnDependency(column.NormalizedColumnName), column.NormalizedColumnName);
+        }
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainViewRefreshDecisionService.GetSortColumnDependency(null));
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.instl_dst)));
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.AreEqual(MainViewDataDependency.ReferenceTables, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.RefTablesSymbols)));
+        Assert.AreEqual(MainViewDataDependency.Score, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.rateDouble)));
+        Assert.AreEqual(MainViewDataDependency.Score, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.rankingString)));
+        Assert.AreEqual(MainViewDataDependency.ChartInfo, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.ChartTotalSortKey)));
+        Assert.AreEqual(MainViewDataDependency.Maintenance, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.WAVHealth)));
+        Assert.AreEqual(MainViewDataDependency.Warning, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.WarningDigestText)));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibrarySortKeyInvalidationReasons_CoverVirtualOrderCacheInvalidators()
+    {
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "bms_title_changed",
+                "bms_path_changed",
+                "bmson_path_changed",
+                "bmson_source_identity_changed",
+                "bmson_sort_key_changed",
+                "chart_info_digest_backfilled",
+                "install_destination_changed",
+                "ref_tables_changed",
+                "maintenance_changed",
+                "warning_changed"
+            },
+            MainViewRefreshDecisionService.GetSortKeyInvalidationReasons().ToArray());
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibrarySortKeyInvalidationReasons_ClearSourceRowsOnlyForSourceIdentityChanges()
+    {
+        Assert.IsTrue(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("bms_title_changed"));
+        Assert.IsTrue(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("bms_path_changed"));
+        Assert.IsTrue(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("bmson_path_changed"));
+        Assert.IsTrue(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("bmson_source_identity_changed"));
+
+        Assert.IsFalse(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("bmson_sort_key_changed"));
+        Assert.IsFalse(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("maintenance_changed"));
+        Assert.IsFalse(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("warning_changed"));
+        Assert.IsFalse(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("chart_info_digest_backfilled"));
+        Assert.IsFalse(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("ref_tables_changed"));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibraryPathSortKeyInvalidationReasons_DistinguishBmsAndBmsonPathMutations()
+    {
+        CollectionAssert.AreEqual(
+            new[] { "bms_path_changed" },
+            MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation: true, hasBmsonPathMutation: false).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "bmson_path_changed" },
+            MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation: false, hasBmsonPathMutation: true).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "bms_path_changed", "bmson_path_changed" },
+            MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation: true, hasBmsonPathMutation: true).ToArray());
+        Assert.AreEqual(0, MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation: false, hasBmsonPathMutation: false).Count);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistLibraryIndexPrewarm_DeferForDuplicateRefreshOnlyForOwnedCollectionInDuplicateView()
+    {
+        Assert.IsTrue(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: true,
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
+
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            "initialize_completed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: true,
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            "owned_collection_changed",
+            startupReadyOperable: false,
+            duplicateRefreshPriorityActive: true,
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: false,
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: true,
+            (int)MainViewUpdateMode.FolderFilterSelected));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_UsesDisplayRefreshWhenFullNormalLibrarySortIsUnaffected()
+    {
+        foreach (MainViewDataDependency dependency in new[]
+        {
+            MainViewDataDependency.Score,
+            MainViewDataDependency.ChartInfo,
+            MainViewDataDependency.Maintenance,
+            MainViewDataDependency.Warning
+        })
+        {
+            MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
+                MainViewUpdateMode.FolderFilterSelected,
+                folderFilterApplied: false,
+                keywordFilter: string.Empty,
+                modeFilter: ChartModeFilter.All,
+                sortColumnName: nameof(LibraryChartRow.Title),
+                isPlaylistDetailView: false,
+                dependency: dependency,
+                reason: "hydration_completed");
+
+            Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, decision.Action, dependency.ToString());
+            Assert.AreEqual(dependency, decision.Dependency, dependency.ToString());
+            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency, dependency.ToString());
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenScoreUpdateCanAffectCurrentView()
+    {
+        MainViewRefreshDecision scoreSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.rateDouble),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "ranking_refresh_completed");
+        MainViewRefreshDecision keywordDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: "rate:>90",
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "score_hydration_completed");
+        MainViewRefreshDecision unknownSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: "UnknownComputedColumn",
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "score_hydration_completed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, scoreSortDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, keywordDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, unknownSortDecision.Action);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenInstallDestinationUpdateCanAffectCurrentView()
+    {
+        MainViewRefreshDecision titleSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision installDestinationSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.instl_dst),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision warningSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.WarningDigestText),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision fullScanTitleSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision fullScanWarningSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.WarningDigestText),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, titleSortDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, fullScanTitleSortDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, installDestinationSortDecision.Action);
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, installDestinationSortDecision.SortDependency);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, warningSortDecision.Action);
+        Assert.AreEqual(MainViewDataDependency.Warning, warningSortDecision.SortDependency);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, fullScanWarningSortDecision.Action);
+        Assert.AreEqual(MainViewDataDependency.Warning, fullScanWarningSortDecision.SortDependency);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenDependencyMatchesCurrentSort()
+    {
+        (MainViewDataDependency dependency, string sortColumnName)[] cases =
+        [
+            (MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble)),
+            (MainViewDataDependency.ChartInfo, nameof(LibraryChartRow.ChartTotalSortKey)),
+            (MainViewDataDependency.Maintenance, nameof(LibraryChartRow.WAVHealth)),
+            (MainViewDataDependency.Warning, nameof(LibraryChartRow.WarningDigestText))
+        ];
+
+        foreach ((MainViewDataDependency dependency, string sortColumnName) in cases)
+        {
+            MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
+                MainViewUpdateMode.FolderFilterSelected,
+                folderFilterApplied: false,
+                keywordFilter: string.Empty,
+                modeFilter: ChartModeFilter.All,
+                sortColumnName: sortColumnName,
+                isPlaylistDetailView: false,
+                dependency: dependency,
+                reason: "dependency_changed");
+
+            Assert.AreEqual(MainViewRefreshAction.Refresh, decision.Action, dependency.ToString());
+            Assert.AreEqual(dependency, decision.Dependency, dependency.ToString());
+            Assert.AreEqual(dependency, decision.SortDependency, dependency.ToString());
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_UsesDisplayRefreshForDuplicateSubsetWhenMembershipIsUnaffected()
+    {
+        MainViewRefreshDecision warningDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Folder),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Warning,
+            reason: "chart_files_need_resource_fix_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, warningDecision.Action);
+        Assert.AreEqual("duplicate_subset_dependency_update_does_not_affect_current_sort_or_filter", warningDecision.Detail);
+
+        MainViewRefreshDecision warningSortDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.WarningDigestText),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Warning,
+            reason: "chart_files_need_resource_fix_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, warningSortDecision.Action);
+        Assert.AreEqual("not_full_normal_library", warningSortDecision.Detail);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesDuplicateSubsetWhenFiltersCanDependOnChangedData()
+    {
+        MainViewRefreshDecision keywordDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: "warning",
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Folder),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Warning,
+            reason: "chart_files_need_resource_fix_changed");
+        MainViewRefreshDecision membershipDecision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Folder),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.SourceMembership,
+            reason: "bms_files_duplicated_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, keywordDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, membershipDecision.Action);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesForUnknownChangedDependency()
+    {
+        MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
+            MainViewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: ChartModeFilter.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Unknown,
+            reason: "unknown_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, decision.Action);
+        Assert.AreEqual(MainViewDataDependency.Unknown, decision.Dependency);
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenMembershipOrIdentityCanAffectCurrentView()
+    {
+        foreach (MainViewDataDependency dependency in new[] { MainViewDataDependency.SourceMembership, MainViewDataDependency.IdentitySortKey })
+        {
+            MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
+                MainViewUpdateMode.FolderFilterSelected,
+                folderFilterApplied: false,
+                keywordFilter: string.Empty,
+                modeFilter: ChartModeFilter.All,
+                sortColumnName: nameof(LibraryChartRow.rateDouble),
+                isPlaylistDetailView: false,
+                dependency: dependency,
+                reason: "library_identity_changed");
+
+            Assert.AreEqual(MainViewRefreshAction.Refresh, decision.Action, dependency.ToString());
+            Assert.AreEqual(dependency, decision.Dependency, dependency.ToString());
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_TitleAndPathSupportAscendingAndDescending()
+    {
+        LibraryChartRow alphaLatePath = CreateLibraryChartRow("z_alpha.bms", "Alpha", level: 1);
+        LibraryChartRow betaEarlyPath = CreateLibraryChartRow("a_beta.bms", "Beta", level: 1);
+        LibraryChartRow gammaMiddlePath = CreateLibraryChartRow("m_gamma.bms", "Gamma", level: 1);
+
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.Title),
+            ListSortDirection.Ascending,
+            [alphaLatePath, betaEarlyPath, gammaMiddlePath],
+            ["z_alpha.bms", "a_beta.bms", "m_gamma.bms"]);
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.Title),
+            ListSortDirection.Descending,
+            [alphaLatePath, betaEarlyPath, gammaMiddlePath],
+            ["m_gamma.bms", "a_beta.bms", "z_alpha.bms"]);
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.path),
+            ListSortDirection.Ascending,
+            [alphaLatePath, betaEarlyPath, gammaMiddlePath],
+            ["a_beta.bms", "m_gamma.bms", "z_alpha.bms"]);
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.path),
+            ListSortDirection.Descending,
+            [alphaLatePath, betaEarlyPath, gammaMiddlePath],
+            ["z_alpha.bms", "m_gamma.bms", "a_beta.bms"]);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_LevelColumnUsesNumericKey()
+    {
+        LibraryChartRow level12 = CreateLibraryChartRow("z_level12.bms", "Level12", level: 12);
+        LibraryChartRow level3 = CreateLibraryChartRow("a_level3.bms", "Level3", level: 3);
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Level),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([level12, level3], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "a_level3.bms", "z_level12.bms" }, sorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_level_mixed_double", sortProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_FolderColumnUsesLegacyNaturalInPlaylistDetailView()
+    {
+        LibraryChartRow folder10 = CreateLibraryChartRow("z_folder10.bms", "Z", level: 1, folder: "folder10");
+        LibraryChartRow folder2 = CreateLibraryChartRow("a_folder2.bms", "A", level: 1, folder: "folder2");
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Folder),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "a_folder2.bms", "z_folder10.bms" }, sorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_ChartInfoAndScoreColumnsUseTypedSort()
+    {
+        LibraryChartRow high = CreateLibraryChartRow("z_high.bms", "High", level: 1, chartNotes: 100, chartTotal: 10.0, chartMainBpm: 200.0, rateScorePerfect: 90);
+        LibraryChartRow low = CreateLibraryChartRow("a_low.bms", "Low", level: 1, chartNotes: 20, chartTotal: 2.0, chartMainBpm: 100.0, rateScorePerfect: 20);
+
+        AssertTypedSort(nameof(LibraryChartRow.ChartNotes), [high, low], ["a_low.bms", "z_high.bms"]);
+        AssertTypedSort(nameof(LibraryChartRow.ChartTotalSortKey), [high, low], ["a_low.bms", "z_high.bms"]);
+        AssertTypedSort(nameof(LibraryChartRow.ChartMainBpmSortKey), [high, low], ["a_low.bms", "z_high.bms"]);
+        AssertTypedSort(nameof(LibraryChartRow.rateDouble), [high, low], ["a_low.bms", "z_high.bms"]);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void RateDouble_ComputesFromScoreAndIgnoresStoredRate()
+    {
+        LibraryChartRow row = CreateLibraryChartRow("rate.bms", "Rate", level: 1, rateScorePerfect: 91);
+        row.GetBmsStorageOwner().bmsScore.rate = 12;
+
+        Assert.AreEqual(0.91, row.rateDouble.GetValueOrDefault(), 0.000001);
+
+        var zeroNotes = new TestableBmsFile();
+        zeroNotes.ApplySnapshot(new SongSnapshotRow { path = "zero.bms", title = "Zero", level = 1, hash = "55555555555555555555555555555555" });
+        zeroNotes.bmsScore = new BMSScore { hash = zeroNotes.hash, perfect = 10, totalnotes = 0 };
+
+        Assert.IsFalse(LibraryChartRow.FromBmsFile(zeroNotes).rateDouble.HasValue);
+    }
+
+    /// <summary>
+    /// PlaylistSummary 専用ソートが昇順/降順で正しく切り替わることを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistSummarySortEngine_SortsAscendingAndDescending()
+    {
+        List<PlaylistSummaryRow> rows =
+        [
+            new PlaylistSummaryRow { PlaylistId = 1, Name = "B", TotalCharts = 30 },
+            new PlaylistSummaryRow { PlaylistId = 2, Name = "A", TotalCharts = 10 },
+            new PlaylistSummaryRow { PlaylistId = 3, Name = "C", TotalCharts = 20 }
+        ];
+
+        var asc = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
+            Direction = ListSortDirection.Ascending
+        };
+        var desc = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
+            Direction = ListSortDirection.Descending
+        };
+
+        List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, useLegacyStringSort: false, out string ascProfile);
+        List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, useLegacyStringSort: false, out string descProfile);
+
+        CollectionAssert.AreEqual(new[] { 2, 3, 1 }, ascSorted.Select(row => row.PlaylistId ?? -1).ToArray());
+        CollectionAssert.AreEqual(new[] { 1, 3, 2 }, descSorted.Select(row => row.PlaylistId ?? -1).ToArray());
+        Assert.AreEqual("playlist_summary_numeric_int32", ascProfile);
+        Assert.AreEqual("playlist_summary_numeric_int32", descProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistSummarySortEngine_SortsFolderName()
+    {
+        List<PlaylistSummaryRow> rows =
+        [
+            new PlaylistSummaryRow { PlaylistId = 1, Name = "A", FolderName = "folder-b" },
+            new PlaylistSummaryRow { PlaylistId = 2, Name = "B", FolderName = "folder-a" },
+            new PlaylistSummaryRow { PlaylistId = 3, Name = "C", FolderName = "folder-c" }
+        ];
+
+        var sort = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistSummaryRow.FolderName),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, useLegacyStringSort: false, out string profile);
+
+        CollectionAssert.AreEqual(new[] { 2, 1, 3 }, sorted.Select(row => row.PlaylistId ?? -1).ToArray());
+        Assert.AreEqual("playlist_summary_string_fast_ordinal_ignore_case", profile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistDetailSortEngine_ClearAndRankDisplayColumnsSort()
+    {
+        PlaylistDetailSourceRow hardAaa = CreatePlaylistDetailSourceRow("z_hard_aaa.bms", "Hard AAA", ClearType.HARD, RankType.AAA);
+        PlaylistDetailSourceRow easyAa = CreatePlaylistDetailSourceRow("a_easy_aa.bms", "Easy AA", ClearType.EASY, RankType.AA);
+
+        var clearSort = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.clear),
+            Direction = ListSortDirection.Ascending
+        };
+        var rankSort = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.rank),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<PlaylistDetailSourceRow> clearSorted = PlaylistDetailSortEngine.Sort([hardAaa, easyAa], clearSort, out string clearProfile);
+        List<PlaylistDetailSourceRow> rankSorted = PlaylistDetailSortEngine.Sort([hardAaa, easyAa], rankSort, out string rankProfile);
+
+        CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, clearSorted.Select(row => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, rankSorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("enum", clearProfile);
+        Assert.AreEqual("numeric_double", rankProfile);
+        Assert.AreEqual(0.95, hardAaa.rateDouble.GetValueOrDefault(), 0.000001);
+        Assert.AreEqual(0.95, hardAaa.CreateViewRow().rateDouble.GetValueOrDefault(), 0.000001);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ClearType_DisplayAndSortUseNumericLampOrder()
+    {
+        Assert.AreEqual(-1, (int)ClearType.NO_SONG);
+        Assert.AreEqual(0, (int)ClearType.NO_PLAY);
+        Assert.AreEqual(1, (int)ClearType.FAILED);
+        Assert.AreEqual(2, (int)ClearType.INVALID);
+        Assert.AreEqual(3, (int)ClearType.L_ASSIST);
+        Assert.AreEqual(4, (int)ClearType.EASY);
+        Assert.AreEqual(5, (int)ClearType.CLEAR);
+        Assert.AreEqual(6, (int)ClearType.HARD);
+        Assert.AreEqual(7, (int)ClearType.EX_HARD);
+        Assert.AreEqual(8, (int)ClearType.FC);
+        Assert.AreEqual(9, (int)ClearType.PA);
+        Assert.AreEqual(10, (int)ClearType.MAX);
+
+        Assert.AreEqual("ASSIST", ScoreDisplayTextFormatter.FormatClear(ClearType.INVALID));
+        Assert.AreEqual("L-ASSIST", ScoreDisplayTextFormatter.FormatClear(ClearType.L_ASSIST));
+        Assert.AreEqual("EX HARD", ScoreDisplayTextFormatter.FormatClear(ClearType.EX_HARD));
+        Assert.AreEqual("PERFECT", ScoreDisplayTextFormatter.FormatClear(ClearType.PA));
+        Assert.AreEqual("MAX", ScoreDisplayTextFormatter.FormatClear(ClearType.MAX));
+        Assert.AreEqual("99", ScoreDisplayTextFormatter.FormatClear((ClearType)99));
+
+        var converter = new cleartypeToStringConvberter();
+        Assert.AreEqual("PERFECT", converter.Convert(ClearType.PA, typeof(string), null, CultureInfo.InvariantCulture));
+        Assert.AreEqual("99", converter.Convert((ClearType)99, typeof(string), null, CultureInfo.InvariantCulture));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowClearSortUsesNumericClearType()
+    {
+        LibraryChartRow max = CreateLibraryChartRow("z_max.bms", "Max", 1, clear: ClearType.MAX);
+        LibraryChartRow assist = CreateLibraryChartRow("m_assist.bms", "Assist", 1, clear: ClearType.INVALID);
+        LibraryChartRow easy = CreateLibraryChartRow("a_easy.bms", "Easy", 1, clear: ClearType.EASY);
+        LibraryChartRow failed = CreateLibraryChartRow("b_failed.bms", "Failed", 1, clear: ClearType.FAILED);
+
+        var clearSort = new ChartListSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.clear),
+            Direction = ListSortDirection.Ascending
+        };
+        List<LibraryChartRow> librarySorted = LibraryChartRowSortEngine.SortForMainView([max, assist, easy, failed], ToSortSpecification(clearSort), isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string libraryProfile);
+
+        CollectionAssert.AreEqual(new[] { "b_failed.bms", "m_assist.bms", "a_easy.bms", "z_max.bms" }, librarySorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_typed", libraryProfile);
+
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Lr2StorageConverterKeepsNativeClearValuesCompatible()
+    {
+        Assert.AreEqual(ClearType.EASY, ClearTypeStorageConverter.FromLr2Value(2));
+        Assert.AreEqual(ClearType.CLEAR, ClearTypeStorageConverter.FromLr2Value(3));
+        Assert.AreEqual(ClearType.HARD, ClearTypeStorageConverter.FromLr2Value(4));
+        Assert.AreEqual(ClearType.FC, ClearTypeStorageConverter.FromLr2Value(5));
+        Assert.AreEqual(ClearType.PA, ClearTypeStorageConverter.FromLr2Value(21));
+        Assert.AreEqual(1, ClearTypeStorageConverter.ToLr2Value(ClearType.INVALID));
+        Assert.AreEqual(1, ClearTypeStorageConverter.ToLr2Value(ClearType.L_ASSIST));
+        Assert.AreEqual(4, ClearTypeStorageConverter.ToLr2Value(ClearType.EX_HARD));
+        Assert.AreEqual(5, ClearTypeStorageConverter.ToLr2Value(ClearType.MAX));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Lr2ScoreClearResolutionUsesOptionHistoryForAssistAndPerfect()
+    {
+        Assert.AreEqual(
+            ClearType.INVALID,
+            ClearTypeStorageConverter.FromLr2ScoreValue(2, ClearTypeStorageConverter.OptionHistoryAssist));
+        Assert.AreEqual(
+            ClearType.EASY,
+            ClearTypeStorageConverter.FromLr2ScoreValue(
+                2,
+                ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy));
+        Assert.AreEqual(ClearType.EASY, ClearTypeStorageConverter.FromLr2ScoreValue(2, ClearTypeStorageConverter.OptionHistoryEasy));
+        Assert.AreEqual(ClearType.INVALID, ClearTypeStorageConverter.FromLr2ScoreValue(2, 0));
+        Assert.AreEqual(
+            ClearType.PA,
+            ClearTypeStorageConverter.FromLr2ScoreValue(5, ClearTypeStorageConverter.OptionHistoryPerfect));
+    }
+
+    private static void AssertTypedSort(string columnName, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
+    {
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = columnName,
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string sortProfile);
+
+        CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " must use typed sort.");
+        Assert.AreEqual("library_chart_typed", sortProfile, columnName + " must report typed sort profile.");
+    }
+
+    private static void AssertLibraryChartSort(string columnName, ListSortDirection direction, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
+    {
+        var sortParameters = new ChartListSortParameters
+        {
+            ColumnsName = columnName,
+            Direction = direction
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " " + direction + " order mismatch.");
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
+    }
+
+    private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null, ClearType? clear = null)
+    {
+        string hash = CreateMd5FromPath(path);
+        var file = new TestableBmsFile();
+        file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = level, hash = hash });
+        file.SetFolder(folder);
+        LR2SongDBExtended.chart_info chartInfo = null!;
+        if (chartNotes.HasValue || chartTotal.HasValue || chartMainBpm.HasValue)
+        {
+            chartInfo = new LR2SongDBExtended.chart_info
+            {
+                sha256 = CreateSha256FromPath(path),
+                md5 = hash,
+                charthash = CreateSha256FromPath(path + ":chart"),
+                notes = chartNotes ?? 0,
+                total = chartTotal,
+                mainbpm = chartMainBpm,
+                parser_version = 1
+            };
+        }
+        if (rateScorePerfect.HasValue)
+        {
+            file.bmsScore = new BMSScore
+            {
+                hash = hash,
+                perfect = rateScorePerfect.Value,
+                totalnotes = 100
+            };
+        }
+        if (clear.HasValue)
+        {
+            file.bmsScore = new BMSScore
+            {
+                hash = hash,
+                clear = clear.Value,
+                rank = RankType.A,
+                perfect = 80,
+                totalnotes = 100
+            };
+        }
+        var row = LibraryChartRow.FromBmsFile(file);
+        if (chartInfo != null)
+        {
+            row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
+        }
+        return row;
+    }
+
+    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info[] rows)
+    {
+        return chart =>
+        {
+            if (chart == null)
+            {
+                return null!;
+            }
+            return (rows ?? [])
+                .Where(row => row != null)
+                .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Sha256) && string.Equals(row.sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase))
+                ?? (rows ?? [])
+                    .Where(row => row != null)
+                    .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
+                ?? null!;
+        };
+    }
+
+    private static PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(string path, string title, ClearType clear, RankType rank)
+    {
+        string hash = CreateMd5FromPath(path);
+        var file = new TestableBmsFile();
+        file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = 1, hash = hash });
+        file.bmsScore = new BMSScore
+        {
+            hash = hash,
+            clear = clear,
+            rank = rank,
+            perfect = rank == RankType.AAA ? 95 : 85,
+            totalnotes = 100
+        };
+        return new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true));
+    }
+
+    private static string CreateMd5FromPath(string path)
+    {
+        using var md5 = MD5.Create();
+        byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes(path));
+        return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+    }
+
+    private static string CreateSha256FromPath(string path)
+    {
+        using var sha256 = SHA256.Create();
+        byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(path));
+        return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+    }
+
+    private sealed class SongSnapshotRow
+    {
+        public string? path { get; set; }
+
+        public string? hash { get; set; }
+
+        public string? title { get; set; }
+
+        public string? subtitle { get; set; }
+
+        public string? artist { get; set; }
+
+        public string? subartist { get; set; }
+
+        public string? genre { get; set; }
+
+        public string? tag { get; set; }
+
+        public int? level { get; set; }
+
+        public int? mode { get; set; }
+
+        public int? karinotes { get; set; }
+    }
+
+    private static ChartListSortSpecification ToSortSpecification(ChartListSortParameters sort)
+    {
+        return ChartListSortSpecification.Create(
+            sort?.ColumnsName,
+            sort?.Direction ?? ListSortDirection.Ascending,
+            sort != null);
+    }
+
+    private sealed class TestableBmsFile : BMSFile
+    {
+        private string testFolder = string.Empty;
+
+        public override string Folder
+        {
+            get => string.IsNullOrEmpty(testFolder) ? base.Folder : testFolder;
+        }
+
+        public void SetFolder(string folderName)
+        {
+            testFolder = folderName ?? string.Empty;
+        }
+
+        public void ApplySnapshot(SongSnapshotRow row)
+        {
+            path = row.path ?? string.Empty;
+            hash = row.hash ?? string.Empty;
+            title = row.title ?? string.Empty;
+            subtitle = row.subtitle ?? string.Empty;
+            artist = row.artist ?? string.Empty;
+            subartist = row.subartist ?? string.Empty;
+            genre = row.genre ?? string.Empty;
+            tag = row.tag ?? string.Empty;
+            level = row.level;
+            mode = row.mode;
+            karinotes = row.karinotes;
+        }
+    }
+}

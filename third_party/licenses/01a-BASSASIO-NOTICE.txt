@@ -1,0 +1,25 @@
+BASSASIO notice
+
+Notice Summary (not authoritative full license text)
+====================================================
+
+Current classification: GREEN
+The current release is non-commercial, non-revenue end-user software. The
+upstream BASSASIO terms state that BASSASIO is free for non-commercial use.
+A future commercial or monetized release is a trigger for a new license
+review; it is not a current YELLOW condition.
+
+Copyright: Un4seen Developments Ltd.
+License: Separate proprietary upstream BASSASIO terms. This repository's MIT
+license does not apply to the native binary.
+
+Component:
+- bassasio.dll 1.4.3.0 / API 0x01040300 / x64
+
+Authoritative sources:
+- https://www.un4seen.com/bassasio.html
+- https://www.un4seen.com/doc/bassasio/bassasio.html
+
+The retained DLL version and SHA-256 value are recorded in
+devdocs/spec/runtime/audio-dependencies.md. This notice is intentionally
+separate from the BASS core/official add-ons notice.

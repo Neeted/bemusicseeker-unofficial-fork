@@ -1,0 +1,591 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using BeMusicSeeker.Models.LR2;
+
+namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+internal enum PlayHistoryProvider
+{
+    Lr2,
+    Beatoraja
+}
+
+internal enum PlayHistoryHashKind
+{
+    Chart,
+    ExpertCourse,
+    NonstopCourse,
+    GradeCourse,
+    Unknown
+}
+
+internal enum PlayHistoryDiagnosticSeverity
+{
+    Info,
+    Warning,
+    Error
+}
+
+internal sealed class PlayHistoryDiagnostic
+{
+    internal PlayHistoryProvider Provider { get; set; }
+
+    internal string Stage { get; set; } = string.Empty;
+
+    internal PlayHistoryDiagnosticSeverity Severity { get; set; }
+
+    internal string Code { get; set; } = string.Empty;
+
+    internal string Message { get; set; } = string.Empty;
+
+    internal string SourcePath { get; set; } = string.Empty;
+}
+
+internal sealed class PlayHistorySourceProfile
+{
+    internal PlayHistorySourceProfile(PlayHistoryProvider provider, string sourcePath, string displayName = null)
+    {
+        Provider = provider;
+        SourcePath = sourcePath ?? string.Empty;
+        DisplayName = string.IsNullOrWhiteSpace(displayName) ? Provider.ToString() : displayName;
+    }
+
+    internal PlayHistoryProvider Provider { get; }
+
+    internal string SourcePath { get; }
+
+    internal string DisplayName { get; }
+
+    internal static PlayHistorySourceProfile Lr2(string scoreDbPath)
+    {
+        return new PlayHistorySourceProfile(PlayHistoryProvider.Lr2, scoreDbPath, "LR2");
+    }
+
+    internal static PlayHistorySourceProfile Beatoraja(string scoreLogDbPath)
+    {
+        return new PlayHistorySourceProfile(PlayHistoryProvider.Beatoraja, scoreLogDbPath, "beatoraja");
+    }
+}
+
+internal sealed class BeatorajaPlayHistoryReadRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal string ScoreLogDbPath { get; set; }
+
+    internal IReadOnlyDictionary<string, BMSScore> ScoresBySha256 { get; set; }
+
+    internal int ScoreSnapshotVersion { get; set; }
+
+    internal long? PlayedAtFromInclusive { get; set; }
+
+    internal long? PlayedAtToExclusive { get; set; }
+
+    internal int? Limit { get; set; }
+
+    internal bool DisableLimit { get; set; }
+
+    internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; set; } = Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+}
+
+internal sealed class BeatorajaPlayHistoryPeriodIndexRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal string ScoreLogDbPath { get; set; }
+
+    internal IReadOnlyDictionary<string, BMSScore> ScoresBySha256 { get; set; }
+
+    internal int ScoreSnapshotVersion { get; set; }
+}
+
+internal sealed class BeatorajaPlayHistoryPeriodIndexResult
+{
+    internal BeatorajaPlayHistoryPeriodIndexResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<long> playedAtUnixSeconds,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus)
+    {
+        SourceProfile = sourceProfile;
+        PlayedAtUnixSeconds = playedAtUnixSeconds ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<long> PlayedAtUnixSeconds { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+}
+
+internal sealed class BeatorajaPlayHistoryReadResult
+{
+    internal BeatorajaPlayHistoryReadResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<BeatorajaPlayHistoryRecord> rows,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus,
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> playerSnapshots = null,
+        bool playerSnapshotsAvailable = true)
+    {
+        SourceProfile = sourceProfile;
+        Rows = rows ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+        PlayerSnapshots = playerSnapshots ?? [];
+        PlayerSnapshotsAvailable = playerSnapshotsAvailable;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<BeatorajaPlayHistoryRecord> Rows { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+
+    internal IReadOnlyList<BeatorajaPlayerAggregateSnapshot> PlayerSnapshots { get; }
+
+    internal bool PlayerSnapshotsAvailable { get; }
+
+    internal bool HasErrors
+    {
+        get
+        {
+            foreach (PlayHistoryDiagnostic diagnostic in Diagnostics)
+            {
+                if (diagnostic?.Severity == PlayHistoryDiagnosticSeverity.Error)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+}
+
+internal sealed class BeatorajaPlayerAggregateSnapshot
+{
+    internal long DateUnixSeconds { get; set; }
+
+    internal long PlayCount { get; set; }
+
+    internal long JudgeCount { get; set; }
+
+    internal long PlaytimeSeconds { get; set; }
+
+    internal bool HasInvalidRawValue { get; set; }
+}
+
+internal sealed class BeatorajaPlayHistoryRecord
+{
+    public long history_id { get; set; }
+
+    public string sha256 { get; set; }
+
+    public int mode { get; set; }
+
+    public long played_at { get; set; }
+
+    public int clear { get; set; }
+
+    public int epg { get; set; }
+
+    public int lpg { get; set; }
+
+    public int egr { get; set; }
+
+    public int lgr { get; set; }
+
+    public int egd { get; set; }
+
+    public int lgd { get; set; }
+
+    public int ebd { get; set; }
+
+    public int lbd { get; set; }
+
+    public int epr { get; set; }
+
+    public int lpr { get; set; }
+
+    public int ems { get; set; }
+
+    public int lms { get; set; }
+
+    public int notes { get; set; }
+
+    public int combo { get; set; }
+
+    public int minbp { get; set; }
+
+    public int playcount { get; set; }
+
+    public int clearcount { get; set; }
+
+    public int option { get; set; }
+
+    public long seed { get; set; }
+
+    public int random { get; set; }
+
+    public int state { get; set; }
+
+    public string scorehash { get; set; }
+
+    public bool has_actual_result { get; set; }
+
+    public int? old_clear { get; set; }
+
+    public int? new_clear { get; set; }
+
+    public int? old_exscore { get; set; }
+
+    public int? new_exscore { get; set; }
+
+    public int? old_maxcombo { get; set; }
+
+    public int? new_maxcombo { get; set; }
+
+    public int? old_minbp { get; set; }
+
+    public int? new_minbp { get; set; }
+
+    internal bool HasBestDelta => old_clear.HasValue
+        || new_clear.HasValue
+        || old_exscore.HasValue
+        || new_exscore.HasValue
+        || old_maxcombo.HasValue
+        || new_maxcombo.HasValue
+        || old_minbp.HasValue
+        || new_minbp.HasValue;
+}
+
+internal enum Lr2PlayHistoryFinalizationFilter
+{
+    FinalizedOnly,
+    UnfinalizedOnly,
+    All
+}
+
+internal sealed class Lr2PlayHistoryReadRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal bool IsLr2LinkedProfile { get; set; } = true;
+
+    internal long? PlayedAtFromInclusive { get; set; }
+
+    internal long? PlayedAtToExclusive { get; set; }
+
+    internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; set; } = Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+
+    internal bool IncludeUnfinalized
+    {
+        get => FinalizationFilter != Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+        set => FinalizationFilter = value ? Lr2PlayHistoryFinalizationFilter.All : Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+    }
+
+    internal int? Limit { get; set; }
+
+    internal bool DisableLimit { get; set; }
+
+    /// <summary>
+    /// Allows a read-only consumer to read when only the performance indexes are
+    /// repairable. History trigger defects remain the consumer's responsibility because
+    /// they can make the recorded history incomplete.
+    /// </summary>
+    internal bool AllowRepairableIndexRead { get; set; }
+
+    /// <summary>
+    /// Rejects the read when the LR2 history triggers are missing or do not match the
+    /// installed definitions. This policy is independent from repairable index reads.
+    /// </summary>
+    internal bool RequireCompleteHistoryTriggers { get; set; } = false;
+}
+
+internal sealed class Lr2PlayHistoryPeriodIndexRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal bool IsLr2LinkedProfile { get; set; } = true;
+}
+
+internal sealed class Lr2PlayHistoryPeriodIndexResult
+{
+    internal Lr2PlayHistoryPeriodIndexResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<long> playedAtUnixSeconds,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus)
+    {
+        SourceProfile = sourceProfile;
+        PlayedAtUnixSeconds = playedAtUnixSeconds ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<long> PlayedAtUnixSeconds { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+}
+
+internal sealed class Lr2PlayHistoryReadResult
+{
+    internal Lr2PlayHistoryReadResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<Lr2PlayHistoryRecord> rows,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus,
+        Lr2PlayHistorySchemaCheckResult schemaCheckResult = null)
+    {
+        SourceProfile = sourceProfile;
+        Rows = rows ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+        SchemaCheckResult = schemaCheckResult;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<Lr2PlayHistoryRecord> Rows { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+
+    internal Lr2PlayHistorySchemaCheckResult SchemaCheckResult { get; }
+
+    internal bool HasErrors
+    {
+        get
+        {
+            foreach (PlayHistoryDiagnostic diagnostic in Diagnostics)
+            {
+                if (diagnostic?.Severity == PlayHistoryDiagnosticSeverity.Error)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+}
+
+internal sealed class Lr2PlayHistoryRecord
+{
+    public long history_id { get; set; }
+
+    public string hash { get; set; }
+
+    public long played_at { get; set; }
+
+    public int finalized { get; set; }
+
+    public string score_write_type { get; set; }
+
+    public int? old_playcount { get; set; }
+
+    public int new_playcount { get; set; }
+
+    public int playcount_delta { get; set; }
+
+    public int? old_clearcount { get; set; }
+
+    public int? new_clearcount { get; set; }
+
+    public int? clearcount_delta { get; set; }
+
+    public int? old_failcount { get; set; }
+
+    public int? new_failcount { get; set; }
+
+    public int? failcount_delta { get; set; }
+
+    public int? old_clear { get; set; }
+
+    public int? new_clear { get; set; }
+
+    public int? old_clear_db { get; set; }
+
+    public int? new_clear_db { get; set; }
+
+    public int? old_clear_sd { get; set; }
+
+    public int? new_clear_sd { get; set; }
+
+    public int? old_clear_ex { get; set; }
+
+    public int? new_clear_ex { get; set; }
+
+    public int? old_minbp { get; set; }
+
+    public int? new_minbp { get; set; }
+
+    public int? old_exscore { get; set; }
+
+    public int? new_exscore { get; set; }
+
+    public int? old_maxcombo { get; set; }
+
+    public int? new_maxcombo { get; set; }
+
+    public int? old_totalnotes { get; set; }
+
+    public int? new_totalnotes { get; set; }
+
+    public int? old_complete { get; set; }
+
+    public int? new_complete { get; set; }
+
+    public int? old_op_best { get; set; }
+
+    public int? new_op_best { get; set; }
+
+    public int? old_op_history { get; set; }
+
+    public int? new_op_history { get; set; }
+
+    public int? old_rseed { get; set; }
+
+    public int? new_rseed { get; set; }
+
+    public string old_scorehash { get; set; }
+
+    public string new_scorehash { get; set; }
+
+    public int? old_player_playcount { get; set; }
+
+    public int? new_player_playcount { get; set; }
+
+    public int? player_playcount_delta { get; set; }
+
+    public int? old_playtime_total { get; set; }
+
+    public int? new_playtime_total { get; set; }
+
+    public int? playtime_delta { get; set; }
+
+    public int? old_judge_total { get; set; }
+
+    public int? new_judge_total { get; set; }
+
+    public int? judge_delta { get; set; }
+
+    public int? old_player_perfect { get; set; }
+
+    public int? new_player_perfect { get; set; }
+
+    public int? perfect_delta { get; set; }
+
+    public int? old_player_great { get; set; }
+
+    public int? new_player_great { get; set; }
+
+    public int? great_delta { get; set; }
+
+    public int? old_player_good { get; set; }
+
+    public int? new_player_good { get; set; }
+
+    public int? good_delta { get; set; }
+
+    public int? old_player_bad { get; set; }
+
+    public int? new_player_bad { get; set; }
+
+    public int? bad_delta { get; set; }
+
+    public int? old_player_poor { get; set; }
+
+    public int? new_player_poor { get; set; }
+
+    public int? poor_delta { get; set; }
+
+    public int? old_player_maxcombo { get; set; }
+
+    public int? new_player_maxcombo { get; set; }
+}
+
+internal sealed class PlayHistoryProjectionIndex
+{
+    private readonly IReadOnlyDictionary<string, string> sha256ByMd5;
+
+    private readonly Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver;
+
+    private readonly Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver;
+
+    private PlayHistoryProjectionIndex(
+        PlaylistLibraryResolveIndexSnapshot resolveIndex,
+        IReadOnlyDictionary<string, string> sha256ByMd5,
+        Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver,
+        Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver)
+    {
+        ResolveIndex = resolveIndex ?? PlaylistLibraryResolveIndexSnapshot.Empty;
+        var sha256Map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, string> pair in sha256ByMd5 ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+            {
+                sha256Map[pair.Key.Trim()] = pair.Value.Trim();
+            }
+        }
+        this.sha256ByMd5 = new ReadOnlyDictionary<string, string>(sha256Map);
+        this.playlistReferenceResolver = playlistReferenceResolver;
+        this.chartInfoResolver = chartInfoResolver;
+    }
+
+    internal static PlayHistoryProjectionIndex Empty { get; } = new(
+        PlaylistLibraryResolveIndexSnapshot.Empty,
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+        null,
+        null);
+
+    internal PlaylistLibraryResolveIndexSnapshot ResolveIndex { get; }
+
+    internal static PlayHistoryProjectionIndex Create(
+        PlaylistLibraryResolveIndexSnapshot resolveIndex,
+        IReadOnlyDictionary<string, string> sha256ByMd5 = null,
+        Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver = null,
+        Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver = null)
+    {
+        return new PlayHistoryProjectionIndex(resolveIndex, sha256ByMd5, playlistReferenceResolver, chartInfoResolver);
+    }
+
+    internal LibraryChartRef ResolveChartByMd5(string md5, string sha256)
+    {
+        return ResolveIndex.ResolveChartForPlaylistHash(md5, sha256);
+    }
+
+    internal string ResolveSha256(string md5, string currentSha256)
+    {
+        if (!string.IsNullOrWhiteSpace(currentSha256))
+        {
+            return currentSha256.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(md5) && sha256ByMd5.TryGetValue(md5.Trim(), out string sha256))
+        {
+            return sha256;
+        }
+        return string.Empty;
+    }
+
+    internal PlaylistReferenceDisplay ResolvePlaylistReference(string md5, string sha256)
+    {
+        return playlistReferenceResolver?.Invoke(md5, sha256) ?? PlaylistReferenceDisplay.Empty;
+    }
+
+    internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    {
+        return chartInfoResolver?.Invoke(sha256, md5);
+    }
+}

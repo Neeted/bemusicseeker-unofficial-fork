@@ -10,10 +10,7 @@ This project is an unofficial fork created by decompiling, modifying, and rebuil
 
 This fork was not made with direct permission from the original binary author, [`@rib_2_bit`](https://x.com/rib_2_bit). However, because the original binary was distributed under the MIT License, we believe creating and publishing this derivative version is permissible.
 
-**Important note about this repository**
-
-To the best of our knowledge, the original source code has never been published. This project also does not publish most of the decompiled source code.
-In practice, this repository is maintained as a distribution point for modified release packages and as a public archive for newly created scripts and patch-style code added by this fork.
+This repository publishes the application source reconstructed from decompilation and subsequently modified, along with tests, development history, and releases. Development takes place on `dev`; `main` contains officially released code and published data. To use the application, download a package from [Releases](https://github.com/Neeted/bemusicseeker-unofficial-fork/releases).
 
 ## Installation
 
@@ -82,16 +79,23 @@ These are rough notes. Priority is mixed, and completed items are removed over t
    - Should md5 values that could not be uploaded, for example because the chart was too large, be stored locally? Otherwise they may remain in the unregistered list indefinitely.
    - The approach used by [bms-score-uploader](https://github.com/Neeted/bms-score-uploader) seems like a good reference.
 2. Download LR2IR rival data, import it into `song.db`, and create WIN/LOSE folders per difficulty table
-3. Clear lamp viewer
-4. Course content display and ordering editor
-5. Replace hardcoded URLs that are now broken
-6. Consolidation feature for duplicate `.wav` and `.ogg` files
+3. Course content display and ordering editor
+4. Replace hardcoded URLs that are now broken
+5. Consolidation feature for duplicate `.wav` and `.ogg` files
+
+<div class="repository-only" markdown="1">
+
+## Contributing
+
+For bug reports, proposals, and pull requests, see the [contributing guidelines (Japanese)](CONTRIBUTING.md). To prepare a Windows 11 development environment, see the [development setup guide (Japanese)](devdocs/setup.md). Normal pull requests target `dev`.
+
+</div>
 
 ## License Scope
 
-First-party source code newly created and published in this repository, such as scripts, is distributed under the **MIT License**, following the original binary.
+The project's first-party source code is distributed under the **MIT License**, following the original binary. External components and third-party chart data included in tests remain subject to their respective rights holders' terms.
 
-- **New first-party code, including public scripts**: MIT License. See [`LICENSE`](LICENSE).
+- **Project source code**: MIT License. See [`LICENSE`](LICENSE).
 - **Third-party binaries, fonts, SDKs, and similar components**: These bundled external components are governed by the licenses and terms of their respective providers.
 - If terms conflict, the provider's license and notices take precedence for that component.
 
@@ -103,4 +107,4 @@ First-party source code newly created and published in this repository, such as 
 ### Important Notice About BASS
 
 The release package includes `BASS`-related audio components that are outside the scope of the MIT License.
-These binaries are not open source. Commercial use requires an appropriate commercial license from the provider, such as un4seen. Non-commercial personal use may be allowed as freeware in some cases, but you must always comply with the official license terms of native BASS and the `Bass.Net` wrapper.
+These native binaries are not open source. The current release is non-commercial, non-revenue end-user software and is classified GREEN for the BASS core and official add-ons, BASSASIO, and BASS_FX under their upstream terms. BASS_FX is a third-party add-on attributed to JOBnik / Arthur Aminov. If a future release becomes commercial or monetized, review the applicable upstream terms before distribution; that future trigger is not a current YELLOW condition. The ManagedBass bindings are MIT licensed; see the third-party notices for the separate terms.

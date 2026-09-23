@@ -1,0 +1,38 @@
+using System;
+using System.Collections.Generic;
+
+namespace BeMusicSeeker.Models.Utils;
+
+public class ChartScanResult
+{
+    internal bool ResourceHashArraysAreSortedDistinct { get; set; }
+
+    public HashSet<string> ChartFilePaths { get; set; } = new HashSet<string>(StringComparer.Ordinal);
+
+    internal Dictionary<string, RootFileEnumerationEntry> ChartFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
+
+    public HashSet<string> ChartDirectories { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public HashSet<string> ChartDirectoriesWithTextFiles { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public HashSet<string> FolderInfoFilePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    internal Dictionary<string, RootFileEnumerationEntry> DirectoryEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    internal Dictionary<string, RootFileEnumerationEntry> TextFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    internal Dictionary<string, RootFileEnumerationEntry> FolderInfoFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, uint[]> AudioRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, uint[]> ImageRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, uint[]> MovieRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, uint[]> SelfOwnedAudioRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, uint[]> SelfOwnedImageRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, uint[]> SelfOwnedMovieRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+}
