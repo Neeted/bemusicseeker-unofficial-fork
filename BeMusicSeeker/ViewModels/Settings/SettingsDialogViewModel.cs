@@ -7146,7 +7146,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         if (UseExternalPanelImage && !IsStagefilePathValid())
         {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
+            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Appearance, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
             result = false;
         }
         if (UsePlayeruBMplay && !IsuBMplayPathValid())
@@ -7307,7 +7307,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         if (UseExternalPanelImage && !IsStagefilePathValid())
         {
-            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
+            errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Appearance, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
             result = false;
         }
         if (UsePlayeruBMplay && !IsuBMplayPathValid())

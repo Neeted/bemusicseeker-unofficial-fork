@@ -119,7 +119,11 @@ public sealed class LoadPlaylistURIDialogTests
                     input.Text);
                 Assert.AreEqual(1, dialogs.FileRequests.Count);
                 Assert.AreEqual(".json", dialogs.FileRequests[0].DefaultExtension);
-                Assert.AreEqual("Jsonファイル(*.json)|*.json", dialogs.FileRequests[0].Filter);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.FileRequests[0].Filter);
+                // 翻訳される表示名とは別に、JSONだけを選択する形式指定を検証する。
+                string[] filterParts = dialogs.FileRequests[0].Filter.Split('|');
+                Assert.AreEqual(2, filterParts.Length);
+                Assert.AreEqual("*.json", filterParts[1]);
                 Assert.AreSame(host, dialogs.FileRequests[0].Owner);
                 Assert.AreEqual(0, dialogs.MessageRequestCount);
             }

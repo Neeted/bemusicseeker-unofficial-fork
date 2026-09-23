@@ -13,7 +13,7 @@ using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>表示リソース全体のキー、文字列値、書式引数の対応を検証します。</summary>
+/// <summary>表示リソース全体のキー、文字列値、書式引数と日本語正本の対応を検証します。</summary>
 [TestClass]
 public sealed class LocalizationResourceParityTests
 {
@@ -36,7 +36,7 @@ public sealed class LocalizationResourceParityTests
         }
     }
 
-    /// <summary>全言語の辞書が同じキーと書式引数を持ち、非空の文字列だけを含むことを確認します。</summary>
+    /// <summary>全言語のキー・書式引数・非空値に加え、日本語文言と基準辞書の一致を確認します。</summary>
     [TestMethod]
     public void LanguageJsonFiles_HaveSameKeysAsGeneratedResources()
     {
@@ -69,6 +69,14 @@ public sealed class LocalizationResourceParityTests
                 if (property.Name == LanguageNameKey)
                 {
                     continue;
+                }
+
+                if (string.Equals(sourceName, "ja-JP.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    Assert.AreEqual(
+                        resx[property.Name],
+                        value,
+                        sourceName + " " + property.Name + " の日本語文言は Resources.resx と一致する必要があります。");
                 }
 
                 HashSet<int> actualArguments = ReadFormatArgumentIndices(sourceName, property.Name, value);

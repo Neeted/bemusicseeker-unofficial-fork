@@ -44,6 +44,7 @@
 | 難易度表 | difficulty table | table de difficulté | 난이도표 | 难度表 | 難度表 |
 | 構成ファイル | component file | fichier associé | 구성 파일 | 组成文件 | 組成檔案 |
 | 本体URL | Main URL | URL principale | 메인 URL | 主 URL | 主要 URL |
+| 差分URL | Diff URL | URL différentielle | 차분 URL | 差分 URL | 差分 URL |
 | リコメンド | Recommend | Recommend | 리코멘드 | Recommend | Recommend |
 | スコア | score | score | 스코어 | 成绩 | 成績 |
 | スコアDB | score DB | base de scores | 스코어 DB | 成绩数据库 | 成績資料庫 |
@@ -58,6 +59,15 @@
 | カスタムフォルダ | custom folder | dossier personnalisé | 사용자 지정 폴더 | 自定义文件夹 | 自訂資料夾 |
 | 保留 | pending | en attente | 보류 | 已保留 | 已保留 |
 | インストール先（譜面パッケージの導入先） | install destination | destination d’installation | 설치 대상 | 安装目标 | 安裝目標 |
+| 出力先 | output destination | destination de sortie | 출력 대상 | 输出目标 | 輸出目標 |
+| 通常出力先 | normal output destination | destination de sortie normale | 일반 출력 대상 | 常规输出目标 | 一般輸出目標 |
+| 追加出力先 | additional output destination | destination de sortie supplémentaire | 추가 출력 대상 | 追加输出目标 | 追加輸出目標 |
+| パス | path | chemin | 경로 | 路径 | 路徑 |
+| マージ元 | merge source | source de fusion | 병합 원본 | 合并源 | 合併來源 |
+| マージ先 | merge destination | destination de fusion | 병합 대상 | 合并目标 | 合併目標 |
+| サンプルレート | sample rate | fréquence d’échantillonnage | 샘플 레이트 | 采样率 | 取樣率 |
+| パネル画像 | panel image | image du panneau | 패널 이미지 | 面板图片 | 面板圖片 |
+| ハッシュ | hash | hachage | 해시 | 哈希 | 雜湊 |
 | データ取込み（操作） | import | importer | 가져오기 | 导入 | 匯入 |
 | スキーマ（DBの構造） | schema | schéma | 스키마 | 架构 | 結構描述 |
 | テーブル（DB） | table | table | 테이블 | 表 | 資料表 |
@@ -74,6 +84,10 @@
 「削除」のように日本語の表層語が同じでも、一覧から外す操作と実体を削除する操作など語義が異なる場合は、各言語で同一語へ機械的に統一しません。
 
 保留は導入予約の待機列とは別の状態であり、自動インストール予定を意味しません。中国語の保留画面は「已保留」を基準に説明し、実際の待機バッチ数は保留状態の名前と区別します。パッケージの配置先にはインストールの語を使い、URL・プレイリスト等のデータ取込みと区別します。日本語UIの操作名・配置先は「インストール」「インストール先」に揃えます。仕様内の概念名「導入先」や、プレイログ用スキーマの「導入」は文脈を区別して扱います。再生ソフトとユーザープロファイルも別の概念として訳し分けます。
+
+パネル画像は再生パネルに表示する画像です。外観設定で差し替える画像は「既定のパネル画像」と呼び、譜面で定義される `STAGEFILE` と区別します。互換性のための設定名 `StagefilePath` や既存リソースキーは改名しません。サンプルレートは再生速度とは別の値です。
+
+マージ元・マージ先は確認文とエラーでも方向を区別します。重複による移動除外や設定に依存する上書きを、全ファイルの移動・無条件の上書きと説明しません。LR2データベースからのBeMusicSeeker関連データ削除は、アプリケーション自体のアンインストールとは区別します。
 
 カタログは物理ディレクトリではありません。中国語ではカタログのデータを「曲库登记数据」/「曲庫登錄資料」、個々の登録項目を「曲库登记项」/「曲庫登錄項目」とし、ディレクトリの「目录」/「目錄」と区別します。
 

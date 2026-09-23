@@ -24,6 +24,8 @@
 
 全般ではLR2の場所、状態、手動同期、履歴DBの状態を区別します。音声設定は出力先、詳細設定、専用テストを分けます。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作はそれぞれの目的が分かる見出しで示します。「このソフトについて」はバージョン、ライセンス、リンク、読み取り専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。文化圏変更の購読は表示中だけ保持します。
 
+外観ページの「既定のパネル画像を変更する」は再生パネルの画像を差し替える設定であり、譜面の `STAGEFILE` を変更しません。外部画像が有効でパスが不正な場合、全体検証・保存前検証のどちらも「外観」の不備として案内します。無効な場合は、その画像パスを検証の必要条件にしません。
+
 入力エラーは該当欄に表示し、分類の切替や画面の再アクティブ化で失いません。URL等の未確定入力は検証失敗時にもそのまま残します。設定画面を閉じて新しく開いたときは、前回の入力エラーを通知付きで解除します。テーマと一覧表示に関するプレビューは即時反映し、取消では保存済みの値へ戻します。「既定値に戻す」も、取消後の基準を変更しません。
 
 ### LR2の場所と設定XML
@@ -137,6 +139,7 @@ LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが�
 | LR2パスの再選択とXML由来の履歴DB対象 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `LR2RootPath`、`LR2ConfigXmlPath` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `Lr2PathPickers_ReselectingCurrentPathAdoptsExternalConfigBeforeLaterSave`: 同じルート・XML・XMHの再選択で外部変更とプレイヤーを採用し、履歴DBの対象と通知を更新する。選択時の保存抑止と後の保存での外部要素保持も確認する。 |
 | 無効なLR2設定パスの保存・再表示・取消 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple`: ファイル欠落、XML不正、必要構造不足でも独立した3パスを保持する。 |
 | LR2ディレクトリ未設定の保存を阻止しない警告 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`GeneralSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/GeneralSettingsPage.xaml) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `Lr2RootPathEmpty_IsWarningOnlyAndDoesNotBlockSaving`: LR2連携時だけWarningを表示し、ルート空だけでは保存を拒否せず、一時的な参照エラーと混在しないことを確認する。 |
+| 外部パネル画像のパス不備と案内先 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`AppearanceSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AppearanceSettingsPage.xaml) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ExternalPanelImageValidation_InvalidPathGuidesToAppearance`: 両検証入口の失敗と外観カテゴリへの案内、入力・保存回数の保持、外部画像無効時のパス検証除外。 |
 | 保存不能な必須項目のError表示 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`InstallSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/InstallSettingsPage.xaml)、[`PlaylistSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/PlaylistSettingsPage.xaml) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `RequiredSettingsValidationPresentation_UsesErrorStateForSaveBlockingFields`: 新規インストール先、通常・ROOT形式出力先の表示状態と保存判定が一致することを確認する。 |
 | LR2の保存先とプレイヤー設定 | [`SettingsPlayerSettingsGateway`](../../../BeMusicSeeker/Models/Playback/PlayerSettingsGateway.cs) | [`PlayerSettingsGatewayTests`](../../../BeMusicSeeker.Tests/Playback/PlayerSettingsGatewayTests.cs) |
 | 履歴DBの状態と明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`](../../../BeMusicSeeker.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |

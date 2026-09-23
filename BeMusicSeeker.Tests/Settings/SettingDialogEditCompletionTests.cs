@@ -3496,6 +3496,46 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>外部パネル画像の不正なパスは両方の検証入口で外観設定へ案内し、入力と保存状態を保持します。</summary>
+    [TestMethod]
+    public void ExternalPanelImageValidation_InvalidPathGuidesToAppearance()
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            string missingImagePath = Path.Combine(root, "missing-panel-image.png");
+            values.UseExternalPanelImage = true;
+            values.StagefilePath = missingImagePath;
+            var session = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+            string expectedMessage = string.Format(
+                Resources.SettingValidation_SectionMessageFormat,
+                Resources.Appearance,
+                Resources.Error_InvalidStagefilePath);
+
+            Assert.IsFalse(dialog.CheckValidation(out string validationError));
+            StringAssert.Contains(validationError, expectedMessage);
+            Assert.IsFalse(dialog.CheckValidationBeforeSave(out string saveError));
+            StringAssert.Contains(saveError, expectedMessage);
+            Assert.AreEqual(missingImagePath, dialog.StagefilePath);
+            Assert.AreEqual(0, session.SaveCount);
+
+            dialog.UseExternalPanelImage = false;
+
+            Assert.IsTrue(dialog.CheckValidation(out validationError), validationError);
+            Assert.IsTrue(dialog.CheckValidationBeforeSave(out saveError), saveError);
+            Assert.AreEqual(missingImagePath, dialog.StagefilePath);
+            Assert.AreEqual(0, session.SaveCount);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [TestMethod]
     public void RequiredSettingsValidationPresentation_UsesErrorStateForSaveBlockingFields()
     {

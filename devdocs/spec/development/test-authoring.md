@@ -69,7 +69,7 @@
 
 ### 表示リソースの検査
 
-`Resources.resx`、公開文字列アクセサー、同梱する全言語JSONのキー集合、非空の文字列値、複合書式の成立と引数番号の対応は、`LocalizationResourceParityTests` の全件共通検査で保証します。言語名メタデータは表示リソースのキー集合から除外します。書式引数は番号の集合で比較し、訳文の語順、引数の反復、表記変更を許容します。引数の実際の型に固有の書式や、翻訳の自然さまで保証する検査ではありません。
+`Resources.resx`、公開文字列アクセサー、同梱する全言語JSONのキー集合、非空の文字列値、複合書式の成立と引数番号の対応は、`LocalizationResourceParityTests` の全件共通検査で保証します。言語名メタデータは表示リソースのキー集合から除外します。日本語JSONの文言は `Resources.resx` と全キーで一致することも検査します。ほかの言語との文言一致は要求しません。書式引数は番号の集合で比較し、訳文の語順、引数の反復、表記変更を許容します。引数の実際の型に固有の書式や、翻訳の自然さまで保証する検査ではありません。
 
 リソース追加や翻訳修正だけを理由に、特定キーの存在・非空・書式を調べるテスト、機能別のキー一覧、言語ごとの訳文を複写した期待値を増やしません。全件共通検査の不足は全キーに適用する規則として補い、個別のキー表へ移し替えません。
 
@@ -116,7 +116,7 @@ DBの準備・観測は検証対象の処理と区別します。入力データ
 | 仕様項目 | 指示・実装 | 確認方法 |
 | --- | --- | --- |
 | 必要性、判定基準、配置 | [テスト配下の指示](../../../BeMusicSeeker.Tests/AGENTS.md)、[設計担当](../../../.codex/agents/test-contract-designer.toml) | 作業の分類、独立した根拠、設計項目と実際の検証内容を点検する。 |
-| 表示リソースのキー・非空値・書式引数 | [基準辞書](../../../BeMusicSeeker/Properties/Resources.resx)、[アクセサー](../../../BeMusicSeeker/Properties/Resources.cs)、[全言語](../../../lang) | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) の全件共通検査。機能固有の通知・表示の確認は各機能のテストが分担する。 |
+| 表示リソースのキー・非空値・書式引数・日本語正本との一致 | [基準辞書](../../../BeMusicSeeker/Properties/Resources.resx)、[アクセサー](../../../BeMusicSeeker/Properties/Resources.cs)、[全言語](../../../lang) | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) の全件共通検査。機能固有の通知・表示の確認は各機能のテストが分担する。 |
 | WPFの準備・待機・解放 | [共通テスト基盤](../../../BeMusicSeeker.Tests)、[検証仕様](testing.md#画面テストの分離) | 実際のテスト群と共通補助処理の使用を確認する。機能の保証は各仕様の対応表を参照する。 |
 | プロセスの所有と失敗 | [スクリプト指針](../../../scripts/AGENTS.md)、[プロセス検証](testing.md#プロセスの待機と失敗) | 実行側と同じ処理境界、残留確認、失敗の優先順位を点検する。 |
 | 一時資料の退役 | [資料運用](../../README.md)、[計画運用](../../plan/README.md) | 移管後のリンク、機能名・テスト名、削除対象を静的に確認する。 |

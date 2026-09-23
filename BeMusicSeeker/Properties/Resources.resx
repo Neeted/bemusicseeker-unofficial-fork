@@ -58,7 +58,7 @@
     <value>本体URL</value>
   </data>
   <data name="Rename_invalid_ext" xml:space="preserve">
-    <value>無効な拡張子に変更(*.bmx/pmx)</value>
+    <value>無効な拡張子に変更(*.bmx/*.pmx)</value>
   </data>
   <data name="Rename_pending_zero_note_to_invalid_ext" xml:space="preserve">
     <value>ゼロノート譜面を無効な拡張子に変更(*.bmx/pmx)</value>
@@ -91,11 +91,10 @@
     <value>スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</value>
   </data>
   <data name="Msg_confirm_disable_startup_file_scan" xml:space="preserve">
-    <value>起動時にBMSファイルと構成ファイルの変更チェックを行いません
-初期化が高速化されますが、手動でフォルダのリロードを行わないと
-新しく追加した曲の認識やインストール先の推定ができません
+    <value>起動時に BMS ファイルと構成ファイルの変更を確認しなくなります。
+初期化は高速になりますが、手動でフォルダをリロードするまで、新しく追加した譜面の認識やインストール先の推定ができません。
 
-再起動後に変更が反映されます</value>
+変更は再起動後に反映されます。</value>
   </data>
   <data name="Msg_confirm_skip_init_playlist_load" xml:space="preserve">
     <value>起動時にプレイリストの更新チェックを行いません
@@ -152,7 +151,7 @@ LR2 連携:
 プレイリスト: カスタムフォルダ出力先
 インストール: 新規インストール先
 
-必須項目を入力してOKを押すまで、BMSファイルのスキャンは開始できません。</value>
+必須項目を入力して「保存して閉じる」を押すまで、BMSファイルのスキャンは開始できません。</value>
   </data>
   <data name="InitialSetupLanguageDialogTitle" xml:space="preserve">
     <value>初回設定を始めます</value>
@@ -335,7 +334,7 @@ LR2 連携:
     <value>バックアップファイルの保存に失敗しました。</value>
   </data>
   <data name="Msg_success_uninstall" xml:space="preserve">
-    <value>データのアンインストールに成功しました。</value>
+    <value>LR2 データベースから BeMusicSeeker 関連データを削除しました。</value>
   </data>
   <data name="Sampling_format" xml:space="preserve">
     <value>サンプリングフォーマット</value>
@@ -387,7 +386,7 @@ title:re:^alpha
 使用できる検索対象:
 {0}
 
-詳細は docs/keyword-search-syntax-guide.md を参照してください。</value>
+詳細は docs/keyword-search-syntax-guide.ja.md を参照してください。</value>
   </data>
   <data name="Keyword_search_help_fields_bmsfile" xml:space="preserve">
     <value>title, artist, genre, tag, path, playlist/ref/table, md5/hash, sha256, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp</value>
@@ -482,7 +481,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 続行しますか?</value>
   </data>
   <data name="Msg_merge_bms_destination" xml:space="preserve">
-    <value>マージ先(上書きされます)</value>
+    <value>マージ先（上書きされる場合があります）</value>
   </data>
   <data name="Weekly" xml:space="preserve">
     <value>7日ごと</value>
@@ -556,7 +555,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 ランキングデータの閲覧機能がオフになっています。</value>
   </data>
   <data name="Change_stage_file" xml:space="preserve">
-    <value>デフォルトのステージファイルを変更する</value>
+    <value>既定のパネル画像を変更する</value>
   </data>
   <data name="Shared" xml:space="preserve">
     <value>共有</value>
@@ -620,7 +619,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 この操作は取り消せません。よろしいですか？</value>
   </data>
   <data name="Msg_overwrite_pending_installed_only_packages_resources" xml:space="preserve">
-    <value>既所持譜面のみの保留パッケージを対象に、推定先へリソース上書きを実行します。
+    <value>既所持譜面のみの保留パッケージを対象に、推定されたインストール先のリソースを上書きします。
 対象: {0} パッケージ
 インストール先を一意に決められないパッケージはスキップされます。
 この操作は取り消せません。よろしいですか？</value>
@@ -694,7 +693,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>予期しないエラーが発生しました。</value>
   </data>
   <data name="Sampling_rate" xml:space="preserve">
-    <value>サンプリングレート</value>
+    <value>サンプルレート</value>
   </data>
   <data name="Open_image" xml:space="preserve">
     <value>画像ファイルを開く</value>
@@ -800,7 +799,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>.bmtを出力する(難易度表読み込み互換処理)</value>
   </data>
   <data name="Beatoraja_bmt_hash_output_mode" xml:space="preserve">
-    <value>.bmt hash 出力</value>
+    <value>.bmt ハッシュ出力</value>
   </data>
   <data name="Beatoraja_bmt_hash_output_original" xml:space="preserve">
     <value>オリジナル</value>
@@ -907,7 +906,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>画像ファイルパス: </value>
   </data>
   <data name="Backup_unistall_desc" xml:space="preserve">
-    <value>BeMusicSeeker関連データをLR2データベースから削除</value>
+    <value>BeMusicSeeker 関連データを LR2 データベースから削除</value>
   </data>
   <data name="Msg_rename_folders" xml:space="preserve">
     <value>このルートフォルダに含まれる全BMSフォルダの
@@ -1030,7 +1029,7 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>出力フォルダ既定値</value>
   </data>
   <data name="Playlist_output_default_folder_types_desc" xml:space="preserve">
-    <value>新規作成するプレイリストと、外部URLから新規追加する表に適用されます。既存プレイリストには影響しません。</value>
+    <value>新規作成するプレイリストと、外部URLから新規追加する難易度表に適用されます。既存プレイリストには影響しません。</value>
   </data>
   <data name="Playlist_output_base" xml:space="preserve">
     <value>OUTPUT: </value>
@@ -1165,11 +1164,10 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>プレイリスト</value>
   </data>
   <data name="Msg_merge_bms_folder" xml:space="preserve">
-    <value>対象のパスにある全てのファイルを別のパスに移動して
-BMSファイルが重複しないようにマージします。
-パス間で異なる音質やファイル形式(oggとwav等)
-が混在している場合の上書きに注意してください。
-続行しますか?</value>
+    <value>マージ元のファイルをマージ先へ移動し、重複する譜面を整理します。
+同名のリソースは設定に応じて上書きされます。
+音質やファイル形式（ogg と wav など）が異なる場合は、上書きに注意してください。
+続行しますか？</value>
   </data>
   <data name="Msg_success_playlist_backup" xml:space="preserve">
     <value>バックアップファイルの保存に成功しました。</value>
@@ -1347,7 +1345,7 @@ BMSファイルが重複しないようにマージします。
     <value>LR2設定のバックアップに失敗しました</value>
   </data>
   <data name="Backup_unistall" xml:space="preserve">
-    <value>データのアンインストール</value>
+    <value>関連データの削除</value>
   </data>
   <data name="Msg_override_level_warning" xml:space="preserve">
     <value>選曲画面でプレイリスト定義のレベルが表示されるようにします
@@ -1563,11 +1561,11 @@ BMSファイルが重複しないようにマージします。
     <value>LR2 song.db データを再同期</value>
   </data>
   <data name="Lr2_song_db_sync_data_resync_tooltip" xml:space="preserve">
-    <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。maintenance の再スキャンや chart_info の全譜面補完ではありません。</value>
+    <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。メンテナンスの再スキャンや chart_info の全譜面補完ではありません。</value>
   </data>
   <data name="Msg_confirm_lr2_song_db_sync_data_resync" xml:space="preserve">
     <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。
-maintenance の再スキャンや chart_info の全譜面補完は行いません。
+メンテナンスの再スキャンや chart_info の全譜面補完は行いません。
 
 続行しますか?</value>
   </data>
@@ -1784,7 +1782,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>LR2のバックアップと最適化</value>
   </data>
   <data name="Msg_load_recommended_tables_error" xml:space="preserve">
-    <value>LR2スコアデータベースに接続されていないためこの機能は利用できません</value>
+    <value>LR2スコアDBに接続されていないためこの機能は利用できません</value>
   </data>
   <data name="Json_file_exts" xml:space="preserve">
     <value>JSONファイル(*.json)|*.json</value>
@@ -1817,7 +1815,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>クリアランプ別のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
   </data>
   <data name="Msg_merge_bms_target" xml:space="preserve">
-    <value>対象(移動して削除されます)</value>
+    <value>マージ元（移動・削除の対象）</value>
   </data>
   <data name="PlaylistProp_ftype_level" xml:space="preserve">
     <value>レベル</value>
@@ -1874,7 +1872,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>ボリューム:</value>
   </data>
   <data name="Msg_failed_uninstall" xml:space="preserve">
-    <value>アンインストールに失敗しました。
+    <value>LR2 データベースからの BeMusicSeeker 関連データの削除に失敗しました。
 エラーの詳細を確認してください。</value>
   </data>
   <data name="Fix_character_encoding" xml:space="preserve">
@@ -2919,7 +2917,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>LR2設定XMLに config/jukebox 要素がありません。</value>
   </data>
   <data name="Error_InvalidStagefilePath" xml:space="preserve">
-    <value>ステージファイルのパスが正しくありません</value>
+    <value>パネル画像のファイルパスが正しくありません</value>
   </data>
   <data name="Error_InvalidUBMPlayExecutablePath" xml:space="preserve">
     <value>uBMplay実行ファイルのパスが正しくありません</value>
@@ -3033,7 +3031,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>利用不可: {0}</value>
   </data>
   <data name="AudioDeviceTestSuccessFormat" xml:space="preserve">
-    <value>オーディオデバイスのテストに成功しました。バックエンド: {0}、デバイス: {1}、レート: {2}、エンジン形式: {3}、エンドポイント形式: {4}、チャンネル: {5}、レイテンシ: {6:N1} ms</value>
+    <value>オーディオデバイスのテストに成功しました。バックエンド: {0}、デバイス: {1}、サンプルレート: {2}、エンジン形式: {3}、エンドポイント形式: {4}、チャンネル: {5}、レイテンシ: {6:N1} ms</value>
   </data>
   <data name="AudioDeviceTestFallbackFormat" xml:space="preserve">
     <value>フォールバックしてオーディオデバイスを初期化しました。選択: {0} / {1}、実際: {2} / {3}、理由: {4}</value>
@@ -3251,7 +3249,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="FileDbMutationReport_DestinationTypeConflict_MergeCounts" xml:space="preserve"><value>型が異なるため拒否した統合: {0} 件</value></data>
   <data name="FileDbMutationReport_DestinationTypeConflict_MergeSuccesses" xml:space="preserve"><value>この操作で完了した他の統合: {0} 件</value></data>
   <data name="FileDbMutationReport_DestinationTypeConflict_MergeReason" xml:space="preserve"><value>予定したファイル／フォルダと既存の宛先の型が異なるため、統合を変更前に拒否しました。</value></data>
-  <data name="FileDbMutationReport_DestinationTypeConflict_MergeGuidance" xml:space="preserve"><value>型衝突した統合元・宛先・登録状態は変更していません。宛先を確認してから、必要な場合は別の統合先を指定してください。詳細はログを確認してください。</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_MergeGuidance" xml:space="preserve"><value>型衝突したマージ元・マージ先・登録状態は変更していません。マージ先を確認してから、必要な場合は別のマージ先を指定してください。詳細はログを確認してください。</value></data>
   <data name="FileDbMutationReport_File" xml:space="preserve"><value>ファイル</value></data>
   <data name="FileDbMutationReport_Directory" xml:space="preserve"><value>フォルダ</value></data>
   <data name="LibraryChartRemovalReport_Title" xml:space="preserve"><value>ライブラリからの譜面削除結果</value></data>
@@ -3426,7 +3424,7 @@ uBMplayが正常に動作するか確認してください。</value>
 続行しますか？</value>
   </data>
   <data name="Confirm_UninstallApplicationData" xml:space="preserve">
-    <value>BeMusicSeekerのデータをLR2データベースから削除します。
+    <value>BeMusicSeeker 関連データを LR2 データベースから削除します。
 続行した場合、この操作を取り消すことはできません。
 必要に応じて事前にバックアップを取得してください。
 

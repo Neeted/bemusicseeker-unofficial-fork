@@ -55,10 +55,13 @@ LR2ルートの選択は、現在と同じルートでも標準の子パスと�
 | 音声ファイルへの変換 | 出力フォルダ | 拡張子なし | 音声変換へ渡す |
 | プレイリストURL読込みのローカル選択 | ヘッダーJSON | `*.json`、明示 `.json` | URI入力欄へローカルパスを追加する |
 
+プレイリストURL読込みのローカル選択では、形式の表示名は翻訳に従います。機能テストは要求のフィルターを `Resources.Json_file_exts` と比較し、表示名の訳文を固定しません。一方、形式は一組の `表示名|*.json` とし、既定拡張子 `.json` と合わせて翻訳とは独立に検証します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| プレイリストURL読込みのローカル選択 | [`LoadPlaylistURIDialog`](../../../BeMusicSeeker/Views/Playlist/LoadPlaylistURIDialog.cs) | [`LoadPlaylistURIDialogTests`](../../../BeMusicSeeker.Tests/Playlist/LoadPlaylistURIDialogTests.cs) は、翻訳リソースの選択とJSON形式、既定拡張子、所有者、承諾時の入力追加、取消・失敗時の入力保持、非同期の完了を確認する。 |
 | 形式、拡張子、初期パスの共通変換 | [`UiFilePickerUtilities`](../../../BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs)、[`UiDialogCoordinator`](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [`WpfPickerBoundaryTests`](../../../BeMusicSeeker.Tests/Dialogs/WpfPickerBoundaryTests.cs) |
 | LR2のルートと個別パス、確認・取消時の保持 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) |
 | 右クリック操作の編集用選択 | [`RightClickActionSettingsEditor`](../../../BeMusicSeeker/ViewModels/Settings/RightClickActionSettingsEditor.cs) | [`RightClickActionSettingsEditorTests`](../../../BeMusicSeeker.Tests/ExternalActions/RightClickActionSettingsEditorTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) |
