@@ -15,44 +15,17 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>
+/// 自動リネームの対象確認と変更結果を進捗通知と共に受け渡します。
+/// 進捗の発行先には操作の排他権を渡しません。
+/// </summary>
 internal interface IFolderAutoRenameMutationPort
 {
     bool HasTargets(BMSLibrary library, string parentDirectory);
 
-    FolderAutoRenameExecutionResult RenameSelected(
-        BMSLibrary library,
-        ChartFolderAutoRenameRequest request,
-        Action<int, int, string> progressReporter);
-
-    bool RenameAll(
-        BMSLibrary library,
-        string parentDirectory,
-        Action<int, int, string> progressReporter);
-}
-
-internal interface IFolderAutoRenameTerminalMutationPort
-{
-    AutoRenameBatchResult RenameAllWithReceipt(
-        BMSLibrary library,
-        string parentDirectory,
-        Action<int, int, string> progressReporter);
-}
-
-/// <summary>
-/// Progress-aware auto-rename mutation seam. The producer receives only an
-/// immutable, non-blocking writer while the workflow owner retains the
-/// operation lease.
-/// </summary>
-internal interface IFolderAutoRenameProgressMutationPort
-{
     FolderAutoRenameExecutionResult RenameSelectedWithProgress(
         BMSLibrary library,
         ChartFolderAutoRenameRequest request,
-        IFolderAutoRenameProgressWriter progressWriter);
-
-    bool RenameAllWithProgress(
-        BMSLibrary library,
-        string parentDirectory,
         IFolderAutoRenameProgressWriter progressWriter);
 
     AutoRenameBatchResult RenameAllWithReceiptWithProgress(
@@ -61,42 +34,11 @@ internal interface IFolderAutoRenameProgressMutationPort
         IFolderAutoRenameProgressWriter progressWriter);
 }
 
-internal sealed class BmsLibraryFolderAutoRenameMutationPort :
-    IFolderAutoRenameMutationPort,
-    IFolderAutoRenameTerminalMutationPort,
-    IFolderAutoRenameProgressMutationPort
+internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
 {
     public bool HasTargets(BMSLibrary library, string parentDirectory)
     {
         return library?.HasAutoRenameAllChartFolderTargets(parentDirectory) == true;
-    }
-
-    public FolderAutoRenameExecutionResult RenameSelected(
-        BMSLibrary library,
-        ChartFolderAutoRenameRequest request,
-        Action<int, int, string> progressReporter)
-    {
-        AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithResult(
-            request?.Charts ?? [],
-            progressReporter: progressReporter, reportAtTerminal: true);
-        return FolderAutoRenameExecutionResult.From(result);
-    }
-
-    public bool RenameAll(
-        BMSLibrary library,
-        string parentDirectory,
-        Action<int, int, string> progressReporter)
-    {
-        return library?.AutoRenameAllChartFolders(parentDirectory, progressReporter) == true;
-    }
-
-    public AutoRenameBatchResult RenameAllWithReceipt(
-        BMSLibrary library,
-        string parentDirectory,
-        Action<int, int, string> progressReporter)
-    {
-        return library?.AutoRenameAllChartFoldersWithResult(parentDirectory, progressReporter, reportAtTerminal: true)
-            ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 
     public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
@@ -111,17 +53,6 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
             progressWriter, reportAtTerminal: true)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         return FolderAutoRenameExecutionResult.From(result);
-    }
-
-    public bool RenameAllWithProgress(
-        BMSLibrary library,
-        string parentDirectory,
-        IFolderAutoRenameProgressWriter progressWriter)
-    {
-        ArgumentNullException.ThrowIfNull(progressWriter);
-        return library?.AutoRenameAllChartFoldersWithProgress(
-            parentDirectory,
-            progressWriter)?.HasActionablePlan == true;
     }
 
     public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
@@ -620,12 +551,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
             }
             run.ProgressWriter.TryWrite(new FolderAutoRenameProgressUpdate(1, 0, string.Empty));
             LogInfoSafely("folder_auto_rename start scope=" + (run.AllFolders ? "all" : "selected"));
-            Action<int, int, string> progressReporter = (total, processed, currentPath) => PublishProgress(run, new FolderAutoRenameProgressSnapshot
-            {
-                TotalCount = total,
-                ProcessedCount = processed,
-                CurrentPath = currentPath ?? string.Empty
-            });
             if (run.AllFolders)
             {
                 if (!ExecuteMutation(
@@ -633,27 +558,11 @@ internal sealed class FolderAutoRenameWorkflowOwner
                     playback.StopPlaybackForFolderMutation,
                     () =>
                     {
-                        if (mutationPort is IFolderAutoRenameProgressMutationPort progressMutationPort)
-                        {
-                            result = FolderAutoRenameExecutionResult.From(
-                                progressMutationPort.RenameAllWithReceiptWithProgress(
-                                    run.Library,
-                                    run.ParentDirectory,
-                                    run.ProgressWriter));
-                        }
-                        else if (mutationPort is IFolderAutoRenameTerminalMutationPort terminalMutationPort)
-                        {
-                            result = FolderAutoRenameExecutionResult.From(
-                                terminalMutationPort.RenameAllWithReceipt(
-                                    run.Library,
-                                    run.ParentDirectory,
-                                    progressReporter));
-                        }
-                        else
-                        {
-                            bool changed = mutationPort.RenameAll(run.Library, run.ParentDirectory, progressReporter);
-                            result = new FolderAutoRenameExecutionResult { RefreshRequired = changed };
-                        }
+                        result = FolderAutoRenameExecutionResult.From(
+                            mutationPort.RenameAllWithReceiptWithProgress(
+                                run.Library,
+                                run.ParentDirectory,
+                                run.ProgressWriter));
                     },
                     refreshSuppression: true,
                     releaseAcquiredOperationGate: false))
@@ -669,17 +578,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
                     () => playback.StopPlaybackForCharts(run.SelectedRequest.Charts),
                     () =>
                     {
-                        if (mutationPort is IFolderAutoRenameProgressMutationPort progressMutationPort)
-                        {
-                            result = progressMutationPort.RenameSelectedWithProgress(
-                                run.Library,
-                                run.SelectedRequest,
-                                run.ProgressWriter);
-                        }
-                        else
-                        {
-                            result = mutationPort.RenameSelected(run.Library, run.SelectedRequest, progressReporter);
-                        }
+                        result = mutationPort.RenameSelectedWithProgress(
+                            run.Library,
+                            run.SelectedRequest,
+                            run.ProgressWriter);
                     },
                     refreshSuppression: true,
                     releaseAcquiredOperationGate: false))

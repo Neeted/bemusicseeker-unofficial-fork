@@ -260,77 +260,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void AutoRenameChartFolders_ProgressRunsAfterFilesystemMutation()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameDeferred_" + Guid.NewGuid().ToString("N"));
-            string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
-            string sourceDirectoryPath = Path.Combine(libraryRootPath, "Source");
-            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
-            Directory.CreateDirectory(sourceDirectoryPath);
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Deferred\r\n#ARTIST Artist");
-            List<string> phases = [];
-            TestBmsLibrary? library = null;
-            bool filesystemObservedActiveLease = false;
-            bool progressObservedReleasedLease = false;
-            var fileMutationService = new TestFileMutationService
-            {
-                OperationObserver = phase =>
-                {
-                    phases.Add(phase);
-                    using LibraryFileMutationLease? probe = library?.TryBeginLibraryFileMutation(
-                        "auto_rename_filesystem_probe");
-                    filesystemObservedActiveLease |= probe == null;
-                }
-            };
-            try
-            {
-                library = new TestBmsLibrary(
-                    songDbPath,
-                    null,
-                    null,
-                    fileMutationService,
-                    new RecordingDialogService())
-                {
-                    SearchTargets = [libraryRootPath]
-                };
-                var file = new TestableBmsFile { path = chartPath };
-                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                file.SetTitle("Deferred");
-                file.SetArtist("Artist");
-                library.BMSFiles = [file];
-
-                library.AutoRenameChartFolders(
-                    [ChartFileProjection.FromBmsFile(file)],
-                    progressReporter: (_, _, _) =>
-                    {
-                        phases.Add("progress");
-                        using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
-                            "auto_rename_progress_probe");
-                        progressObservedReleasedLease |= probe != null;
-                    });
-
-                int filesystemIndex = phases.IndexOf("filesystem");
-                int progressIndex = phases.IndexOf("progress");
-                Assert.IsTrue(filesystemIndex >= 0, string.Join("|", phases));
-                Assert.IsTrue(progressIndex > filesystemIndex, string.Join("|", phases));
-                Assert.IsTrue(filesystemObservedActiveLease);
-                Assert.IsTrue(progressObservedReleasedLease);
-                Assert.AreEqual(Path.Combine(libraryRootPath, "[Artist] Deferred", "chart.bms"), file.path);
-            }
-            finally
-            {
-                if (Directory.Exists(tempRootPath))
-                {
-                    Directory.Delete(tempRootPath, recursive: true);
-                }
-            }
-        });
-    }
-
-    [TestMethod]
     public async Task RenameChartFolder_UpdatesFolderCellWithoutStorageRowCollectionNotification()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -696,8 +625,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     string oldChartPath = target.path;
                     if (autoRename)
                     {
-                        AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult(
-                            [ChartFileProjection.FromBmsFile(target)]);
+                        AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress(
+                            [ChartFileProjection.FromBmsFile(target)], false, new RecordingFolderAutoRenameProgressWriter());
                         Assert.IsTrue(result.HasDurableCommit);
                     }
                     else
@@ -871,10 +800,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult([
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile)
-                ], progressReporter: (total, processed, path) => progress.Add((total, processed, path)));
+                ], false, new RecordingFolderAutoRenameProgressWriter(update => progress.Add((update.TotalCount, update.ProcessedCount, update.CurrentPath))));
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));
@@ -887,9 +816,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     RequiredPublicationCount = 1
                 }, result.SessionReceipt.ApplyCounts);
                 Assert.IsFalse(batch.NotifiesStorageRows);
-                CollectionAssert.AreEqual(new[] { 2 }, progress.Select(item => item.Processed).ToArray());
+                Assert.AreEqual(2, progress.Last().Processed);
                 Assert.IsTrue(progress.All(item => item.Total == 2));
-                CollectionAssert.AreEqual(new[] { secondDirectoryPath }, progress.Select(item => item.Path).ToArray());
+                Assert.AreEqual(secondDirectoryPath, progress.Last().Path);
                 Assert.AreEqual(Path.Combine(libraryRootPath, "[First Artist] First Title", "first.bms"), firstFile.path);
                 Assert.AreEqual(Path.Combine(libraryRootPath, "[Second Artist] Second Title", "second.bms"), secondFile.path);
                 LibraryResourceIndexSnapshot resourceSnapshot = resourceIndexOwner.CaptureSnapshot();
@@ -991,10 +920,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 secondFile.SetArtist("Same Artist");
                 library.BMSFiles = [firstFile, secondFile];
 
-                library.AutoRenameChartFolders([
+                library.AutoRenameChartFoldersWithProgress([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile)
-                ]);
+                ], false, new RecordingFolderAutoRenameProgressWriter());
 
                 string firstDestinationPath = Path.Combine(libraryRootPath, "[Same Artist] Same Title");
                 string secondDestinationPath = Path.Combine(libraryRootPath, "[Same Artist] Same Title (2)");
@@ -1048,7 +977,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 file.SetArtist("A");
                 library.BMSFiles = [file];
 
-                library.AutoRenameChartFolders([ChartFileProjection.FromBmsFile(file)]);
+                library.AutoRenameChartFoldersWithProgress([ChartFileProjection.FromBmsFile(file)], false, new RecordingFolderAutoRenameProgressWriter());
 
                 string destinationDirectoryPath = Path.Combine(libraryRootPath, "[A] T");
                 Assert.AreEqual(Path.Combine(destinationDirectoryPath, chartFileName), file.path);
@@ -1126,8 +1055,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
 
-                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult(
-                    [ChartFileProjection.FromBmsFile(file)]);
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress(
+                    [ChartFileProjection.FromBmsFile(file)], false, new RecordingFolderAutoRenameProgressWriter());
 
                 Assert.IsNotNull(result);
                 Assert.IsTrue(result.HasDurableCommit);
@@ -1231,11 +1160,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult([
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile),
                     ChartFileProjection.FromBmsFile(thirdFile)
-                ], reportAtTerminal: reportAtTerminal);
+                ], false, new RecordingFolderAutoRenameProgressWriter(), reportAtTerminal: reportAtTerminal);
 
                 Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.ModelMessages);
                 Assert.IsTrue(result.HasDurableCommit);
@@ -1342,10 +1271,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
 
-                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult([
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile)
-                ]);
+                ], false, new RecordingFolderAutoRenameProgressWriter());
 
                 Assert.IsNotNull(result);
                 Assert.IsTrue(result.HasActionablePlan);
@@ -1366,50 +1295,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(Directory.Exists(secondSourceDirectoryPath));
                 Assert.IsTrue(Directory.Exists(Path.Combine(libraryRootPath, "[First Artist] First Title")));
                 Assert.IsTrue(Directory.Exists(Path.Combine(libraryRootPath, "[Second Artist] Second Title")));
-            }
-            finally
-            {
-                if (Directory.Exists(tempRootPath))
-                {
-                    Directory.Delete(tempRootPath, recursive: true);
-                }
-            }
-        });
-    }
-
-    [TestMethod]
-    public void AutoRenameChartFolders_ContinuesWhenProgressReporterThrows()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameProgressFailure_" + Guid.NewGuid().ToString("N"));
-            string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
-            string sourceDirectoryPath = Path.Combine(libraryRootPath, "Source");
-            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
-            Directory.CreateDirectory(sourceDirectoryPath);
-            File.WriteAllText(chartPath, "#PLAYER 1");
-            try
-            {
-                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
-                {
-                    SearchTargets = [libraryRootPath]
-                };
-                var file = new TestableBmsFile
-                {
-                    path = chartPath
-                };
-                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                file.SetTitle("Title");
-                file.SetArtist("Artist");
-                library.BMSFiles = [file];
-
-                library.AutoRenameChartFolders(
-                    [ChartFileProjection.FromBmsFile(file)],
-                    progressReporter: delegate { throw new InvalidOperationException("progress failure"); });
-
-                Assert.AreEqual(Path.Combine(libraryRootPath, "[Artist] Title", "chart.bms"), file.path);
-                Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
             }
             finally
             {
@@ -3745,4 +3630,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             }
         }
     }
+}
+
+internal sealed class RecordingFolderAutoRenameProgressWriter(
+    Action<FolderAutoRenameProgressUpdate>? onUpdate = null) : IFolderAutoRenameProgressWriter
+{
+    public void TryWrite(FolderAutoRenameProgressUpdate update) => onUpdate?.Invoke(update);
 }

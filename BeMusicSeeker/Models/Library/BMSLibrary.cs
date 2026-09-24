@@ -10485,143 +10485,12 @@ public partial class BMSLibrary : ObservableObject
         return libraryMutationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
     }
 
-    /// <summary>
-    /// 譜面ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
-    /// </summary>
-    internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFiles, bool renameRootFolder = false, Action<int, int, string> progressReporter = null)
-    {
-        AutoRenameBatchResult result = AutoRenameChartFoldersWithResult(chartFiles, renameRootFolder, progressReporter);
-        if (result?.HasDurableFinalizationFailure == true)
-        {
-            result.PrimaryFailure?.Throw();
-        }
-    }
-
-    /// <summary>Returns operation-scoped session facts; terminal-owned callers suppress the unexpected-move dialog.</summary>
-    internal AutoRenameBatchResult AutoRenameChartFoldersWithResult(
-        IEnumerable<ChartFile> chartFiles,
-        bool renameRootFolder = false,
-        Action<int, int, string> progressReporter = null,
-        bool reportAtTerminal = false)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
-        {
-            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-        }
-
-        Tuple<int, int, string> latestProgressReport = null;
-        Action<int, int, string> deferredProgressReporter = progressReporter == null
-            ? null
-            : (total, processed, currentPath) => latestProgressReport = Tuple.Create(total, processed, currentPath);
-        AutoRenameBatchResult result = null;
-        ExceptionDispatchInfo primaryFailure = null;
-        List<Action> postLeaseNotifications = [];
-        try
-        {
-            try
-            {
-                libraryMutationOwner.RunWithFolderMoveWriteLocks(
-                    mutationCapability =>
-                    {
-                        List<FolderAutoRenamePlan> plans = null;
-                        libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                            () => plans = libraryMutationOwner.BuildAutoRenamePlans(
-                                chartFiles.Where(chart => chart != null),
-                                getBMSDirectories(),
-                                renameRootFolder));
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
-                            plans,
-                            mutationCapability,
-                            deferredProgressReporter,
-                            postLeaseNotifications);
-                    });
-            }
-            catch (Exception exception)
-            {
-                primaryFailure = ExceptionDispatchInfo.Capture(exception);
-                if (result?.HasDurableCommit == true)
-                {
-                    result = result.WithDurableFinalizationFailure(primaryFailure);
-                }
-            }
-            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-        }
-        finally
-        {
-            FlushAutoRenameProgressReport(progressReporter, latestProgressReport);
-        }
-        return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-    }
-
     internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
     {
         bool hasTargets = false;
         libraryMutationOwner.RunWithFolderMoveReadLocks(
             () => hasTargets = HasActionableAutoRenamePlan(CreateAutoRenameAllChartFolderPlansUnsafe(parentDir)));
         return hasTargets;
-    }
-
-    internal bool AutoRenameAllChartFolders(string parentDir = null, Action<int, int, string> progressReporter = null)
-    {
-        AutoRenameBatchResult result = AutoRenameAllChartFoldersWithResult(parentDir, progressReporter);
-        return result.HasActionablePlan && !result.HasDurableFinalizationFailure;
-    }
-
-    /// <summary>Returns operation-scoped session facts; terminal-owned callers suppress the unexpected-move dialog.</summary>
-    internal AutoRenameBatchResult AutoRenameAllChartFoldersWithResult(
-        string parentDir = null,
-        Action<int, int, string> progressReporter = null,
-        bool reportAtTerminal = false)
-    {
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
-        {
-            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-        }
-        Tuple<int, int, string> latestProgressReport = null;
-        Action<int, int, string> deferredProgressReporter = progressReporter == null
-            ? null
-            : (total, processed, currentPath) => latestProgressReport = Tuple.Create(total, processed, currentPath);
-        AutoRenameBatchResult result = null;
-        ExceptionDispatchInfo primaryFailure = null;
-        List<Action> postLeaseNotifications = [];
-        try
-        {
-            try
-            {
-                libraryMutationOwner.RunWithFolderMoveWriteLocks(mutationCapability =>
-                {
-                    List<FolderAutoRenamePlan> plans = null;
-                    libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                        () => plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir));
-                    if (HasActionableAutoRenamePlan(plans))
-                    {
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
-                            plans,
-                            mutationCapability,
-                            deferredProgressReporter,
-                            postLeaseNotifications);
-                    }
-                });
-            }
-            catch (Exception exception)
-            {
-                primaryFailure = ExceptionDispatchInfo.Capture(exception);
-                if (result?.HasDurableCommit == true)
-                {
-                    result = result.WithDurableFinalizationFailure(primaryFailure);
-                }
-            }
-            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-            return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-        }
-        finally
-        {
-            FlushAutoRenameProgressReport(progressReporter, latestProgressReport);
-        }
     }
 
     private List<FolderAutoRenamePlan> CreateAutoRenameAllChartFolderPlansUnsafe(string parentDir)
@@ -10633,17 +10502,6 @@ public partial class BMSLibrary : ObservableObject
     {
         return (plans ?? []).Any(plan => !string.IsNullOrWhiteSpace(plan?.SourceDirectory)
             && !string.IsNullOrWhiteSpace(plan.DestinationDirectory));
-    }
-
-    private static void FlushAutoRenameProgressReport(
-        Action<int, int, string> progressReporter,
-        Tuple<int, int, string> report)
-    {
-        if (progressReporter == null || report == null)
-        {
-            return;
-        }
-        ReportAutoRenameProgress(progressReporter, report.Item1, report.Item2, report.Item3);
     }
 
     private void FlushAutoRenamePostCommitEffects(
@@ -10752,24 +10610,6 @@ public partial class BMSLibrary : ObservableObject
                     "auto_rename_progress_report_failed processed=" + diagnostic.Processed
                     + " total=" + diagnostic.Total);
                 break;
-        }
-    }
-
-    private static void ReportAutoRenameProgress(Action<int, int, string> progressReporter, int total, int processed, string currentPath)
-    {
-        if (progressReporter == null || total <= 0)
-        {
-            return;
-        }
-        try
-        {
-            progressReporter(total, Math.Max(0, Math.Min(processed, total)), currentPath ?? string.Empty);
-        }
-        catch (Exception ex)
-        {
-            LogAutoRenameDiagnosticFailure(
-                ex,
-                "auto_rename_progress_report_failed processed=" + processed + " total=" + total);
         }
     }
 

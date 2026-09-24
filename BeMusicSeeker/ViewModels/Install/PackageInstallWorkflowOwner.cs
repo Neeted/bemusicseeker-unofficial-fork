@@ -13,32 +13,10 @@ using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal interface IPackageInstallMutationPort
-{
-    IReadOnlyList<ChartPackage> Install(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted);
-}
-
-internal interface IPackageInstallTerminalMutationPort
-{
-    PackageInstallCommandResult InstallWithResult(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted);
-}
-
 /// <summary>
-/// Progress-aware package mutation seam.  The legacy mutation-port methods
-/// remain available to test doubles and older composition code, while the
-/// production owner uses this narrow writer-only boundary.
+/// 導入結果と非同期の進捗通知を一つの操作として受け渡します。
 /// </summary>
-internal interface IPackageInstallProgressMutationPort
+internal interface IPackageInstallMutationPort
 {
     PackageInstallCommandResult InstallWithProgress(
         BMSLibrary library,
@@ -47,48 +25,19 @@ internal interface IPackageInstallProgressMutationPort
         IPackageInstallProgressWriter progressWriter);
 }
 
-internal sealed class BmsLibraryPackageInstallMutationPort :
-    IPackageInstallMutationPort,
-    IPackageInstallTerminalMutationPort,
-    IPackageInstallProgressMutationPort
+internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort
 {
-    public IReadOnlyList<ChartPackage> Install(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        return library?.InstallChartPackagesAuto(
-            installPaths,
-            token) ?? [];
-    }
-
-    public PackageInstallCommandResult InstallWithResult(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        return library?.InstallChartPackagesAutoWithProgress(
-            installPaths,
-            token,
-            NullPackageInstallProgressWriter.Instance, reportAtTerminal: true)
-            ?? new PackageInstallCommandResult([], null);
-    }
-
     public PackageInstallCommandResult InstallWithProgress(
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
         IPackageInstallProgressWriter progressWriter)
     {
-        return library?.InstallChartPackagesAutoWithProgress(
+        ArgumentNullException.ThrowIfNull(library);
+        return library.InstallChartPackagesAutoWithProgress(
             installPaths,
             token,
-            progressWriter, reportAtTerminal: true)
-            ?? new PackageInstallCommandResult([], null);
+            progressWriter, reportAtTerminal: true);
     }
 }
 
@@ -463,18 +412,12 @@ internal sealed class PackageInstallWorkflowOwner
         }
 
         var progressWriter = new PackageInstallProgressWriter(this, context);
-        int completedPathCount = 0;
         PackageInstallCommandResult commandResult = ExecuteInstallBatch(
             currentGeneration,
             currentLibrary,
             request,
             token,
             progressWriter,
-            () => context.Processor.ReportActiveBatchProgress(++completedPathCount),
-            (path, index, total) => context.Processor.ReportActiveBatchCurrentWork(
-                index,
-                total,
-                GetInstallPathDisplayName(path)),
             out Exception terminalFailure);
         commandResult ??= new PackageInstallCommandResult([], null);
         IReadOnlyList<ChartPackage> packages = commandResult.RegisteredPackages;
@@ -516,8 +459,6 @@ internal sealed class PackageInstallWorkflowOwner
         DroppedInstallBatchRequest request,
         CancellationToken token,
         IPackageInstallProgressWriter progressWriter,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted,
         out Exception terminalFailure)
     {
         terminalFailure = null;
@@ -533,7 +474,6 @@ internal sealed class PackageInstallWorkflowOwner
         bool suppressionStarted = false;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
-        IReadOnlyList<ChartPackage> packages = [];
         PackageInstallCommandResult commandResult = null;
         try
         {
@@ -555,34 +495,12 @@ internal sealed class PackageInstallWorkflowOwner
                 }
                 else
                 {
-                    if (mutationPort is IPackageInstallProgressMutationPort progressMutationPort)
-                    {
-                        commandResult = progressMutationPort.InstallWithProgress(
-                            library,
-                            normalizedInstallPaths,
-                            token,
-                            progressWriter);
-                        packages = commandResult?.RegisteredPackages ?? [];
-                    }
-                    else if (mutationPort is IPackageInstallTerminalMutationPort terminalMutationPort)
-                    {
-                        commandResult = terminalMutationPort.InstallWithResult(
-                            library,
-                            normalizedInstallPaths,
-                            token,
-                            onEachPathProcessed,
-                            onEachArchiveExtractStarted);
-                        packages = commandResult?.RegisteredPackages ?? [];
-                    }
-                    else
-                    {
-                        packages = mutationPort.Install(
-                            library,
-                            normalizedInstallPaths,
-                            token,
-                            onEachPathProcessed,
-                            onEachArchiveExtractStarted) ?? [];
-                    }
+                    commandResult = mutationPort.InstallWithProgress(
+                        library,
+                        normalizedInstallPaths,
+                        token,
+                        progressWriter)
+                        ?? throw new InvalidOperationException("Package install mutation returned no result.");
                 }
             }
         }
@@ -633,7 +551,7 @@ internal sealed class PackageInstallWorkflowOwner
         {
             case 0:
                 return mutationAllowed
-                    ? commandResult ?? new PackageInstallCommandResult(packages, null)
+                    ? commandResult
                     : new PackageInstallCommandResult([], commandResult?.SessionReceipt);
             case 1:
                 failures[0].Throw();

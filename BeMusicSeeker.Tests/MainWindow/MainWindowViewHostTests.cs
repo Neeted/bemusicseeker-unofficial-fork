@@ -625,12 +625,12 @@ public sealed class MainWindowViewHostTests
             notificationRelease,
             notificationResult);
         int packageCallCount = 0;
-        var packageMutation = new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+        var packageMutation = new DelegatePackageInstallMutationPort((_, _, _, _) =>
         {
             packageCallCount++;
             packageEntered.Set();
             packageRelease.Wait();
-            return Array.Empty<ChartPackage>();
+            return new PackageInstallCommandResult([], null);
         });
         var lifetime = new RecordingApplicationLifetime(
             onShutdown: () => AddEvent("shutdown"),

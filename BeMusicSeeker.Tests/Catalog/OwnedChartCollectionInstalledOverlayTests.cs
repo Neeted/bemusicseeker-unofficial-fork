@@ -36,7 +36,9 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             SetLibraryBmsonSongsWithoutNotification(library, []);
 
             Assert.IsFalse(library.HasAutoRenameAllChartFolderTargets(rootPath));
-            Assert.IsFalse(library.AutoRenameAllChartFolders(rootPath));
+            Assert.IsFalse(library.AutoRenameAllChartFoldersWithProgress(
+                rootPath,
+                new RecordingFolderAutoRenameProgressWriter()).HasActionablePlan);
         });
     }
 

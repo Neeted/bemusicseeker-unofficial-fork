@@ -1901,10 +1901,10 @@ public sealed class PendingPackageWorkflowOwnerTests
                 settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(true, false));
             int autoCalls = 0;
             automatic = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     Interlocked.Increment(ref autoCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }), action => { action(); return true; });
             automatic.AttachLibrary(library);
 
@@ -1991,12 +1991,12 @@ public sealed class PendingPackageWorkflowOwnerTests
             var completionObservations = new List<(int ProcessedPathCount, bool AdmissionAvailable)>();
             int blockEnqueue = 0;
             automatic = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, batch, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, batch, _, _) =>
                 {
                     paths.AddRange(batch);
                     // 完了通知は受付解放後なので、競合拒否は実変更が戻る前に観測する。
                     rejectionsDuringBatch.Add(Install());
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 }), action =>
                 {
                     if (Interlocked.Exchange(ref blockEnqueue, 0) == 1)

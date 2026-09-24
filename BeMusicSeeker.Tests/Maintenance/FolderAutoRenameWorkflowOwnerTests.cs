@@ -35,7 +35,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, selectedRequest, progress) =>
                 {
                     observedRequest = selectedRequest;
-                    progress(2, 1, "source");
+                    progress.TryWrite(new FolderAutoRenameProgressUpdate(2, 1, "source"));
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
                 },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
@@ -319,7 +319,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                    return CreateCommittedRenameResult();
                 },
                 (current, parentDirectory) =>
                 {
@@ -368,7 +368,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 {
                     observedParentDirectory = parentDirectory;
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                    return CreateCommittedRenameResult();
                 },
                 (current, parentDirectory) => true,
                 action =>
@@ -471,7 +471,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsNotNull(failure.MutationResult);
             Assert.AreSame(cleanupFailure, failure.MutationResult.SessionReceipt.CleanupFailure);
             Assert.AreEqual(1, mutationPort.HasTargetsCallCount);
-            Assert.AreEqual(1, mutationPort.RenameAllWithReceiptCallCount);
+            Assert.AreEqual(1, mutationPort.RenameAllWithReceiptWithProgressCallCount);
             Assert.AreEqual(0, completionCount);
             Assert.AreEqual(1, terminalCount);
         }
@@ -499,7 +499,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult();
+                    return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                 },
                 (current, parentDirectory) => true,
                 action => Task.Run(action),
@@ -537,7 +537,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult();
+                    return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                 },
                 (current, parentDirectory) => true,
                 action => Task.Run(action),
@@ -577,7 +577,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult();
+                    return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                 },
                 (current, parentDirectory) => true,
                 action => Task.Run(action),
@@ -1015,9 +1015,17 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         }
     }
 
+    private static AutoRenameBatchResult CreateCommittedRenameResult() =>
+        new(
+            hasActionablePlan: true,
+            appliedPlanCount: 1,
+            new LibraryMutationSessionReceipt(
+                [new LibraryMutationSessionTarget("source", "destination")],
+                durableCommit: true));
+
     private static FolderAutoRenameWorkflowOwner CreateOwner(
-        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected,
-        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll,
+        Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected,
+        Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll,
         Func<BMSLibrary, string, bool> hasAllTargets,
         Func<Action, Task> schedule,
         Action<Action> dispatchToUi,
@@ -1101,7 +1109,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
     private sealed class BoundedProgressFolderAutoRenameMutationPort :
         IFolderAutoRenameMutationPort,
-        IFolderAutoRenameProgressMutationPort,
         IDisposable
     {
         private readonly int progressCount;
@@ -1123,30 +1130,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         public bool HasTargets(BMSLibrary library, string parentDirectory) => false;
 
-        public FolderAutoRenameExecutionResult RenameSelected(
-            BMSLibrary library,
-            ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter)
-        {
-            throw new AssertFailedException("The writer-only folder route was not selected.");
-        }
-
-        public bool RenameAll(
-            BMSLibrary library,
-            string parentDirectory,
-            Action<int, int, string> progressReporter)
-        {
-            throw new AssertFailedException("The writer-only folder route was not selected.");
-        }
-
-        public AutoRenameBatchResult RenameAllWithReceipt(
-            BMSLibrary library,
-            string parentDirectory,
-            Action<int, int, string> progressReporter)
-        {
-            throw new AssertFailedException("The writer-only folder route was not selected.");
-        }
-
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
@@ -1164,14 +1147,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             release.Wait();
             Returned.Set();
             return new FolderAutoRenameExecutionResult { RefreshRequired = true };
-        }
-
-        public bool RenameAllWithProgress(
-            BMSLibrary library,
-            string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter)
-        {
-            throw new AssertFailedException("all route was not expected");
         }
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
@@ -1202,13 +1177,13 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
     private sealed class DelegateFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
     {
-        private readonly Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected;
-        private readonly Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll;
+        private readonly Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected;
+        private readonly Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll;
         private readonly Func<BMSLibrary, string, bool> hasAllTargets;
 
         internal DelegateFolderAutoRenameMutationPort(
-            Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected,
-            Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll,
+            Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected,
+            Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll,
             Func<BMSLibrary, string, bool> hasAllTargets)
         {
             this.executeSelected = executeSelected ?? throw new ArgumentNullException(nameof(executeSelected));
@@ -1218,20 +1193,19 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         public bool HasTargets(BMSLibrary library, string parentDirectory) => hasAllTargets(library, parentDirectory);
 
-        public FolderAutoRenameExecutionResult RenameSelected(
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter) => executeSelected(library, request, progressReporter);
+            IFolderAutoRenameProgressWriter progressWriter) => executeSelected(library, request, progressWriter);
 
-        public bool RenameAll(
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            Action<int, int, string> progressReporter) => executeAll(library, parentDirectory, progressReporter)?.RefreshRequired == true;
+            IFolderAutoRenameProgressWriter progressWriter) => executeAll(library, parentDirectory, progressWriter);
     }
 
     private sealed class TerminalFolderAutoRenameMutationPort :
-        IFolderAutoRenameMutationPort,
-        IFolderAutoRenameTerminalMutationPort
+        IFolderAutoRenameMutationPort
     {
         private readonly AutoRenameBatchResult result;
 
@@ -1242,7 +1216,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         internal int HasTargetsCallCount { get; private set; }
 
-        internal int RenameAllWithReceiptCallCount { get; private set; }
+        internal int RenameAllWithReceiptWithProgressCallCount { get; private set; }
 
         public bool HasTargets(BMSLibrary library, string parentDirectory)
         {
@@ -1250,24 +1224,18 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             return true;
         }
 
-        public FolderAutoRenameExecutionResult RenameSelected(
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter) =>
+            IFolderAutoRenameProgressWriter progressWriter) =>
             throw new AssertFailedException("selected route was not expected");
 
-        public bool RenameAll(
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            Action<int, int, string> progressReporter) =>
-            throw new AssertFailedException("legacy all-folder route was not expected");
-
-        public AutoRenameBatchResult RenameAllWithReceipt(
-            BMSLibrary library,
-            string parentDirectory,
-            Action<int, int, string> progressReporter)
+            IFolderAutoRenameProgressWriter progressWriter)
         {
-            RenameAllWithReceiptCallCount++;
+            RenameAllWithReceiptWithProgressCallCount++;
             return result;
         }
     }

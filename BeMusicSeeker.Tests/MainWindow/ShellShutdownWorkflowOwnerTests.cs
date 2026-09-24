@@ -985,11 +985,11 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     installEntered.Set();
                     releaseInstall.Wait();
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }),
                 action =>
                 {
@@ -1268,20 +1268,20 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         public bool HasTargets(BMSLibrary library, string parentDirectory) => true;
 
-        public FolderAutoRenameExecutionResult RenameSelected(
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter) =>
+            IFolderAutoRenameProgressWriter progressWriter) =>
             throw new InvalidOperationException("selected folder mutation was not expected");
 
-        public bool RenameAll(
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            Action<int, int, string> progressReporter)
+            IFolderAutoRenameProgressWriter progressWriter)
         {
             entered.Set();
             release.Task.GetAwaiter().GetResult();
-            return true;
+            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
     }
 

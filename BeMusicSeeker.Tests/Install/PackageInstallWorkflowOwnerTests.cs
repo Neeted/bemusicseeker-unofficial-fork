@@ -243,14 +243,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var published = new List<string>();
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     for (int index = 1; index <= 20; index++)
                     {
-                        onArchive("archive-" + index + ".zip", index, 20);
-                        onPath();
+                        progressWriter.TryWrite(PackageInstallProgressUpdate.ArchiveExtractStarted("archive-" + index + ".zip", index, 20));
+                        progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
                     }
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -819,7 +819,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var calls = new List<string>();
             int completions = 0;
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     lock (calls)
                     {
@@ -830,7 +830,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                         firstStarted.TrySetResult(true);
                         releaseFirst.Wait();
                     }
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -907,13 +907,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     if (ReferenceEquals(library, first))
                     {
                         firstStarted.TrySetResult(true);
                     }
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -971,10 +971,10 @@ public sealed class PackageInstallWorkflowOwnerTests
         int diagnosticReports = 0;
         int mutationCalls = 0;
         PackageInstallWorkflowOwner owner = CreateOwner(
-            (_, _, _, _, _) =>
+            (_, _, _, _) =>
             {
                 Interlocked.Increment(ref mutationCalls);
-                return [];
+                return new PackageInstallCommandResult([], null);
             },
             action =>
             {
@@ -1029,14 +1029,14 @@ public sealed class PackageInstallWorkflowOwnerTests
                 },
                 DeleteOwnedRoot);
             owner = CreateOwner(
-                (_, paths, _, _, _) =>
+                (_, paths, _, _) =>
                 {
                     installedPath = paths.Single();
                     mutationEntered.TrySetResult(true);
                     allowMutationRead.Wait();
                     installedContents = File.ReadAllText(installedPath);
                     mutationFinished.TrySetResult(true);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -1111,7 +1111,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var failures = new List<PackageInstallFailure>();
             var eventOrder = new List<string>();
             owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     string displayName = Path.GetFileName(paths.FirstOrDefault() ?? string.Empty);
                     lock (observationLock)
@@ -1127,7 +1127,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                     secondInstallEntered.TrySetResult(true);
                     releaseSecondInstall.Wait();
                     secondFinished.TrySetResult(true);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1253,11 +1253,11 @@ public sealed class PackageInstallWorkflowOwnerTests
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1321,10 +1321,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                 chartFileOperations,
                 chartMutationActivity,
                 new DelegatePackageInstallMutationPort(
-                    (library, paths, token, onPath, onArchive) =>
+                    (library, paths, token, progressWriter) =>
                     {
                         Interlocked.Increment(ref mutationCalls);
-                        return [new ChartPackage()];
+                        return new PackageInstallCommandResult([new ChartPackage()], null);
                     }),
                 action =>
                 {
@@ -1386,10 +1386,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 chartMutationActivity,
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }),
                 action =>
                 {
@@ -1447,10 +1447,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }),
                 action =>
                 {
@@ -1518,7 +1518,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
-                    (library, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                    (library, paths, token, progressWriter) => throw new InvalidOperationException("install failed")),
                 action =>
                 {
                     lock (notifications)
@@ -1570,7 +1570,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
-                    (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                    (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed")),
                 _ => false,
                 exception =>
                 {
@@ -1619,7 +1619,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
-                    (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                    (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed")),
                 _ => throw new InvalidOperationException("dispatcher failed"),
                 exception =>
                 {
@@ -1667,7 +1667,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed"),
+                (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed"),
                 action =>
                 {
                     action();
@@ -1719,12 +1719,12 @@ public sealed class PackageInstallWorkflowOwnerTests
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
                     Assert.IsTrue(token.IsCancellationRequested, "The test must cancel while live apply is in progress.");
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1792,8 +1792,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                 durableCommit: true,
                 finalizationFailure: finalizationFailure);
             int installCalls = 0;
-            var port = new DelegatePackageInstallTerminalMutationPort(
-                (_, _, _, _, _) =>
+            var port = new DelegatePackageInstallMutationPort(
+                (_, _, _, _) =>
                 {
                     Interlocked.Increment(ref installCalls);
                     return new PackageInstallCommandResult([], sessionReceipt);
@@ -1903,7 +1903,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var calls = new List<string>();
             int completions = 0;
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     string displayName = Path.GetFileName(paths.First());
                     lock (calls)
@@ -1914,10 +1914,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                     {
                         firstStarted.TrySetResult(true);
                         releaseFirst.Wait();
-                        return [new ChartPackage()];
+                        return new PackageInstallCommandResult([new ChartPackage()], null);
                     }
                     secondStarted.TrySetResult(true);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1973,10 +1973,10 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -2016,14 +2016,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             int mutationCalls = 0;
             var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     int call = Interlocked.Increment(ref mutationCalls);
                     if (call == 2)
                     {
                         secondFinished.TrySetResult(true);
                     }
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -2054,7 +2054,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        PackageInstallWorkflowOwner owner = CreateOwner((_, _, _, _, _) => [], _ => true);
+        PackageInstallWorkflowOwner owner = CreateOwner((_, _, _, _) => new PackageInstallCommandResult([], null), _ => true);
         var request = new DroppedInstallBatchRequest(
             [Path.Combine(root, "chart.bms")],
             ["chart.bms"],
@@ -2092,10 +2092,10 @@ public sealed class PackageInstallWorkflowOwnerTests
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (_, _, _, _, _) =>
+                (_, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -2162,14 +2162,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (_, paths, _, _, _) =>
+                (_, paths, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
                     if (paths.Contains("fresh.zip"))
                     {
                         freshInstallCalled.TrySetResult(true);
                     }
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -2246,14 +2246,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             var firstLibrary = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var secondLibrary = new TestBmsLibrary(secondDb, null, null, string.Empty);
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (library, _, token, _, _) =>
+                (library, _, token, _) =>
                 {
                     if (ReferenceEquals(library, firstLibrary))
                     {
                         activeStarted.Set();
                         releaseActive.Wait();
                     }
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 _ => true);
             owner.AttachLibrary(firstLibrary);
@@ -2311,11 +2311,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                 displayed,
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     bufferedDialogs.Show("notice marker", "caption marker", UiDialogButton.OK,
                         UiDialogIcon.Information, UiDialogDefaultResult.OK);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 }),
                 action =>
                 {
@@ -2373,7 +2373,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     private static PackageInstallWorkflowOwner CreateOwner(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> installBatch,
         Func<Action, bool> dispatchToUi,
         Action<Exception>? reportNotificationFailure = null,
         DroppedInstallIngressMaterializer? droppedInstallIngressMaterializer = null,
@@ -2408,7 +2408,6 @@ public sealed class PackageInstallWorkflowOwnerTests
 
     private sealed class BoundedProgressPackageInstallMutationPort :
         IPackageInstallMutationPort,
-        IPackageInstallProgressMutationPort,
         IDisposable
     {
         private readonly int progressCount;
@@ -2431,16 +2430,6 @@ public sealed class PackageInstallWorkflowOwnerTests
         internal Thread? WorkerThread => Volatile.Read(ref workerThread);
 
         internal bool MutationIsBlocked => Started.IsSet && !release.IsSet;
-
-        public IReadOnlyList<ChartPackage> Install(
-            BMSLibrary library,
-            IEnumerable<string> installPaths,
-            CancellationToken token,
-            Action onEachPathProcessed,
-            Action<string, int, int> onEachArchiveExtractStarted)
-        {
-            throw new AssertFailedException("The writer-only package route was not selected.");
-        }
 
         public PackageInstallCommandResult InstallWithProgress(
             BMSLibrary library,
@@ -2482,7 +2471,6 @@ public sealed class PackageInstallWorkflowOwnerTests
 
     private sealed class TwoBatchProgressPackageInstallMutationPort :
         IPackageInstallMutationPort,
-        IPackageInstallProgressMutationPort,
         IDisposable
     {
         private readonly int progressCount;
@@ -2511,16 +2499,6 @@ public sealed class PackageInstallWorkflowOwnerTests
         internal ManualResetEventSlim SecondReturned { get; } = new(false);
 
         internal Thread? WorkerThread => Volatile.Read(ref workerThread);
-
-        public IReadOnlyList<ChartPackage> Install(
-            BMSLibrary library,
-            IEnumerable<string> installPaths,
-            CancellationToken token,
-            Action onEachPathProcessed,
-            Action<string, int, int> onEachArchiveExtractStarted)
-        {
-            throw new AssertFailedException("The writer-only package route was not selected.");
-        }
 
         public PackageInstallCommandResult InstallWithProgress(
             BMSLibrary library,
@@ -2757,59 +2735,20 @@ public sealed class PackageInstallWorkflowOwnerTests
 
 internal sealed class DelegatePackageInstallMutationPort : IPackageInstallMutationPort
 {
-    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> install;
+    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> install;
 
     internal DelegatePackageInstallMutationPort(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> install)
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> install)
     {
         this.install = install ?? throw new ArgumentNullException(nameof(install));
     }
 
-    public IReadOnlyList<ChartPackage> Install(
+    public PackageInstallCommandResult InstallWithProgress(
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
+        IPackageInstallProgressWriter progressWriter)
     {
-        return install(library, installPaths, token, onEachPathProcessed, onEachArchiveExtractStarted);
-    }
-}
-
-internal sealed class DelegatePackageInstallTerminalMutationPort :
-    IPackageInstallMutationPort,
-    IPackageInstallTerminalMutationPort
-{
-    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, PackageInstallCommandResult> installWithResult;
-
-    internal DelegatePackageInstallTerminalMutationPort(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, PackageInstallCommandResult> installWithResult)
-    {
-        this.installWithResult = installWithResult ?? throw new ArgumentNullException(nameof(installWithResult));
-    }
-
-    public IReadOnlyList<ChartPackage> Install(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        throw new AssertFailedException("The terminal package route was not selected.");
-    }
-
-    public PackageInstallCommandResult InstallWithResult(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        return installWithResult(
-            library,
-            installPaths,
-            token,
-            onEachPathProcessed,
-            onEachArchiveExtractStarted);
+        return install(library, installPaths, token, progressWriter);
     }
 }

@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -1295,10 +1296,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             int installCount = 0;
             installOwner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     installCount++;
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }), action => { action(); return true; });
             installOwner.AttachLibrary(library);
             var gateway = new RecordingPlaylistUrlDownloadGateway(root);

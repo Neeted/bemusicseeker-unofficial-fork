@@ -24,15 +24,14 @@ namespace BeMusicSeeker.Models;
 public partial class BMSLibrary
 {
     /// <summary>
-    /// Executes selected-folder auto rename with a feature-local progress
-    /// writer. The writer is adapted once per batch so progress delivery does
-    /// not accumulate a deferred callback for every plan.
+    /// 選択した譜面のフォルダ名変更を一つの変更セッションで実行します。
+    /// 進捗は処理中に通知し、変更結果はセッションの確定結果として返します。
     /// </summary>
-    /// <param name="chartFiles">Charts whose containing folders may be renamed.</param>
-    /// <param name="renameRootFolder">Whether the library root folder is eligible.</param>
-    /// <param name="progressWriter">Best-effort immutable progress sink.</param>
-    /// <param name="reportAtTerminal">Suppresses the session-backed unexpected-move dialog when a workflow terminal owns reporting.</param>
-    /// <returns>The operation-scoped mutation session result.</returns>
+    /// <param name="chartFiles">変更対象の譜面。</param>
+    /// <param name="renameRootFolder">ライブラリのルートフォルダも変更対象に含める場合は true。</param>
+    /// <param name="progressWriter">進捗の通知先。</param>
+    /// <param name="reportAtTerminal">呼出元が終端で失敗を報告する場合は true。</param>
+    /// <returns>変更セッションの確定結果。</returns>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithProgress(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder,
@@ -44,7 +43,7 @@ public partial class BMSLibrary
             throw new ArgumentNullException(nameof(chartFiles));
         }
         ArgumentNullException.ThrowIfNull(progressWriter);
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFoldersWithProgress)))
         {
             return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
@@ -84,21 +83,20 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// Executes all-folder auto rename with a feature-local progress writer.
-    /// Progress is forwarded directly while the mutation capability remains
-    /// owned by the workflow, avoiding a per-plan deferred callback list.
+    /// 対象範囲の全フォルダ名変更を一つの変更セッションで実行します。
+    /// 進捗は処理中に通知し、変更結果はセッションの確定結果として返します。
     /// </summary>
-    /// <param name="parentDir">Optional source-folder scope.</param>
-    /// <param name="progressWriter">Best-effort immutable progress sink.</param>
-    /// <param name="reportAtTerminal">Suppresses the session-backed unexpected-move dialog when a workflow terminal owns reporting.</param>
-    /// <returns>The operation-scoped mutation session result.</returns>
+    /// <param name="parentDir">変更対象を絞る親ディレクトリ。</param>
+    /// <param name="progressWriter">進捗の通知先。</param>
+    /// <param name="reportAtTerminal">呼出元が終端で失敗を報告する場合は true。</param>
+    /// <returns>変更セッションの確定結果。</returns>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithProgress(
         string parentDir,
         IFolderAutoRenameProgressWriter progressWriter,
         bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFoldersWithProgress)))
         {
             return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
@@ -138,27 +136,15 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// 指定されたパス群（ファイルまたはディレクトリ）から chart package を自動検出・インストールします。
-    /// アーカイブの展開、song.db への登録、Pendingパッケージ生成を一括で行います。
+    /// 指定されたパス群を一つの変更操作として導入し、登録パッケージと確定結果を返します。
+    /// 進捗通知の配送結果は永続的な変更結果に影響しません。
+    /// 終端を呼出元が所有する場合、確定結果に含む失敗の個別ダイアログは抑止します。
     /// </summary>
-    /// <param name="installPaths">インストール元のファイル/ディレクトリパスのコレクション。</param>
-    /// <returns>インストール処理された chart package のリスト。</returns>
-    public List<ChartPackage> InstallChartPackagesAuto(
-        IEnumerable<string> installPaths,
-        CancellationToken token = default)
-    {
-        return [.. InstallChartPackagesAutoWithProgress(
-            installPaths,
-            token,
-            NullPackageInstallProgressWriter.Instance).RegisteredPackages];
-    }
-
-    /// <summary>
-    /// Executes package installation with the feature-local bounded progress
-    /// writer used by the workflow owner.  The writer is a producer boundary;
-    /// durable mutation and terminal results never depend on its delivery.
-    /// Terminal-owned callers suppress receipt-backed individual failure dialogs.
-    /// </summary>
+    /// <param name="installPaths">導入元のファイルまたはディレクトリ。</param>
+    /// <param name="token">取消要求。</param>
+    /// <param name="progressWriter">進捗の通知先。</param>
+    /// <param name="reportAtTerminal">確定結果を呼出元の終端で報告する場合は true。</param>
+    /// <returns>登録パッケージと変更セッションの結果。</returns>
     internal PackageInstallCommandResult InstallChartPackagesAutoWithProgress(
         IEnumerable<string> installPaths,
         CancellationToken token,
@@ -186,7 +172,7 @@ public partial class BMSLibrary
             return CreatePackageInstallCommandResult(registeredPackages, null);
         }
         LibraryFileMutationLease lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(InstallChartPackagesAuto),
+            nameof(InstallChartPackagesAutoWithProgress),
             showMessage: true);
         if (lr2SongDbSyncMutation == null)
         {

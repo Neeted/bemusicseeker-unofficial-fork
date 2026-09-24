@@ -2328,9 +2328,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 _ => nestedChartPath
             };
 
-            List<ChartPackage> installed = library.InstallChartPackagesAuto([sourcePath]);
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgress([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
-            Assert.AreEqual(0, installed.Count);
+            Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.AreEqual(0, new BmsLibraryDbGateway(songDbPath).LoadInstallPackages().Count);
@@ -3223,7 +3223,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         PackageInstallCommandResult command = library.InstallChartPackagesAutoWithProgress(
                             [step.SourceDirectoryPath],
                             CancellationToken.None,
-                            NullPackageInstallProgressWriter.Instance);
+                            new RecordingPackageInstallProgressWriter());
                         Assert.AreEqual(1, command.RegisteredPackages.Count);
                         sessionReceipt = command.SessionReceipt;
                     }
@@ -3427,9 +3427,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
-            List<ChartPackage> installed = library.InstallChartPackagesAuto([sourceDirectory]);
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgress([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
-            Assert.AreEqual(0, installed.Count);
+            Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(sourceChartPath));
@@ -3438,7 +3438,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void InstallChartPackagesAuto_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
+    public void InstallChartPackagesAutoWithProgress_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -3451,7 +3451,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(incumbent);
 
             Assert.ThrowsException<InvalidOperationException>(
-                () => library.InstallChartPackagesAuto([sourceDirectory]));
+                () => library.InstallChartPackagesAutoWithProgress([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()));
         });
     }
 
@@ -3671,7 +3671,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
 
             PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgress(
-                [first, mixed, third], CancellationToken.None, NullPackageInstallProgressWriter.Instance);
+                [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.HasRequiredFailure);
@@ -5750,7 +5750,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgress(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],
                 CancellationToken.None,
-                NullPackageInstallProgressWriter.Instance);
+                new RecordingPackageInstallProgressWriter());
 
             Assert.IsFalse(commandResult.HasDurableCommit);
             Assert.IsTrue(commandResult.HasRequiredFailure);
