@@ -1,6 +1,6 @@
 name = "test-contract-designer"
 description = "仕様に基づく独立した判定基準を先に定め、テスト配置を設計する担当。"
-model = "gpt-6-sol"
+model = "gpt-6-astra"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 approval_policy = "never"
