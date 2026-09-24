@@ -56,7 +56,7 @@ Float32 WAVは有限の±1超過を保存します。整数入力を必要とす
 
 encoderはPAUSEで作成して自動DSP供給を止め、完成PCMをencoder handle指定の同期EncodeWriteで一回だけ供給します。Pausedは正常な活動状態です。非同期queueを使わず、最終整数変換だけTPDFを適用します。float入力にはditherしません。sourceは供給とencoder終了確認まで保持します。
 
-固定したBASSenc 2.4.17の24bit変換は、DITHER指定でも約−0.5LSBの平均誤差が実測されたため、24bitだけ供給直前に明示的に量子化します。doubleで `q = Clamp(RoundToEven(x × 2^23 + U1 − U2), −2^23, 2^23−1)` を求め、正確に表現できる `q / 2^23` のfloat32を再利用する小さい作業配列へ格納します。U1、U2はencoder単位の乱数列から得る独立な[0,1)の一様乱数です。元PCMは変更しません。native側のDITHERは無効にし、24bitへの正確な格納変換だけを行います。元入力の範囲検査は維持し、clampはdither後の端点に限ります。その他の整数形式はBASSencのTPDFを使います。
+24bitだけ供給直前に明示的に量子化します。固定版での実測根拠、代替案、標準変換へ戻す条件は[設計判断](../../decisions/audio-library-boundaries.md#24bitだけ明示的に量子化する理由)に記載します。doubleで `q = Clamp(RoundToEven(x × 2^23 + U1 − U2), −2^23, 2^23−1)` を求め、正確に表現できる `q / 2^23` のfloat32を再利用する小さい作業配列へ格納します。U1、U2はencoder単位の乱数列から得る独立な[0,1)の一様乱数です。元PCMは変更しません。native側のDITHERは無効にし、24bitへの正確な格納変換だけを行います。元入力の範囲検査は維持し、clampはdither後の端点に限ります。その他の整数形式はBASSencのTPDFを使います。
 
 書込み失敗・途中終了・終了失敗を保持します。終了時の強制停止通知も、後続の解放通知で上書きして成功にしません。外部encoderでは[BASSが返すprocess handle](https://www.un4seen.com/doc/bassenc/BASS_Encode_Start.html)を開始直後に非継承で複製し、同期停止後も終了コードを確認できるよう所有します。終了コード0だけを正常終了とし、通知済みの故障を0で成功へ戻しません。WAV出力はprocess handleを持ちません。
 

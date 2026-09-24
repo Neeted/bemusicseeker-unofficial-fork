@@ -8,6 +8,7 @@
 | [LR2楽曲DBの一括再生成](lr2-song-db-one-shot-reconciliation.md) | 完全な入力、保存済み途中位置を再開に使わない理由。 |
 | [Everythingの種別別検索](everything-query-boundary.md) | 外部検索の候補生成を暗黙の前提にしない理由。 |
 | [ManagedBassの採用](managedbass-adoption.md) | ラッパーとネイティブDLLの責務、配布条件。 |
+| [音声処理のライブラリとアプリの分担](audio-library-boundaries.md) | 24bit量子化の実測根拠、共通音量・正規化・入力接続層を持つ理由と見直し条件。 |
 | [更新プログラムへのNative AOT採用](updater-distribution-size.md) | 配布サイズと実行時の依存。 |
 
 [開発資料の入口](../README.md)へ戻ります。

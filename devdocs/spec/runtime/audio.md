@@ -166,4 +166,4 @@ sourceの自然終了通知はSRCの先読み時点で発生するため、そ�
 
 ## 関連資料
 
-[依存関係](audio-dependencies.md)、[音声変換](audio-conversion.md)、[設定](settings.md)、[終了](shutdown.md)、[表示パネル](../ui/playback-panel.md)を参照します。
+[依存関係](audio-dependencies.md)、[音声変換](audio-conversion.md)、[音声処理の分担の判断](../../decisions/audio-library-boundaries.md)、[設定](settings.md)、[終了](shutdown.md)、[表示パネル](../ui/playback-panel.md)を参照します。
