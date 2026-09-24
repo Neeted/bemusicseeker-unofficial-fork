@@ -1165,6 +1165,43 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task ManualInstallPackagesAsync_DisabledStartupScanKeepsAdmissionRejectionNonExceptional()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string songDbPath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            var libraryDialogs = new RecordingLibraryDialogService();
+            var library = new TestBmsLibrary(songDbPath, null!, null, null!, libraryDialogs);
+            library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            PendingPackageWorkflowOwner owner = CreateOwner(
+                () => library,
+                [],
+                new BmsLibraryPendingPackageStore(),
+                dialogs,
+                playback: new NoOpPendingPackageMutationPlaybackPort());
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+
+            PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsNull(result.Failure);
+            Assert.IsTrue(result.ShouldApplyView);
+            Assert.AreSame(LibraryMutationSessionReceipt.Empty, result.SessionReceipt);
+            Assert.IsFalse(result.HasDurableCommit);
+            Assert.AreEqual(1, dialogs.MessageRequests.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ForceInstallPackagesAsync_MutationFailurePreservesTerminalViewApply()
     {
         var events = new List<string>();

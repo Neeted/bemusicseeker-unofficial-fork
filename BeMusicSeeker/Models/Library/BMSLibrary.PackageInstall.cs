@@ -2186,7 +2186,10 @@ public partial class BMSLibrary
         InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
     }
 
-    /// <summary>Returns estimated-install facts, optionally assigning receipt-backed dialogs to the caller terminal.</summary>
+    /// <summary>
+    /// 推定導入の確定結果を返します。受付を拒否した場合も変更なしのセッション結果を返し、
+    /// 呼出元は通常の拒否を実行失敗として扱わずに済みます。
+    /// </summary>
     internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages, bool reportAtTerminal = false)
     {
         if (packages == null)
@@ -2195,7 +2198,7 @@ public partial class BMSLibrary
         }
         if (TryBlockCatalogFileMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
         {
-            return new PendingInstallBatchResult();
+            return new PendingInstallBatchResult { SessionReceipt = LibraryMutationSessionReceipt.Empty };
         }
 
         PendingInstallBatchResult result = null;
@@ -2210,7 +2213,7 @@ public partial class BMSLibrary
             {
                 if (mutationReservation == null)
                 {
-                    return new PendingInstallBatchResult();
+                    return new PendingInstallBatchResult { SessionReceipt = LibraryMutationSessionReceipt.Empty };
                 }
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();
