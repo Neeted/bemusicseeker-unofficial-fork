@@ -94,6 +94,89 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task SelectedRequest_IntermediateProgressSubscriberFailureStillCompletesAndReturnsIdle()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
+            var progressSubscriberFailure = new InvalidOperationException("intermediate progress subscriber failure");
+            var mutationReachedProgress = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mutationContinuedAfterProgress = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mutationReturned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var injectedProgressFailure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var notificationFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var workflowFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var terminalProgress = new TaskCompletionSource<FolderAutoRenameProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<FolderAutoRenameCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var terminalPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+                (current, selectedRequest, progress) =>
+                {
+                    mutationReachedProgress.TrySetResult(true);
+                    progress.TryWrite(new FolderAutoRenameProgressUpdate(2, 1, "source"));
+                    mutationContinuedAfterProgress.TrySetResult(true);
+                    progress.TryWrite(new FolderAutoRenameProgressUpdate(2, 2, "source"));
+                    mutationReturned.TrySetResult(true);
+                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                },
+                (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
+                (current, parentDirectory) => false,
+                action =>
+                {
+                    action();
+                    return Task.CompletedTask;
+                },
+                action => action(),
+                dialogs: new AcceptedFolderDialogService(),
+                reportNotificationFailure: exception => notificationFailure.TrySetResult(exception),
+                reportWorkflowFailure: exception => workflowFailure.TrySetResult(exception));
+            owner.AttachLibrary(library);
+            owner.ProgressChanged += progress =>
+            {
+                if (progress.IsCompleted)
+                {
+                    terminalProgress.TrySetResult(progress);
+                }
+                else if (progress.ProcessedCount == 1)
+                {
+                    injectedProgressFailure.TrySetResult(true);
+                    throw progressSubscriberFailure;
+                }
+            };
+            owner.CompletionPublished += receipt => completion.TrySetResult(receipt);
+            owner.FailurePublished += failure => failurePublished.TrySetResult(failure);
+            owner.TerminalPublished += () => terminalPublished.TrySetResult(true);
+
+            bool accepted = owner.RequestStartSelected(targets);
+            await owner.WaitForIdleAsync();
+
+            Assert.IsTrue(accepted);
+            Assert.IsTrue(mutationReachedProgress.Task.IsCompleted);
+            Assert.IsTrue(injectedProgressFailure.Task.IsCompleted);
+            Assert.IsTrue(notificationFailure.Task.IsCompleted);
+            Assert.AreSame(progressSubscriberFailure, notificationFailure.Task.Result);
+            Assert.IsTrue(mutationContinuedAfterProgress.Task.IsCompleted);
+            Assert.IsTrue(mutationReturned.Task.IsCompleted);
+            Assert.IsTrue(completion.Task.IsCompleted);
+            Assert.IsTrue(terminalProgress.Task.IsCompleted);
+            Assert.IsTrue(terminalProgress.Task.Result.IsCompleted);
+            Assert.IsTrue(terminalPublished.Task.IsCompleted);
+            Assert.IsFalse(failurePublished.Task.IsCompleted);
+            Assert.IsFalse(workflowFailure.Task.IsCompleted);
+            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(completion.Task.Result.RefreshRequired);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
     public async Task ProgressWriter_BoundsSelectedDispatchAndDropsLateProgressAfterSeal()
     {
         TestResourceInitializer.EnsureJapaneseResources();

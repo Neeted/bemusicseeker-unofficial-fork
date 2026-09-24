@@ -1165,6 +1165,112 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task ManualInstallPackagesAsync_NoEstimatedDestinationsCompletesWithEmptyReceiptAndPreservesPendingSources()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string pendingPath = Path.Combine(root, "pending");
+        Directory.CreateDirectory(pendingPath);
+        try
+        {
+            string songDbPath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            using (var initializeSongDb = new LR2SongDBExtended(songDbPath))
+            {
+            }
+
+            byte[] sourceContents = System.Text.Encoding.ASCII.GetBytes(
+                "#TITLE Pending chart\r\n#ARTIST Test\r\n#BPM 120\r\n#PLAYLEVEL 1\r\n#WAV01 note.wav\r\n#00111:01\r\n");
+            string chartPath = Path.Combine(pendingPath, "chart.bms");
+            File.WriteAllBytes(chartPath, sourceContents);
+            File.WriteAllBytes(Path.Combine(pendingPath, "note.wav"), [1, 2, 3]);
+            ChartFile chart = ChartFileProjection.FromBmsFile(BMSFile.CreateBMSFileFromFile(chartPath));
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+            package.path = pendingPath;
+            package.delete_parent = false;
+            ChartFile pendingChart = package.ChartEntries.Single().Chart;
+            string pendingChartPath = pendingChart.Path;
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new ResilientFileMutationService(),
+                new RecordingLibraryDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = Path.Combine(root, "installed"),
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = [package],
+                ChartPackagesInstalled = []
+            };
+            var events = new List<string>();
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            PendingPackageWorkflowOwner owner = CreateOwner(
+                () => library,
+                events,
+                new BmsLibraryPendingPackageStore(),
+                dialogs,
+                playback: new NoOpPendingPackageMutationPlaybackPort(),
+                settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
+                    showManualInstallConfirmation: false,
+                    deletePendingPackageSourceAfterInstall: false));
+
+            Assert.AreEqual(1, package.ChartEntries.Count);
+            Assert.IsTrue(ChartFileKindResolver.IsBmsChartFile(pendingChart));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(pendingChart.InstallDestination));
+            Assert.AreEqual(0, library.BMSFiles.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            using (var beforeInstall = new LR2SongDBExtended(
+                songDbPath,
+                SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex,
+                acquireProcessLock: false))
+            {
+                Assert.IsTrue(beforeInstall.IsReadOnlyConnection);
+                Assert.AreEqual(0, beforeInstall.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
+            }
+
+            PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsNull(result.Failure);
+            Assert.AreSame(LibraryMutationSessionReceipt.Empty, result.SessionReceipt);
+            Assert.IsFalse(result.HasDurableCommit);
+            Assert.AreEqual(1, library.ChartPackagesPending.Count);
+            Assert.AreSame(package, library.ChartPackagesPending.Single());
+            ChartFile preservedChart = package.ChartEntries.Single().Chart;
+            Assert.IsTrue(ChartFileKindResolver.IsBmsChartFile(preservedChart));
+            Assert.AreEqual(pendingChartPath, preservedChart.Path);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(preservedChart.InstallDestination));
+            Assert.AreEqual(0, library.BMSFiles.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(File.Exists(chartPath));
+            CollectionAssert.AreEqual(sourceContents, File.ReadAllBytes(chartPath));
+            using (var afterInstall = new LR2SongDBExtended(
+                songDbPath,
+                SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex,
+                acquireProcessLock: false))
+            {
+                Assert.IsTrue(afterInstall.IsReadOnlyConnection);
+                Assert.AreEqual(0, afterInstall.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
+            }
+            Assert.AreEqual(0, dialogs.MessageRequests.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ManualInstallPackagesAsync_DisabledStartupScanKeepsAdmissionRejectionNonExceptional()
     {
         TestResourceInitializer.EnsureJapaneseResources();

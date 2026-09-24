@@ -2179,7 +2179,7 @@ public partial class BMSLibrary
 
     /// <summary>
     /// 指定された pending package 群を推定されたインストール先ディレクトリへインストールします。
-    /// SmartOverwrite ロジックによるコンポーネント移動計画を構築して実行します。
+    /// SmartOverwrite ロジックによるコンポーネント移動計画を構築して実行し、対象がない場合は正常にスキップします。
     /// </summary>
     public void InstallPendingPackagesToEstimatedDestinations(IEnumerable<ChartPackage> packages)
     {
@@ -2187,8 +2187,8 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// 推定導入の確定結果を返します。受付を拒否した場合も変更なしのセッション結果を返し、
-    /// 呼出元は通常の拒否を実行失敗として扱わずに済みます。
+    /// 推定導入の確定結果を返します。受付拒否または推定先のない正常スキップでは、変更なしのセッション結果を返します。
+    /// 呼出元は通常の拒否やスキップを実行失敗として扱わずに済みます。
     /// </summary>
     internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages, bool reportAtTerminal = false)
     {
@@ -2238,9 +2238,8 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// Executes pending estimated installation under the caller's active
-    /// mutation lease.  The returned result carries terminal publication for
-    /// the outer command; this method never acquires a second reservation.
+    /// 呼出し側が保持する有効な変更権限の下で推定導入を実行し、公開用の集約結果を生成します。
+    /// 内部の正常スキップは BatchResult の欠落で表し、公開結果の生成時だけ空のセッション結果を設定します。
     /// </summary>
     private PendingInstallBatchResult ExecutePendingPackagesToEstimatedDestinations(
         IEnumerable<ChartPackage> packages,
@@ -2282,6 +2281,10 @@ public partial class BMSLibrary
             operationFailure = exception;
         }
         PendingInstallBatchResult result = receipt?.BatchResult ?? new PendingInstallBatchResult();
+        if (operationFailure == null && receipt?.IsSkipped == true)
+        {
+            result.SessionReceipt = LibraryMutationSessionReceipt.Empty;
+        }
         postLeaseNotifications?.Add(() =>
         {
             PublishPendingEstimatedInstallPostGuardEffects(receipt, executionContext);
