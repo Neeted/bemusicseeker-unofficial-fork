@@ -3939,15 +3939,34 @@ public partial class MainWindowViewModel : ViewModel,
         return BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningMessage;
     }
 
-    internal static bool ApplyAppSchemaRepairPreflightForStartup(AppSchemaPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action applyStartupRepair, Action shutdown)
+    /// <summary>
+    /// 起動前修復の承認を確認し、承認済みの場合だけ修復処理を開始します。
+    /// 警告が不要な修復は確認を挟まず開始し、警告を承認した事実はこの起動セッションで共有します。
+    /// </summary>
+    /// <param name="preflightResult">修復前のスキーマ検査結果。</param>
+    /// <param name="approvedForSession">この起動セッションで警告を承認済みかどうか。</param>
+    /// <param name="confirmWarning">警告が必要なときに確認を表示する処理。</param>
+    /// <param name="startStartupRepair">承認後に修復処理を開始する処理。</param>
+    /// <param name="shutdown">確認を取り消したときに終了を要求する処理。</param>
+    /// <returns>修復を開始して起動を続ける場合は true。</returns>
+    internal static bool TryStartAppSchemaRepairForStartup(
+        AppSchemaPreflightResult preflightResult,
+        ref bool approvedForSession,
+        Func<string, bool?> confirmWarning,
+        Action startStartupRepair,
+        Action shutdown)
     {
         if (preflightResult == null)
         {
             throw new ArgumentNullException(nameof(preflightResult));
         }
-        if (applyStartupRepair == null)
+        if (startStartupRepair == null)
         {
-            throw new ArgumentNullException(nameof(applyStartupRepair));
+            throw new ArgumentNullException(nameof(startStartupRepair));
+        }
+        if (shutdown == null)
+        {
+            throw new ArgumentNullException(nameof(shutdown));
         }
         if (preflightResult.WarnRequired && !approvedForSession)
         {
@@ -3957,12 +3976,12 @@ public partial class MainWindowViewModel : ViewModel,
             }
             if (confirmWarning(BuildAppSchemaRepairWarningMessage(preflightResult)) != true)
             {
-                shutdown?.Invoke();
+                shutdown();
                 return false;
             }
             approvedForSession = true;
         }
-        applyStartupRepair();
+        startStartupRepair();
         return true;
     }
 
@@ -3972,22 +3991,27 @@ public partial class MainWindowViewModel : ViewModel,
         var appSchemaPreflightService = new AppSchemaPreflightService();
         AppSchemaPreflightResult preflightResult = appSchemaPreflightService.Inspect(startupSettings.LR2SongDBPath);
         LogInitStage("app_schema_preflight_inspect_done", "Initialize");
-        if (preflightResult.WarnRequired && !bmsonMigrationApprovedForSession)
-        {
-            LogInitStage("app_schema_preflight_prompt_show", "Initialize");
-            bool approved = ShowUiConfirmation(BuildAppSchemaRepairWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "App schema repair startup confirmation");
-            LogInitStage("app_schema_preflight_prompt_close", "Initialize");
-            if (!approved)
+        Task repairTask = null;
+        bool continueStartup = TryStartAppSchemaRepairForStartup(
+            preflightResult,
+            ref bmsonMigrationApprovedForSession,
+            warningMessage =>
             {
-                applicationLifetime.RequestShutdown();
-                return false;
-            }
-            bmsonMigrationApprovedForSession = true;
-        }
-        await Task.Run(delegate
+                LogInitStage("app_schema_preflight_prompt_show", "Initialize");
+                bool approved = ShowUiConfirmation(warningMessage, BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "App schema repair startup confirmation");
+                LogInitStage("app_schema_preflight_prompt_close", "Initialize");
+                return approved;
+            },
+            () => repairTask = Task.Run(() =>
+                ApplyAppSchemaRepairForStartupOrThrow(
+                    appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath))
+                .LoggingAndPropagate("AppSchemaStartupRepair"),
+            applicationLifetime.RequestShutdown);
+        if (!continueStartup)
         {
-            ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath);
-        }).LoggingAndPropagate("AppSchemaStartupRepair");
+            return false;
+        }
+        await repairTask;
         return true;
     }
 

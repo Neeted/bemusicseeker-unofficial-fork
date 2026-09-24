@@ -200,12 +200,14 @@ internal interface IPendingPackageStore
         BMSLibrary library,
         IReadOnlyList<ChartOperationTarget> targets);
 
-    void ForceInstallPackages(
+    /// <summary>保留パッケージの強制導入を実行し、変更セッションの確定結果を返します。</summary>
+    LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
         ISet<ChartPackage> approvedNormalInstallOverridePackages);
 
-    void ManualInstallPackages(
+    /// <summary>保留パッケージの手動導入を実行し、変更セッションを含む集約結果を返します。</summary>
+    PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages);
 
@@ -242,20 +244,6 @@ internal interface IPendingPackageStore
         IReadOnlyList<ChartPackage> packages,
         CancellationToken cancellationToken,
         Action onEachProcessed);
-}
-
-internal interface IPendingPackageTerminalMutationStore
-{
-    /// <summary>force install を一つの operation-scoped session として実行し、その terminal facts を返します。</summary>
-    LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
-        BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages,
-        ISet<ChartPackage> approvedNormalInstallOverridePackages);
-
-    /// <summary>manual estimated install を実行し、session receipt を含む batch aggregate を返します。</summary>
-    PendingInstallBatchResult ManualInstallPackagesWithReceipt(
-        BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages);
 }
 
 internal sealed class PendingPackageWorkflowOwner
@@ -937,30 +925,15 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 case PendingInstallPackageOperationKind.ForceInstall:
                     ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
-                    if (store is IPendingPackageTerminalMutationStore terminalStore)
-                    {
-                        return await ExecuteInstallAsync(
-                            library => terminalStore.ForceInstallPackagesWithReceipt(
-                                library,
-                                packages,
-                                approvedPackages),
-                            packages,
-                            acquiredOperationGate);
-                    }
                     return await ExecuteInstallAsync(
-                        library => store.ForceInstallPackages(library, packages, approvedPackages),
+                        library => store.ForceInstallPackagesWithReceipt(library, packages, approvedPackages),
                         packages,
                         acquiredOperationGate);
                 case PendingInstallPackageOperationKind.ManualInstall:
-                    if (store is IPendingPackageTerminalMutationStore terminalManualStore)
-                    {
-                        return await ExecuteInstallAsync(
-                            library => terminalManualStore.ManualInstallPackagesWithReceipt(library, packages)?.SessionReceipt,
-                            packages,
-                            acquiredOperationGate);
-                    }
                     return await ExecuteInstallAsync(
-                        library => store.ManualInstallPackages(library, packages),
+                        library => (store.ManualInstallPackagesWithReceipt(library, packages)
+                            ?? throw new InvalidOperationException("Pending manual install returned no batch result."))
+                            .SessionReceipt ?? throw new InvalidOperationException("Pending manual install returned no session receipt."),
                         packages,
                         acquiredOperationGate);
                 default:
@@ -974,21 +947,6 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
-        Action<BMSLibrary> mutation,
-        IReadOnlyList<ChartPackage> packages,
-        IDisposable acquiredOperationGate)
-    {
-        return await ExecuteInstallAsync(
-            library =>
-            {
-                mutation(library);
-                return null;
-            },
-            packages,
-            acquiredOperationGate);
-    }
-
-    private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
         Func<BMSLibrary, LibraryMutationSessionReceipt> mutationWithReceipt,
         IReadOnlyList<ChartPackage> packages,
         IDisposable acquiredOperationGate)
@@ -998,7 +956,8 @@ internal sealed class PendingPackageWorkflowOwner
         try
         {
             bool executed = await Task.Run(() => Execute(
-                library => sessionReceipt = mutationWithReceipt(library),
+                library => sessionReceipt = mutationWithReceipt(library)
+                    ?? throw new InvalidOperationException("Pending install returned no session receipt."),
                 PendingPackageRefreshScope.PackageMutation,
                 CreatePlaybackTargetSnapshot(packages),
                 captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library),
@@ -1664,7 +1623,7 @@ internal sealed class PendingPackageWorkflowOwner
     }
 }
 
-internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPendingPackageTerminalMutationStore
+internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
 {
     public void SearchPackages(
         BMSLibrary library,
@@ -1775,25 +1734,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
         return ResolvePackages(library, targets);
     }
 
-    public void ForceInstallPackages(
-        BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages,
-        ISet<ChartPackage> approvedNormalInstallOverridePackages)
-    {
-        library.ForceInstallPendingPackages(
-            packages,
-            approveNormalInstallOverride: false,
-            approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages);
-    }
-
-    public void ManualInstallPackages(
-        BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages)
-    {
-        library.InstallPendingPackagesToEstimatedDestinations(packages);
-    }
-
-    /// <summary>force install の canonical <see cref="LibraryMutationSessionReceipt"/> を terminal owner へ返します。</summary>
+    /// <summary>強制導入の確定結果を操作終端へ返します。</summary>
     public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
@@ -1806,7 +1747,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
             reportAtTerminal: true);
     }
 
-    /// <summary>manual estimated install の operation aggregate を terminal owner へ返します。</summary>
+    /// <summary>推定導入の集約結果を操作終端へ返します。</summary>
     public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages)

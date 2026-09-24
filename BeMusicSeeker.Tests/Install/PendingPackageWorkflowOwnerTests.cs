@@ -2285,7 +2285,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         }
     }
 
-    internal sealed class RecordingStore : IPendingPackageStore, IPendingPackageTerminalMutationStore
+    internal sealed class RecordingStore : IPendingPackageStore
     {
         private readonly List<string> events;
 
@@ -2416,7 +2416,9 @@ public sealed class PendingPackageWorkflowOwnerTests
             return ResolvedPackages;
         }
 
-        public void ForceInstallPackages(
+        internal LibraryMutationSessionReceipt TerminalReceipt { get; set; } = LibraryMutationSessionReceipt.Empty;
+
+        public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
             BMSLibrary library,
             IReadOnlyList<ChartPackage> packages,
             ISet<ChartPackage> approvedNormalInstallOverridePackages)
@@ -2425,30 +2427,16 @@ public sealed class PendingPackageWorkflowOwnerTests
             LastPackages = packages;
             ApprovedNormalInstallOverridePackages = new HashSet<ChartPackage>(approvedNormalInstallOverridePackages);
             ThrowIfConfigured();
+            return TerminalReceipt;
         }
 
-        public void ManualInstallPackages(
+        public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
             BMSLibrary library,
             IReadOnlyList<ChartPackage> packages)
         {
             events.Add("store-manual-install");
             LastPackages = packages;
             ThrowIfConfigured();
-        }
-
-        internal LibraryMutationSessionReceipt? TerminalReceipt { get; set; }
-
-        public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(BMSLibrary library,
-            IReadOnlyList<ChartPackage> packages, ISet<ChartPackage> approvedNormalInstallOverridePackages)
-        {
-            ForceInstallPackages(library, packages, approvedNormalInstallOverridePackages);
-            return TerminalReceipt!;
-        }
-
-        public PendingInstallBatchResult ManualInstallPackagesWithReceipt(BMSLibrary library,
-            IReadOnlyList<ChartPackage> packages)
-        {
-            ManualInstallPackages(library, packages);
             return new PendingInstallBatchResult { SessionReceipt = TerminalReceipt };
         }
 

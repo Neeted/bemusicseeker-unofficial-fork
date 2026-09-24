@@ -223,7 +223,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         Assert.IsTrue(result.Succeeded);
         CollectionAssert.AreEqual(new[] { "library:.bmx", "library:.pmx" }, store.RenameOperations);
-        Assert.AreEqual(2, store.RenameCallCount);
+        Assert.AreEqual(1, store.RenameCallCount);
     }
 
     [TestMethod]
@@ -898,12 +898,15 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             DeleteContainingPackageFoldersWhenNoBms = deleteContainingPackageFoldersWhenNoBms;
         }
 
-        public void RenameLibraryCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
+        public virtual LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+            BMSLibrary library,
+            IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
         {
             ThrowIfConfigured();
             events?.Add("store-library-rename");
-            RenameOperations.Add("library:" + newExtension);
+            RenameOperations.AddRange(batches.Select(batch => "library:" + batch.NewExtension));
             RenameCallCount++;
+            return LibraryMutationSessionReceipt.Empty;
         }
 
         public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
@@ -914,11 +917,17 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             RenameCallCount++;
         }
 
-        public void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request)
+        public virtual LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
+            BMSLibrary library, ChartLibraryMoveRequest request)
         {
             ThrowIfConfigured();
             events?.Add("store-move");
             MovedDirectory = request.NewParentDirectory;
+            return new LibraryMutationSessionReceipt(
+                [new LibraryMutationSessionTarget(request.Charts[0].Path, request.NewParentDirectory)],
+                durableCommit: true,
+                catalogChartPathChangeCount: 1,
+                folderReferenceMoveCount: 1);
         }
 
         public void SetBMSFilesEncoding(
@@ -949,7 +958,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     private sealed class TerminalRecordingStore(
         LibraryMutationSessionReceipt receipt,
         List<string>? events = null)
-        : RecordingStore(events), ISelectedChartMutationTerminalStore
+        : RecordingStore(events)
     {
         internal int Calls { get; private set; }
 
@@ -957,7 +966,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal IReadOnlyList<LibraryFileExtensionRenameBatch> RenameBatches { get; private set; } = [];
 
-        public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+        public override LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
             BMSLibrary library,
             IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
         {
@@ -966,7 +975,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             return receipt;
         }
 
-        public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
+        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
         {
             Calls++;
             return receipt;

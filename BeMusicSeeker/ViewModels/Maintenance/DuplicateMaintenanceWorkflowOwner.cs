@@ -76,19 +76,15 @@ internal interface IDuplicateMaintenancePlaybackPort
 
 internal interface IDuplicateMaintenanceStore
 {
-    void MergeFolder(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId);
-
-    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
-    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
-}
-
-internal interface IDuplicateMaintenanceTerminalStore
-{
+    /// <summary>フォルダ統合の変更セッションを実行し、終端へ確定結果を返します。</summary>
     DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
         BMSLibrary library,
         string sourceDirectory,
         string destinationDirectory,
         long operationId);
+
+    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
+    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 }
 
 internal sealed class DuplicateMaintenanceMutationResult
@@ -495,39 +491,24 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
             }
 
-            if (store is IDuplicateMaintenanceTerminalStore terminalStore)
-            {
-                Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                    request.SelectionHeader,
-                    mutation: null,
-                    stopPlayback: playback.StopPlaybackForMerge,
-                    refreshPriorityReason: "merge_folder",
-                    mutationWithReceipt: library => terminalStore.MergeFolderWithReceipt(
-                        library,
-                        request.SourceDirectory,
-                        request.DestinationDirectory,
-                        Stopwatch.GetTimestamp()),
-                    acquiredOperationGate: operationGate));
-                operationGateTransferred = true;
-                DuplicateMaintenanceMutationResult result = await mutationTask;
-                await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Merge,
-                    result.MutationReceipt?.SessionReceipt ?? LibraryMutationSessionReceipt.Empty,
-                    result.Failure,
-                    mergeOperation: true);
-                return result;
-            }
-            Task<DuplicateMaintenanceMutationResult> regularMutationTask = Task.Run(() => ExecuteMutation(
+            Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 request.SelectionHeader,
-                library => store.MergeFolder(
+                mutation: null,
+                stopPlayback: playback.StopPlaybackForMerge,
+                refreshPriorityReason: "merge_folder",
+                mutationWithReceipt: library => store.MergeFolderWithReceipt(
                     library,
                     request.SourceDirectory,
-                request.DestinationDirectory,
-                Stopwatch.GetTimestamp()),
-                playback.StopPlaybackForMerge,
-                "merge_folder",
+                    request.DestinationDirectory,
+                    Stopwatch.GetTimestamp()),
                 acquiredOperationGate: operationGate));
             operationGateTransferred = true;
-            return await regularMutationTask;
+            DuplicateMaintenanceMutationResult result = await mutationTask;
+            await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Merge,
+                result.MutationReceipt?.SessionReceipt ?? LibraryMutationSessionReceipt.Empty,
+                result.Failure,
+                mergeOperation: true);
+            return result;
         }
         finally
         {
@@ -665,10 +646,14 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 PublishRefreshPriorityWindowChanged(isActive: true, reason: refreshPriorityReason);
                 refreshPriorityStarted = true;
             }
-            mutationReceipt = mutationWithReceipt?.Invoke(library);
             if (mutationWithReceipt == null)
             {
                 mutation(library);
+            }
+            else
+            {
+                mutationReceipt = mutationWithReceipt(library)
+                    ?? throw new InvalidOperationException("Duplicate folder merge returned no receipt.");
             }
         }
         catch (Exception exception)
@@ -827,18 +812,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
 }
 
-internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanceStore, IDuplicateMaintenanceTerminalStore
+internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanceStore
 {
-    public void MergeFolder(
-        BMSLibrary library,
-        string sourceDirectory,
-        string destinationDirectory,
-        long operationId)
-    {
-        library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId);
-    }
-
-    /// <summary>The canonical merge terminal owns the aggregate receipt notification.</summary>
+    /// <summary>統合の確定結果を返し、操作終端でまとめて報告できるようにします。</summary>
     public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
         BMSLibrary library,
         string sourceDirectory,

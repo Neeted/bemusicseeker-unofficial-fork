@@ -11,14 +11,14 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
 {
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ApplyAppSchemaRepairPreflightForStartup_Cancel_ShutsDownWithoutApplyingRepair()
+    public void TryStartAppSchemaRepairForStartup_Cancel_ShutsDownWithoutApplyingRepair()
     {
         bool approvedForSession = false;
         bool repairCalled = false;
         bool shutdownCalled = false;
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
 
-        bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, _ => false, delegate
+        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, _ => false, delegate
         {
             repairCalled = true;
         }, delegate
@@ -34,7 +34,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ApplyAppSchemaRepairPreflightForStartup_Ok_AppliesRepairAndApprovesSession()
+    public void TryStartAppSchemaRepairForStartup_Ok_AppliesRepairAndApprovesSession()
     {
         bool approvedForSession = false;
         bool repairCalled = false;
@@ -42,7 +42,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         string callOrder = string.Empty;
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
 
-        bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, _ => true, delegate
+        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, _ => true, delegate
         {
             repairCalled = true;
             callOrder += "repair;";
@@ -71,14 +71,14 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ApplyAppSchemaRepairPreflightForStartup_RepairOnly_DoesNotRequestWarning()
+    public void TryStartAppSchemaRepairForStartup_RepairOnly_DoesNotRequestWarning()
     {
         bool approvedForSession = false;
         bool repairCalled = false;
         bool shutdownCalled = false;
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
-        bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, null, delegate
+        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, null, delegate
         {
             repairCalled = true;
         }, delegate
@@ -96,7 +96,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ApplyAppSchemaRepairPreflightForStartup_NormalPreparation_DoesNotRequestWarning()
+    public void TryStartAppSchemaRepairForStartup_NormalPreparation_DoesNotRequestWarning()
     {
         bool approvedForSession = false;
         bool repairCalled = false;
@@ -109,7 +109,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
             repairableBmsonSchemaIssues: RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing,
             needsAppSchemaVersionWarning: false);
 
-        bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, null, delegate
+        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, null, delegate
         {
             repairCalled = true;
         }, delegate
