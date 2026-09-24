@@ -29,6 +29,28 @@ internal enum BassAudioSessionState
     Released
 }
 
+/// <summary>callbackで観測した出力故障を値だけで保持します。</summary>
+internal readonly record struct AudioCallbackOutputFailure(
+    AudioPcmRenderStage? RenderStage,
+    AudioOutputProcessFailure? ProcessStage,
+    Errors? NativeError);
+
+/// <summary>管理側がcallback出力故障を消費したときに投げる診断例外です。</summary>
+internal sealed class AudioCallbackOutputFailureException : InvalidOperationException
+{
+    /// <summary>故障の分類とネイティブエラーを保持し、表示用の説明を作成します。</summary>
+    internal AudioCallbackOutputFailureException(AudioCallbackOutputFailure failure)
+        : base(string.Format(BeMusicSeeker.Properties.Resources.AudioCallbackOutputFailureFormat,
+            failure.RenderStage?.ToString() ?? failure.ProcessStage?.ToString() ?? "Unknown",
+            failure.NativeError?.ToString() ?? "-"))
+    {
+        Failure = failure;
+    }
+
+    /// <summary>callbackが一度だけ記録した故障stageとnative errorを取得します。</summary>
+    internal AudioCallbackOutputFailure Failure { get; }
+}
+
 /// <summary>
 /// Records native ownership for one BASS audio graph from the start of initialization
 /// until every acquired layer has been released.
@@ -38,6 +60,9 @@ internal sealed class BassAudioSession
     private readonly object playerStreamSync = new();
     private readonly List<BassAudioOwnedStream> playerStreams = [];
     private int callbackOutputHandle;
+    private int callbackOutputFailureState;
+    private AudioCallbackOutputFailure callbackOutputFailure;
+    private int outputOverLevelNotificationState;
 
     /// <summary>
     /// Creates an initializing session for the requested backend and endpoint.
@@ -92,12 +117,6 @@ internal sealed class BassAudioSession
     internal int OutputHandle { get; set; }
 
     /// <summary>
-    /// Gets or sets the BASS_FX volume effect attached to the session's decode mixer.
-    /// The effect is owned by the mixer and is released with that mixer.
-    /// </summary>
-    internal int VolumeEffectHandle { get; set; }
-
-    /// <summary>
     /// Gets the stream currently published to callback-driven output without taking the
     /// lifecycle lock.
     /// </summary>
@@ -111,6 +130,12 @@ internal sealed class BassAudioSession
 
     /// <summary>Gets or sets the values accepted by the initialized native backend.</summary>
     internal BassAudioBackendResult NegotiationResult { get; set; }
+
+    /// <summary>output sessionがDSP後のFloat32 gainに使うprocessorを取得または設定します。</summary>
+    internal AudioOutputProcessor OutputProcessor { get; set; }
+
+    /// <summary>callbackが再利用するFloat32 PCM pull rendererを取得または設定します。</summary>
+    internal AudioPcmRenderer CallbackPcmRenderer { get; set; }
 
     /// <summary>Gets the current ownership phase.</summary>
     internal BassAudioSessionState State { get; set; }
@@ -129,6 +154,61 @@ internal sealed class BassAudioSession
     /// <summary>Gets whether cleanup has been fully confirmed.</summary>
     internal bool IsReleased =>
         State == BassAudioSessionState.Released && !HasNativeOwnership;
+
+    /// <summary>最初のcallback出力故障だけをallocationなしで記録します。</summary>
+    internal bool TryRecordCallbackOutputFailure(
+        AudioPcmRenderStage renderStage,
+        Errors? nativeError = null) =>
+        TryRecordCallbackOutputFailure(new AudioCallbackOutputFailure(renderStage, null, nativeError));
+
+    /// <summary>最初のcallback gain故障だけをallocationなしで記録します。</summary>
+    internal bool TryRecordCallbackOutputFailure(AudioOutputProcessFailure processStage) =>
+        TryRecordCallbackOutputFailure(new AudioCallbackOutputFailure(null, processStage, null));
+
+    /// <summary>callback故障が観測済みで、以後のcallbackを無音にする必要があるかを取得します。</summary>
+    internal bool HasCallbackOutputFailure => Volatile.Read(ref callbackOutputFailureState) != 0;
+
+    /// <summary>保持したcallback出力故障を管理側で一度だけ消費します。</summary>
+    internal bool TryConsumeCallbackOutputFailure(out AudioCallbackOutputFailure failure)
+    {
+        if (Interlocked.CompareExchange(ref callbackOutputFailureState, 3, 2) != 2)
+        {
+            failure = default;
+            return false;
+        }
+
+        failure = callbackOutputFailure;
+        return true;
+    }
+
+    /// <summary>保留故障があれば管理側の既存例外経路へ投げます。</summary>
+    internal void ThrowPendingOutputFailure()
+    {
+        if (TryConsumeCallbackOutputFailure(out AudioCallbackOutputFailure failure))
+        {
+            throw new AudioCallbackOutputFailureException(failure);
+        }
+    }
+
+    /// <summary>最初のfull scale超過を管理側への一回通知待ちとして記録します。</summary>
+    internal bool TryMarkOutputOverLevelPending() =>
+        Interlocked.CompareExchange(ref outputOverLevelNotificationState, 1, 0) == 0;
+
+    /// <summary>保留中のfull scale超過を管理側で一度だけ消費します。</summary>
+    internal bool TryConsumeOutputOverLevelPending() =>
+        Interlocked.CompareExchange(ref outputOverLevelNotificationState, 2, 1) == 1;
+
+    private bool TryRecordCallbackOutputFailure(AudioCallbackOutputFailure failure)
+    {
+        if (Interlocked.CompareExchange(ref callbackOutputFailureState, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        callbackOutputFailure = failure;
+        Volatile.Write(ref callbackOutputFailureState, 2);
+        return true;
+    }
 
     /// <summary>Records the stream currently supplying the backend output.</summary>
     internal void TrackOutputHandle(int handle)
@@ -181,7 +261,6 @@ internal sealed class BassAudioSession
     {
         if (MixerHandle == handle)
         {
-            VolumeEffectHandle = 0;
             MixerHandle = 0;
         }
         if (OutputHandle == handle)

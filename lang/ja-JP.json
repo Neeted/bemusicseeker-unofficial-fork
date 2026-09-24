@@ -1028,5 +1028,7 @@
   "RightClick_arguments_file_path_required": "引数テンプレートに {0} を含めてください。",
   "RightClick_arguments_unknown_placeholder": "引数テンプレートに未対応の置換記号があります。",
   "RightClick_arguments_unbalanced_placeholder": "引数テンプレートの置換記号の波括弧が対応していません。",
-  "RightClick_arguments_unbalanced_quote": "引数テンプレートの二重引用符が対応していません。"
+  "RightClick_arguments_unbalanced_quote": "引数テンプレートの二重引用符が対応していません。",
+  "AudioRequiredResourceLoadFailureFormat": "必要な音源「{0}」を読み込めませんでした。\nパス: {1}\n処理段階: {2}\nネイティブエラー: {3}",
+  "AudioCallbackOutputFailureFormat": "音声出力に失敗しました。\n処理段階: {0}\nネイティブエラー: {1}"
 }

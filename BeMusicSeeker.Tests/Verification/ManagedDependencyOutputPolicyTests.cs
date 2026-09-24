@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -74,7 +75,6 @@ public sealed class ManagedDependencyOutputPolicyTests
             "Microsoft.Xaml.Behaviors.dll",
             "Newtonsoft.Json.dll",
             "NLog.dll",
-            "NVorbis.dll",
             "SevenZipExtractor.dll",
             "SgmlReaderDll.dll",
             "ManagedBass.dll",
@@ -92,10 +92,16 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(
             File.Exists(Path.Combine(releaseOutputDirectory, "Bass.Net.dll")),
             "The final host layout must not deploy the retired BASS.NET assembly.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(releaseOutputDirectory, "NVorbis.dll")),
+            "The native Vorbis bridge replaces the retired managed decoder package.");
 
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "7z.dll")),
             "The package-provided x64 7z native asset must be staged under the existing library native owner path.");
+        Assert.IsTrue(
+            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "bms_vorbis.dll")),
+            "The process-owned Vorbis bridge must be staged beside the other x64 native assets.");
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "native", "Everything3_x64.dll")),
             "The Everything SDK x64 native asset must be staged under the application native owner path.");
@@ -277,7 +283,6 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "sqlite-net-pcl", Version = "1.11.285" },
             new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
             new { Id = "SevenZipExtractor", Version = "1.0.19" },
-            new { Id = "NVorbis", Version = "0.10.5" },
         }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
 
         var centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
@@ -320,7 +325,6 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
-                    "NVorbis",
                     "ManagedBass",
                     "ManagedBass.Mix",
                     "ManagedBass.Fx",
@@ -341,7 +345,6 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",
-                    "NVorbis",
                     "ManagedBass",
                     "ManagedBass.Mix",
                     "ManagedBass.Fx",
@@ -403,9 +406,11 @@ public sealed class ManagedDependencyOutputPolicyTests
         string englishCore = ExtractSection(english, "1) BASS core and official add-ons", "1a) BASSASIO");
         string englishAsio = ExtractSection(english, "1a) BASSASIO", "1b) BASS_FX");
         string englishFx = ExtractSection(english, "1b) BASS_FX", "2) ManagedBass");
+        string englishVorbis = ExtractSection(english, "19) Xiph.org libogg and libvorbis", "20) Fonts");
         string japaneseCore = ExtractSection(japanese, "1) BASS core と公式 add-on", "1a) BASSASIO");
         string japaneseAsio = ExtractSection(japanese, "1a) BASSASIO", "1b) BASS_FX");
         string japaneseFx = ExtractSection(japanese, "1b) BASS_FX", "2) ManagedBass");
+        string japaneseVorbis = ExtractSection(japanese, "19) Xiph.org libogg と libvorbis", "20) フォントファイル");
 
         (string Text, string Component, string Notice, string Copyright)[] englishSections = new[]
         {
@@ -443,6 +448,14 @@ public sealed class ManagedDependencyOutputPolicyTests
         StringAssert.Contains(japaneseAsio, "bassasio.dll");
         Assert.IsFalse(englishFx.Contains("Copyright: Un4seen", StringComparison.Ordinal));
         Assert.IsFalse(japaneseFx.Contains("著作権所有者: Un4seen", StringComparison.Ordinal));
+        StringAssert.Contains(englishVorbis, "Status: GREEN");
+        StringAssert.Contains(englishVorbis, "Component: bms_vorbis.dll (x64; statically linked libogg, libvorbis and libvorbisfile)");
+        StringAssert.Contains(englishVorbis, "third_party/licenses/19a-libogg-BSD-3-Clause.txt");
+        StringAssert.Contains(englishVorbis, "third_party/licenses/19b-libvorbis-BSD-3-Clause.txt");
+        StringAssert.Contains(japaneseVorbis, "ステータス: GREEN");
+        StringAssert.Contains(japaneseVorbis, "コンポーネント: bms_vorbis.dll (x64、libogg・libvorbis・libvorbisfileを静的リンク)");
+        StringAssert.Contains(japaneseVorbis, "third_party/licenses/19a-libogg-BSD-3-Clause.txt");
+        StringAssert.Contains(japaneseVorbis, "third_party/licenses/19b-libvorbis-BSD-3-Clause.txt");
 
         StringAssert.Contains(english, "Conditionally releasable with minor remediation (YELLOW):\n(None)\n\nReady for release (GREEN):");
         StringAssert.Contains(japanese, "追加対応を行うことにより条件付きでリリース可能（YELLOW）:\n(なし)\n\n準備完了（GREEN）:");
@@ -464,6 +477,17 @@ public sealed class ManagedDependencyOutputPolicyTests
             StringAssert.Contains(notice, "Notice Summary (not authoritative full license text)");
             Assert.IsFalse(notice.Contains("License Text:", StringComparison.Ordinal));
         }
+
+        foreach (string licenseName in new[]
+        {
+            "19a-libogg-BSD-3-Clause.txt",
+            "19b-libvorbis-BSD-3-Clause.txt"
+        })
+        {
+            string licensePath = Path.Combine(repositoryRoot, "third_party", "licenses", licenseName);
+            Assert.IsTrue(File.Exists(licensePath), licensePath);
+            StringAssert.Contains(NormalizeLineEndings(File.ReadAllText(licensePath)), "Xiph.org Foundation");
+        }
     }
 
     [TestMethod]
@@ -479,7 +503,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         var expected = new[]
         {
             new { Name = "bass.dll", Version = "2.4.18.3", Api = "0x02041203", Hash = "FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4", FileVersionPrefix = "2.4.18" },
-            new { Name = "bassmix.dll", Version = "2.4.12.0", Api = "0x02040C00", Hash = "F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D", FileVersionPrefix = "2.4.12" },
+            new { Name = "bassmix.dll", Version = "2.4.13.0", Api = "0x02040D00", Hash = "3A1777CD14C0FC6E2D6F879CE9B66CB60CD1C6607F344D70D2434164526063AB", FileVersionPrefix = "2.4.13" },
             new { Name = "bassenc.dll", Version = "2.4.17.0", Api = "0x02041100", Hash = "9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8", FileVersionPrefix = "2.4.17" },
             new { Name = "basswasapi.dll", Version = "2.4.4.1", Api = "0x02040401", Hash = "6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1", FileVersionPrefix = "2.4.4" },
             new { Name = "bass_fx.dll", Version = "2.4.12.6", Api = "0x02040C06", Hash = "A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A", FileVersionPrefix = "2.4" },
@@ -497,6 +521,18 @@ public sealed class ManagedDependencyOutputPolicyTests
                 fileVersion?.StartsWith(component.FileVersionPrefix, StringComparison.Ordinal) == true,
                 $"{component.Name} file version was {fileVersion}.");
         }
+
+        string vorbisBridgePath = Path.Combine(repositoryRoot, "vendor", "native", "x64", "bms_vorbis.dll");
+        Assert.IsTrue(File.Exists(vorbisBridgePath), vorbisBridgePath);
+        Assert.AreEqual(
+            "C4AD0A911F75AE73815770EAFD67CB4EFEC853B8402CB28C02DE64CB03A4140A",
+            GetFileHash(vorbisBridgePath));
+        using (FileStream stream = File.OpenRead(vorbisBridgePath))
+        using (var peReader = new PEReader(stream))
+        {
+            Assert.AreEqual(Machine.Amd64, peReader.PEHeaders.CoffHeader.Machine, vorbisBridgePath);
+        }
+        StringAssert.Contains(dependencySpec, "`bms_vorbis.dll` | C ABI 1");
     }
 
     [TestMethod]

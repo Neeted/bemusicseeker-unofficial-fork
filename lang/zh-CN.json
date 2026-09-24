@@ -1028,5 +1028,7 @@
   "RightClick_arguments_file_path_required": "参数模板必须包含 {0}。",
   "RightClick_arguments_unknown_placeholder": "参数模板包含不支持的替换标记。",
   "RightClick_arguments_unbalanced_placeholder": "参数模板中的替换标记花括号不匹配。",
-  "RightClick_arguments_unbalanced_quote": "参数模板中的双引号不匹配。"
+  "RightClick_arguments_unbalanced_quote": "参数模板中的双引号不匹配。",
+  "AudioRequiredResourceLoadFailureFormat": "无法加载所需的音频资源“{0}”。\n路径：{1}\n处理阶段：{2}\n原生错误：{3}",
+  "AudioCallbackOutputFailureFormat": "音频输出失败。\n处理阶段：{0}\n原生错误：{1}"
 }

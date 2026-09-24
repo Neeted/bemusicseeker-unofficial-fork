@@ -1028,5 +1028,7 @@
   "RightClick_arguments_file_path_required": "引數範本必須包含 {0}。",
   "RightClick_arguments_unknown_placeholder": "引數範本包含不支援的取代標記。",
   "RightClick_arguments_unbalanced_placeholder": "引數範本中的取代標記大括號不成對。",
-  "RightClick_arguments_unbalanced_quote": "引數範本中的雙引號不相稱。"
+  "RightClick_arguments_unbalanced_quote": "引數範本中的雙引號不相稱。",
+  "AudioRequiredResourceLoadFailureFormat": "無法載入所需的音訊資源「{0}」。\n路徑：{1}\n處理階段：{2}\n原生錯誤：{3}",
+  "AudioCallbackOutputFailureFormat": "音訊輸出失敗。\n處理階段：{0}\n原生錯誤：{1}"
 }

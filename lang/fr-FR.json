@@ -1028,5 +1028,7 @@
   "RightClick_arguments_file_path_required": "Incluez {0} dans le modèle d’arguments.",
   "RightClick_arguments_unknown_placeholder": "Le modèle d’arguments contient un marqueur de remplacement non pris en charge.",
   "RightClick_arguments_unbalanced_placeholder": "Les accolades d’un marqueur de remplacement du modèle d’arguments ne sont pas appariées.",
-  "RightClick_arguments_unbalanced_quote": "Les guillemets doubles du modèle d’arguments ne sont pas appariés."
+  "RightClick_arguments_unbalanced_quote": "Les guillemets doubles du modèle d’arguments ne sont pas appariés.",
+  "AudioRequiredResourceLoadFailureFormat": "Impossible de charger la ressource audio requise « {0} ».\nChemin : {1}\nÉtape : {2}\nErreur native : {3}",
+  "AudioCallbackOutputFailureFormat": "Échec de la sortie audio.\nÉtape : {0}\nErreur native : {1}"
 }

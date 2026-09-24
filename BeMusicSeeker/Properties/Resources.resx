@@ -3502,4 +3502,15 @@ uBMplayが正常に動作するか確認してください。</value>
 
 続行しますか？</value>
   </data>
+  <data name="AudioRequiredResourceLoadFailureFormat" xml:space="preserve">
+    <value>必要な音源「{0}」を読み込めませんでした。
+パス: {1}
+処理段階: {2}
+ネイティブエラー: {3}</value>
+  </data>
+  <data name="AudioCallbackOutputFailureFormat" xml:space="preserve">
+    <value>音声出力に失敗しました。
+処理段階: {0}
+ネイティブエラー: {1}</value>
+  </data>
 </root>

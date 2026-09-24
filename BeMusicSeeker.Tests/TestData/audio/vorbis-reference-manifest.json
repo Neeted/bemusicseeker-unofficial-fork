@@ -1,0 +1,49 @@
+{
+  "generator": "native/VorbisBridge/build/Release/vorbis_reference.exe <input.ogg> <output.interleaved-f32>",
+  "method": "Standalone program calls libvorbisfile ov_open and ov_read_float directly; it does not call bms_vorbis.dll or the C# wrapper.",
+  "dependencies": {
+    "libogg": {
+      "version": "1.3.6",
+      "sha256": "5C8253428E181840CD20D41F3CA16557A9CC04BAD4A3D04CCE84808677FA1061"
+    },
+    "libvorbis": {
+      "version": "1.3.7",
+      "sha256": "B33CC4934322BCBF6EFCBACF49E3CA01AADBEA4114EC9589D1B1E9D20F72954B"
+    }
+  },
+  "toolchain": {
+    "cmake": "4.3.1-msvc1",
+    "generator": "Visual Studio 18 2026",
+    "msbuild": "18.9.1+a81b43525",
+    "msvcToolset": "14.51.36231",
+    "compiler": "19.51.36256.0",
+    "platform": "x64",
+    "configuration": "Release",
+    "runtimeLibrary": "MultiThreaded",
+    "floatingPoint": "precise"
+  },
+  "nativeArtifact": {
+    "path": "vendor/native/x64/bms_vorbis.dll",
+    "sha256": "C4AD0A911F75AE73815770EAFD67CB4EFEC853B8402CB28C02DE64CB03A4140A"
+  },
+  "referencePcm": [
+    {
+      "input": "nvorbis-1test.ogg",
+      "inputSha256": "9E11F3008B507327B788D6FE20D54DE97E95A068BFCE00E6A79033C8E1C77646",
+      "output": "nvorbis-1test-reference.f32",
+      "outputSha256": "8467ED2F0C4CFEDE6D4F3480BFD060D8485E0765D685C50535A7F7354B099608",
+      "sampleRate": 44100,
+      "channels": 1,
+      "frames": 17318
+    },
+    {
+      "input": "nvorbis-3test.ogg",
+      "inputSha256": "9DA311D45F63D0B1A93B25AEF809110E4823F876DC31D2DAC7DAA0887B0D907E",
+      "output": "nvorbis-3test-reference.f32",
+      "outputSha256": "40D1A79C4092E457D2F92833F8E3F389F5961DDD13983AC90E48EEFE62FFAA80",
+      "sampleRate": 44100,
+      "channels": 2,
+      "frames": 288094
+    }
+  ]
+}

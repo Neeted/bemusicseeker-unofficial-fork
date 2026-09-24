@@ -69,7 +69,8 @@ public sealed class BassWasapiNegotiationTests
             call.Kind == WasapiInitializationKind.ExclusiveFormatted));
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.Flags.HasFlag(WasapiInitFlags.Exclusive)
-            && call.Flags.HasFlag(WasapiInitFlags.AutoFormat)));
+            && call.Flags.HasFlag(WasapiInitFlags.AutoFormat)
+            && call.Flags.HasFlag(WasapiInitFlags.Dither)));
         Assert.IsTrue(native.InitializationCalls[0].Flags.HasFlag(WasapiInitFlags.EventDriven));
         Assert.IsFalse(native.InitializationCalls[1].Flags.HasFlag(WasapiInitFlags.EventDriven));
         Assert.AreEqual(0f, native.InitializationCalls[2].BufferSeconds);
@@ -79,6 +80,8 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_BUSY");
         StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_FORMAT");
         StringAssert.Contains(result.FallbackReason, "native default");
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
         Assert.IsTrue(session.WasapiInitialized);
     }
 
@@ -111,25 +114,27 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(6, call.Channels);
         Assert.AreEqual(WasapiInitializationKind.SharedNoFormat, call.Kind);
         Assert.AreEqual(0, (int)call.Flags);
+        Assert.IsFalse(call.Flags.HasFlag(WasapiInitFlags.Dither));
         Assert.AreEqual(0f, call.BufferSeconds);
         Assert.AreEqual(0f, call.PeriodSeconds);
         Assert.AreEqual(96000, native.MixerRate);
         Assert.AreEqual(4, native.MixerChannels);
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
+        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
         Assert.AreEqual(SampleRate.SAMPLE_RATE_96000Hz, result.ActualRate);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.CallbackFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
         Assert.AreEqual(5d, result.LatencyMilliseconds, 0.0001d);
         StringAssert.Contains(result.FallbackReason, "endpoint mix rate 48000");
     }
 
     [TestMethod]
-    public void WasapiShared_PublishesMixerAndAppliesInitialGainBeforeStart()
+    public void WasapiShared_PublishesFloatMixerAndInitialGainBeforeStart()
     {
         var native = new RecordingWasapiBoundary();
         BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         native.InitializationResults.Enqueue(true);
-        native.SetVolumeEffectObserver = () => Assert.AreEqual(0, session.CallbackOutputHandle);
         native.StartObserver = () => Assert.AreEqual(123, session.CallbackOutputHandle);
 
         new BassWasapiNegotiator(native).Initialize(
@@ -140,125 +145,13 @@ public sealed class BassWasapiNegotiationTests
             eventModeRequested: false);
 
         CollectionAssert.AreEqual(
-            new[]
-            {
-                "CreateMixer",
-                "CreateVolumeEffect",
-                "SetVolumeEffect",
-                "StartWasapi"
-            },
+            new[] { "CreateMixer", "StartWasapi" },
             native.GraphCalls);
-        Assert.AreEqual((234, 0.35f), native.VolumeEffectCalls.Single());
         Assert.AreEqual(123, session.CallbackOutputHandle);
-        Assert.AreEqual(234, session.VolumeEffectHandle);
-    }
-
-    [TestMethod]
-    public void WasapiShared_MixerGainFailureRetainsOwnershipAndDoesNotStart()
-    {
-        var native = new RecordingWasapiBoundary
-        {
-            SetVolumeEffectResult = false,
-            CoreError = Errors.Handle
-        };
-        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
-        native.InitializationResults.Enqueue(true);
-
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
-            () => new BassWasapiNegotiator(native).Initialize(
-                CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
-                session,
-                WasapiCallback,
-                initialGain: 0.25f,
-                eventModeRequested: false));
-
-        Assert.AreEqual("BASS_FXSetParameters(BASS_FX_BFX_VOLUME)", exception.Stage);
-        Assert.AreEqual("BASS", exception.NativeErrorSource);
-        Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
-        CollectionAssert.AreEqual(
-            new[] { "CreateMixer", "CreateVolumeEffect", "SetVolumeEffect" },
-            native.GraphCalls);
-        Assert.IsTrue(session.CoreInitialized);
-        Assert.IsTrue(session.WasapiInitialized);
-        Assert.AreEqual(123, session.MixerHandle);
-        Assert.AreEqual(234, session.VolumeEffectHandle);
-        Assert.AreEqual(0, session.CallbackOutputHandle);
-        Assert.IsFalse(session.IsStarted);
-    }
-
-    [TestMethod]
-    public void WasapiShared_VolumeEffectCreationFailureReportsCreationStage()
-    {
-        var native = new RecordingWasapiBoundary
-        {
-            CreateVolumeEffectResult = 0,
-            CoreError = Errors.Handle
-        };
-        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
-        native.InitializationResults.Enqueue(true);
-
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
-            () => new BassWasapiNegotiator(native).Initialize(
-                CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
-                session,
-                WasapiCallback,
-                initialGain: 0.35f,
-                eventModeRequested: false));
-
-        Assert.AreEqual("BASS_ChannelSetFX(BASS_FX_BFX_VOLUME)", exception.Stage);
-        Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
-        CollectionAssert.AreEqual(
-            new[] { "CreateMixer", "CreateVolumeEffect" },
-            native.GraphCalls);
-    }
-
-    [TestMethod]
-    public void WasapiShared_DynamicGainUsesTheSameMixerBoundary()
-    {
-        var native = new RecordingWasapiBoundary();
-        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
-        native.InitializationResults.Enqueue(true);
-        var negotiator = new BassWasapiNegotiator(native);
-        negotiator.Initialize(
-            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
-            session,
-            WasapiCallback,
-            initialGain: 0.4f,
-            eventModeRequested: false);
-
-        var warnings = new List<string>();
-        BassAudioPlayer.ApplyWasapiSharedDeviceVolume(
-            negotiator,
-            session,
-            0.15f,
-            warnings.Add);
-
-        Assert.AreEqual(0, warnings.Count);
-        CollectionAssert.AreEqual(
-            new[] { (234, 0.4f), (234, 0.15f) },
-            native.VolumeEffectCalls);
-    }
-
-    [TestMethod]
-    public void WasapiShared_DynamicGainFailureIsReportedWithoutThrowing()
-    {
-        var native = new RecordingWasapiBoundary
-        {
-            SetVolumeEffectResult = false,
-            CoreError = Errors.Handle
-        };
-        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
-        session.MixerHandle = 123;
-        var warnings = new List<string>();
-
-        BassAudioPlayer.ApplyWasapiSharedDeviceVolume(
-            new BassWasapiNegotiator(native),
-            session,
-            0.2f,
-            warnings.Add);
-
-        Assert.AreEqual(1, warnings.Count);
-        StringAssert.Contains(warnings[0], "BASS_ERROR_HANDLE");
+        Assert.AreEqual(0.35d, session.OutputProcessor.CurrentGain, 0.000001d);
+        Assert.AreEqual(123, session.CallbackPcmRenderer.Channel);
+        Assert.AreEqual(48000, session.CallbackPcmRenderer.SampleRate);
+        Assert.AreEqual(2, session.CallbackPcmRenderer.ChannelCount);
     }
 
     [TestMethod]
@@ -276,16 +169,18 @@ public sealed class BassWasapiNegotiationTests
     public void WasapiExclusive_DoesNotApplySharedMixerGain()
     {
         var native = new RecordingWasapiBoundary();
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE);
         native.InitializationResults.Enqueue(true);
 
         new BassWasapiNegotiator(native).Initialize(
             CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
-            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            session,
             WasapiCallback,
             initialGain: 0.2f,
             eventModeRequested: false);
 
-        Assert.AreEqual(0, native.VolumeEffectCalls.Count);
+        Assert.AreEqual(0.2d, session.OutputProcessor.CurrentGain, 0.000001d);
+        Assert.IsTrue(native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.Dither));
     }
 
     [TestMethod]
@@ -385,7 +280,7 @@ public sealed class BassWasapiNegotiationTests
             && !call.Flags.HasFlag(WasapiInitFlags.AutoFormat)));
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.BufferSeconds == 0f && call.PeriodSeconds == 0f));
-        Assert.AreEqual((234, 0.35f), native.VolumeEffectCalls.Single());
+        Assert.AreEqual(0.35d, session.OutputProcessor.CurrentGain, 0.000001d);
         StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_BUSY");
         StringAssert.Contains(result.FallbackReason, "shared non-event native default");
     }
@@ -607,8 +502,6 @@ public sealed class BassWasapiNegotiationTests
 
         internal List<string> GraphCalls { get; } = [];
 
-        internal List<(int EffectHandle, float Volume)> VolumeEffectCalls { get; } = [];
-
         internal BassWasapiDeviceSnapshot DeviceInfo { get; set; } = CreateWasapiDevice(
             "WASAPI Device",
             "wasapi-id",
@@ -640,12 +533,6 @@ public sealed class BassWasapiNegotiationTests
         internal Action? GetInfoObserver { get; set; }
 
         internal bool GetInfoObserved { get; private set; }
-
-        internal bool SetVolumeEffectResult { get; set; } = true;
-
-        internal Action? SetVolumeEffectObserver { get; set; }
-
-        internal int CreateVolumeEffectResult { get; set; } = 234;
 
         internal Errors CoreError { get; set; } = Errors.OK;
 
@@ -754,20 +641,6 @@ public sealed class BassWasapiNegotiationTests
             MixerChannels = channels;
             MixerFlags = flags;
             return 123;
-        }
-
-        public int CreateVolumeEffect(int mixerHandle)
-        {
-            GraphCalls.Add("CreateVolumeEffect");
-            return CreateVolumeEffectResult;
-        }
-
-        public bool SetVolumeEffect(int effectHandle, float volume)
-        {
-            GraphCalls.Add("SetVolumeEffect");
-            VolumeEffectCalls.Add((effectHandle, volume));
-            SetVolumeEffectObserver?.Invoke();
-            return SetVolumeEffectResult;
         }
 
         public bool StartWasapi()

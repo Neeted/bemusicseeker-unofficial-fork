@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Runtime.Serialization;
 using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using ManagedBass.Enc;
@@ -8,52 +7,85 @@ using Ribbit.Media.Audio;
 
 namespace Ribbit.Media;
 
+/// <summary>音声をfloat PCMで保持し、指定したencoderへ一度だけ供給するwriterです。</summary>
 public class BassAudioWriter : BassAudioPlayer
 {
-    private static readonly byte[] AudioWriterBuffer = new byte[4194304];
+    /// <summary>完成PCMの形式を確認して変換用レンダラーを作ります。</summary>
+    internal static AudioPcmRenderer CreatePcmRenderer()
+    {
+        int outputHandle = outputMixer;
+        if (outputHandle == 0)
+        {
+            throw new InvalidOperationException("The audio output mixer is not initialized.");
+        }
+
+        ChannelInfo channelInfo = Bass.ChannelGetInfo(outputHandle);
+        if (channelInfo.Frequency <= 0 || channelInfo.Channels <= 0)
+        {
+            throw new InvalidOperationException("The audio output mixer reported an invalid PCM format.");
+        }
+        if (!channelInfo.Flags.HasFlag(BassFlags.Float))
+        {
+            throw new InvalidOperationException("The audio output mixer must supply Float32 PCM.");
+        }
+
+        return new AudioPcmRenderer(
+            outputHandle,
+            channelInfo.Frequency,
+            channelInfo.Channels);
+    }
 
     private static AudioEncoderSession encoder;
 
+    /// <summary>現在のencoderが所有する出力pathを取得します。</summary>
     public string OutputFile => encoder?.OutputFile;
 
+    /// <summary>現在の出力に選択したencoder formatを取得します。</summary>
     public static EncoderType Encoder { get; private set; } = EncoderType.WAVE;
 
+    /// <summary>encoderの現在のlifecycle stateを取得します。</summary>
     public static PlayState RecordState { get; protected set; } = PlayState.Stopped;
 
+    /// <summary>command-line encoderを検索するdirectoryを取得または設定します。</summary>
     public static string EncoderDirectory { get; set; } = AppContext.BaseDirectory;
 
+    /// <summary>現在のencoder command lineを取得します。</summary>
     public static string EncoderCommandLine => encoder?.CommandLine;
 
-    /// <summary>Gets the BASSenc flags selected for the current encoder diagnostics.</summary>
+    /// <summary>現在のencoderに選択したBASSenc flagsを取得します。</summary>
     internal static EncodeFlags EncoderFlags => encoder?.Flags ?? EncodeFlags.Default;
 
+    /// <summary>音声ファイルを読み込むwriterを作成します。</summary>
     public BassAudioWriter(string fileName)
-        : base(fileName, onMemory: false)
+        : base(fileName)
     {
+        Volume = 1f;
     }
 
-    public BassAudioWriter(string fileName, bool onMemory = true)
-        : base(fileName, onMemory)
+    /// <summary>同じ曲ロードが所有する音源cacheを使ってwriterを作成します。</summary>
+    internal BassAudioWriter(string fileName, AudioSourceCache sourceCache)
+        : base(fileName, sourceCache)
     {
+        Volume = 1f;
     }
 
-    /// <summary>Initializes the silent BASS graph used by audio conversion.</summary>
+    /// <summary>音声変換用の無音BASS graphを初期化します。</summary>
     public static void Initialize()
     {
         InitializeOwnedSession(out _);
     }
 
-    /// <summary>Initializes the silent BASS graph used by audio conversion.</summary>
+    /// <summary>互換性のために残された初期化overloadです。変換用graphは常にnull deviceを使います。</summary>
     public static void Initialize(DeviceDriver driver = DeviceDriver.WASAPI_EXCLUSIVE, float lParam = 0f)
     {
         InitializeOwnedSession(out _);
     }
 
     /// <summary>
-    /// Initializes conversion output and publishes its scoped lifecycle token as soon as
-    /// native ownership is acquired, including when later initialization fails.
+    /// native資源を取得した時点で所有sessionを公開します。後続初期化に失敗した場合も、
+    /// 呼出元が取得済み資源を解放できます。
     /// </summary>
-    /// <param name="ownedSession">The session that owns acquired native resources.</param>
+    /// <param name="ownedSession">取得済みnative資源を所有するsessionです。</param>
     internal static void InitializeOwnedSession(out BassAudioSession ownedSession)
     {
         BassAudioPlayer.InitializeOwned(
@@ -68,12 +100,13 @@ public class BassAudioWriter : BassAudioPlayer
         return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(EncoderDirectory) ? EncoderDirectory : null);
     }
 
+    /// <summary>指定した外部encoderが見つかるかを返します。</summary>
     public static bool IsEncoderAvailable(EncoderType encodeType)
     {
         return GetEncoderDirectory(encodeType) != null;
     }
 
-    /// <summary>Sets immutable metadata used when the encoder command line is rebuilt.</summary>
+    /// <summary>encoder開始前にcommand lineへ設定するmetadataを保存します。</summary>
     public static void SetTagInfo(AudioTagInfo tagInfo)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -85,9 +118,11 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("Encoder is not set");
         }
+
         encoder.SetTagInfo(tagInfo);
     }
 
+    /// <summary>encoderをpause状態で開始し、後続のfloat PCM手動供給を受け付けます。</summary>
     public static void StartRecording()
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -112,6 +147,7 @@ public class BassAudioWriter : BassAudioPlayer
         }
     }
 
+    /// <summary>WAV encoder sessionを作成します。</summary>
     public static void CreateEncoderWAV(string filePathWithoutExtension)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -120,6 +156,7 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
+
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         ReplaceEncoder(CreateSession(
             EncoderType.WAVE,
@@ -127,6 +164,7 @@ public class BassAudioWriter : BassAudioPlayer
             quality: 0f));
     }
 
+    /// <summary>LAME encoder sessionを作成します。</summary>
     public static void CreateEncoderLAME(string filePathWithoutExtension, float quality = 0.4f)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -135,11 +173,17 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
+
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
+        ReplaceEncoder(CreateSession(
+            Encoder,
+            GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()),
+            quality,
+            encoderDirectory));
     }
 
+    /// <summary>Nero AAC encoder sessionを作成します。</summary>
     public static void CreateEncoderNeroAAC(string filePathWithoutExtension, float quality = 0.4f)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -148,11 +192,17 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
+
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
+        ReplaceEncoder(CreateSession(
+            Encoder,
+            GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()),
+            quality,
+            encoderDirectory));
     }
 
+    /// <summary>Opus encoder sessionを作成します。</summary>
     public static void CreateEncoderOPUS(string filePathWithoutExtension, float quality = 0.4f)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -161,11 +211,17 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
+
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
+        ReplaceEncoder(CreateSession(
+            Encoder,
+            GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()),
+            quality,
+            encoderDirectory));
     }
 
+    /// <summary>FLAC encoder sessionを作成します。</summary>
     public static void CreateEncoderFLAC(string filePathWithoutExtension, float quality = 0.4f)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -174,11 +230,17 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
+
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
+        ReplaceEncoder(CreateSession(
+            Encoder,
+            GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()),
+            quality,
+            encoderDirectory));
     }
 
+    /// <summary>Vorbis encoder sessionを作成します。</summary>
     public static void CreateEncoderOGG(string filePathWithoutExtension, float quality = 0.4f)
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -187,9 +249,14 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
+
         filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        ReplaceEncoder(CreateSession(Encoder, GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()), quality, encoderDirectory));
+        ReplaceEncoder(CreateSession(
+            Encoder,
+            GetAvailableOutputFile(filePathWithoutExtension, Encoder.GetEncoderOutputExtension()),
+            quality,
+            encoderDirectory));
     }
 
     private static AudioEncoderSession CreateSession(
@@ -198,10 +265,15 @@ public class BassAudioWriter : BassAudioPlayer
         float quality,
         string encoderDirectory = "")
     {
-        ManagedBass.ChannelInfo channelInfo = ManagedBass.Bass.ChannelGetInfo(BassAudioPlayer.outputMixer);
-        SampleFormat sourceFormat = channelInfo.Flags.HasFlag(ManagedBass.BassFlags.Float)
-            ? SampleFormat.SAMPLE_FLOAT_32BIT
-            : SampleFormat.SAMPLE_INT_16BIT;
+        ChannelInfo channelInfo = Bass.ChannelGetInfo(BassAudioPlayer.outputMixer);
+        if (channelInfo.Frequency <= 0 || channelInfo.Channels <= 0)
+        {
+            throw new InvalidOperationException("The output mixer reported an invalid PCM format.");
+        }
+        if (!channelInfo.Flags.HasFlag(BassFlags.Float))
+        {
+            throw new InvalidOperationException("The output mixer must supply Float32 PCM.");
+        }
 
         var request = new AudioEncoderCommandRequest(
             encoderType,
@@ -209,7 +281,7 @@ public class BassAudioWriter : BassAudioPlayer
             outputFile,
             channelInfo.Frequency,
             channelInfo.Channels,
-            sourceFormat,
+            SampleFormat.SAMPLE_FLOAT_32BIT,
             quality,
             AudioTagInfo.Empty,
             BassAudioPlayer.Format);
@@ -217,12 +289,11 @@ public class BassAudioWriter : BassAudioPlayer
     }
 
     /// <summary>
-    /// Resolves the first unused output path while preserving the writer's existing
-    /// <c> (n)</c> collision suffix contract.
+    /// 既存の <c> (n)</c> 衝突suffix規約を保ち、未使用の出力pathを返します。
     /// </summary>
-    /// <param name="filePathWithoutExtension">The normalized output path without an extension.</param>
-    /// <param name="extension">The encoder-specific output extension, including its leading period.</param>
-    /// <returns>The first path that does not already exist.</returns>
+    /// <param name="filePathWithoutExtension">拡張子を除いた正規化済み出力pathです。</param>
+    /// <param name="extension">先頭にperiodを含むencoder別の拡張子です。</param>
+    /// <returns>まだ存在しない最初のpathです。</returns>
     internal static string GetAvailableOutputFile(string filePathWithoutExtension, string extension)
     {
         string originalPath = filePathWithoutExtension;
@@ -237,15 +308,37 @@ public class BassAudioWriter : BassAudioPlayer
         return outputFile;
     }
 
-    private static void ReplaceEncoder(AudioEncoderSession nextEncoder)
+    /// <summary>一度renderしたPCMの整数encoder入力範囲を確認します。</summary>
+    internal static void ValidateOutputPeakForEncoder(double peak)
     {
-        encoder?.Dispose();
-        encoder = nextEncoder;
-        RecordState = PlayState.Stopped;
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
+        if (RecordState != PlayState.Stopped)
+        {
+            throw new InvalidOperationException("Recording has started already");
+        }
+        if (encoder == null)
+        {
+            throw new InvalidOperationException("Encoder is not set");
+        }
+        if (!encoder.RequiresIntegerInput)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(peak) || peak < 0d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(peak), "The encoder peak must be finite and non-negative.");
+        }
+        if (peak > 1d)
+        {
+            throw new AudioOutputRangeException(peak);
+        }
     }
 
-    public static void RecordToFile(TimeSpan time)
+    /// <summary>完成済みinterleaved float PCMをencoder handleへ手動供給します。</summary>
+    internal static void WritePcm(float[] interleavedPcm)
     {
+        ArgumentNullException.ThrowIfNull(interleavedPcm);
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         if (RecordState != PlayState.Playing)
         {
@@ -255,19 +348,11 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("Encoder is not set");
         }
-        if (time <= TimeSpan.Zero)
-        {
-            return;
-        }
 
-        new AudioWriterPullRenderer(
-            BassAudioPlayer.outputMixer,
-            AudioWriterBuffer,
-            ManagedBassAudioWriterNative.Instance,
-            encoder)
-            .Render(time);
+        encoder.EncodeWrite(interleavedPcm, 0, interleavedPcm.Length);
     }
 
+    /// <summary>encoderを終了し、native終了失敗時は所有状態を保持します。</summary>
     public static void StopRecording()
     {
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -285,9 +370,10 @@ public class BassAudioWriter : BassAudioPlayer
     }
 
     /// <summary>
-    /// Attempts to release the writer-owned encoder before its source audio session is freed.
+    /// 音源sessionを解放する前にwriter所有のencoderを解放します。
+    /// native解放が未確認の場合は、再試行できるようencoder ownerを保持します。
     /// </summary>
-    /// <returns><see langword="true" /> only after the encoder handle and managed owner are released.</returns>
+    /// <returns>encoder handleとmanaged ownerの解放が完了した場合だけtrueを返します。</returns>
     internal static bool TryReleaseEncoder()
     {
         if (encoder == null)
@@ -315,381 +401,10 @@ public class BassAudioWriter : BassAudioPlayer
         }
     }
 
-    public static float GetLevel(TimeSpan time, bool isRMSVolume = false)
+    private static void ReplaceEncoder(AudioEncoderSession nextEncoder)
     {
-        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
-        if (RecordState != PlayState.Stopped)
-        {
-            throw new InvalidOperationException("Recording has started already");
-        }
-        if (time <= TimeSpan.Zero)
-        {
-            return 0f;
-        }
-        return new AudioWriterPullRenderer(
-            BassAudioPlayer.outputMixer,
-            AudioWriterBuffer,
-            ManagedBassAudioWriterNative.Instance)
-            .GetLevel(time, isRMSVolume);
-    }
-}
-
-/// <summary>Identifies the native operation that failed during PCM rendering or level scan.</summary>
-internal enum AudioWriterRenderStage
-{
-    SecondsToBytes,
-    DataPull,
-    BytesToSeconds,
-    LevelPull
-}
-
-/// <summary>Typed failure raised by the writer's ManagedBass core pull boundary.</summary>
-[Serializable]
-internal sealed class AudioWriterRenderException : Exception
-{
-    /// <summary>Initializes an empty writer render failure.</summary>
-    public AudioWriterRenderException()
-    {
-    }
-
-    /// <summary>Initializes a writer render failure with a message.</summary>
-    public AudioWriterRenderException(string message)
-        : base(message)
-    {
-    }
-
-    /// <summary>Initializes a writer render failure with a message and inner exception.</summary>
-    public AudioWriterRenderException(string message, Exception innerException)
-        : base(message, innerException)
-    {
-    }
-
-    /// <summary>Initializes a writer render failure with its native context.</summary>
-    internal AudioWriterRenderException(
-        int channel,
-        AudioWriterRenderStage stage,
-        Errors? nativeError,
-        Exception innerException = null)
-        : base(
-            "Audio writer channel " + channel
-            + " failed at " + stage
-            + (nativeError.HasValue ? " nativeError=" + nativeError.Value : string.Empty),
-            innerException)
-    {
-        Channel = channel;
-        Stage = stage;
-        NativeError = nativeError;
-    }
-
-    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
-    private AudioWriterRenderException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
-    {
-    }
-
-    /// <summary>Gets the channel involved in the failed operation.</summary>
-    internal int Channel { get; }
-
-    /// <summary>Gets the failed native operation.</summary>
-    internal AudioWriterRenderStage Stage { get; }
-
-    /// <summary>Gets the ManagedBass error captured at the native boundary, when available.</summary>
-    internal Errors? NativeError { get; }
-}
-
-/// <summary>Narrow ManagedBass core boundary owned by the audio writer.</summary>
-internal interface IAudioWriterNative
-{
-    /// <summary>Converts channel seconds to native byte position.</summary>
-    long ChannelSeconds2Bytes(int channel, double seconds);
-
-    /// <summary>Converts native byte position to channel seconds.</summary>
-    double ChannelBytes2Seconds(int channel, long bytes);
-
-    /// <summary>Pulls PCM data from a channel into the supplied buffer.</summary>
-    int ChannelGetData(int channel, byte[] buffer, int length);
-
-    /// <summary>Pulls channel levels for the requested duration.</summary>
-    float[] ChannelGetLevel(int channel, float seconds, LevelRetrievalFlags flags);
-
-    /// <summary>Gets the error reported by the most recent native call.</summary>
-    Errors LastError { get; }
-}
-
-/// <summary>ManagedBass implementation of the writer's narrow native boundary.</summary>
-internal sealed class ManagedBassAudioWriterNative : IAudioWriterNative
-{
-    /// <summary>Gets the process-wide stateless native boundary.</summary>
-    internal static ManagedBassAudioWriterNative Instance { get; } = new();
-
-    private ManagedBassAudioWriterNative()
-    {
-    }
-
-    /// <inheritdoc />
-    public long ChannelSeconds2Bytes(int channel, double seconds) => Bass.ChannelSeconds2Bytes(channel, seconds);
-
-    /// <inheritdoc />
-    public double ChannelBytes2Seconds(int channel, long bytes) => Bass.ChannelBytes2Seconds(channel, bytes);
-
-    /// <inheritdoc />
-    public int ChannelGetData(int channel, byte[] buffer, int length) => Bass.ChannelGetData(channel, buffer, length);
-
-    /// <inheritdoc />
-    public float[] ChannelGetLevel(int channel, float seconds, LevelRetrievalFlags flags) =>
-        Bass.ChannelGetLevel(channel, seconds, flags);
-
-    /// <inheritdoc />
-    public Errors LastError => Bass.LastError;
-}
-
-/// <summary>Pulls PCM data and levels while preserving the writer's chunk geometry.</summary>
-internal sealed class AudioWriterPullRenderer
-{
-    private enum DataPullResult
-    {
-        Full,
-        Partial
-    }
-
-    private readonly int channel;
-    private readonly byte[] buffer;
-    private readonly IAudioWriterNative native;
-    private readonly AudioEncoderSession encoder;
-
-    /// <summary>Creates a deterministic pull renderer for one source channel.</summary>
-    internal AudioWriterPullRenderer(
-        int channel,
-        byte[] buffer,
-        IAudioWriterNative native,
-        AudioEncoderSession encoder = null)
-    {
-        if (channel == 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(channel));
-        }
-
-        this.channel = channel;
-        this.buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
-        if (buffer.Length == 0)
-        {
-            throw new ArgumentException("The pull buffer must not be empty.", nameof(buffer));
-        }
-
-        this.native = native ?? throw new ArgumentNullException(nameof(native));
-        this.encoder = encoder;
-    }
-
-    /// <summary>Pulls the requested duration and stops at the first partial or natural end.</summary>
-    internal void Render(TimeSpan time)
-    {
-        if (time <= TimeSpan.Zero)
-        {
-            return;
-        }
-
-        long requestedBytes = ConvertSecondsToBytes(time.TotalSeconds);
-        if (requestedBytes <= 0)
-        {
-            return;
-        }
-
-        long fullChunks = requestedBytes / buffer.Length;
-        int remainder = (int)(requestedBytes % buffer.Length);
-        for (long index = 0; index < fullChunks; index++)
-        {
-            if (PullData(buffer.Length) == DataPullResult.Partial)
-            {
-                return;
-            }
-        }
-
-        if (remainder != 0)
-        {
-            PullData(remainder);
-        }
-    }
-
-    /// <summary>Scans levels using the existing data-pull then level-pull consumption order.</summary>
-    internal float GetLevel(TimeSpan time, bool isRms)
-    {
-        if (time <= TimeSpan.Zero)
-        {
-            return 0f;
-        }
-
-        long requestedBytes = ConvertSecondsToBytes(time.TotalSeconds);
-        if (requestedBytes <= 0)
-        {
-            return 0f;
-        }
-
-        long oneSecondBytes = ConvertSecondsToBytes(1d);
-        long levelChunkBytes = System.Math.Min(buffer.Length, oneSecondBytes);
-        if (levelChunkBytes <= 0)
-        {
-            throw new AudioWriterRenderException(channel, AudioWriterRenderStage.SecondsToBytes, nativeError: null);
-        }
-
-        LevelRetrievalFlags flags = isRms ? LevelRetrievalFlags.RMS : LevelRetrievalFlags.All;
-        long fullChunks = requestedBytes / levelChunkBytes;
-        int remainder = (int)(requestedBytes % levelChunkBytes);
-        float maximum = 0f;
-        for (long index = 0; index < fullChunks; index++)
-        {
-            if (!PullLevel((int)levelChunkBytes, flags, ref maximum))
-            {
-                return maximum;
-            }
-        }
-
-        if (remainder != 0)
-        {
-            PullLevel(remainder, flags, ref maximum);
-        }
-
-        return maximum;
-    }
-
-    private DataPullResult PullData(int requestedBytes)
-    {
-        int actualBytes;
-        try
-        {
-            actualBytes = native.ChannelGetData(channel, buffer, requestedBytes);
-        }
-        catch (Exception exception)
-        {
-            throw CreateException(AudioWriterRenderStage.DataPull, exception);
-        }
-
-        Errors nativeError = CaptureLastError();
-        if (actualBytes < 0)
-        {
-            if (nativeError == Errors.Ended)
-            {
-                return DataPullResult.Partial;
-            }
-
-            throw CreateException(AudioWriterRenderStage.DataPull, nativeError);
-        }
-
-        if (actualBytes > 0)
-        {
-            encoder?.EnsureActiveAfterRender();
-        }
-
-        return actualBytes == requestedBytes ? DataPullResult.Full : DataPullResult.Partial;
-    }
-
-    private bool PullLevel(int requestedBytes, LevelRetrievalFlags flags, ref float maximum)
-    {
-        DataPullResult dataResult = PullData(requestedBytes);
-        if (dataResult == DataPullResult.Partial)
-        {
-            return false;
-        }
-
-        float seconds = ConvertBytesToSeconds(requestedBytes);
-        float[] levels;
-        try
-        {
-            levels = native.ChannelGetLevel(channel, seconds, flags);
-        }
-        catch (Exception exception)
-        {
-            throw CreateException(AudioWriterRenderStage.LevelPull, exception);
-        }
-
-        Errors nativeError = CaptureLastError();
-        if (levels == null)
-        {
-            if (nativeError == Errors.Ended)
-            {
-                return false;
-            }
-
-            throw CreateException(AudioWriterRenderStage.LevelPull, nativeError);
-        }
-        if (levels.Length == 0)
-        {
-            throw CreateException(AudioWriterRenderStage.LevelPull, nativeError: (Errors?)null);
-        }
-
-        foreach (float level in levels)
-        {
-            maximum = System.Math.Max(maximum, level);
-        }
-
-        return true;
-    }
-
-    private long ConvertSecondsToBytes(double seconds)
-    {
-        long bytes;
-        try
-        {
-            bytes = native.ChannelSeconds2Bytes(channel, seconds);
-        }
-        catch (Exception exception)
-        {
-            throw CreateException(AudioWriterRenderStage.SecondsToBytes, exception);
-        }
-
-        Errors nativeError = CaptureLastError();
-        if (bytes < 0)
-        {
-            throw CreateException(AudioWriterRenderStage.SecondsToBytes, nativeError);
-        }
-
-        return bytes;
-    }
-
-    private float ConvertBytesToSeconds(int bytes)
-    {
-        double seconds;
-        try
-        {
-            seconds = native.ChannelBytes2Seconds(channel, bytes);
-        }
-        catch (Exception exception)
-        {
-            throw CreateException(AudioWriterRenderStage.BytesToSeconds, exception);
-        }
-
-        Errors nativeError = CaptureLastError();
-        if (seconds < 0d || double.IsNaN(seconds) || double.IsInfinity(seconds))
-        {
-            throw CreateException(AudioWriterRenderStage.BytesToSeconds, nativeError);
-        }
-
-        return (float)seconds;
-    }
-
-    private Errors CaptureLastError()
-    {
-        try
-        {
-            return native.LastError;
-        }
-        catch
-        {
-            return Errors.Unknown;
-        }
-    }
-
-    private AudioWriterRenderException CreateException(
-        AudioWriterRenderStage stage,
-        Exception innerException = null)
-    {
-        return new AudioWriterRenderException(channel, stage, CaptureLastError(), innerException);
-    }
-
-    private AudioWriterRenderException CreateException(
-        AudioWriterRenderStage stage,
-        Errors? nativeError,
-        Exception innerException = null)
-    {
-        return new AudioWriterRenderException(channel, stage, nativeError, innerException);
+        encoder?.Dispose();
+        encoder = nextEncoder;
+        RecordState = PlayState.Stopped;
     }
 }

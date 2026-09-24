@@ -12,7 +12,7 @@
 
 ### 実行基盤
 
-.NET 10 / C# 14、`net10.0-windows`、x64を使います。画面はWPFを中心に、Windows Formsのホストも含みます。MVVMにはLivetCask、保存にはSQLite、ファイル検索にはEverything SDK 3とのネイティブ連携を使います。音声はManagedBass、ログはNLog、アーカイブはSevenZipExtractor、音声読取りの一部はNVorbisが担当します。依存バージョンの宣言を正本とし、本書に依存一覧を複製しません。
+.NET 10 / C# 14、`net10.0-windows`、x64を使います。画面はWPFを中心に、Windows Formsのホストも含みます。MVVMにはLivetCask、保存にはSQLite、ファイル検索にはEverything SDK 3とのネイティブ連携を使います。音声はManagedBassとlibogg/libvorbisを静的リンクしたプロセス所有のnative bridge、ログはNLog、アーカイブはSevenZipExtractorが担当します。依存バージョンの宣言を正本とし、本書に依存一覧を複製しません。
 
 ### 層と責務
 

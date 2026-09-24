@@ -1,10 +1,14 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
+using BeMusicSeeker.Tests.Helpers;
 using BeMusicSeeker.Models;
+using ManagedBass;
 using ManagedBass.Enc;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -13,8 +17,7 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Exercises the production audio writer with real external encoder processes when explicitly
-/// enabled by the test environment.
+/// 明示的に有効化された場合に、production writerと実外部encoderの出力を検査します。
 /// </summary>
 [TestClass]
 [DoNotParallelize]
@@ -34,9 +37,8 @@ public sealed class ExternalAudioEncoderSmokeTests
     ];
 
     /// <summary>
-    /// Converts deterministic stereo PCM through every available requested production encoder
-    /// and validates each container or frame signature.  The test is opt-in because encoder
-    /// binaries are external user-provided tools, not repository or package assets.
+    /// 指定された外部encoderの形式signatureと、利用可能なdecoderによるPCMを検証します。
+    /// encoderはrepository外部の配布物なので、環境変数で明示的に有効化します。
     /// </summary>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
@@ -99,6 +101,96 @@ public sealed class ExternalAudioEncoderSmokeTests
         {
             BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
         }
+    }
+
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(7)]
+    [TestCategory("ProcessIntegration")]
+    public void BassEncodeStartWriteStopPreservesOwnedChildExitCode(int expectedExitCode)
+    {
+        ManagedBassWriterSession? session = null;
+        ExceptionDispatchInfo? primaryFailure = null;
+        try
+        {
+            session = ManagedBassWriterSession.Start();
+            AssertNativeEncoderChildExit(expectedExitCode);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            CaptureCleanup(ref primaryFailure, () => session?.Dispose());
+        }
+
+        primaryFailure?.Throw();
+    }
+
+    private static void AssertNativeEncoderChildExit(int expectedExitCode)
+    {
+        BassAudioSession audioSession = BassAudioPlayer.ActiveSession
+            ?? throw new InvalidOperationException("The writer has no active audio session.");
+        // stdinをEOFまで消費する一つのプロセスで、BASSencの同期停止と終了コードを確認します。
+        // PowerShellはコンソールから切り離されるとスクリプト実行前に終了するため、WSHを使います。
+        string scriptPath = Path.Combine(Path.GetTempPath(), "bms-encoder-eof-" + Guid.NewGuid().ToString("N") + ".js");
+        string commandLine = AudioEncoderCommandFactory.QuoteWindowsArgument(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cscript.exe"))
+            + " //B //Nologo " + AudioEncoderCommandFactory.QuoteWindowsArgument(scriptPath);
+        int encoderHandle = 0;
+        IAudioEncoderProcessHandle? processHandle = null;
+        ExceptionDispatchInfo? primaryFailure = null;
+        try
+        {
+            File.WriteAllText(scriptPath,
+                "var input = WScript.StdIn.ReadAll(); if (input.length != 16) WScript.Quit(99); WScript.Quit("
+                + expectedExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) + ");", Encoding.ASCII);
+            encoderHandle = BassEnc.EncodeStart(
+                audioSession.MixerHandle, commandLine,
+                EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.Pause, null, IntPtr.Zero);
+            Assert.AreNotEqual(0, encoderHandle, "BASS_Encode_Start failed with " + Bass.LastError + ".");
+            Assert.IsTrue(AudioEncoderProcessHandle.TryDuplicate(
+                AudioEncoderProcessHandle.FromBassEncoderHandle(encoderHandle),
+                out processHandle, out int duplicateError),
+                "DuplicateHandle failed with Win32 error " + duplicateError + ".");
+            Assert.IsNotNull(processHandle);
+            float[] samples = [0.125f, -0.125f, 0.5f, -0.5f];
+            Assert.IsTrue(BassEnc.EncodeWrite(encoderHandle, samples, samples.Length * sizeof(float)));
+            bool stopped = BassEnc.EncodeStop(encoderHandle);
+            if (stopped)
+            {
+                encoderHandle = 0;
+            }
+            Assert.IsTrue(stopped, "BASS_Encode_Stop failed with " + Bass.LastError + ".");
+            Assert.IsTrue(AudioEncoderProcessHandle.TryGetExitCode(
+                processHandle, out uint actualExitCode, out int exitError),
+                "GetExitCodeProcess failed with Win32 error " + exitError + ".");
+            Assert.AreEqual((uint)expectedExitCode, actualExitCode);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            if (encoderHandle != 0)
+            {
+                CaptureCleanup(ref primaryFailure, () =>
+                {
+                    if (!BassEnc.EncodeStop(encoderHandle))
+                    {
+                        throw new InvalidOperationException("The native encoder helper did not stop: " + Bass.LastError);
+                    }
+                });
+            }
+            if (processHandle != null)
+            {
+                CaptureCleanup(ref primaryFailure, processHandle.Dispose);
+            }
+            CaptureCleanup(ref primaryFailure, () => File.Delete(scriptPath));
+        }
+        primaryFailure?.Throw();
     }
 
     private static IReadOnlyList<EncoderType> ReadRequestedEncoderTypes()
@@ -192,17 +284,22 @@ public sealed class ExternalAudioEncoderSmokeTests
             Path.GetTempPath(),
             "BeMusicSeekerExternalEncoderSmoke",
             Guid.NewGuid().ToString("N"));
-        string inputPath = Path.Combine(temporaryDirectory, "入力 音声 (space).wav");
 
         ManagedBassWriterSession? session = null;
-        BassAudioPlayer? source = null;
         ExceptionDispatchInfo? primaryFailure = null;
         try
         {
             Directory.CreateDirectory(temporaryDirectory);
-            WriteDeterministicWave(inputPath);
             session = ManagedBassWriterSession.Start();
-            source = new BassAudioPlayer(inputPath, onMemory: false);
+            BassAudioSession ownedSession = BassAudioPlayer.ActiveSession
+                ?? throw new InvalidOperationException("The writer has no active audio session.");
+            ChannelInfo mixerInfo = Bass.ChannelGetInfo(ownedSession.MixerHandle);
+            Assert.IsTrue(mixerInfo.Frequency > 0, "The output mixer reported an invalid sample rate.");
+            Assert.AreEqual(2, mixerInfo.Channels, "The external smoke fixture expects stereo output.");
+            float[] pcm = CreateDeterministicPcm(
+                mixerInfo.Frequency,
+                frameCount: mixerInfo.Frequency / 10,
+                mixerInfo.Channels);
 
             foreach (EncoderType encoderType in encoderTypes)
             {
@@ -220,11 +317,10 @@ public sealed class ExternalAudioEncoderSmokeTests
                     "Smoke Genre",
                     2d,
                     "120",
-                    Path.GetFileName(inputPath),
+                    "synthetic.wav",
                     "ManagedBass external encoder smoke"));
-                source.Play();
                 BassAudioWriter.StartRecording();
-                BassAudioWriter.RecordToFile(TimeSpan.FromMilliseconds(100));
+                BassAudioWriter.WritePcm(pcm);
                 BassAudioWriter.StopRecording();
 
                 string outputPath = outputWithoutExtension + " (2)" + extension;
@@ -234,7 +330,8 @@ public sealed class ExternalAudioEncoderSmokeTests
                     new byte[] { 0xC0, 0xFF, 0xEE },
                     File.ReadAllBytes(collisionPath),
                     "The existing output was overwritten instead of receiving a collision suffix.");
-                AssertOutputSignature(encoderType, outputPath);
+                AssertOutputSignature(encoderType, outputPath, mixerInfo.Frequency, mixerInfo.Channels);
+                AssertDecodedOutput(encoderType, outputPath, temporaryDirectory, mixerInfo.Frequency, mixerInfo.Channels);
                 Assert.IsTrue(
                     BassAudioWriter.TryReleaseEncoder(),
                     "The encoder owner did not release cleanly after " + encoderType + ".");
@@ -246,8 +343,6 @@ public sealed class ExternalAudioEncoderSmokeTests
         }
         finally
         {
-            CaptureCleanup(ref primaryFailure, () => source?.Stop());
-            CaptureCleanup(ref primaryFailure, () => source?.Dispose());
             CaptureCleanup(ref primaryFailure, () => session?.Dispose());
             CaptureCleanup(ref primaryFailure, () => Directory.Delete(temporaryDirectory, recursive: true));
         }
@@ -279,7 +374,11 @@ public sealed class ExternalAudioEncoderSmokeTests
         }
     }
 
-    private static void AssertOutputSignature(EncoderType encoderType, string outputPath)
+    private static void AssertOutputSignature(
+        EncoderType encoderType,
+        string outputPath,
+        int expectedSampleRate,
+        int expectedChannels)
     {
         byte[] output = File.ReadAllBytes(outputPath);
         switch (encoderType)
@@ -295,6 +394,13 @@ public sealed class ExternalAudioEncoderSmokeTests
             case EncoderType.OPUS:
                 Assert.IsTrue(HasAsciiAt(output, 0, "OggS"), "The Opus output has no OggS page.");
                 Assert.IsTrue(ContainsAscii(output, "OpusHead"), "The Opus output has no OpusHead packet.");
+                int opusHeadOffset = FindAscii(output, "OpusHead");
+                Assert.IsTrue(opusHeadOffset >= 0);
+                Assert.IsTrue(opusHeadOffset + 16 <= output.Length, "The OpusHead packet is truncated.");
+                Assert.AreEqual(expectedChannels, output[opusHeadOffset + 9]);
+                Assert.AreEqual(
+                    (uint)expectedSampleRate,
+                    BinaryPrimitives.ReadUInt32LittleEndian(output.AsSpan(opusHeadOffset + 12, 4)));
                 break;
             case EncoderType.FLAC:
                 Assert.IsTrue(HasAsciiAt(output, 0, "fLaC"), "The FLAC output has no fLaC marker.");
@@ -308,6 +414,148 @@ public sealed class ExternalAudioEncoderSmokeTests
             default:
                 throw new ArgumentOutOfRangeException(nameof(encoderType), encoderType, "Unsupported encoder.");
         }
+    }
+
+    private static void AssertDecodedOutput(
+        EncoderType encoderType,
+        string outputPath,
+        string temporaryDirectory,
+        int expectedSampleRate,
+        int expectedChannels)
+    {
+        if (encoderType == EncoderType.OPUS)
+        {
+            string encoderDirectory = encoderType.SearchEncoderBinary(BassAudioWriter.EncoderDirectory);
+            string decoderPath = Path.Combine(encoderDirectory, "opusdec.exe");
+            Assert.IsTrue(File.Exists(decoderPath), "opusdec.exe is required to validate the Opus decode.");
+
+            string decodedWavePath = Path.Combine(temporaryDirectory, "opus-decoded.wav");
+            RunDecoderProcess(
+                decoderPath,
+                "--float",
+                "--rate",
+                "48000",
+                outputPath,
+                decodedWavePath);
+            AudioTestWaveFile decodedWave = AudioTestWaveFileReader.Read(File.ReadAllBytes(decodedWavePath));
+            AssertDecodedWave(decodedWave, 48000, expectedChannels, expectedFormat: 3, expectedBits: 32);
+            return;
+        }
+
+        if (encoderType == EncoderType.FLAC)
+        {
+            string encoderDirectory = encoderType.SearchEncoderBinary(BassAudioWriter.EncoderDirectory);
+            string decoderPath = Path.Combine(encoderDirectory, "flac.exe");
+            Assert.IsTrue(File.Exists(decoderPath), "flac.exe is required to validate the FLAC decode.");
+
+            string decodedWavePath = Path.Combine(temporaryDirectory, "flac-decoded.wav");
+            RunDecoderProcess(
+                decoderPath,
+                "--decode",
+                "--force",
+                "--output-name=" + decodedWavePath,
+                outputPath);
+            AudioTestWaveFile decodedWave = AudioTestWaveFileReader.Read(File.ReadAllBytes(decodedWavePath));
+            AssertDecodedWave(decodedWave, expectedSampleRate, expectedChannels, expectedFormat: 1, expectedBits: 24);
+            return;
+        }
+
+        DecodedAudio decoded = AudioSourceLoader.Load(outputPath);
+        Assert.AreEqual(expectedSampleRate, decoded.SampleRate);
+        Assert.AreEqual(expectedChannels, decoded.ChannelCount);
+        Assert.IsTrue(decoded.FrameCount > 0, "The production decoder returned no PCM frames.");
+
+        double peak = 0d;
+        int sampleCount = checked((int)(decoded.FrameCount * decoded.ChannelCount));
+        for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++)
+        {
+            float sample = decoded.GetSample(sampleIndex);
+            Assert.IsTrue(float.IsFinite(sample), "The production decoder returned a non-finite sample.");
+            peak = Math.Max(peak, Math.Abs((double)sample));
+        }
+
+        Assert.IsTrue(peak > 0.1d, "The production decoder returned a silent stream.");
+    }
+
+    private static void AssertDecodedWave(
+        AudioTestWaveFile wave,
+        int expectedSampleRate,
+        int expectedChannels,
+        ushort expectedFormat,
+        ushort expectedBits)
+    {
+        Assert.AreEqual(expectedFormat, wave.Format);
+        Assert.AreEqual(expectedBits, wave.BitsPerSample);
+        Assert.AreEqual(expectedChannels, wave.Channels);
+        Assert.AreEqual(expectedSampleRate, wave.SampleRate);
+
+        int bytesPerSample = expectedBits / 8;
+        Assert.IsTrue(wave.DataLength > 0, "The decoded WAV contains no PCM frames.");
+        Assert.AreEqual(0, wave.DataLength % (expectedChannels * bytesPerSample));
+
+        double peak = 0d;
+        for (int offset = wave.DataOffset; offset < wave.DataOffset + wave.DataLength; offset += bytesPerSample)
+        {
+            double sample = expectedFormat == 3
+                ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(
+                    wave.Bytes.AsSpan(offset, sizeof(float))))
+                : ReadIntegerPcmSample(wave.Bytes.AsSpan(offset, bytesPerSample), expectedBits);
+            Assert.IsTrue(double.IsFinite(sample), "The decoder returned a non-finite sample.");
+            peak = Math.Max(peak, Math.Abs(sample));
+        }
+
+        Assert.IsTrue(peak > 0.1d, "The decoded stream is silent.");
+    }
+
+    private static double ReadIntegerPcmSample(ReadOnlySpan<byte> sample, ushort bitsPerSample)
+    {
+        return bitsPerSample switch
+        {
+            16 => BinaryPrimitives.ReadInt16LittleEndian(sample) / 32768d,
+            24 => ReadSigned24(sample) / 8388608d,
+            32 => BinaryPrimitives.ReadInt32LittleEndian(sample) / 2147483648d,
+            _ => throw new AssertFailedException("The decoded WAV uses an unsupported integer PCM depth.")
+        };
+    }
+
+    private static int ReadSigned24(ReadOnlySpan<byte> sample)
+    {
+        int value = sample[0] | (sample[1] << 8) | (sample[2] << 16);
+        return (value & 0x0080_0000) == 0 ? value : value | unchecked((int)0xFF00_0000);
+    }
+
+    private static void RunDecoderProcess(string executable, params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (string argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        string decoderName = Path.GetFileName(executable);
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("The test decoder process did not start.");
+        if (!process.WaitForExit(milliseconds: 30000))
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // 終了との競合時は、その終了を待ってから失敗を報告します。
+            }
+
+            process.WaitForExit();
+            Assert.Fail(decoderName + " did not finish within 30 seconds.");
+        }
+
+        Assert.AreEqual(0, process.ExitCode, decoderName + " rejected the encoded audio output.");
     }
 
     private static bool HasMpegFrameSync(byte[] data)
@@ -351,6 +599,19 @@ public sealed class ExternalAudioEncoderSmokeTests
         return false;
     }
 
+    private static int FindAscii(byte[] data, string value)
+    {
+        for (int index = 0; index <= data.Length - value.Length; index++)
+        {
+            if (HasAsciiAt(data, index, value))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
     private static bool HasAsciiAt(byte[] data, int offset, string value)
     {
         byte[] marker = Encoding.ASCII.GetBytes(value);
@@ -370,42 +631,20 @@ public sealed class ExternalAudioEncoderSmokeTests
         return true;
     }
 
-    private static void WriteDeterministicWave(string filePath)
+    private static float[] CreateDeterministicPcm(int sampleRate, int frameCount, int channelCount)
     {
-        const int sampleRate = 44100;
-        const short channels = 2;
-        const short bitsPerSample = 16;
-        const int frameCount = sampleRate * 2;
-        const int blockAlign = channels * (bitsPerSample / 8);
-        byte[] pcm = new byte[frameCount * blockAlign];
+        float[] pcm = new float[checked(frameCount * channelCount)];
 
         for (int frame = 0; frame < frameCount; frame++)
         {
-            short sample = (short)(Math.Sin(2d * Math.PI * 440d * frame / sampleRate) * 12000d);
-            for (int channel = 0; channel < channels; channel++)
+            float sample = (float)(Math.Sin(2d * Math.PI * 440d * frame / sampleRate) * 0.35d);
+            for (int channel = 0; channel < channelCount; channel++)
             {
-                int offset = (frame * channels + channel) * sizeof(short);
-                pcm[offset] = (byte)(sample & 0xFF);
-                pcm[offset + 1] = (byte)((sample >> 8) & 0xFF);
+                pcm[frame * channelCount + channel] = sample;
             }
         }
 
-        using FileStream stream = File.Create(filePath);
-        using BinaryWriter writer = new(stream, Encoding.ASCII, leaveOpen: false);
-        writer.Write(Encoding.ASCII.GetBytes("RIFF"));
-        writer.Write(36 + pcm.Length);
-        writer.Write(Encoding.ASCII.GetBytes("WAVE"));
-        writer.Write(Encoding.ASCII.GetBytes("fmt "));
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write(channels);
-        writer.Write(sampleRate);
-        writer.Write(sampleRate * blockAlign);
-        writer.Write((short)blockAlign);
-        writer.Write(bitsPerSample);
-        writer.Write(Encoding.ASCII.GetBytes("data"));
-        writer.Write(pcm.Length);
-        writer.Write(pcm);
+        return pcm;
     }
 
     private static void CaptureCleanup(ref ExceptionDispatchInfo? primaryFailure, Action cleanup)

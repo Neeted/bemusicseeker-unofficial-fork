@@ -13,6 +13,9 @@
 | `chart_info_production_diff` | 実データと参照実装の解析結果の差分。 | `BMS_TEST_PRODUCTION_DIFF_FULL=1` で全件を検証する。 |
 | `chart_info_production_latest_diff` | 更新された参照値との差分。対象は少数でも入力が大容量のもの。 | `BMS_TEST_PRODUCTION_DIFF_FULL=1` で検証する。 |
 | `lr2_builtin_custom_folder_real` | LR2組込みカスタムフォルダの実ファイルとの互換性。 | 通常検証で使用する。 |
+| `audio` | 小さなOgg Vorbis入力と、C# bridge とは別の native libvorbisfile 呼出しで作成した interleaved float32 参照PCM。 | 通常検証で使用する。fixture、参照出力、生成条件とSHA-256は `audio/vorbis-reference-manifest.json` を参照する。 |
+
+`audio` の参照PCMは `native/VorbisBridge/tools/vorbis_reference.cpp` が libvorbisfile の `ov_open` / `ov_read_float` を直接呼び、チャンネルごとの planar 出力を interleaved float32 へ書き出して生成します。C# wrapper と `bms_vorbis.dll` を経由しないため、bridge の ABI・interleave・container処理と照合できます。復号アルゴリズムそのものの独立 oracle とはしません。
 
 ## 大容量入力の追加と使用
 

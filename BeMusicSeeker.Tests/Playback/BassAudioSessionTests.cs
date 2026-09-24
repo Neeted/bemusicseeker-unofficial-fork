@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using ManagedBass;
@@ -13,6 +14,43 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassAudioSessionTests
 {
+    [TestMethod]
+    public void CallbackOutputFailureAndOverLevelArePendingOncePerAudioSession()
+    {
+        var firstSession = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
+        var secondSession = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
+
+        Assert.IsTrue(firstSession.TryRecordCallbackOutputFailure(AudioPcmRenderStage.Stalled, Errors.OK));
+        Assert.IsFalse(firstSession.TryRecordCallbackOutputFailure(AudioPcmRenderStage.NativeRead, Errors.Init));
+        Assert.IsTrue(firstSession.HasCallbackOutputFailure);
+        Assert.IsTrue(firstSession.TryConsumeCallbackOutputFailure(out AudioCallbackOutputFailure failure));
+        Assert.AreEqual(AudioPcmRenderStage.Stalled, failure.RenderStage);
+        Assert.IsNull(failure.ProcessStage);
+        Assert.AreEqual(Errors.OK, failure.NativeError);
+        Assert.IsFalse(firstSession.TryConsumeCallbackOutputFailure(out _));
+        Assert.IsFalse(firstSession.TryRecordCallbackOutputFailure(AudioPcmRenderStage.Stalled));
+
+        Assert.IsTrue(firstSession.TryMarkOutputOverLevelPending());
+        Assert.IsFalse(firstSession.TryMarkOutputOverLevelPending());
+        Assert.IsTrue(firstSession.TryConsumeOutputOverLevelPending());
+        Assert.IsFalse(firstSession.TryConsumeOutputOverLevelPending());
+        Assert.IsFalse(firstSession.TryMarkOutputOverLevelPending());
+        Assert.IsTrue(secondSession.TryMarkOutputOverLevelPending());
+    }
+
+    [TestMethod]
+    public void PendingCallbackGainFailureCanUseTheExistingManagementExceptionRoute()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        Assert.IsTrue(session.TryRecordCallbackOutputFailure(AudioOutputProcessFailure.NonFiniteOutput));
+
+        AudioCallbackOutputFailureException exception = Assert.ThrowsException<AudioCallbackOutputFailureException>(
+            session.ThrowPendingOutputFailure);
+
+        Assert.AreEqual(AudioOutputProcessFailure.NonFiniteOutput, exception.Failure.ProcessStage);
+        Assert.IsTrue(session.HasCallbackOutputFailure);
+    }
+
     [TestMethod]
     public void CoreInitializationFailure_DoesNotFreeUninitializedCore()
     {
@@ -281,48 +319,66 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
-    public void PublishedCallbackOutputReader_UsesSessionHandleAndClampsNativeResult()
+    public void PublishedCallbackOutputReader_DoesNotReadWithoutSessionHandle()
     {
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
-        session.TrackOutputHandle(123);
-        int observedHandle = 0;
-
-        int bytesRead = BassAudioPlayer.ReadPublishedCallbackOutput(
-            session,
-            IntPtr.Zero,
-            16,
-            (handle, _, _) =>
-            {
-                observedHandle = handle;
-                return 7;
-            });
-
-        Assert.AreEqual(123, observedHandle);
-        Assert.AreEqual(7, bytesRead);
-
-        Assert.AreEqual(
-            0,
-            BassAudioPlayer.ReadPublishedCallbackOutput(
-                session,
-                IntPtr.Zero,
-                16,
-                (_, _, _) => -1));
+        Assert.AreEqual(0, BassAudioPlayer.ReadPublishedCallbackOutput(null, IntPtr.Zero, 16));
+        Assert.AreEqual(0, BassAudioPlayer.ReadPublishedCallbackOutput(
+            new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO), IntPtr.Zero, 16));
     }
 
     [TestMethod]
-    public void PublishedCallbackOutputReader_DoesNotReadWithoutSessionHandle()
+    public void PublishedCallbackOutputReader_AppliesGainAfterPullAndPreservesBufferGuards()
     {
-        int readCalls = 0;
-        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
-        Func<int, IntPtr, int, int> readData = (_, _, _) =>
+        var native = new CallbackPcmNative();
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO)
         {
-            readCalls++;
-            return 1;
+            OutputProcessor = new AudioOutputProcessor(48000, .5),
+            CallbackPcmRenderer = new AudioPcmRenderer(123, 48000, 2, native)
         };
+        session.TrackOutputHandle(456);
+        IntPtr buffer = Marshal.AllocHGlobal(24);
+        try
+        {
+            Marshal.WriteInt32(buffer, 0, 123456);
+            Marshal.WriteInt32(buffer, 20, 654321);
+            Assert.AreEqual(16, BassAudioPlayer.ReadPublishedCallbackOutput(session, IntPtr.Add(buffer, 4), 16));
+            float[] samples = new float[4];
+            Marshal.Copy(IntPtr.Add(buffer, 4), samples, 0, 4);
+            CollectionAssert.AreEqual(new[] { .625f, -.625f, .625f, -.625f }, samples);
+            Assert.AreEqual(456, native.LastHandle);
+            Assert.AreEqual(123456, Marshal.ReadInt32(buffer, 0));
+            Assert.AreEqual(654321, Marshal.ReadInt32(buffer, 20));
 
-        Assert.AreEqual(0, BassAudioPlayer.ReadPublishedCallbackOutput(null, IntPtr.Zero, 16, readData));
-        Assert.AreEqual(0, BassAudioPlayer.ReadPublishedCallbackOutput(session, IntPtr.Zero, 16, readData));
-        Assert.AreEqual(0, readCalls);
+            native.Fail = true;
+            Assert.AreEqual(16, BassAudioPlayer.ReadPublishedCallbackOutput(session, IntPtr.Add(buffer, 4), 16));
+            Marshal.Copy(IntPtr.Add(buffer, 4), samples, 0, 4);
+            CollectionAssert.AreEqual(new float[4], samples);
+            Assert.IsTrue(session.HasCallbackOutputFailure);
+            Assert.ThrowsException<AudioCallbackOutputFailureException>(session.ThrowPendingOutputFailure);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    private sealed class CallbackPcmNative : IAudioPcmNative
+    {
+        internal int LastHandle { get; private set; }
+        internal bool Fail { get; set; }
+        public Errors LastError => Fail ? Errors.Handle : Errors.OK;
+        public int ChannelGetData(int channel, float[] buffer, int lengthBytes)
+        {
+            LastHandle = channel;
+            if (Fail)
+            {
+                return -1;
+            }
+            // 一回に一frameだけ返し、callbackが短いreadを継続することも確認します。
+            buffer[0] = 1.25f;
+            buffer[1] = -1.25f;
+            return 8;
+        }
     }
 
     [TestMethod]
@@ -591,8 +647,7 @@ public sealed class BassAudioSessionTests
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
         {
             MixerHandle = 10,
-            OutputHandle = 20,
-            VolumeEffectHandle = 30
+            OutputHandle = 20
         };
 
         session.ConfirmStreamReleased(20);
@@ -600,13 +655,11 @@ public sealed class BassAudioSessionTests
 
         Assert.AreEqual(10, session.MixerHandle);
         Assert.AreEqual(30, session.OutputHandle);
-        Assert.AreEqual(30, session.VolumeEffectHandle);
         Assert.IsFalse(session.AdditionalStreamHandles.Contains(20));
 
         session.ConfirmStreamReleased(10);
 
         Assert.AreEqual(0, session.MixerHandle);
-        Assert.AreEqual(0, session.VolumeEffectHandle);
     }
 
     [TestMethod]

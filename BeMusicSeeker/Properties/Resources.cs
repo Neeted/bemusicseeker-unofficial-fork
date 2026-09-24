@@ -2602,4 +2602,10 @@ public class Resources
 
     public static string Confirm_CustomFolderOutputChangesFormat => ResourceManager.GetString("Confirm_CustomFolderOutputChangesFormat", resourceCulture);
 
+    /// <summary>必要な音源の読込み失敗と対象・処理段階の表示書式を取得します。</summary>
+    public static string AudioRequiredResourceLoadFailureFormat => ResourceManager.GetString("AudioRequiredResourceLoadFailureFormat", resourceCulture);
+
+    /// <summary>音声出力失敗と処理段階の表示書式を取得します。</summary>
+    public static string AudioCallbackOutputFailureFormat => ResourceManager.GetString("AudioCallbackOutputFailureFormat", resourceCulture);
+
 }

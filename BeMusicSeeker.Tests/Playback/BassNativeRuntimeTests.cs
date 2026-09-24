@@ -42,16 +42,18 @@ public sealed class BassNativeRuntimeTests
             "basswasapi.dll",
             "bassmix.dll",
             "bass_fx.dll",
-            "bassenc.dll"
+            "bassenc.dll",
+            "bms_vorbis.dll"
         };
         string[] expectedHashes =
         {
             "FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4",
             "73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96",
             "6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1",
-            "F782CAE8090700A456C9E7AEAA7770C3B90CB60A1E765C4B3CBAE739D3B4D58D",
+            "3A1777CD14C0FC6E2D6F879CE9B66CB60CD1C6607F344D70D2434164526063AB",
             "A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A",
-            "9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8"
+            "9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8",
+            "C4AD0A911F75AE73815770EAFD67CB4EFEC853B8402CB28C02DE64CB03A4140A"
         };
 
         string nativeDirectory = Path.Combine(AppContext.BaseDirectory, "libs", "x64");
@@ -73,7 +75,7 @@ public sealed class BassNativeRuntimeTests
             Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
             Assert.AreEqual(0x01040300u, BassVersionPacking.Pack(ManagedBass.Asio.BassAsio.Version));
             Assert.AreEqual(0x02040401u, BassVersionPacking.Pack(ManagedBass.Wasapi.BassWasapi.Version));
-            Assert.AreEqual(0x02040C00u, BassVersionPacking.Pack(ManagedBass.Mix.BassMix.Version));
+            Assert.AreEqual(0x02040D00u, BassVersionPacking.Pack(ManagedBass.Mix.BassMix.Version));
             Assert.AreEqual(0x02040C06u, BassVersionPacking.Pack(ManagedBass.Fx.BassFx.Version));
             Assert.AreEqual(0x02041100u, BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version));
         }
@@ -297,7 +299,8 @@ public sealed class BassNativeRuntimeTests
             BassNativeRuntime.ResolveLoadedLibrary("basswasapi.dll"),
             BassNativeRuntime.ResolveLoadedLibrary("bassmix.dll"),
             BassNativeRuntime.ResolveLoadedLibrary("bass_fx.dll"),
-            BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll")
+            BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bms_vorbis.dll")
         ];
         BassAudioRuntime.Shutdown();
         Assert.IsFalse(BassNativeRuntime.IsLoaded);
@@ -314,7 +317,8 @@ public sealed class BassNativeRuntimeTests
                     BassNativeRuntime.ResolveLoadedLibrary("basswasapi.dll"),
                     BassNativeRuntime.ResolveLoadedLibrary("bassmix.dll"),
                     BassNativeRuntime.ResolveLoadedLibrary("bass_fx.dll"),
-                    BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll")
+                    BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bms_vorbis.dll")
                 });
             Assert.AreEqual(0x02041100u, BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version));
         }
@@ -371,6 +375,7 @@ public sealed class BassNativeRuntimeTests
         {
             [0x02041203] = new(2, 4, 18, 3),
             [0x02040C00] = new(2, 4, 12, 0),
+            [0x02040D00] = new(2, 4, 13, 0),
             [0x02041100] = new(2, 4, 17, 0),
             [0x02040401] = new(2, 4, 4, 1),
             [0x02040C06] = new(2, 4, 12, 6),
@@ -513,7 +518,7 @@ public sealed class BassNativeRuntimeTests
             StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitwidth 32");
             StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -V 4 ");
             Assert.AreEqual(
-                EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo32Bit,
+                EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo32Bit | EncodeFlags.Dither,
                 BassAudioWriter.EncoderFlags);
 
             string neroOutputFile = neroWithoutExtension + " (2).m4a";
@@ -527,12 +532,11 @@ public sealed class BassNativeRuntimeTests
             BassAudioWriter.CreateEncoderOPUS(opusWithoutExtension, quality: 0.6f);
             AssertCreatedEncoder(opusOutputFile);
             StringAssert.Contains(BassAudioWriter.EncoderCommandLine, opusOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--raw-rate 48000");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--raw-chan 2");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--raw-bits 24");
+            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--ignorelength");
+            Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains("--raw", StringComparison.Ordinal));
             StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitrate 156 ");
             Assert.AreEqual(
-                EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo24Bit,
+                EncodeFlags.Unicode,
                 BassAudioWriter.EncoderFlags);
 
             string flacOutputFile = flacWithoutExtension + " (2).flac";
@@ -563,12 +567,15 @@ public sealed class BassNativeRuntimeTests
             AssertCreatedEncoder(outputPath);
             Assert.AreEqual(outputPath, BassAudioWriter.EncoderCommandLine);
             Assert.AreEqual(
-                EncodeFlags.PCM | EncodeFlags.ConvertFloatTo16BitInt,
+                EncodeFlags.PCM | EncodeFlags.ConvertFloatTo16BitInt | EncodeFlags.Dither,
                 BassAudioWriter.EncoderFlags);
 
             BassAudioWriter.StartRecording();
             Assert.AreEqual(PlayState.Playing, BassAudioWriter.RecordState);
-            BassAudioWriter.RecordToFile(TimeSpan.FromMilliseconds(50));
+            AudioPcmRenderer renderer = BassAudioWriter.CreatePcmRenderer();
+            float[] pcm = new float[renderer.SampleRate / 20 * renderer.ChannelCount];
+            renderer.ReadFramesExactly(pcm, 0, renderer.SampleRate / 20);
+            BassAudioWriter.WritePcm(pcm);
 
             BassAudioWriter.StopRecording();
             Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
@@ -940,7 +947,7 @@ public sealed class BassNativeRuntimeTests
         string wavePath = CreateNativeSmokeWaveFile();
         try
         {
-            AssertBassAudioPlayerPlayProducesNonZeroPcm(wavePath, onMemory: true);
+            AssertBassAudioPlayerPlayProducesNonZeroPcm(wavePath);
         }
         finally
         {
@@ -965,7 +972,7 @@ public sealed class BassNativeRuntimeTests
                 0f,
                 out session);
 
-            player = new BassAudioPlayer(wavePath, onMemory: true);
+            player = new BassAudioPlayer(wavePath);
             ForceFullCollection();
 
             player.Play();
@@ -1022,7 +1029,7 @@ public sealed class BassNativeRuntimeTests
             "audio",
             "nvorbis-1test.ogg");
         Assert.IsTrue(File.Exists(oggPath), oggPath);
-        AssertBassAudioPlayerPlayProducesNonZeroPcm(oggPath, onMemory: true);
+        AssertBassAudioPlayerPlayProducesNonZeroPcm(oggPath);
     }
 
     [TestMethod]
@@ -1045,7 +1052,7 @@ public sealed class BassNativeRuntimeTests
             var native = new PlayerMixerSourceNativeBoundary(
                 () => session.MixerHandle,
                 initiallyAttached: true);
-            player = new BassAudioPlayer(wavePath, onMemory: true, native);
+            player = new BassAudioPlayer(wavePath, new AudioSourceCache(), native);
 
             player.Play();
             Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
@@ -1096,7 +1103,7 @@ public sealed class BassNativeRuntimeTests
                 0f,
                 out session);
 
-            player = new BassAudioPlayer(wavePath, onMemory: true);
+            player = new BassAudioPlayer(wavePath);
             player.Play();
             Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
 
@@ -1114,10 +1121,14 @@ public sealed class BassNativeRuntimeTests
             }
 
             Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            BassAudioOwnedStream endedSource = session.GetPlayerStreams().Single();
+            Assert.AreEqual(session.MixerHandle, BassMix.ChannelGetMixer(endedSource.Handle));
+            Assert.AreEqual(PlayState.Stopped, player.PlayState);
             player.Play();
             Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
             player.Stop();
             Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            Assert.AreEqual(0, BassMix.ChannelGetMixer(endedSource.Handle));
         }
         finally
         {
@@ -1146,7 +1157,7 @@ public sealed class BassNativeRuntimeTests
         Assert.IsFalse(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 9, 8));
     }
 
-    private static void AssertBassAudioPlayerPlayProducesNonZeroPcm(string path, bool onMemory)
+    private static void AssertBassAudioPlayerPlayProducesNonZeroPcm(string path)
     {
         float originalVolume = BassAudioPlayer.DeviceVolume;
         bool originalMute = BassAudioPlayer.IsDeviceMuted;
@@ -1166,7 +1177,7 @@ public sealed class BassNativeRuntimeTests
                 0f,
                 out session);
 
-            player = new BassAudioPlayer(path, onMemory);
+            player = new BassAudioPlayer(path);
             player.Play();
 
             BassAudioOwnedStream source = session.GetPlayerStreams().Single();
@@ -1240,6 +1251,20 @@ public sealed class BassNativeRuntimeTests
             ManagedBass.BassFlags flags,
             ManagedBass.BassFlags mask)
             => ManagedBass.BassFlags.Default;
+
+        public BassMixerChannelInfo GetChannelInfo(int channelHandle)
+        {
+            ChannelInfo info = Bass.ChannelGetInfo(channelHandle);
+            return new BassMixerChannelInfo(info.Frequency, info.Channels, info.Flags);
+        }
+
+        public bool SetSampleRateConversion(int sourceHandle, float quality)
+            => Bass.ChannelSetAttribute(sourceHandle, ChannelAttribute.SampleRateConversion, quality);
+
+        public bool GetSampleRateConversion(int sourceHandle, out float quality)
+            => Bass.ChannelGetAttribute(sourceHandle, ChannelAttribute.SampleRateConversion, out quality);
+
+        public bool SetMatrix(int sourceHandle, float[,] matrix) => true;
 
         public bool RemoveChannel(int sourceHandle)
         {
@@ -1346,7 +1371,7 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void EffectiveDeviceVolumeForBackend_SeparatesNullDeviceRenderGainFromAudibleMute()
+    public void EffectiveDeviceVolumeForBackend_UsesUnityForNullDeviceAndMuteForAudibleBackends()
     {
         const float deviceVolume = 0.37f;
 
@@ -1356,12 +1381,6 @@ public sealed class BassNativeRuntimeTests
                 BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 deviceVolume,
                 isMuted: false));
-        Assert.AreEqual(
-            0f,
-            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
-                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-                deviceVolume,
-                isMuted: true));
         Assert.AreEqual(
             0f,
             BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
@@ -1381,13 +1400,13 @@ public sealed class BassNativeRuntimeTests
                 deviceVolume,
                 isMuted: true));
         Assert.AreEqual(
-            deviceVolume,
+            1f,
             BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE,
                 deviceVolume,
                 isMuted: false));
         Assert.AreEqual(
-            deviceVolume,
+            1f,
             BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE,
                 deviceVolume,
@@ -1424,7 +1443,7 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
-    public void NullDevice_MuteDoesNotMuteOfflineRenderGain()
+    public void NullDevice_MixerRemainsUnityWhenDeviceVolumeAndMuteChange()
     {
         float originalVolume = BassAudioPlayer.DeviceVolume;
         bool originalMute = BassAudioPlayer.IsDeviceMuted;
@@ -1447,20 +1466,20 @@ public sealed class BassNativeRuntimeTests
                 out ownedSession);
 
             Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
-            Assert.AreEqual(0.4f, BassAudioPlayer.DeviceVolume);
-            Assert.AreNotEqual(0, ownedSession.VolumeEffectHandle);
-            Assert.AreEqual(0.4f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+            Assert.AreEqual(0.25f, BassAudioPlayer.DeviceVolume);
+            Assert.AreEqual(originalDefaultVolume, BassAudioPlayer.DefaultVolume);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
 
-            BassAudioPlayer.DeviceVolume = 0.25f;
+            BassAudioPlayer.DeviceVolume = 0.73f;
             Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
-            Assert.AreEqual(0.25f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
 
             BassAudioPlayer.IsDeviceMuted = false;
-            Assert.AreEqual(0.25f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
 
             BassAudioPlayer.IsDeviceMuted = true;
             Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
-            Assert.AreEqual(0.25f, ReadVolumeEffectGain(ownedSession.VolumeEffectHandle), 0.0001f);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
         }
         finally
         {
@@ -1493,16 +1512,12 @@ public sealed class BassNativeRuntimeTests
         BassAudioPlayer.IsDeviceMuted = muted;
     }
 
-    private static float ReadVolumeEffectGain(int effectHandle)
+    private static float ReadChannelVolume(int channelHandle)
     {
-        var parameters = new ManagedBassBfxVolumeParameters
-        {
-            Channel = -1
-        };
         Assert.IsTrue(
-            ManagedBassEffectParameters.GetParameters(effectHandle, parameters),
-            Ribbit.Media.Audio.BassNativeErrorFormatter.Format(ManagedBass.Bass.LastError));
-        return parameters.Volume;
+            Bass.ChannelGetAttribute(channelHandle, ChannelAttribute.Volume, out float volume),
+            BassNativeErrorFormatter.Format(Bass.LastError));
+        return volume;
     }
 
     [TestMethod]

@@ -88,12 +88,14 @@ internal sealed class BassAudioBackendResult
         int mixerHandle,
         IReadOnlyList<BassAudioBackendAttempt> attempts,
         string fallbackReason,
-        int actualChannels = 2)
+        int actualChannels = 2,
+        SampleFormat callbackFormat = SampleFormat.UNKNOWN)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         ActualDevice = actualDevice;
         ActualRate = actualRate;
         EngineFormat = engineFormat;
+        CallbackFormat = callbackFormat == SampleFormat.UNKNOWN ? engineFormat : callbackFormat;
         EndpointFormat = endpointFormat;
         LatencyMilliseconds = latencyMilliseconds;
         MixerHandle = mixerHandle;
@@ -111,8 +113,11 @@ internal sealed class BassAudioBackendResult
     /// <summary>Gets the sample rate read back from the backend.</summary>
     internal SampleRate ActualRate { get; }
 
-    /// <summary>Gets the mixer format supplied to the callback.</summary>
+    /// <summary>callbackへ供給するmixerのformatを取得します。</summary>
     internal SampleFormat EngineFormat { get; }
+
+    /// <summary>backend callbackへ渡すdataのformatを取得します。</summary>
+    internal SampleFormat CallbackFormat { get; }
 
     /// <summary>
     /// Gets the endpoint format observed by the backend, or <see cref="SampleFormat.UNKNOWN"/>
@@ -166,6 +171,7 @@ internal sealed class BassAudioBackendResult
             MixerHandle,
             attempts,
             fallbackReason,
-            ActualChannels);
+            ActualChannels,
+            CallbackFormat);
     }
 }

@@ -1028,5 +1028,7 @@
   "RightClick_arguments_file_path_required": "인수 템플릿에 {0}를 포함하세요.",
   "RightClick_arguments_unknown_placeholder": "인수 템플릿에 지원되지 않는 치환 기호가 있습니다.",
   "RightClick_arguments_unbalanced_placeholder": "인수 템플릿의 치환 기호 중괄호가 짝이 맞지 않습니다.",
-  "RightClick_arguments_unbalanced_quote": "인수 템플릿의 큰따옴표가 맞지 않습니다."
+  "RightClick_arguments_unbalanced_quote": "인수 템플릿의 큰따옴표가 맞지 않습니다.",
+  "AudioRequiredResourceLoadFailureFormat": "필요한 음원 '{0}'을(를) 불러오지 못했습니다.\n경로: {1}\n처리 단계: {2}\n네이티브 오류: {3}",
+  "AudioCallbackOutputFailureFormat": "오디오 출력에 실패했습니다.\n처리 단계: {0}\n네이티브 오류: {1}"
 }

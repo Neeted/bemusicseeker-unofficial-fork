@@ -74,7 +74,6 @@
     <PackageReference Include="sqlite-net-pcl" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="SevenZipExtractor" GeneratePathProperty="true" ExcludeAssets="build" />
-    <PackageReference Include="NVorbis" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="NLog" />
     <PackageReference Include="ManagedBass" />
@@ -110,8 +109,8 @@
     <Copy SourceFiles="..\native\EverythingBridge_x64.dll"
           DestinationFiles="$(PublishDir)native\EverythingBridge_x64.dll"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="..\vendor\native\x64\bass.dll;..\vendor\native\x64\bassasio.dll;..\vendor\native\x64\bassenc.dll;..\vendor\native\x64\bassmix.dll;..\vendor\native\x64\basswasapi.dll;..\vendor\native\x64\bass_fx.dll"
-          DestinationFiles="$(PublishDir)libs\x64\bass.dll;$(PublishDir)libs\x64\bassasio.dll;$(PublishDir)libs\x64\bassenc.dll;$(PublishDir)libs\x64\bassmix.dll;$(PublishDir)libs\x64\basswasapi.dll;$(PublishDir)libs\x64\bass_fx.dll"
+    <Copy SourceFiles="..\vendor\native\x64\bass.dll;..\vendor\native\x64\bassasio.dll;..\vendor\native\x64\bassenc.dll;..\vendor\native\x64\bassmix.dll;..\vendor\native\x64\basswasapi.dll;..\vendor\native\x64\bass_fx.dll;..\vendor\native\x64\bms_vorbis.dll"
+          DestinationFiles="$(PublishDir)libs\x64\bass.dll;$(PublishDir)libs\x64\bassasio.dll;$(PublishDir)libs\x64\bassenc.dll;$(PublishDir)libs\x64\bassmix.dll;$(PublishDir)libs\x64\basswasapi.dll;$(PublishDir)libs\x64\bass_fx.dll;$(PublishDir)libs\x64\bms_vorbis.dll"
           SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(PkgSevenZipExtractor)\build\x64\7z.dll"
           DestinationFiles="$(PublishDir)libs\x64\7z.dll"

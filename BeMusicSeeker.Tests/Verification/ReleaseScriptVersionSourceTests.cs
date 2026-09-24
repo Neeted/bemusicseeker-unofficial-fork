@@ -338,6 +338,7 @@ public sealed class ReleaseScriptVersionSourceTests
             "libs/x64/bassmix.dll",
             "libs/x64/basswasapi.dll",
             "libs/x64/bass_fx.dll",
+            "libs/x64/bms_vorbis.dll",
             "lang/en-US.json",
             "lang/fr-FR.json",
             "lang/ja-JP.json",
