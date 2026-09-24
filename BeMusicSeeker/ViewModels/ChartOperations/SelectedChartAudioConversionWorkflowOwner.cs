@@ -249,6 +249,12 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         this.executor = executor ?? throw new ArgumentNullException(nameof(executor));
     }
 
+    /// <summary>選択譜面の音声変換を実行します。</summary>
+    /// <param name="request">変換する譜面の要求。</param>
+    /// <param name="cancellationToken">処理を取り消すトークン。</param>
+    /// <returns>変換結果。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="DirectoryNotFoundException">選択後、再生停止前に出力先が存在しない場合。</exception>
     internal async Task<SelectedChartAudioConversionResult> RunAsync(
         SelectedChartAudioConversionRequest request,
         CancellationToken cancellationToken = default)
@@ -294,6 +300,10 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             if (settings == null)
             {
                 throw new InvalidOperationException("Audio conversion settings snapshot was not provided.");
+            }
+            if (!LongPathFileSystem.DirectoryExists(folderResult.FolderPath))
+            {
+                throw new DirectoryNotFoundException();
             }
             playback.StopPlayback();
             using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

@@ -29,6 +29,10 @@
 | Ogg | `-F 3` のIEEE Float生データ |
 | Nero | Float32のWAVヘッダー付きデータ |
 
+### 選択後の出力先確認
+
+出力フォルダの選択が受理された後、再生を停止する直前に `SelectedChartAudioConversionWorkflowOwner` が `LongPathFileSystem.DirectoryExists` で選択先を確認します。この時点でフォルダが存在しなければ、標準の `DirectoryNotFoundException` を送出し、再生停止・進捗表示・変換・完了通知へ進みません。変換executorも実行開始時に出力先を再確認し、選択先確認後にフォルダが失われた場合は変換を拒否します。
+
 ### 開始と所有
 
 非0のエンコーダーハンドルを取得し、`EncodeSetNotify` に成功した後だけ録音状態を `Playing` にします。停止失敗ではハンドルと再生中の状態を保持し、解放済みとして扱いません。
@@ -71,6 +75,7 @@ flowchart TB
 | --- | --- | --- |
 | 形式、引数、品質、タグと拡張子 | [`AudioEncoderCommandFactory`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioEncoderCommandFactory.cs)、[`AudioTagInfo`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioTagInfo.cs) | [`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)、[`AudioEncoderCommandFactoryTests`](../../../BeMusicSeeker.Tests/Playback/AudioEncoderCommandFactoryTests.cs) |
 | 開始・通知・停止・実形式、途中終了と解放の所有 | [`AudioEncoderSession`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioEncoderSession.cs)、[`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`AudioEncoderSessionTests`](../../../BeMusicSeeker.Tests/Playback/AudioEncoderSessionTests.cs)、[`BassAudioWriterTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioWriterTests.cs) |
+| 選択後の出力先消失を再生停止前に拒否し、変換開始時にも再確認 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs)、`BassSelectedChartAudioConversionExecutor` | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) は選択直後の消失時に停止・進捗・通知が行われないこと、停止時に消失した場合にexecutorが拒否することを確認する。 |
 | ファイルごとの結果、主失敗、解放できない場合の停止 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs) | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) |
 | 別途用意した実エンコーダーとの接続 | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
 

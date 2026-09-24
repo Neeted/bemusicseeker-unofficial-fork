@@ -235,8 +235,115 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual("MP3 LAME", dialogs.ProgressLabel.Split('-')[0].Trim());
             Assert.IsTrue(events.IndexOf("picker") < events.IndexOf("playback"));
             Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("progress"));
+            Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("execute"));
             Assert.IsTrue(events.IndexOf("execute") < events.IndexOf("message"));
             Assert.IsTrue(events.IndexOf("progress") < events.IndexOf("message"));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_MissingSelectedOutputDirectoryDoesNotStopPlaybackAndCanRetry()
+    {
+        string root = CreateRoot();
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            string outputDirectory = Path.Combine(root, "output");
+            Directory.CreateDirectory(outputDirectory);
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [outputDirectory]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            bool removeOutputBeforeReturn = true;
+            dialogs.FolderPickerHandler = () =>
+            {
+                if (removeOutputBeforeReturn)
+                {
+                    Directory.Delete(outputDirectory, recursive: true);
+                    removeOutputBeforeReturn = false;
+                }
+                return Task.FromResult(dialogs.FolderResult);
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, _, _, report) => report(true)
+            };
+            var playback = new RecordingPlayback(events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]);
+
+            await Assert.ThrowsExceptionAsync<DirectoryNotFoundException>(
+                () => owner.RunAsync(request));
+
+            Assert.AreEqual(0, playback.StopCalls);
+            Assert.AreEqual(0, executor.CallCount);
+            Assert.AreEqual(-1, events.IndexOf("progress"));
+            Assert.AreEqual(0, dialogs.MessageCalls);
+
+            Directory.CreateDirectory(outputDirectory);
+            SelectedChartAudioConversionResult retryResult = await owner.RunAsync(request);
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, retryResult.Status);
+            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(1, playback.StopCalls);
+            Assert.AreEqual(1, executor.CallCount);
+            Assert.AreEqual(1, dialogs.MessageCalls);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_OutputDirectoryRemovedWhenPlaybackStopsIsRejectedByExecutor()
+    {
+        string root = CreateRoot();
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            string outputDirectory = Path.Combine(root, "output");
+            Directory.CreateDirectory(outputDirectory);
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [outputDirectory]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            int cleanupCalls = 0;
+            var cleanupFailure = new InvalidOperationException("encoder cleanup should not be reached");
+            var executor = new BassSelectedChartAudioConversionExecutor(
+                () =>
+                {
+                    cleanupCalls++;
+                    throw cleanupFailure;
+                },
+                _ => true,
+                new BassAudioSessionLease());
+            var playback = new RecordingPlayback(events)
+            {
+                StopAction = () => Directory.Delete(outputDirectory, recursive: true)
+            };
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+
+            await Assert.ThrowsExceptionAsync<DirectoryNotFoundException>(
+                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
+                    CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+                ])));
+
+            Assert.AreEqual(1, playback.StopCalls);
+            Assert.AreEqual(0, cleanupCalls);
+            Assert.AreEqual(0, dialogs.MessageCalls);
         }
         finally
         {
@@ -586,7 +693,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     private static SelectedChartAudioConversionWorkflowOwner CreateOwner(
         RecordingDialogService dialogs,
         RecordingPlayback playback,
-        RecordingExecutor executor,
+        ISelectedChartAudioConversionExecutor executor,
         EventLog events,
         List<EncoderType> fallbackValues = null!)
     {
@@ -675,10 +782,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
         internal int StopCalls { get; private set; }
 
+        internal Action? StopAction { get; set; }
+
         public void StopPlayback()
         {
             StopCalls++;
             events.Add("playback");
+            StopAction?.Invoke();
         }
     }
 
