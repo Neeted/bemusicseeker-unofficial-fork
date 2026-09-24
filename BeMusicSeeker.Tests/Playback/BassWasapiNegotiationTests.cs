@@ -10,7 +10,7 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class BassWasapiAndDirectSoundNegotiationTests
+public sealed class BassWasapiNegotiationTests
 {
     private static readonly WasapiProcedure WasapiCallback = (buffer, length, user) => length;
 
@@ -568,80 +568,6 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         Assert.AreEqual("BASSWASAPI", exception.NativeErrorSource);
     }
 
-    [TestMethod]
-    public void DirectSoundReadback_UsesActualDeviceAndRateForGraphAndResult()
-    {
-        var native = new RecordingDirectSoundBoundary
-        {
-            CoreDevice = 7,
-            ActualDevice = new BassDirectSoundDeviceSnapshot("Actual DirectSound", "actual-driver"),
-            Info = new BassDirectSoundInfoSnapshot(48000)
-        };
-        native.Devices.Add(new BassDirectSoundDevice(
-            0,
-            new BassAudioPlayer.DeviceDescriptor("No sound", ""),
-            isEnabled: false,
-            isDefault: false));
-        native.Devices.Add(new BassDirectSoundDevice(
-            2,
-            new BassAudioPlayer.DeviceDescriptor("Requested DirectSound", "requested-driver"),
-            isEnabled: true,
-            isDefault: true));
-
-        BassAudioSession session = CreateDirectSoundSession();
-        BassAudioBackendResult result = new BassDirectSoundNegotiator(native).Initialize(
-            CreateDirectSoundRequest(
-                device: new BassAudioPlayer.DeviceDescriptor(
-                    "Requested DirectSound",
-                    "requested-driver")),
-            session,
-            (handle, buffer, length, user) => length,
-            initialGain: 0.4f);
-
-        Assert.AreEqual(2, native.InitializeDeviceIndex);
-        Assert.AreEqual(7, session.CoreDeviceIndex);
-        Assert.AreEqual("Actual DirectSound", result.ActualDevice.Name);
-        Assert.AreEqual("actual-driver", result.ActualDevice.Driver);
-        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, result.ActualRate);
-        Assert.AreEqual(48000, native.MixerRate);
-        Assert.AreEqual(48000, native.OutputRate);
-        Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
-        Assert.IsTrue(native.OutputFlags.HasFlag(BassFlags.Float));
-        Assert.IsTrue(session.IsStarted);
-    }
-
-    [TestMethod]
-    public void DirectSoundInvalidInfoReadback_RetainsCoreOwnershipAndReportsContext()
-    {
-        var native = new RecordingDirectSoundBoundary
-        {
-            CoreDevice = 4,
-            ActualDevice = new BassDirectSoundDeviceSnapshot("Actual DirectSound", "actual-driver"),
-            Info = new BassDirectSoundInfoSnapshot(48000),
-            GetInfoResult = false,
-            InfoError = Errors.Init
-        };
-        native.Devices.Add(new BassDirectSoundDevice(
-            1,
-            new BassAudioPlayer.DeviceDescriptor("Default DirectSound", "default-driver"),
-            isEnabled: true,
-            isDefault: true));
-
-        BassAudioSession session = CreateDirectSoundSession();
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
-            () => new BassDirectSoundNegotiator(native).Initialize(
-                CreateDirectSoundRequest(),
-                session,
-                (handle, buffer, length, user) => length,
-                initialGain: 0.4f));
-
-        Assert.IsTrue(session.CoreInitialized);
-        Assert.AreEqual(4, session.CoreDeviceIndex);
-        Assert.AreEqual("BASS_GetInfo", exception.Stage);
-        Assert.AreEqual("BASS", exception.NativeErrorSource);
-        Assert.AreEqual(Errors.Init, exception.NativeErrorCode);
-    }
-
     private static BassAudioNegotiationRequest CreateWasapiRequest(
         BassAudioPlayer.DeviceDriver backend,
         SampleRate rate = SampleRate.AUTO,
@@ -650,17 +576,6 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
 
     private static BassAudioSession CreateWasapiSession(BassAudioPlayer.DeviceDriver backend) =>
         new(backend) { ActualBackend = backend };
-
-    private static BassAudioNegotiationRequest CreateDirectSoundRequest(
-        SampleRate rate = SampleRate.AUTO,
-        BassAudioPlayer.DeviceDescriptor device = default) =>
-        new(BassAudioPlayer.DeviceDriver.DIRECT_SOUND, device, rate, SampleFormat.AUTO, 20f);
-
-    private static BassAudioSession CreateDirectSoundSession() =>
-        new(BassAudioPlayer.DeviceDriver.DIRECT_SOUND)
-        {
-            ActualBackend = BassAudioPlayer.DeviceDriver.DIRECT_SOUND
-        };
 
     private static BassWasapiDeviceSnapshot CreateWasapiDevice(
         string name,
@@ -882,102 +797,5 @@ public sealed class BassWasapiAndDirectSoundNegotiationTests
         float BufferSeconds,
         float PeriodSeconds);
 
-    private sealed class RecordingDirectSoundBoundary : IDirectSoundNegotiationNativeBoundary
-    {
-        internal List<BassDirectSoundDevice> Devices { get; } = [];
 
-        internal int CoreDevice { get; set; }
-
-        internal BassDirectSoundDeviceSnapshot ActualDevice { get; set; }
-
-        internal BassDirectSoundInfoSnapshot Info { get; set; }
-
-        internal Errors CoreError { get; set; } = Errors.OK;
-
-        internal bool GetInfoResult { get; set; } = true;
-
-        internal Errors InfoError { get; set; } = Errors.Init;
-
-        internal int InitializeDeviceIndex { get; private set; } = -1;
-
-        internal int MixerRate { get; private set; }
-
-        internal int OutputRate { get; private set; }
-
-        internal BassFlags MixerFlags { get; private set; }
-
-        internal BassFlags OutputFlags { get; private set; }
-
-        private readonly Dictionary<Configuration, int> configurations = new()
-        {
-            [Configuration.UpdatePeriod] = 5,
-            [Configuration.PlaybackBufferLength] = 70
-        };
-
-        public bool TryGetDevices(
-            out IReadOnlyList<BassDirectSoundDevice> devices,
-            out Errors error)
-        {
-            devices = Devices;
-            error = Errors.OK;
-            return true;
-        }
-
-        public bool InitializeCore(int deviceIndex, int rate, DeviceInitFlags flags)
-        {
-            InitializeDeviceIndex = deviceIndex;
-            return true;
-        }
-
-        public int GetCoreDevice() => CoreDevice;
-
-        public bool TryGetDeviceInfo(
-            int deviceIndex,
-            out BassDirectSoundDeviceSnapshot deviceInfo,
-            out Errors error)
-        {
-            deviceInfo = ActualDevice;
-            error = Errors.OK;
-            return true;
-        }
-
-        public bool TryGetInfo(
-            out BassDirectSoundInfoSnapshot info,
-            out Errors error)
-        {
-            info = Info;
-            error = GetInfoResult ? Errors.OK : InfoError;
-            return GetInfoResult;
-        }
-
-        public bool SetConfig(Configuration option, int value)
-        {
-            configurations[option] = value;
-            return true;
-        }
-
-        public int GetConfig(Configuration option) => configurations[option];
-
-        public int CreateMixer(int rate, int channels, BassFlags flags)
-        {
-            MixerRate = rate;
-            MixerFlags = flags;
-            return 123;
-        }
-
-        public int CreateOutputStream(int rate, int channels, BassFlags flags, StreamProcedure callback)
-        {
-            OutputRate = rate;
-            OutputFlags = flags;
-            return 234;
-        }
-
-        public bool Play(int streamHandle) => true;
-
-        public int CreateVolumeEffect(int mixerHandle) => 345;
-
-        public bool SetVolumeEffect(int effectHandle, float volume) => true;
-
-        public Errors GetCoreError() => CoreError;
-    }
 }

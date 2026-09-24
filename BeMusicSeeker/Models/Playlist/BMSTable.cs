@@ -979,7 +979,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             .Where(f => folderList.Contains(f))
             .Distinct(StringComparer.Ordinal);
         List<string> list = [.. folderList.Except(enumerable)];
-        using (var comparer = new NaturalComparer<string>())
+        using (var comparer = new NaturalComparer())
         {
             list.Sort(comparer);
         }

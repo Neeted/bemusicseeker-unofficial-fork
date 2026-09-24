@@ -1419,34 +1419,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="root">探索開始要素。</param>
     /// <param name="maxCount">上限件数。</param>
     /// <returns>見つかった要素数。</returns>
-    private static int CountVisualDescendants<T>(DependencyObject root, int maxCount) where T : DependencyObject
-    {
-        if (root == null || maxCount <= 0)
-        {
-            return 0;
-        }
-        int count = 0;
-        var pending = new Queue<DependencyObject>();
-        pending.Enqueue(root);
-        while (pending.Count > 0 && count < maxCount)
-        {
-            DependencyObject current = pending.Dequeue();
-            int childCount = VisualTreeHelper.GetChildrenCount(current);
-            for (int i = 0; i < childCount && count < maxCount; i++)
-            {
-                DependencyObject child = VisualTreeHelper.GetChild(current, i);
-                if (child is T)
-                {
-                    count++;
-                }
-                if (child != null)
-                {
-                    pending.Enqueue(child);
-                }
-            }
-        }
-        return count;
-    }
 
     private void CloseWindow(object sender, ExecutedRoutedEventArgs e)
     {
@@ -2552,65 +2524,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         customTableView?.ClearSelection();
     }
 
-    private static object _getValueOfPropertyPath(object value, string path)
-    {
-        if (value == null)
-        {
-            return null;
-        }
-        Type type = value.GetType();
-        string[] array = path.Split('.');
-        foreach (string name in array)
-        {
-            PropertyInfo property = type.GetProperty(name);
-            if (property == null)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
-                return null;
-            }
-            value = property.GetValue(value, null);
-            if (value == null)
-            {
-                return null;
-            }
-            type = property.PropertyType;
-        }
-        return value;
-    }
-    private static Action<T> _getSetterOfPropertyPath<T>(object value, string path)
-    {
-        if (value == null)
-        {
-            return _ => { };
-        }
-        Type type = value.GetType();
-        PropertyInfo propertyInfo = null;
-        object firstArgument = null;
-        string[] array = path.Split('.');
-        foreach (string name in array)
-        {
-            propertyInfo = type.GetProperty(name);
-            if (propertyInfo == null)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
-                return _ => { };
-            }
-            firstArgument = value;
-            value = propertyInfo.GetValue(value, null);
-            if (value == null && name != array.Last())
-            {
-                return _ => { };
-            }
-            type = propertyInfo.PropertyType;
-        }
-        MethodInfo setMethod = propertyInfo?.GetSetMethod();
-        if (setMethod == null)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Set method for property '{propertyInfo?.Name}' not found in path '{path}'");
-            return _ => { };
-        }
-        return Delegate.CreateDelegate(typeof(Action<T>), firstArgument, setMethod) as Action<T>;
-    }
     /// <summary>
     /// 現在 ViewModel で選択されている（再生中の）BMSファイルの情報を取得し、
     /// BMSPlayerコントロールのプレビュー画像やバナーを最新状態に更新します。
@@ -2699,12 +2612,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return section == MainViewOperationSection.ChartInfoParseError;
     }
 
-    private List<ChartFile> GetSelectedBmsFormatCharts(ChartOperationCapabilities capability, bool isPendingSection = false)
-    {
-        return [.. GetSelectedChartTargets(capability, isPendingSection)
-            .Select(target => target.Chart)
-            .Where(ChartFileKindResolver.IsBmsChartFile)];
-    }
 
     private List<string> GetSelectedChartInfoParseFailureMd5s()
     {
@@ -3128,19 +3035,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Handled = true;
     }
 
-    private static T FindTemplateElement<T>(FrameworkElement source, string elementName) where T : class
-    {
-        FrameworkElement current = source;
-        while (current != null)
-        {
-            if (current.FindName(elementName) is T found)
-            {
-                return found;
-            }
-            current = current.Parent as FrameworkElement;
-        }
-        return null;
-    }
     private static T FindNamedDescendant<T>(FrameworkElement root, string elementName) where T : class
     {
         if (root == null)
@@ -3780,22 +3674,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         treeRoot.IsExpanded = true;
     }
 
-    private void artistFolderSelect(object sender, RoutedEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("tree_artist_folder_select"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel
-            && e.Source is TreeViewItem treeViewItem)
-        {
-            regularLibraryTreeTerminal.NavigateTree(
-                RegularChartFolderFilterKind.Artist,
-                treeViewItem.Header.ToString());
-            e.Handled = true;
-        }
-    }
 
     private void rootFolderSelect(object sender, RoutedEventArgs e)
     {

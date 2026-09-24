@@ -2636,11 +2636,6 @@ public partial class BMSPlaylist : ObservableObject
         return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
-    private int RepairMissingCustomFolderOutputsAfterHydration(string reason, bool verifyRootOutputDirectoryRows = false)
-    {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        return RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings);
-    }
 
     private int RepairMissingCustomFolderOutputsAfterHydrationCore(
         string reason,
@@ -4080,40 +4075,6 @@ public partial class BMSPlaylist : ObservableObject
         item.ParentHash = classification.ParentHash;
     }
 
-    private void SyncCustomFolderRows(
-        string outputDir,
-        IReadOnlyCollection<Lr2FolderFileSyncItem> items,
-        LibraryFileMutationCapability mutationCapability,
-        BMSTable bmsTable = null,
-        IReadOnlyCollection<string> directoryRowGenerationScopes = null,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> ownedDirectoryEntries = null)
-    {
-        ArgumentNullException.ThrowIfNull(mutationCapability);
-        if (string.IsNullOrWhiteSpace(outputDir))
-        {
-            return;
-        }
-
-        directoryRowGenerationScopes ??= CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable);
-        Lr2FolderDirectoryMetadataSnapshot directoryMetadata = CreateCustomFolderParentDirectoryMetadataSnapshot(
-            items,
-            directoryRowGenerationScopes,
-            [outputDir],
-            ownedDirectoryEntries);
-        Lr2FolderFileDbSyncResult result = GetLr2PlaylistFolderSynchronization().SyncPlaylistLr2FolderFileRows(
-            "playlist_lr2folder_sync",
-            new Lr2FolderFileDbSyncRequest
-            {
-                Items = items ?? [],
-                ScopeDirectories = [outputDir],
-                DirectoryRowScopeDirectories = [outputDir],
-                DirectoryRowGenerationScopeDirectories = directoryRowGenerationScopes,
-                DirectoryMetadataResolver = directoryMetadata.Resolve,
-                AllowPrune = true
-            },
-            mutationCapability);
-        LogLr2FolderSyncResult("playlist_lr2folder_sync", result, 1, items?.Count ?? 0);
-    }
 
     private Lr2FolderFileDbSyncResult SyncCustomFolderRowsBatch(
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchMaterializationRequest request,

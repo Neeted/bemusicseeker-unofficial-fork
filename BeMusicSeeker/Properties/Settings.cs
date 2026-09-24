@@ -1707,13 +1707,7 @@ internal sealed class Settings : ApplicationSettingsBase
         base.SettingsLoaded += SettingsLoadedEventHandler;
     }
 
-    private void SettingChangingEventHandler(object sender, SettingChangingEventArgs e)
-    {
-    }
 
-    private void SettingsSavingEventHandler(object sender, CancelEventArgs e)
-    {
-    }
 
     private void SettingsLoadedEventHandler(object sender, SettingsLoadedEventArgs e)
     {

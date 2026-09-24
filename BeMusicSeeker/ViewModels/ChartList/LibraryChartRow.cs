@@ -679,16 +679,6 @@ internal sealed class LibraryChartRow : NotificationObject
         return state?.HasWarningProjection == true || state?.HasInstallEstimationWarningProjection == true;
     }
 
-    private ChartFileTransientState GetSourceChartTransientState(bool includeWarningSnapshot)
-    {
-        if (sourceTransientBaseline == null || sourceChart == null)
-        {
-            return ChartFileTransientState.Empty;
-        }
-        return ChartFileTransientState.FromChartFile(
-            ChartFileProjection.WithTransientOverrides(sourceTransientBaseline, sourceChart, sourceTransientBaseline, includeWarningSnapshot),
-            includeWarningSnapshot);
-    }
 
     private ChartFile CreateSourceTransientBaseline()
     {

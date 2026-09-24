@@ -4289,7 +4289,6 @@ internal sealed class RegularChartListOwner : IDisposable
             rows,
             request.Sort,
             input.IsPlaylistDetailView,
-            useLegacySortForDataGrid: false,
             out string sortProfile,
             out LibraryChartSortMetrics metrics);
         lease.Token.ThrowIfCancellationRequested();

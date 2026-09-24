@@ -4361,10 +4361,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return StandaloneBmsRootPathSettings.Normalize(paths);
     }
 
-    private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPaths(IEnumerable<string> paths)
-    {
-        return StandaloneBmsRootPathSettings.Normalize(paths);
-    }
 
     private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(IEnumerable<string> paths)
     {
@@ -6900,12 +6896,6 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSync()
-    {
-        return PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-            customFolderOutputPort.CustomFolderOutputSettings
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
-    }
 
     private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
         CustomFolderOutputSettingsSnapshot settings)
@@ -6933,13 +6923,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return plan;
     }
 
-    private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSync(CustomFolderOutputBaseSearchRootSyncPlan plan)
-    {
-        return CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-            plan,
-            customFolderOutputPort.CustomFolderOutputSettings
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
-    }
 
     private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
         CustomFolderOutputBaseSearchRootSyncPlan plan,

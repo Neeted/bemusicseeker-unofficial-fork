@@ -71,7 +71,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     {
         PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
 
-        KeywordSearchPresentationState state = workspace.FocusPlaylistSummaryKeywordSearch("ou", 2);
+        KeywordSearchPresentationState state = workspace.PlaylistSummaryKeywordSearchAssistanceOwner.Focus("ou", 2);
 
         Assert.IsTrue(state.IsOpen);
         Assert.AreEqual(GridKeywordSearchContext.PlaylistSummary, state.Context);
@@ -79,7 +79,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsTrue(state.VisibleItems.Any(item => item.DisplayText == "output:"));
         Assert.IsFalse(state.VisibleItems.Any(item => item.Kind == KeywordSearchPresentationItemKind.Value));
 
-        KeywordSearchPresentationState blurred = workspace.BlurPlaylistSummaryKeywordSearch();
+        KeywordSearchPresentationState blurred = workspace.PlaylistSummaryKeywordSearchAssistanceOwner.Blur();
         Assert.IsFalse(blurred.IsOpen);
     }
 

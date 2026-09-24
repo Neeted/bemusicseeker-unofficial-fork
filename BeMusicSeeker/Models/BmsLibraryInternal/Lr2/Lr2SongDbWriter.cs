@@ -1173,37 +1173,6 @@ internal static class Lr2SongDbWriter
     }
 
 
-    private static string DescribeGeneratedColumnMismatch(BMSFile expected, GeneratedSongRow existing)
-    {
-        var names = new List<string>();
-        AddMismatchName(names, "path", !string.Equals(expected.path, existing.path, StringComparison.Ordinal));
-        AddMismatchName(names, "hash", !string.Equals(expected.hash, existing.hash, StringComparison.Ordinal));
-        AddMismatchName(names, "title", !HasSameGeneratedDisplayString(expected.title, existing.title));
-        AddMismatchName(names, "subtitle", !HasSameGeneratedDisplayString(expected.subtitle, existing.subtitle));
-        AddMismatchName(names, "artist", !HasSameGeneratedDisplayString(expected.artist, existing.artist));
-        AddMismatchName(names, "subartist", !HasSameGeneratedDisplayString(expected.subartist, existing.subartist));
-        AddMismatchName(names, "genre", !HasSameGeneratedDisplayString(expected.genre, existing.genre));
-        AddMismatchName(names, "type", expected.type != existing.type);
-        AddMismatchName(names, "folder", !string.Equals(expected.folder, existing.folder, StringComparison.Ordinal));
-        AddMismatchName(names, "stagefile", !HasSameGeneratedDisplayString(expected.stagefile, existing.stagefile));
-        AddMismatchName(names, "banner", !HasSameGeneratedDisplayString(expected.banner, existing.banner));
-        AddMismatchName(names, "backbmp", !HasSameGeneratedDisplayString(expected.backbmp, existing.backbmp));
-        AddMismatchName(names, "parent", !string.Equals(expected.parent, existing.parent, StringComparison.Ordinal));
-        AddMismatchName(names, "level", expected.level != existing.level);
-        AddMismatchName(names, "difficulty", expected.difficulty != existing.difficulty);
-        AddMismatchName(names, "maxbpm", expected.maxbpm != existing.maxbpm);
-        AddMismatchName(names, "minbpm", expected.minbpm != existing.minbpm);
-        AddMismatchName(names, "mode", expected.mode != existing.mode);
-        AddMismatchName(names, "judge", expected.judge != existing.judge);
-        AddMismatchName(names, "longnote", expected.longnote != existing.longnote);
-        AddMismatchName(names, "bga", expected.bga != existing.bga);
-        AddMismatchName(names, "random", expected.random != existing.random);
-        AddMismatchName(names, "date", expected.date != existing.date);
-        AddMismatchName(names, "txt", expected.txt.HasValue && expected.txt != existing.txt);
-        AddMismatchName(names, "karinotes", expected.karinotes != existing.karinotes);
-        AddMismatchName(names, "exlevel", expected.exlevel != existing.exlevel);
-        return names.Count == 0 ? "unknown" : string.Join(",", names);
-    }
 
     private static void AddMismatchName(List<string> names, string name, bool mismatched)
     {

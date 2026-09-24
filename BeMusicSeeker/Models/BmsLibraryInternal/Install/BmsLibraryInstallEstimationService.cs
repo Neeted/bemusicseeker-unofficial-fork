@@ -447,10 +447,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return InstallEstimationFinalEvaluationMode.RelativeStrict;
     }
 
-    private static string GetFinalEvaluationModeLogValue(InstallEstimationFinalEvaluationMode mode)
-    {
-        return "relative_strict";
-    }
 
     internal SourceBaselineEvaluation EvaluateSourceBaseline(PackageInstallEstimationSnapshot snapshot)
     {
@@ -1448,31 +1444,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return primaryHealth > innerWavHealthThreshold;
     }
 
-    private static int GetPrimaryMatched(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
-    {
-        if (evaluation == null)
-        {
-            return 0;
-        }
-        return snapshot.AudioReferenceCount > 0
-            ? evaluation.AudioMatched
-            : (snapshot.VisualReferenceCount > 0
-                ? evaluation.VisualMatched
-                : (snapshot.MovieReferenceCount > 0 ? evaluation.MovieMatched : evaluation.OptionalImageMatched));
-    }
 
-    private static int GetPrimaryExactMatched(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
-    {
-        if (evaluation == null)
-        {
-            return 0;
-        }
-        return snapshot.AudioReferenceCount > 0
-            ? evaluation.AudioExactMatched
-            : (snapshot.VisualReferenceCount > 0
-                ? evaluation.VisualExactMatched
-                : (snapshot.MovieReferenceCount > 0 ? evaluation.MovieExactMatched : evaluation.OptionalImageExactMatched));
-    }
 
     private static void ApplyMetadataTieBreakFrontier(List<CandidateEvaluation> orderedCandidates, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, InstallEstimationResult result)
     {
@@ -2003,25 +1975,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return [.. orderedCandidates.Where(evaluation => evaluation != null && !suppressedDirectories.Contains(evaluation.DirectoryPath ?? string.Empty))];
     }
 
-    private static bool IsAncestorDirectory(string ancestorPath, string descendantPath)
-    {
-        if (string.IsNullOrWhiteSpace(ancestorPath) || string.IsNullOrWhiteSpace(descendantPath))
-        {
-            return false;
-        }
-        string normalizedAncestor = ancestorPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string normalizedDescendant = descendantPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (normalizedAncestor.Length == 0 || normalizedDescendant.Length <= normalizedAncestor.Length)
-        {
-            return false;
-        }
-        if (!normalizedDescendant.StartsWith(normalizedAncestor, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        char separator = normalizedDescendant[normalizedAncestor.Length];
-        return separator == Path.DirectorySeparatorChar || separator == Path.AltDirectorySeparatorChar;
-    }
 
     private static string GetParentDirectoryPath(string path)
     {

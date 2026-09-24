@@ -1556,8 +1556,8 @@ public sealed class ApplicationCompositionTests
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        viewModel.ChartFilters.CommitKeywordSearchHistory("new");
-        viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
+        Assert.IsTrue(viewModel.ChartFilters.KeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("new").Succeeded);
+        Assert.IsTrue(viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("summary-new").Succeeded);
 
         Assert.AreEqual("new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
         Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
@@ -1574,9 +1574,9 @@ public sealed class ApplicationCompositionTests
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         KeywordSearchSavedQueryMutationResult normalResult =
-            viewModel.ChartFilters.TryAddKeywordSearchFavorite("title:default");
+            viewModel.ChartFilters.KeywordSearchAssistanceOwner.TryAddFavorite("title:default");
         KeywordSearchSavedQueryMutationResult summaryResult =
-            viewModel.PlaylistWorkspace.TryAddPlaylistSummaryKeywordSearchFavorite("output:default");
+            viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner.TryAddFavorite("output:default");
 
         Assert.IsTrue(normalResult.Succeeded);
         Assert.IsTrue(summaryResult.Succeeded);
@@ -1604,9 +1604,9 @@ public sealed class ApplicationCompositionTests
 
         Assert.AreSame(favoriteStore, composition.KeywordSearchFavoritesSettingsStore);
         KeywordSearchSavedQueryMutationResult normalResult =
-            viewModel.ChartFilters.TryAddKeywordSearchFavorite("title:normal");
+            viewModel.ChartFilters.KeywordSearchAssistanceOwner.TryAddFavorite("title:normal");
         KeywordSearchSavedQueryMutationResult summaryResult =
-            viewModel.PlaylistWorkspace.TryAddPlaylistSummaryKeywordSearchFavorite("output:summary");
+            viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner.TryAddFavorite("output:summary");
 
         Assert.IsTrue(normalResult.Succeeded);
         Assert.IsTrue(summaryResult.Succeeded);
@@ -1646,7 +1646,7 @@ public sealed class ApplicationCompositionTests
         workspace.PlaylistSummaryKeywordFilter = "memo:alpha";
         StringAssert.Contains(workspace.PlaylistSummaryKeywordSearchWarningText, "memo");
 
-        workspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
+        Assert.IsTrue(workspace.PlaylistSummaryKeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("summary-new").Succeeded);
         Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
     }
 

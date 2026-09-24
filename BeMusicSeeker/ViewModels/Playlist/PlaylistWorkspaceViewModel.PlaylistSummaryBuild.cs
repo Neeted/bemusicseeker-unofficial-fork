@@ -406,8 +406,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             safeRawRows,
             keywordFilter,
             ownedFilter,
-            sortParameters,
-            useLegacySort: false);
+            sortParameters);
         long sourceVersion = cacheGeneration
             ?? -(dataRebuildGeneration ?? presentationGeneration);
         var identity = new PlaylistSummaryPresentationIdentity(
@@ -488,7 +487,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " sortColumn=" + presentationResult.SortColumn
             + " sortDirection=" + presentationResult.SortDirection
             + " sortProfile=" + presentationResult.SortProfile
-            + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast")
             + (buildMs > 0 ? " buildMs=" + buildMs + " summaryCacheHit=false" : " summaryCacheHit=true"));
     }
 
@@ -518,19 +516,17 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <param name="keywordFilter">The parsed-query source text.</param>
     /// <param name="ownedFilter">The ownership completeness filter.</param>
     /// <param name="sortParameters">The requested column and direction.</param>
-    /// <param name="useLegacySort">Whether the compatibility sorting engine is required.</param>
     /// <returns>The rows and presentation-stage metrics.</returns>
     internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(
         IEnumerable<PlaylistSummaryRow> rows,
         string keywordFilter,
         PlaylistOwnedFilter ownedFilter,
-        ChartListSortParameters sortParameters,
-        bool useLegacySort)
+        ChartListSortParameters sortParameters)
     {
         var stopwatch = Stopwatch.StartNew();
         List<PlaylistSummaryRow> filteredRows = [.. ApplyPlaylistSummaryFilters(rows, keywordFilter, ownedFilter)];
         long filterElapsedMs = stopwatch.ElapsedMilliseconds;
-        List<PlaylistSummaryRow> sortedRows = PlaylistSummarySortEngine.Sort(filteredRows, sortParameters, useLegacySort, out string sortProfile);
+        List<PlaylistSummaryRow> sortedRows = PlaylistSummarySortEngine.Sort(filteredRows, sortParameters, out string sortProfile);
         return new PlaylistSummaryPresentationResult
         {
             Rows = sortedRows,
@@ -539,8 +535,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             SortElapsedMs = stopwatch.ElapsedMilliseconds - filterElapsedMs,
             SortProfile = sortProfile,
             SortColumn = sortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name),
-            SortDirection = sortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString(),
-            UseLegacySort = useLegacySort
+            SortDirection = sortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString()
         };
     }
 
@@ -675,5 +670,4 @@ internal struct PlaylistSummaryPresentationResult
 
     internal string SortDirection;
 
-    internal bool UseLegacySort;
 }

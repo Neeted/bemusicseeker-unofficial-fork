@@ -6444,10 +6444,6 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    private bool IsLr2SongDbSyncMutationBlocked()
-    {
-        return lr2SynchronizationOwner.Running;
-    }
 
     private bool TryBlockLr2SongDbSyncMutation(string operation, bool showMessage = true)
     {
@@ -6778,10 +6774,6 @@ public partial class BMSLibrary : ObservableObject
         catalogChartInfoOwner.QueueDeferredHydration(reason, queueFullBackfillAfterHydration);
     }
 
-    private void CompleteChartInfoHydrationForShutdown(string shutdownReason)
-    {
-        catalogChartInfoOwner.CompleteHydrationForShutdown(shutdownReason);
-    }
 
 
 
@@ -6798,15 +6790,7 @@ public partial class BMSLibrary : ObservableObject
         return catalogChartInfoOwner.ResolveChartInfo(sha256, md5);
     }
 
-    private bool ShouldLazyLoadChartInfoDisplayIndex()
-    {
-        return catalogChartInfoOwner.ShouldLazyLoadDisplayIndex();
-    }
 
-    private void EnsureChartInfoDisplayIndexLoadedForLazyResolve(string reason)
-    {
-        catalogChartInfoOwner.EnsureDisplayIndexLoadedForLazyResolve(reason);
-    }
 
     private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
     {
@@ -6889,10 +6873,6 @@ public partial class BMSLibrary : ObservableObject
         return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
-    private ChartInfoIndexUpdateResult ReplaceChartInfoIndex(IEnumerable<LR2SongDBExtended.chart_info> rows, bool hydrated)
-    {
-        return catalogChartInfoOwner.ReplaceIndex(rows, hydrated);
-    }
 
     private static bool TryGetChartInfoSha256(LR2SongDBExtended.chart_info row, out string sha256)
     {
@@ -7747,19 +7727,6 @@ public partial class BMSLibrary : ObservableObject
         public int ExcludedCustomOutputRootCount { get; set; }
     }
 
-    private bool IsPendingPackageContainingOnlyInstalledCharts(ChartPackage package)
-    {
-        if (package == null)
-        {
-            return false;
-        }
-        List<PackageChartEntry> entries = package.ChartEntries ?? [];
-        if (entries.Count == 0)
-        {
-            return false;
-        }
-        return entries.All(entry => ContainsInstalledChartUnsafe(entry?.Chart));
-    }
 
 
     internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot()
@@ -8198,27 +8165,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return catalogOwnedCollectionOwner.Collection.CreateStorageTargetsForSubtreeDirectory(directoryPath);
-        }
-    }
 
-    private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe(
-        ISet<string> currentChartInfoSha256s,
-        ISet<string> currentParseFailureMd5s)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return catalogOwnedCollectionOwner.Collection.CreateChartInfoHydrationOwnerSummary(
-                currentChartInfoSha256s,
-                currentParseFailureMd5s);
-        }
-    }
 
     private List<ChartFile> CreateOwnedDirectChildChartFilesUnsafe(
         IEnumerable<string> directoryPaths,
@@ -8641,30 +8588,8 @@ public partial class BMSLibrary : ObservableObject
         return metrics;
     }
 
-    private LR2IRCache getIRCache(string filePath)
-    {
-        return irService.LoadIrCache(filePath);
-    }
 
-    private void setBMSScore(LR2IRData data, LR2IRCache cache)
-    {
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        using (rwlockBMSScores.GetWriterGuard())
-        {
-            List<BMSFile> bmsFilesSnapshot;
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : [.. BMSFiles.Where(f => f != null)]);
-            }
-            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, options.EstimateOfflineScoreRanking);
-        }
-        RefreshScoreSnapshotFromCurrentScores("apply_ir_data");
-    }
 
-    private List<LR2IRScore> updateLR2IRScoreTable()
-    {
-        return updateLR2IRScoreTableWithMetrics().ScoreTable;
-    }
 
     private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics()
     {
@@ -9041,10 +8966,6 @@ public partial class BMSLibrary : ObservableObject
             .Where(chart => chart != null)];
     }
 
-    private static bool ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)
-    {
-        return workflowResult?.HasUpdates == true;
-    }
 
     private ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
     {

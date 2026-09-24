@@ -182,54 +182,6 @@ internal sealed class Lr2NormalFolderCurrentBmsLookup
     /// <summary>この lookup の捕捉に使った本番 index query の集約診断です。</summary>
     internal LibraryChartRefIndexBmsQueryDiagnostics QueryDiagnostics { get; }
 
-    private static Lr2NormalFolderCurrentBmsLookup CreateFromFacts(
-        IReadOnlyDictionary<string, int> countFacts,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> pathFacts,
-        LibraryChartRefIndexBmsQueryDiagnostics queryDiagnostics = null)
-    {
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, int> fact in countFacts
-            ?? new Dictionary<string, int>())
-        {
-            string directory = Lr2FolderPath.NormalizeDirectoryPath(fact.Key);
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                counts[directory] = Math.Max(0, fact.Value);
-            }
-        }
-
-        var paths = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, IReadOnlyList<string>> fact in pathFacts
-            ?? new Dictionary<string, IReadOnlyList<string>>())
-        {
-            string directory = Lr2FolderPath.NormalizeDirectoryPath(fact.Key);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                continue;
-            }
-
-            if (!paths.TryGetValue(directory, out List<string> indexedPaths))
-            {
-                indexedPaths = [];
-                paths.Add(directory, indexedPaths);
-            }
-            foreach (string path in CopyExactPaths(fact.Value))
-            {
-                if (!indexedPaths.Contains(path, StringComparer.Ordinal))
-                {
-                    indexedPaths.Add(path);
-                }
-            }
-        }
-
-        return new Lr2NormalFolderCurrentBmsLookup(
-            counts,
-            paths.ToDictionary(
-                entry => entry.Key,
-                entry => (IReadOnlyList<string>)CopyExactPaths(entry.Value),
-                StringComparer.OrdinalIgnoreCase),
-            queryDiagnostics);
-    }
 
     private static void AddPathToFacts(
         string chartPath,

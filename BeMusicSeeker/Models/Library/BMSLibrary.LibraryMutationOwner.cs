@@ -733,17 +733,6 @@ internal sealed partial class LibraryMutationOwner
         return outcome;
     }
 
-    private void ShowDeleteFailure(LibraryDeleteFailure failure)
-    {
-        if (failure.IsDirectory)
-        {
-            ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-        }
-        else
-        {
-            ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-        }
-    }
 
     internal void LogReverseLookupMutationAndQueueWarmupIfNeeded(
         string reason,
@@ -1465,10 +1454,6 @@ internal sealed partial class LibraryMutationOwner
         return getDuplicateInstallRepairPaths(chart);
     }
 
-    private DirectoryResourceLookupCache.ReverseLookupMutationResult RemoveReverseLookupDirectoriesUnderSource(string sourceDirectory)
-    {
-        return resourceIndexOwner.RemoveUnderSourceDirectory(sourceDirectory).MutationResult;
-    }
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult AddReverseLookupDirectories(ChartScanResult scan)
     {
@@ -1509,24 +1494,6 @@ internal sealed partial class LibraryMutationOwner
             MessageBoxResult.Yes) == MessageBoxResult.Yes;
     }
 
-    private bool IsApprovedWholeFolderDelete(
-        string folderPath,
-        IEnumerable<string> approvedWholeFolderDeletePaths)
-    {
-        HashSet<string> approvedPaths = approvedWholeFolderDeletePaths == null
-            ? null
-            : new HashSet<string>(approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (approvedPaths != null)
-        {
-            return approvedPaths.Contains(folderPath);
-        }
-        return ShowOperationDialog(
-            string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath),
-            Resources.MessageBoxTitle_Confirm,
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question,
-            MessageBoxResult.Yes) == MessageBoxResult.Yes;
-    }
 
     private static List<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartFile> charts)
     {

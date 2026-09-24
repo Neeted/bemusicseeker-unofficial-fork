@@ -906,43 +906,7 @@ public struct Fraction : IComparable, IFormattable
         this = Approximate(this, numeratorMax, denominatorMax);
     }
 
-    private static Fraction ConvertPositiveDouble(int sign, double inValue)
-    {
-        int num = long.MaxValue.ToString().Length - 1;
-        string text = inValue.ToString();
-        int num2 = text.IndexOf(".", StringComparison.Ordinal);
-        if (num2 == -1)
-        {
-            return new Fraction((long)((double)sign * inValue), 1L);
-        }
-        num -= num2;
-        text = text.Substring(num2 + 1);
-        int num3 = System.Math.Min(num, text.Length);
-        long denominator = (long)System.Math.Pow(10.0, num3);
-        long num4 = (long)(inValue * System.Math.Pow(10.0, num3));
-        var frac = new Fraction(num4 * sign, denominator);
-        ReduceFraction(ref frac);
-        return frac;
-    }
 
-    private static Fraction ConvertPositiveDecimal(int sign, decimal inValue)
-    {
-        int num = long.MaxValue.ToString().Length - 1;
-        string text = inValue.ToString();
-        int num2 = text.IndexOf(".", StringComparison.Ordinal);
-        if (num2 == -1)
-        {
-            return new Fraction((long)((decimal)sign * inValue), 1L);
-        }
-        num -= num2;
-        text = text.Substring(num2 + 1);
-        int num3 = System.Math.Min(num, text.Length);
-        long denominator = (long)System.Math.Pow(10.0, num3);
-        long num4 = (long)(inValue * (decimal)System.Math.Pow(10.0, num3));
-        var frac = new Fraction(num4 * sign, denominator);
-        ReduceFraction(ref frac);
-        return frac;
-    }
 
     private bool CompareEquality(Fraction right, bool notEqualCheck)
     {

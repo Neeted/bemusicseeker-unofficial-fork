@@ -942,12 +942,6 @@ internal static class ChartInfoParser
             && string.Compare(trimmed, 1, word, 0, word.Length, ignoreCase: true, CultureInfo.InvariantCulture) == 0;
     }
 
-    private static string GetCommandArgument(string line)
-    {
-        string trimmed = line.Trim();
-        int whitespace = trimmed.IndexOfAny([' ', '\t']);
-        return whitespace >= 0 ? trimmed.Substring(whitespace + 1).Trim() : string.Empty;
-    }
 
     private static string GetReserveWordArgument(string line, string word)
     {
@@ -956,10 +950,6 @@ internal static class ChartInfoParser
         return safeLine.Length > start ? safeLine.Substring(start).Trim() : string.Empty;
     }
 
-    private static int ParseIntOrDefault(string value, int fallback)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result) ? result : fallback;
-    }
 
     private static bool TryParseJavaIntStrict(string value, out int result)
     {
@@ -1202,10 +1192,6 @@ internal static class ChartInfoParser
         return (longNotes ?? []).Any(note => note.Section <= section && section <= (note.Pair?.Section ?? note.Section));
     }
 
-    private static bool HasNoteInsideLongNote(IEnumerable<ChartNote> longNotes, double startSection, double endSection)
-    {
-        return (longNotes ?? []).Any(note => startSection < (note.Pair?.Section ?? note.Section) && note.Section < endSection);
-    }
 
     private static bool HasAnyNoteInRange(SortedList<int, ChartTimeline> timelinesByY, int lane, int startY, int endY, ParseTimeoutGuard timeoutGuard)
     {
@@ -1238,14 +1224,6 @@ internal static class ChartInfoParser
         return (long)value;
     }
 
-    private static int ToCheckedInt(long value, string message)
-    {
-        if (value > int.MaxValue || value < int.MinValue)
-        {
-            throw new BmsRecoverableParseException(message);
-        }
-        return (int)value;
-    }
 
     private static int ToJavaInt(long value)
     {
@@ -1672,28 +1650,6 @@ internal static class ChartInfoParser
             }
         }
 
-        private static void SplitCommand(string line, out string token, out string argument)
-        {
-            line ??= string.Empty;
-            int separatorIndex = -1;
-            for (int index = 0; index < line.Length; index++)
-            {
-                char c = line[index];
-                if (c == ':' || char.IsWhiteSpace(c))
-                {
-                    separatorIndex = index;
-                    break;
-                }
-            }
-            if (separatorIndex < 0)
-            {
-                token = line;
-                argument = string.Empty;
-                return;
-            }
-            token = line.Substring(0, separatorIndex);
-            argument = line.Substring(separatorIndex + 1).Trim();
-        }
 
         public ChartModel Build()
         {

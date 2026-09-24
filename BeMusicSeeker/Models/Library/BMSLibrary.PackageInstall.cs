@@ -505,13 +505,6 @@ public partial class BMSLibrary
         return new BmsLibraryPackageInstallService().BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths);
     }
 
-    private void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories)
-    {
-        foreach (string installComponentDirectory in installComponentDirectories.Where(path => LongPathFileSystem.DirectoryExists(path)).OrderByDescending(path => path.Length))
-        {
-            TryDeleteEmptyDirectoryTree(installComponentDirectory);
-        }
-    }
 
     private void TryDeleteEmptyDirectoryTree(string rootDirectoryPath)
     {
@@ -537,17 +530,6 @@ public partial class BMSLibrary
         }
     }
 
-    private static bool HasRemainingDirectoryEntries(string directoryPath)
-    {
-        try
-        {
-            return LongPathFileSystem.DirectoryExists(directoryPath) && LongPathFileSystem.EnumerateFileSystemEntries(directoryPath).Any();
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     /// <summary>
     /// cleanup-only package source を physical prepare し、install row delete と source cleanup を session commit へ委譲します。
@@ -746,18 +728,6 @@ public partial class BMSLibrary
         }
     }
 
-    private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallReverseLookupPreparationUnderGuard(
-        PendingEstimatedInstallCatalogPreparation preparation)
-    {
-        if (preparation?.DirectoryScan == null
-            || preparation.AffectedDirectories.Count == 0)
-        {
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
-        return libraryResourceIndexOwner.AddDirectories(
-            preparation.AffectedDirectories,
-            preparation.DirectoryScan).MutationResult;
-    }
 
     private static List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
     {
@@ -2496,14 +2466,6 @@ public partial class BMSLibrary
         CleanupManagedInstallSources(paths, reason);
     }
 
-    private enum PrepareSkipReason
-    {
-        None,
-        MissingInstallDestination,
-        ChartHasMultipleInstalledDirectories,
-        PackageHasSplitInstalledDirectories
-    }
-
     private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths)
     {
         List<string> sourceDirectories = [.. (sourceDirectoryPaths ?? [])
@@ -2757,17 +2719,6 @@ public partial class BMSLibrary
         return CountComponentMoveTargetsForPackage(package, destinationDir, excludedPaths) > 0;
     }
 
-    private bool IsPackageStillPending(ChartPackage package)
-    {
-        if (package == null)
-        {
-            return false;
-        }
-        using (rwlockPendingInstallCharts.GetReaderGuard())
-        {
-            return ChartPackagesPending.Any(pendingPkg => pendingPkg != null && (ReferenceEquals(pendingPkg, package) || (!string.IsNullOrWhiteSpace(pendingPkg.path) && !string.IsNullOrWhiteSpace(package.path) && pendingPkg.path.Equals(package.path, StringComparison.OrdinalIgnoreCase))));
-        }
-    }
 
     /// <summary>
     /// 導入済み譜面だけを含む保留 package の resource overwrite / cleanup を一つの session で確定します。

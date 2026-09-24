@@ -349,7 +349,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             return;
         }
         ObservableCollection<string> folder_order = viewModel.folder_order;
-        using var comparer = new NaturalComparer<string>();
+        using var comparer = new NaturalComparer();
         List<string> list = [.. folder_order];
         list.Sort(comparer);
         viewModel.folder_order = new ObservableCollection<string>(list);

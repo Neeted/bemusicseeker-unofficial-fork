@@ -905,13 +905,6 @@ internal sealed partial class LibraryMutationOwner
         return mutation;
     }
 
-    private StorageRowsVersionSnapshot CaptureStorageRowsVersionUnsafe()
-    {
-        lock (catalogStorageRowsOwner.VersionGate)
-        {
-            return CreateCurrentStorageRowsVersionSnapshotUnsafe();
-        }
-    }
 
     internal static List<BMSFile> NormalizeBmsStorageRows(IEnumerable<BMSFile> files)
     {
@@ -929,14 +922,6 @@ internal sealed partial class LibraryMutationOwner
         return catalogStorageRowsOwner.CaptureVersionSnapshot();
     }
 
-    private StorageRowsVersionSnapshot CreateStorageRowsVersionSnapshotUnsafe(int previousBmsRowsVersion, int previousBmsonRowsVersion)
-    {
-        return new StorageRowsVersionSnapshot(
-            previousBmsRowsVersion,
-            previousBmsonRowsVersion,
-            catalogStorageRowsOwner.BmsRowsVersion,
-            catalogStorageRowsOwner.BmsonRowsVersion);
-    }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(
         LibraryCatalogMutationFacts catalogFacts,

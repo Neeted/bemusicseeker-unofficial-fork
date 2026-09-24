@@ -2636,61 +2636,7 @@ internal sealed class FileScanParseCommitOwner
         total.ParseMs += source.ParseMs;
     }
 
-    private void ProcessInlineBmsChartInfo(
-        IReadOnlyList<InlineBmsParseCandidate> candidates,
-        BmsLibraryDbGateway dbGateway,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
-        SongTableFileCheckResult result,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256,
-        Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
-    {
-        if (candidates == null || candidates.Count == 0)
-        {
-            return;
-        }
-        List<InlineBmsParseCandidate> parsedCandidates = [.. candidates.Where(candidate => candidate?.File != null && candidate.Snapshot != null)];
-        if (parsedCandidates.Count == 0)
-        {
-            return;
-        }
-        var inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, result.FileDiffParserDegree, result.InlineChartInfoBatchSize, currentChartInfoRowsBySha256);
-        ChartInfoInlineBuildResult inlineResult = inlineBuildService.BuildForSnapshots(
-            dbGateway,
-            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromBmsFile(candidate.File, candidate.Snapshot)),
-            currentFailures,
-            logInstallPerformance,
-            logInstallPerformanceWarn);
-        ApplyInlineChartInfoResult(result, inlineResult);
-    }
 
-    private void ProcessInlineBmsonChartInfo(
-        IReadOnlyList<InlineBmsonParseCandidate> candidates,
-        BmsLibraryDbGateway dbGateway,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
-        SongTableFileCheckResult result,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256,
-        Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
-    {
-        if (candidates == null || candidates.Count == 0)
-        {
-            return;
-        }
-        List<InlineBmsonParseCandidate> parsedCandidates = [.. candidates.Where(candidate => candidate?.Song != null && candidate.Snapshot != null)];
-        if (parsedCandidates.Count == 0)
-        {
-            return;
-        }
-        var inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, result.FileDiffParserDegree, result.InlineChartInfoBatchSize, currentChartInfoRowsBySha256);
-        ChartInfoInlineBuildResult inlineResult = inlineBuildService.BuildForSnapshots(
-            dbGateway,
-            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromBmsonSong(candidate.Song, candidate.Snapshot)),
-            currentFailures,
-            logInstallPerformance,
-            logInstallPerformanceWarn);
-        ApplyInlineChartInfoResult(result, inlineResult);
-    }
 
     private static void ApplyInlineChartInfoResult(SongTableFileCheckResult result, ChartInfoInlineBuildResult inlineResult, bool storeRows = true)
     {
@@ -2721,18 +2667,6 @@ internal sealed class FileScanParseCommitOwner
         result.InlineChartInfoParseMs += inlineResult.ParseMs;
     }
 
-    private static void RemoveRangeIfAny<T>(List<T> list, int index, int count)
-    {
-        if (list == null || count <= 0 || index < 0 || index >= list.Count)
-        {
-            return;
-        }
-        int safeCount = Math.Min(count, list.Count - index);
-        if (safeCount > 0)
-        {
-            list.RemoveRange(index, safeCount);
-        }
-    }
 
     private static IEnumerable<List<string>> CreateBatches(IEnumerable<string> paths, int batchSize)
     {

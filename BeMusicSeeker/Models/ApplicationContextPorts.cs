@@ -335,11 +335,3 @@ internal interface ICultureCatalog
 {
     IReadOnlyDictionary<string, string> Cultures { get; }
 }
-
-internal sealed class JsonCultureCatalog : ICultureCatalog
-{
-    private readonly IReadOnlyDictionary<string, string> cultures =
-        JsonLanguageCatalog.GetLanguagesSnapshot();
-
-    public IReadOnlyDictionary<string, string> Cultures => cultures;
-}

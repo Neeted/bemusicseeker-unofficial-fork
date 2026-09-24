@@ -139,9 +139,9 @@ internal static class PlaylistDetailSortEngine
     {
         if (direction == ListSortDirection.Ascending)
         {
-            return [.. source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTitleKey, new NaturalComparer<string>())];
+            return [.. source.OrderBy(keySelector, new NaturalComparer()).ThenBy(GetTitleKey, new NaturalComparer())];
         }
-        return [.. source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTitleKey, new NaturalComparer<string>())];
+        return [.. source.OrderByDescending(keySelector, new NaturalComparer(isWhiteSpacePrior: true)).ThenBy(GetTitleKey, new NaturalComparer())];
     }
 
     private static List<PlaylistDetailSourceRow> SortByTypedKey<TKey>(IEnumerable<PlaylistDetailSourceRow> source, Func<PlaylistDetailSourceRow, TKey> keySelector, ListSortDirection direction)

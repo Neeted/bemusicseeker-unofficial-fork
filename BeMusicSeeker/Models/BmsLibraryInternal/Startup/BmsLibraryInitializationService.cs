@@ -2821,10 +2821,6 @@ internal sealed class BmsLibraryInitializationService
             && lastWriteTime < new DateTime(lastWriteTime.Year, 3, 2);
     }
 
-    private static bool IsBmsHashAvailable(string hash)
-    {
-        return !string.IsNullOrWhiteSpace(hash) && LR2SongDB.md5HashRegex.IsMatch(hash);
-    }
 
     private static bool TableExists(LR2SongDBExtended songDb, string tableName)
     {

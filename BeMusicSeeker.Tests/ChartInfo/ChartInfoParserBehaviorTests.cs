@@ -204,24 +204,6 @@ public sealed class ChartInfoParserBehaviorTests
     }
 
     [TestMethod]
-    public void JavaDoubleToStringJdk17_MatchesKnownCompatibilityCases()
-    {
-        Assert.AreEqual("0.0", JavaDoubleToStringJdk17.ToString(0.0));
-        Assert.AreEqual("-0.0", JavaDoubleToStringJdk17.ToString(-0.0));
-        Assert.AreEqual("NaN", JavaDoubleToStringJdk17.ToString(double.NaN));
-        Assert.AreEqual("Infinity", JavaDoubleToStringJdk17.ToString(double.PositiveInfinity));
-        Assert.AreEqual("-Infinity", JavaDoubleToStringJdk17.ToString(double.NegativeInfinity));
-        Assert.AreEqual("4.9E-324", JavaDoubleToStringJdk17.ToString(double.Epsilon));
-        Assert.AreEqual("1.0E-323", JavaDoubleToStringJdk17.ToString(1e-323));
-        Assert.AreEqual("9.999999999999999E22", JavaDoubleToStringJdk17.ToString(1e23));
-        Assert.AreEqual("1.9999999999999998E23", JavaDoubleToStringJdk17.ToString(2e23));
-        Assert.AreEqual("8.409999999999999E21", JavaDoubleToStringJdk17.ToString(8.41e21));
-        Assert.AreEqual("7.6999669989E7", JavaDoubleToStringJdk17.ToString(7.6999669989E7));
-        Assert.AreEqual("3.141592653589793", JavaDoubleToStringJdk17.ToString(Math.PI));
-        Assert.AreEqual("1.7976931348623157E308", JavaDoubleToStringJdk17.ToString(double.MaxValue));
-    }
-
-    [TestMethod]
     public void JavaDoubleToStringJdk21_MatchesKnownCompatibilityCases()
     {
         Assert.AreEqual("0.0", JavaDoubleToStringJdk21.ToString(0.0));
@@ -267,8 +249,8 @@ public sealed class ChartInfoParserBehaviorTests
         AssertJavaDoubleParseBits("0x1p-1075", "0000000000000000");
         AssertJavaDoubleParseBits("0x1.8p-1075", "0000000000000001");
 
-        Assert.AreEqual("114.15384615384616", JavaDoubleToStringJdk17.ToString(JavaDoubleParserJdk17.ParseDouble("114.15384615384615384615384615")));
-        Assert.AreEqual("131.4889812233735", JavaDoubleToStringJdk17.ToString(JavaDoubleParserJdk17.ParseDouble("131.4889812233735")));
+        AssertJavaDoubleParseBits("114.15384615384615384615384615", "405c89d89d89d89e");
+        AssertJavaDoubleParseBits("131.4889812233735", "40606fa5bbf357e9");
     }
 
     [TestMethod]

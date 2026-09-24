@@ -2254,19 +2254,6 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
-    private static string GetSongHashByPath(LR2SongDBExtended songDb, string path)
-    {
-        if (songDb == null || string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-        return songDb.ExecuteScalar<string>(
-            "SELECT " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
-            + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-            + " = " + SqlQuote(path)
-            + " LIMIT 1;");
-    }
 
     private static void BulkUpsertMaintenanceInfos(LR2SongDBExtended songDb, IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos)
     {
@@ -2939,38 +2926,7 @@ internal sealed class BmsLibraryDbGateway(
         return [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.md5))];
     }
 
-    private static int SafeExecuteScalarInt(LR2SongDBExtended songDb, string sql)
-    {
-        if (songDb == null || string.IsNullOrWhiteSpace(sql))
-        {
-            return 0;
-        }
-        try
-        {
-            long value = songDb.ExecuteScalar<long>(sql);
-            if (value <= 0L)
-            {
-                return 0;
-            }
-            return value >= int.MaxValue ? int.MaxValue : (int)value;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
 
-    private static string BuildCurrentParseFailureJoinCondition(string alias, TimeSpan parseTimeout)
-    {
-        string effectiveAlias = string.IsNullOrWhiteSpace(alias) ? string.Empty : alias.Trim() + ".";
-        long timeoutMs = Math.Max(0L, (long)Math.Ceiling(parseTimeout.TotalMilliseconds));
-        return effectiveAlias + "parser_version = " + CurrentChartInfoParserVersion
-            + " AND ("
-            + effectiveAlias + "failure_kind IS NULL"
-            + " OR lower(" + effectiveAlias + "failure_kind) <> 'timeout'"
-            + " OR COALESCE(" + effectiveAlias + "parse_timeout_ms, -1) >= " + timeoutMs
-            + ")";
-    }
 
     private static bool IsCurrentChartInfoParseFailure(LR2SongDBExtended.chart_info_parse_failure row, TimeSpan parseTimeout)
     {

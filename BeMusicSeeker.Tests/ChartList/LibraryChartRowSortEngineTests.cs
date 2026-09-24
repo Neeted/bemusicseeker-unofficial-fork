@@ -36,7 +36,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
         string[] sortedPaths = [.. sorted.Select(row => row.path)];
 
         CollectionAssert.AreEqual(
@@ -62,7 +62,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
 
         CollectionAssert.AreEqual(new[] { "z.bms", "a.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
@@ -84,7 +84,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out string sortProfile);
 
         CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
@@ -106,31 +106,10 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([row1, row2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([row1, row2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
 
         CollectionAssert.AreEqual(new[] { "a.bms", "b.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
-    }
-
-    [TestMethod]
-    [TestCategory("SortEngine")]
-    public void LibraryChartRowSortEngine_StringColumnsRespectFastSortSetting()
-    {
-        LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
-        LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
-        var sortParameters = new ChartListSortParameters
-        {
-            ColumnsName = nameof(LibraryChartRow.Title),
-            Direction = ListSortDirection.Ascending
-        };
-
-        List<LibraryChartRow> legacySorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string legacyProfile);
-        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile);
-
-        CollectionAssert.AreEqual(new[] { "a_item2.bms", "z_item10.bms" }, legacySorted.Select(row => row.path).ToArray());
-        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_legacy_string", legacyProfile);
-        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
     }
 
     [TestMethod]
@@ -145,7 +124,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile, out LibraryChartSortMetrics metrics);
+        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string fastProfile, out LibraryChartSortMetrics metrics);
 
         CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
@@ -743,7 +722,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([level12, level3], ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([level12, level3], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
 
         CollectionAssert.AreEqual(new[] { "a_level3.bms", "z_level12.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_level_mixed_double", sortProfile);
@@ -761,7 +740,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out string sortProfile);
 
         CollectionAssert.AreEqual(new[] { "a_folder2.bms", "z_folder10.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
@@ -821,8 +800,8 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Descending
         };
 
-        List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, useLegacyStringSort: false, out string ascProfile);
-        List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, useLegacyStringSort: false, out string descProfile);
+        List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, out string ascProfile);
+        List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, out string descProfile);
 
         CollectionAssert.AreEqual(new[] { 2, 3, 1 }, ascSorted.Select(row => row.PlaylistId ?? -1).ToArray());
         CollectionAssert.AreEqual(new[] { 1, 3, 2 }, descSorted.Select(row => row.PlaylistId ?? -1).ToArray());
@@ -847,7 +826,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, useLegacyStringSort: false, out string profile);
+        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, out string profile);
 
         CollectionAssert.AreEqual(new[] { 2, 1, 3 }, sorted.Select(row => row.PlaylistId ?? -1).ToArray());
         Assert.AreEqual("playlist_summary_string_fast_ordinal_ignore_case", profile);
@@ -925,7 +904,7 @@ public sealed class LibraryChartRowSortEngineTests
             ColumnsName = nameof(LibraryChartRow.clear),
             Direction = ListSortDirection.Ascending
         };
-        List<LibraryChartRow> librarySorted = LibraryChartRowSortEngine.SortForMainView([max, assist, easy, failed], ToSortSpecification(clearSort), isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string libraryProfile);
+        List<LibraryChartRow> librarySorted = LibraryChartRowSortEngine.SortForMainView([max, assist, easy, failed], ToSortSpecification(clearSort), isPlaylistDetailView: false, out string libraryProfile);
 
         CollectionAssert.AreEqual(new[] { "b_failed.bms", "m_assist.bms", "a_easy.bms", "z_max.bms" }, librarySorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_typed", libraryProfile);
@@ -974,7 +953,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
 
         CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " must use typed sort.");
         Assert.AreEqual("library_chart_typed", sortProfile, columnName + " must report typed sort profile.");
@@ -988,7 +967,7 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = direction
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
 
         CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " " + direction + " order mismatch.");
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);

@@ -2228,13 +2228,6 @@ internal sealed class BmsLibraryPackageInstallService
         return ChartFileKindResolver.IsSupportedChartFilePath(filePath);
     }
 
-    private static void ClearPackageInstallDestinations(ChartPackage chartPackage)
-    {
-        foreach (PackageChartEntry entry in chartPackage?.ChartEntries ?? [])
-        {
-            entry?.ClearInstallDestination();
-        }
-    }
 
     /// <summary>
     /// Discovers detached install candidates, excluding registered BMS roots and

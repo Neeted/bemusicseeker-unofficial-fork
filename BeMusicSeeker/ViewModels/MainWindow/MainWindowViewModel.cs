@@ -826,14 +826,6 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly RegularChartListOwner regularChartListOwner;
 
-    private long lastMainViewBuildRequestId;
-
-    private long lastMainViewBuildEndTimestamp;
-
-    private int lastMainViewBuildThreadId;
-
-    private int lastMainViewBuildMode;
-
     private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
 
     private MainViewUpdateMode treeViewFilterTypeSelected;
@@ -907,10 +899,6 @@ public partial class MainWindowViewModel : ViewModel,
     /// プレイリスト source build の診断ログを出力します。
     /// </summary>
     /// <param name="message">出力するログ本文。</param>
-    private static void LogPlaylistSourceBuild(string message)
-    {
-        LogMainViewBuild("playlist_source_build " + message);
-    }
 
     /// <summary>
     /// プレイリスト source からの view 適用ログを出力します。
@@ -1132,10 +1120,6 @@ public partial class MainWindowViewModel : ViewModel,
         LogUiSuppression("ui_suppress begin depth=" + suppressDepth + " mask=" + mask + " suppressed=" + suppressedMask);
     }
 
-    private void RequestUiRefresh(UiRefreshChannel channel)
-    {
-        TrySuppress(channel);
-    }
 
     private bool TrySuppress(UiRefreshChannel channel)
     {
@@ -1513,19 +1497,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private bool IsPlaylistSummaryRefreshDeferredNow()
-    {
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            lock (startupInitializationCompletionLock)
-            {
-                lock (lockUiSuppression)
-                {
-                    return IsPlaylistSummaryRefreshDeferredNowUnsafe();
-                }
-            }
-        }
-    }
 
     // The caller holds startupBackgroundTaskProgressSynchronization,
     // startupInitializationCompletionLock, and lockUiSuppression.
@@ -2515,12 +2486,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void ClearNormalLibrarySortCache()
-    {
-        int cacheCount = regularChartListOwner.CacheCount;
-        regularChartListOwner.ClearSortCache();
-        LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
-    }
 
     private void NotifyBmsonPlaylistReferenceDisplayChanged()
     {
@@ -2550,10 +2515,6 @@ public partial class MainWindowViewModel : ViewModel,
         row?.RaisePlaylistReferenceDisplayChanged();
     }
 
-    private void ClearVirtualNormalLibrarySourceRows()
-    {
-        regularChartListOwner.InvalidateVirtualSourceRows();
-    }
 
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
     {
@@ -2707,10 +2668,6 @@ public partial class MainWindowViewModel : ViewModel,
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private static int CountPrewarmDescriptorsByPriority(IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors, int priority)
-    {
-        return descriptors?.Count(descriptor => descriptor.PrewarmPriority == priority) ?? 0;
-    }
 
     /// <summary>
     /// Creates chart playback-stop targets from package entries without materializing bmson compatibility adapters.
@@ -2748,49 +2705,22 @@ public partial class MainWindowViewModel : ViewModel,
     /// 最新の一覧更新要求を識別するIDを返します。
     /// MainWindow 側の描画遅延計測ログを main_view_build と突き合わせるために使用します。
     /// </summary>
-    public long LastMainViewBuildRequestId
-    {
-        get
-        {
-            MainChartListCompletion regular = MainChartList.LastCompletion;
-            return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
-                ? regular.RequestId
-                : Interlocked.Read(ref lastMainViewBuildRequestId);
-        }
-    }
+    public long LastMainViewBuildRequestId => MainChartList.LastCompletion.RequestId;
 
     /// <summary>
     /// 最新の main_view_build 完了時刻 (Stopwatch タイムスタンプ) を返します。
     /// </summary>
-    public long LastMainViewBuildEndTimestamp => Math.Max(Interlocked.Read(ref lastMainViewBuildEndTimestamp), MainChartList.LastCompletion.EndTimestamp);
+    public long LastMainViewBuildEndTimestamp => MainChartList.LastCompletion.EndTimestamp;
 
     /// <summary>
     /// 最新の main_view_build を実行したスレッドIDを返します。
     /// </summary>
-    public int LastMainViewBuildThreadId
-    {
-        get
-        {
-            MainChartListCompletion regular = MainChartList.LastCompletion;
-            return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
-                ? regular.ThreadId
-                : Volatile.Read(ref lastMainViewBuildThreadId);
-        }
-    }
+    public int LastMainViewBuildThreadId => MainChartList.LastCompletion.ThreadId;
 
     /// <summary>
     /// 最新の main_view_build 実行時モードを int 値で返します。
     /// </summary>
-    public int LastMainViewBuildMode
-    {
-        get
-        {
-            MainChartListCompletion regular = MainChartList.LastCompletion;
-            return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
-                ? (int)regular.Mode
-                : Volatile.Read(ref lastMainViewBuildMode);
-        }
-    }
+    public int LastMainViewBuildMode => (int)MainChartList.LastCompletion.Mode;
 
     public bool IsLibraryOperationInProgress
     {
@@ -5030,38 +4960,6 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>
     /// メインビュー更新共通の callback 発火と性能ログを確定します。
     /// </summary>
-    private void FinalizeMainViewBuild(
-        Stopwatch viewBuildStopwatch,
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        long folderStageMs,
-        long keywordStageMs,
-        long modeStageMs,
-        long sortStageMs,
-        bool sortReuse,
-        string sortProfile,
-        int folderCount,
-        int keywordCount,
-        int modeCount,
-        int viewCount,
-        long columnStageMs,
-        long callbackStageMs)
-    {
-        ChartListSortParameters sortParameters = CaptureActiveMainViewSortParameters();
-        string sortColumn = sortParameters?.ColumnsName ?? "(default_title)";
-        string sortDirection = sortParameters?.Direction.ToString() ?? "Ascending";
-        string parameterType = parameter?.GetType().Name ?? "(null)";
-        bool fastSortEnabled = true;
-        bool isPlaylistDetailForLog = IsPlaylistViewMode(mode) || IsPlaylistViewMode(treeViewFilterTypeSelected);
-        long mainViewBuildRequestId = MainViewBuildRequestSequence.Next();
-        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
-        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
-        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
-        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
-        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
-    }
 
     /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。

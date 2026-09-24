@@ -112,15 +112,10 @@ internal static class LibraryChartRowSortEngine
 {
     internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, out string sortProfile)
     {
-        return SortForMainView(source, sort, isPlaylistDetailView, useLegacySortForDataGrid: true, out sortProfile);
+        return SortForMainView(source, sort, isPlaylistDetailView, out sortProfile, out _);
     }
 
-    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile)
-    {
-        return SortForMainView(source, sort, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile, out _);
-    }
-
-    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile, out LibraryChartSortMetrics metrics)
+    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, out string sortProfile, out LibraryChartSortMetrics metrics)
     {
         List<LibraryChartRow> safeSource = source as List<LibraryChartRow> ?? [.. (source ?? [])];
         var stopwatch = Stopwatch.StartNew();
@@ -149,9 +144,9 @@ internal static class LibraryChartRowSortEngine
         PropertyInfo property = typeof(LibraryChartRow).GetProperty(columnName);
         if (property == null)
         {
-            sortProfile = useLegacySortForDataGrid ? "library_chart_legacy_string_fallback" : "library_chart_string_fast_fallback";
-            stringSortKind = useLegacySortForDataGrid ? "natural" : "fallback";
-            sortedRows = SortByString(safeSource, _ => string.Empty, direction, useLegacySortForDataGrid);
+            sortProfile = "library_chart_string_fast_fallback";
+            stringSortKind = "fallback";
+            sortedRows = SortByString(safeSource, _ => string.Empty, direction, useNaturalSort: false);
             metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
             return sortedRows;
         }
@@ -172,13 +167,13 @@ internal static class LibraryChartRowSortEngine
             {
                 sortProfile = "library_chart_folder_natural_legacy";
                 stringSortKind = "natural";
-                sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySort: true);
+                sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useNaturalSort: true);
                 metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
                 return sortedRows;
             }
-            sortProfile = useLegacySortForDataGrid ? "library_chart_legacy_string" : "library_chart_string_fast_ordinal_ignore_case";
-            stringSortKind = useLegacySortForDataGrid ? "natural" : "ordinal_ignore_case";
-            sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySortForDataGrid);
+            sortProfile = "library_chart_string_fast_ordinal_ignore_case";
+            stringSortKind = "ordinal_ignore_case";
+            sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useNaturalSort: false);
             metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
             return sortedRows;
         }
@@ -191,9 +186,9 @@ internal static class LibraryChartRowSortEngine
             return sortedRows;
         }
 
-        sortProfile = useLegacySortForDataGrid ? "library_chart_legacy_string_fallback" : "library_chart_string_fast_fallback";
-        stringSortKind = useLegacySortForDataGrid ? "natural" : "fallback";
-        sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySortForDataGrid);
+        sortProfile = "library_chart_string_fast_fallback";
+        stringSortKind = "fallback";
+        sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useNaturalSort: false);
         metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
         return sortedRows;
     }
@@ -204,16 +199,16 @@ internal static class LibraryChartRowSortEngine
         return new LibraryChartSortMetrics(rowCount, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch.ElapsedMilliseconds);
     }
 
-    private static List<LibraryChartRow> SortByString(IEnumerable<LibraryChartRow> source, Func<LibraryChartRow, string> keySelector, ListSortDirection direction, bool useLegacySort)
+    private static List<LibraryChartRow> SortByString(IEnumerable<LibraryChartRow> source, Func<LibraryChartRow, string> keySelector, ListSortDirection direction, bool useNaturalSort)
     {
-        if (useLegacySort)
+        if (useNaturalSort)
         {
-            NaturalComparer<string> comparer = direction == ListSortDirection.Ascending
-                ? new NaturalComparer<string>()
-                : new NaturalComparer<string>(isWhiteSpacePrior: true);
+            NaturalComparer comparer = direction == ListSortDirection.Ascending
+                ? new NaturalComparer()
+                : new NaturalComparer(isWhiteSpacePrior: true);
             return direction == ListSortDirection.Ascending
-                ? [.. source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer<string>())]
-                : [.. source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer<string>())];
+                ? [.. source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer())]
+                : [.. source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer())];
         }
 
         StringComparer comparerFast = StringComparer.OrdinalIgnoreCase;

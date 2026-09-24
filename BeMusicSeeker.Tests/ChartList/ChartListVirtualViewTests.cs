@@ -3567,7 +3567,6 @@ public sealed class ChartListVirtualViewTests
                 sortParameters.Direction,
                 hasValue: true),
             isPlaylistDetailView: false,
-            useLegacySortForDataGrid: false,
             out _);
 
         CollectionAssert.AreEqual(

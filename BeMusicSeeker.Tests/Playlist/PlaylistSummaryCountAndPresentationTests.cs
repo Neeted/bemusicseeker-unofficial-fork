@@ -201,8 +201,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
             {
                 ColumnsName = nameof(PlaylistSummaryRow.Name),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
-            },
-            useLegacySort: false);
+            });
 
         Assert.AreEqual(2, result.FilteredCount);
         CollectionAssert.AreEqual(new[] { "beta", "gamma" }, result.Rows.Select(row => row.Name).ToArray());
@@ -243,8 +242,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
-            },
-            useLegacySort: false);
+            });
 
         Assert.AreEqual(1, result.FilteredCount);
         Assert.AreEqual(10, result.Rows[0].PlaylistId);
@@ -271,8 +269,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
-            },
-            useLegacySort: false);
+            });
 
         Assert.AreEqual(0, result.FilteredCount);
     }
@@ -310,8 +307,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
                 Direction = System.ComponentModel.ListSortDirection.Ascending
-            },
-            useLegacySort: false);
+            });
 
         Assert.AreEqual(1, result.FilteredCount);
         Assert.AreEqual(10, result.Rows[0].PlaylistId);
