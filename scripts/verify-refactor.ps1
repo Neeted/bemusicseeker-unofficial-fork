@@ -25,7 +25,6 @@ $toolExecutables = @(
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
-$v216FirstHopAcceptanceScript = Join-Path $repoRoot 'scripts\accept-v216-first-hop.ps1'
 $v216ArtifactMetadataPath = Join-Path $repoRoot 'devdocs\acceptance\v216-first-hop\artifact.json'
 $functionalReportingTargetSeconds = 180
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
@@ -803,6 +802,8 @@ function Invoke-TestLane {
 
         [string]$RunSettingsPath,
 
+        [hashtable]$Environment,
+
         [Parameter(Mandatory)]
         [object]$DeadlinePolicy,
 
@@ -820,7 +821,8 @@ function Invoke-TestLane {
         -Arguments $arguments `
         -WorkingDirectory $repoRoot `
         -DiagnosticsDirectory $DiagnosticsDirectory `
-        -DeadlinePolicy $DeadlinePolicy
+        -DeadlinePolicy $DeadlinePolicy `
+        -Environment $Environment
 }
 
 function Start-FunctionalShardProcess {
@@ -1618,61 +1620,6 @@ function Invoke-UpdateAcceptance {
         -DeadlinePolicy $DeadlinePolicy
 }
 
-function Invoke-V216FirstHopAcceptance {
-    param(
-        [Parameter(Mandatory)]
-        [string]$PhaseDirectory,
-
-        [Parameter(Mandatory)]
-        [string]$ArtifactManifestPath,
-
-        [Parameter(Mandatory)]
-        [object]$DeadlinePolicy
-    )
-
-    if (-not (Test-Path -LiteralPath $v216FirstHopAcceptanceScript -PathType Leaf)) {
-        throw "v2.1.6.0 first-hop acceptance runner is missing: $v216FirstHopAcceptanceScript"
-    }
-    $pinned = Assert-V216ArtifactIdentity `
-        -MetadataPath $v216ArtifactMetadataPath `
-        -RepositoryRoot $repoRoot
-    $artifactManifest = Read-DistributionArtifactManifest -ManifestPath $ArtifactManifestPath
-    $currentPackagePath = [string]$artifactManifest.Current.packagePath
-    $currentVersion = [string]$artifactManifest.Current.version
-    if ([string]::IsNullOrWhiteSpace($currentPackagePath) -or
-        [string]::IsNullOrWhiteSpace($currentVersion)) {
-        throw 'Current distribution manifest does not identify a release package for v2.1.6.0 first-hop acceptance.'
-    }
-    $outputDirectory = Join-Path $PhaseDirectory 'v216-first-hop'
-    Invoke-VerificationPhaseCommand `
-        -Label 'v2.1.6.0 first-hop acceptance' `
-        -CommandPath 'pwsh' `
-        -Arguments @(
-            '-NoProfile'
-            '-File'
-            $v216FirstHopAcceptanceScript
-            '-ArtifactMetadataPath'
-            $pinned.MetadataPath
-            '-CurrentPackagePath'
-            $currentPackagePath
-            '-CurrentVersion'
-            $currentVersion
-            '-OutputDirectory'
-            $outputDirectory
-            '-ExecutionDeadlineUtc'
-            $DeadlinePolicy.ExecutionDeadlineUtc.ToString('O')
-            '-CleanupDeadlineUtc'
-            $DeadlinePolicy.CleanupDeadlineUtc.ToString('O')) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'v216-first-hop-command') `
-        -DeadlinePolicy $DeadlinePolicy
-
-    $receiptPath = Join-Path $outputDirectory 'v216-first-hop-acceptance.json'
-    if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
-        throw "v2.1.6.0 first-hop acceptance receipt is missing: $receiptPath"
-    }
-    return (Resolve-Path -LiteralPath $receiptPath).Path
-}
-
 function Assert-RepositoryWhitespace {
     Invoke-CheckedCommand git diff '--check' 'HEAD' '--'
 
@@ -1877,12 +1824,12 @@ try {
             }
         })
 
-        [void](Invoke-MonitoredVerificationPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $v216ArtifactPreparation = @(Invoke-MonitoredVerificationPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-V216ArtifactCachePreparation `
                 -PhaseDirectory $phaseDirectory `
                 -DeadlinePolicy $deadlinePolicy
-        })
+        })[-1]
 
         $fullDistributionRoot = Join-Path $testDiagnosticsDirectory 'distribution'
         $currentDistributionRoot = Join-Path $fullDistributionRoot 'current'
@@ -1926,13 +1873,6 @@ try {
 
         $processIntegrationResultsPath = $null
         $releaseAcceptanceResultsPath = $null
-        $v216FirstHopAcceptanceReceiptPath = $null
-        $v216ReceiptInputs = @($verificationRunnerContract.ReleaseOutcomeGate.ReceiptInputs)
-        if ($v216ReceiptInputs.Count -ne 1) {
-            throw 'Release outcome gate must declare exactly one v2.1.6.0 first-hop receipt input.'
-        }
-        $expectedV216FirstHopAcceptanceReceiptPath = [IO.Path]::GetFullPath(
-            (Join-Path $testDiagnosticsDirectory ([string]$v216ReceiptInputs[0].RelativePath).Replace('/', '\')))
         $processIntegrationResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             $processIntegrationTestDirectory = Join-Path $phaseDirectory 'test'
@@ -1945,16 +1885,17 @@ try {
                 -NoBuild
             return $processIntegrationResultsPath
         })[-1]
-        $releaseAcceptancePaths = @(Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $releaseAcceptanceResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            $v216FirstHopAcceptanceReceiptPath = @(Invoke-V216FirstHopAcceptance `
-                    -PhaseDirectory $phaseDirectory `
-                    -ArtifactManifestPath $artifactManifestPath `
-                    -DeadlinePolicy $deadlinePolicy)[-1]
-            if ([string]::IsNullOrWhiteSpace([string]$v216FirstHopAcceptanceReceiptPath) -or
-                [IO.Path]::GetFullPath([string]$v216FirstHopAcceptanceReceiptPath) -cne $expectedV216FirstHopAcceptanceReceiptPath -or
-                -not (Test-Path -LiteralPath $expectedV216FirstHopAcceptanceReceiptPath -PathType Leaf)) {
-                throw "v2.1.6.0 first-hop acceptance receipt path is missing or unexpected: $expectedV216FirstHopAcceptanceReceiptPath"
+            $legacyArtifactPath = [string]$v216ArtifactPreparation.ArtifactPath
+            $currentPackagePath = [string]$artifactManifest.Current.packagePath
+            if ([string]::IsNullOrWhiteSpace($legacyArtifactPath) -or
+                -not (Test-Path -LiteralPath $legacyArtifactPath -PathType Leaf)) {
+                throw "Prepared pinned v2.1.6.0 artifact is missing: $legacyArtifactPath"
+            }
+            if ([string]::IsNullOrWhiteSpace($currentPackagePath) -or
+                -not (Test-Path -LiteralPath $currentPackagePath -PathType Leaf)) {
+                throw "Current Full distribution package is missing: $currentPackagePath"
             }
             $releaseAcceptanceTestDirectory = Join-Path $phaseDirectory 'test'
             $releaseAcceptanceResultsPath = Join-Path $releaseAcceptanceTestDirectory 'results.trx'
@@ -1963,6 +1904,12 @@ try {
                 -Filter 'TestCategory=ReleaseAcceptance' `
                 -DiagnosticsDirectory $releaseAcceptanceTestDirectory `
                 -DeadlinePolicy $deadlinePolicy `
+                -Environment @{
+                    BMS_LEGACY_UPDATER_ARTIFACT_PATH = $legacyArtifactPath
+                    BMS_LEGACY_UPDATER_CURRENT_PACKAGE_PATH = $currentPackagePath
+                    BMS_LEGACY_UPDATER_EXECUTION_DEADLINE_UTC = $deadlinePolicy.ExecutionDeadlineUtc.ToString('O')
+                    BMS_LEGACY_UPDATER_CLEANUP_DEADLINE_UTC = $deadlinePolicy.CleanupDeadlineUtc.ToString('O')
+                } `
                 -NoBuild
             $functionalResultsDirectory = Join-Path $testDiagnosticsDirectory 'functional'
             if (-not (Test-Path -LiteralPath $functionalResultsDirectory -PathType Container)) {
@@ -1978,19 +1925,13 @@ try {
             $outcomeResultPaths = @(
                 $functionalResultPaths +
                 $processIntegrationResultsPath +
-                $releaseAcceptanceResultsPath +
-                $v216FirstHopAcceptanceReceiptPath)
+                $releaseAcceptanceResultsPath)
             [void](Assert-VerificationTestOutcomes `
                     -ResultPaths $outcomeResultPaths `
                     -RosterPath $v216ArtifactMetadataPath `
                     -ReceiptPath (Join-Path $phaseDirectory 'release-outcomes.json'))
-            return [pscustomobject][ordered]@{
-                AcceptanceReceiptPath = $v216FirstHopAcceptanceReceiptPath
-                ResultsPath = $releaseAcceptanceResultsPath
-            }
+            return $releaseAcceptanceResultsPath
         })[-1]
-        $v216FirstHopAcceptanceReceiptPath = [string]$releaseAcceptancePaths.AcceptanceReceiptPath
-        $releaseAcceptanceResultsPath = [string]$releaseAcceptancePaths.ResultsPath
 
         Assert-RepositoryWhitespace
     }

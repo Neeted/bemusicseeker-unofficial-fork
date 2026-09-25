@@ -9,6 +9,6 @@
 | [重複統合の連続操作](duplicate-merge-performance-2026-09-13.md) | 索引再構築を見落とさない操作全体の測定範囲。 |
 | [対象パス削除のDB処理量](path-cleanup-db-work.md) | 背景行数に連動する処理を識別する観測方法。 |
 | [既存データ受入の固定入力](net10-existing-data/fixture-manifest.json) | 管理する固定入力と受入条件。 |
-| [公開旧版の配布物指定](v216-first-hop/artifact.json) | 旧版からの実移行に使用する版・サイズ・ハッシュ。 |
+| [公開旧版の配布物指定](v216-first-hop/artifact.json) | .NET 10配布構成へのファイル適用検査に使う固定旧更新プログラムの版・サイズ・ハッシュ。検査の範囲と退役条件は[検証仕様](../spec/development/testing.md#公開旧版からの移行とリリース判定)を参照。 |
 
 現行の判定規則は[性能仕様](../spec/core/performance-and-scale.md)と[検証仕様](../spec/development/testing.md)を参照します。[開発資料の入口](../README.md)へ戻ります。

@@ -14,12 +14,8 @@
     "schemaVersion": 1,
     "required": [
       {
-        "contractId": "UPD-V216-HAPPY",
-        "fullyQualifiedName": "BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.HappyPath"
-      },
-      {
-        "contractId": "UPD-V216-LOCK",
-        "fullyQualifiedName": "BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.ManagedFileLockCharacterization"
+        "contractId": "UPD-V216-MIGRATION",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.LegacyUpdaterDistributionMigrationTests.PublishedLegacyUpdater_MigratesManagedFilesAndPreservesUserFiles"
       },
       {
         "contractId": "UPD-V3-LOCK",
