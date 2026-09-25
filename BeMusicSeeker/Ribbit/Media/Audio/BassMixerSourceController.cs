@@ -275,7 +275,6 @@ internal sealed class BassMixerSourceController
     private const BassFlags MixerSourceCreationFlags = BassFlags.MixerChanPause
         | BassFlags.MixerChanMatrix
         | BassFlags.MixerChanNoRampin;
-    private const float RequiredSrcQuality = 6f;
     // BASS_MIXER_CHAN_NORAMP (0x00100000)。BASS_ChannelFlags用で、NORAMPINとは別のbitです。
 
     private readonly IBassMixerSourceNativeBoundary native;
@@ -418,9 +417,11 @@ internal sealed class BassMixerSourceController
         int expectedMixerHandle,
         int sourceHandle,
         AudioChannelLayout sourceLayout,
-        string fileName)
+        string fileName,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         ArgumentNullException.ThrowIfNull(sourceLayout);
+        AudioResamplingQuality.Validate(sampleRateConversionQuality, nameof(sampleRateConversionQuality));
         ValidateHandles(expectedMixerHandle, sourceHandle, fileName);
         EnsureExpectedMixer(
             expectedMixerHandle,
@@ -468,7 +469,11 @@ internal sealed class BassMixerSourceController
 
         if (sourceInfo.Frequency != mixerInfo.Frequency)
         {
-            SetAndConfirmSrc(sourceHandle, expectedMixerHandle, fileName);
+            SetAndConfirmSrc(
+                sourceHandle,
+                expectedMixerHandle,
+                fileName,
+                sampleRateConversionQuality);
         }
 
         // pause中のmatrix設定はnative仕様上rampされず、開始時はNORAMPINで抑制します。
@@ -788,12 +793,16 @@ internal sealed class BassMixerSourceController
         }
     }
 
-    private void SetAndConfirmSrc(int sourceHandle, int expectedMixerHandle, string fileName)
+    private void SetAndConfirmSrc(
+        int sourceHandle,
+        int expectedMixerHandle,
+        string fileName,
+        int sampleRateConversionQuality)
     {
         bool set;
         try
         {
-            set = native.SetSampleRateConversion(sourceHandle, RequiredSrcQuality);
+            set = native.SetSampleRateConversion(sourceHandle, sampleRateConversionQuality);
         }
         catch (Exception exception)
         {
@@ -819,7 +828,7 @@ internal sealed class BassMixerSourceController
                 expectedMixerHandle,
                 "BASS_ChannelSetAttribute(BASS_ATTRIB_SRC)",
                 error,
-                "Setting source SRC quality to six failed.");
+                $"Setting source SRC quality to {sampleRateConversionQuality} failed.");
         }
 
         bool read;
@@ -854,7 +863,7 @@ internal sealed class BassMixerSourceController
                 error,
                 "Reading back source SRC quality failed.");
         }
-        if (actualQuality != RequiredSrcQuality)
+        if (actualQuality != sampleRateConversionQuality)
         {
             throw Failure(
                 BassAudioPlaybackStage.MixerSourceFormat,
@@ -864,7 +873,7 @@ internal sealed class BassMixerSourceController
                 expectedMixerHandle,
                 "BASS_ChannelGetAttribute(BASS_ATTRIB_SRC)",
                 null,
-                $"BASS reported SRC quality {actualQuality} after requesting six.");
+                $"BASS reported SRC quality {actualQuality} after requesting {sampleRateConversionQuality}.");
         }
     }
 

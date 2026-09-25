@@ -207,7 +207,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
     {
         double gain = normalization switch
         {
-            Normalization.NONE => 0.4d * amplifier,
+            Normalization.NONE => 0.16d * amplifier,
             Normalization.PEAK_LEVEL => levels.Peak == 0d
                 ? amplifier
                 : (0.99d / levels.Peak) * amplifier,

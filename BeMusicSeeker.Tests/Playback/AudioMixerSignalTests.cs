@@ -113,7 +113,7 @@ public sealed class AudioMixerSignalTests
 
         foreach ((int sourceRate, int outputRate) in ratePairs)
         {
-            using var graph = NativeAudioGraph.Start(outputRate);
+            using var graph = NativeAudioGraph.Start(outputRate, AudioResamplingQuality.Maximum);
             foreach (int frequency in toneFrequencies)
             {
                 using var wave = TemporaryFloatWave.Create(
@@ -152,7 +152,7 @@ public sealed class AudioMixerSignalTests
             (42000, 6000)
         ];
 
-        using var graph = NativeAudioGraph.Start(outputRate);
+        using var graph = NativeAudioGraph.Start(outputRate, AudioResamplingQuality.Maximum);
         foreach ((int sourceFrequency, int aliasFrequency) in tones)
         {
             using var wave = TemporaryFloatWave.Create(
@@ -188,48 +188,51 @@ public sealed class AudioMixerSignalTests
             (96000, 48000)
         ];
 
-        foreach ((int sourceRate, int outputRate) in ratePairs)
+        foreach (int quality in new[] { 2, 3, 4, 5, 6 })
         {
-            long sourceFrames = sourceRate + 1L;
-            int expectedOutputFrames = CeilingOutputFrames(sourceRate, outputRate, sourceFrames);
-            using var wave = TemporaryFloatWave.Create(sourceRate, sourceFrames, _ => 0.25f);
-            using var graph = NativeAudioGraph.Start(outputRate);
-            BassAudioPlayer player = graph.CreatePlayer(wave.Path);
-            foreach (int chunkFrames in new[] { 1, 16, 1024 })
+            foreach ((int sourceRate, int outputRate) in ratePairs)
             {
-                for (int playback = 0; playback < 2; playback++)
+                long sourceFrames = sourceRate + 1L;
+                int expectedOutputFrames = CeilingOutputFrames(sourceRate, outputRate, sourceFrames);
+                using var wave = TemporaryFloatWave.Create(sourceRate, sourceFrames, _ => 0.25f);
+                using var graph = NativeAudioGraph.Start(outputRate, quality);
+                BassAudioPlayer player = graph.CreatePlayer(wave.Path);
+                foreach (int chunkFrames in new[] { 1, 16, 1024 })
                 {
-                    player.Play();
-                    float[] buffer = new float[chunkFrames * 2];
-                    int readFrames = 0;
-                    int limit = expectedOutputFrames + chunkFrames + 1;
-                    while (readFrames < limit)
+                    for (int playback = 0; playback < 2; playback++)
                     {
-                        int count = Math.Min(chunkFrames, limit - readFrames);
-                        graph.Renderer.ReadFramesExactly(buffer, 0, count);
-                        for (int frame = 0; frame < count; frame++)
+                        player.Play();
+                        float[] buffer = new float[chunkFrames * 2];
+                        int readFrames = 0;
+                        int limit = expectedOutputFrames + chunkFrames + 1;
+                        while (readFrames < limit)
                         {
-                            int absoluteFrame = readFrames + frame;
-                            for (int channel = 0; channel < 2; channel++)
+                            int count = Math.Min(chunkFrames, limit - readFrames);
+                            graph.Renderer.ReadFramesExactly(buffer, 0, count);
+                            for (int frame = 0; frame < count; frame++)
                             {
-                                float sample = buffer[frame * 2 + channel];
-                                if (absoluteFrame == expectedOutputFrames - 1)
+                                int absoluteFrame = readFrames + frame;
+                                for (int channel = 0; channel < 2; channel++)
                                 {
-                                    Assert.AreNotEqual(0f, sample,
-                                        $"Missing final frame: {sourceRate}->{outputRate}, chunk {chunkFrames}, playback {playback}.");
-                                }
-                                else if (absoluteFrame >= expectedOutputFrames)
-                                {
-                                    Assert.AreEqual(0f, sample,
-                                        $"PCM after mathematical end: frame {absoluteFrame}, {sourceRate}->{outputRate}.");
+                                    float sample = buffer[frame * 2 + channel];
+                                    if (absoluteFrame == expectedOutputFrames - 1)
+                                    {
+                                        Assert.AreNotEqual(0f, sample,
+                                            $"Missing final frame: SRC {quality}, {sourceRate}->{outputRate}, chunk {chunkFrames}, playback {playback}.");
+                                    }
+                                    else if (absoluteFrame >= expectedOutputFrames)
+                                    {
+                                        Assert.AreEqual(0f, sample,
+                                            $"PCM after mathematical end: SRC {quality}, frame {absoluteFrame}, {sourceRate}->{outputRate}.");
+                                    }
                                 }
                             }
+                            readFrames += count;
                         }
-                        readFrames += count;
                     }
                 }
+                graph.DisposePlayer(player);
             }
-            graph.DisposePlayer(player);
         }
     }
 
@@ -342,7 +345,7 @@ public sealed class AudioMixerSignalTests
         private BassAudioSession? session;
         private bool disposed;
 
-        private NativeAudioGraph(int outputRate)
+        private NativeAudioGraph(int outputRate, int sampleRateConversionQuality)
         {
             previousFrequency = BassAudioPlayer.Frequency;
             previousFormat = BassAudioPlayer.Format;
@@ -364,7 +367,8 @@ public sealed class AudioMixerSignalTests
                     BassAudioPlayer.DeviceDriver.NULL_DEVICE,
                     default,
                     0f,
-                    out session);
+                    out session,
+                    sampleRateConversionQuality);
                 BassAudioPlayer.DefaultVolume = 1f;
                 BassAudioPlayer.DeviceVolume = 1f;
                 BassAudioPlayer.IsDeviceMuted = false;
@@ -396,7 +400,10 @@ public sealed class AudioMixerSignalTests
 
         internal AudioPcmRenderer Renderer { get; }
 
-        internal static NativeAudioGraph Start(int outputRate) => new(outputRate);
+        internal static NativeAudioGraph Start(
+            int outputRate,
+            int sampleRateConversionQuality = AudioResamplingQuality.Default)
+            => new(outputRate, sampleRateConversionQuality);
 
         internal BassAudioPlayer CreatePlayer(string path)
         {

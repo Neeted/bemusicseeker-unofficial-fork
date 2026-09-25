@@ -12,8 +12,10 @@ using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>音声デバイステスト開始時に捕捉した設定を保持します。</summary>
 internal sealed class AudioDeviceTestRequest
 {
+    /// <summary>デバイステストに使う音声設定を変更不能な値として初期化します。</summary>
     internal AudioDeviceTestRequest(
         AudioDriver playerDriver,
         string playerDevice,
@@ -23,7 +25,8 @@ internal sealed class AudioDeviceTestRequest
         float playerBufferSize,
         bool playerWASAPIParam,
         int playerVolume,
-        bool playSound)
+        bool playSound,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
             new AudioOutputSelection(playerDriver, playerDevice, playerDeviceName));
@@ -35,6 +38,7 @@ internal sealed class AudioDeviceTestRequest
         PlayerBufferSize = playerBufferSize;
         PlayerWASAPIParam = playerWASAPIParam;
         PlayerVolume = playerVolume;
+        SampleRateConversionQuality = sampleRateConversionQuality;
         PlaySound = playSound;
     }
 
@@ -53,6 +57,9 @@ internal sealed class AudioDeviceTestRequest
     internal bool PlayerWASAPIParam { get; }
 
     internal int PlayerVolume { get; }
+
+    /// <summary>このテスト開始時に捕捉したサンプルレート変換品質です。</summary>
+    internal int SampleRateConversionQuality { get; }
 
     internal bool PlaySound { get; }
 }
@@ -857,6 +864,7 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 descriptor,
                 request.PlayerBufferSize,
                 out ownedSession,
+                request.SampleRateConversionQuality,
                 request.PlayerWASAPIParam);
             sessionLease.Attach(ownedSession);
             using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();

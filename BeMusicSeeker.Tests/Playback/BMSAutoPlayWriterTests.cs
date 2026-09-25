@@ -141,10 +141,17 @@ public sealed class BMSAutoPlayWriterTests
             "none",
             BMSAutoPlayWriter.Normalization.NONE,
             silentInput: false);
+        AudioTestWaveFile amplifiedNoneOutput = RenderChart(
+            directory,
+            "amplified-none",
+            BMSAutoPlayWriter.Normalization.NONE,
+            silentInput: false,
+            normalizationAmplifier: 0.5f);
 
         Assert.AreEqual(0.99d, MeasureWave(peakOutput).Peak, 0.002d);
         Assert.AreEqual(0.4d, MeasureWave(rmsOutput).Rms, 0.002d);
-        Assert.AreEqual(0.2d, MeasureWave(noneOutput).Peak, 0.002d);
+        Assert.AreEqual(0.08d, MeasureWave(noneOutput).Peak, 0.002d);
+        Assert.AreEqual(0.04d, MeasureWave(amplifiedNoneOutput).Peak, 0.002d);
     }
 
     [DataTestMethod]
@@ -236,7 +243,7 @@ public sealed class BMSAutoPlayWriterTests
             0.4f,
             directory.File("over-range"),
             BMSAutoPlayWriter.Normalization.NONE,
-            normalizationAmplifier: 6f));
+            normalizationAmplifier: 16f));
 
         Assert.IsTrue(exception.Peak > 1d);
         Assert.AreEqual(20d * Math.Log10(exception.Peak), exception.RequiredAttenuationDb, 1e-12d);
@@ -249,7 +256,8 @@ public sealed class BMSAutoPlayWriterTests
         TemporaryDirectory directory,
         string name,
         BMSAutoPlayWriter.Normalization normalization,
-        bool silentInput)
+        bool silentInput,
+        float normalizationAmplifier = 1f)
     {
         File.WriteAllBytes(directory.File(name + ".wav"), BuildPcmWave(silentInput));
         File.WriteAllText(
@@ -262,7 +270,12 @@ public sealed class BMSAutoPlayWriterTests
         {
             writer.LoadResources();
             long expectedFrames = AudioPcmRenderer.TimeToFrame(writer.Duration, 48000);
-            writer.Write(EncoderType.WAVE, 0.4f, outputWithoutExtension, normalization);
+            writer.Write(
+                EncoderType.WAVE,
+                0.4f,
+                outputWithoutExtension,
+                normalization,
+                normalizationAmplifier);
             AudioTestWaveFile output = AudioTestWaveFileReader.Read(File.ReadAllBytes(outputWithoutExtension + ".wav"));
             int sampleCount = output.DataLength / sizeof(float);
             Assert.AreEqual(expectedFrames, sampleCount / output.Channels);

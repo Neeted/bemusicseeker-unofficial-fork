@@ -48,6 +48,7 @@ public sealed class PlayerSettingsGatewayTests
         string originalDeviceName = settings.PlayerDeviceName;
         SampleRate originalRate = settings.PlayerSampleRate;
         SampleFormat originalFormat = settings.PlayerFormat;
+        int originalResamplingQuality = settings.PlayerResamplingQuality;
         int originalVolume = settings.uBMplayVolume;
         System.Windows.Point originalResolution = settings.LR2bodyResolution;
         try
@@ -57,6 +58,7 @@ public sealed class PlayerSettingsGatewayTests
             settings.PlayerDeviceName = "Device before";
             settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
             settings.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
+            settings.PlayerResamplingQuality = 2;
             settings.uBMplayVolume = 37;
             settings.LR2bodyResolution = new System.Windows.Point(1234.5, 678.25);
 
@@ -68,6 +70,7 @@ public sealed class PlayerSettingsGatewayTests
             Assert.IsNull(snapshot.PlayerDeviceName);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, snapshot.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, snapshot.PlayerFormat);
+            Assert.AreEqual(2, snapshot.SampleRateConversionQuality);
             Assert.AreEqual(37, snapshot.PlayerVolume);
             Assert.AreEqual(1234.5, snapshot.LR2bodyResolution.Width);
             Assert.AreEqual(678.25, snapshot.LR2bodyResolution.Height);
@@ -85,6 +88,7 @@ public sealed class PlayerSettingsGatewayTests
             settings.PlayerDeviceName = originalDeviceName;
             settings.PlayerSampleRate = originalRate;
             settings.PlayerFormat = originalFormat;
+            settings.PlayerResamplingQuality = originalResamplingQuality;
             settings.uBMplayVolume = originalVolume;
             settings.LR2bodyResolution = originalResolution;
         }

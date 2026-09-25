@@ -31,7 +31,7 @@ internal readonly record struct BassWasapiInfoSnapshot(
 /// <summary>
 /// Exposes the native calls required to negotiate one WASAPI output graph.
 /// </summary>
-internal interface IWasapiNegotiationNativeBoundary
+internal interface IWasapiNegotiationNativeBoundary : IBassMixerThreadNativeBoundary
 {
     /// <summary>Initializes the decode-only BASS core device.</summary>
     bool InitializeCore();
@@ -393,10 +393,24 @@ internal sealed class BassWasapiNegotiator
                 "BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error));
         }
         session.MixerHandle = mixerHandle;
+        session.TrackOutputHandle(mixerHandle);
+        try
+        {
+            BassMixerThreadConfigurator.SetAndConfirm(mixerHandle, native);
+        }
+        catch (BassMixerThreadConfigurationException exception)
+        {
+            throw Failure(
+                request,
+                session,
+                exception.NativeApi,
+                "BASS",
+                exception.NativeErrorCode,
+                exception.Message,
+                exception);
+        }
         session.OutputProcessor = new AudioOutputProcessor(info.Frequency, initialGain);
         session.CallbackPcmRenderer = new AudioPcmRenderer(mixerHandle, info.Frequency, info.Channels);
-
-        session.TrackOutputHandle(mixerHandle);
         if (!native.StartWasapi())
         {
             Errors error = native.GetWasapiError();
@@ -577,7 +591,8 @@ internal sealed class BassWasapiNegotiator
         string stage,
         string source,
         Errors? error,
-        string message) =>
+        string message,
+        Exception innerException = null) =>
         new(
             request.Backend,
             request.Backend,
@@ -586,7 +601,8 @@ internal sealed class BassWasapiNegotiator
             session.ActualDevice,
             source,
             error,
-            message);
+            message,
+            innerException);
 
     private sealed class IndexedWasapiDevice
     {
@@ -605,6 +621,7 @@ internal sealed class BassWasapiNegotiator
 /// <summary>Forwards WASAPI negotiation calls to ManagedBass.</summary>
 internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNativeBoundary
 {
+    private readonly IBassMixerThreadNativeBoundary mixerThreadNative = new BassMixerThreadNativeBoundary();
     private Errors? coreErrorOverride;
     private Errors? wasapiErrorOverride;
 
@@ -625,6 +642,17 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
 
     /// <inheritdoc />
     public int GetCoreDevice() => Bass.CurrentDevice;
+
+    /// <inheritdoc />
+    public bool SetMixerThreadCount(int mixerHandle, float threadCount) =>
+        mixerThreadNative.SetMixerThreadCount(mixerHandle, threadCount);
+
+    /// <inheritdoc />
+    public bool GetMixerThreadCount(int mixerHandle, out float threadCount) =>
+        mixerThreadNative.GetMixerThreadCount(mixerHandle, out threadCount);
+
+    /// <inheritdoc />
+    public Errors GetMixerThreadError() => GetCoreError();
 
     /// <inheritdoc />
     public void DisableCoreUpdatePeriod()

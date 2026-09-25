@@ -338,6 +338,7 @@ internal static class BassAudioMapping
 
 internal sealed class AudioEncodingSettingsSnapshot
 {
+    /// <summary>音声変換に使う設定を変更不能な値として初期化します。</summary>
     internal AudioEncodingSettingsSnapshot(
         EncoderType encoder,
         SampleRate encoderSampleRate,
@@ -346,7 +347,8 @@ internal sealed class AudioEncodingSettingsSnapshot
         float encoderQuality,
         string encoderExeDirectory,
         float encoderAmplifier,
-        string encodeFileNameFormat)
+        string encodeFileNameFormat,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         Encoder = encoder;
         EncoderSampleRate = encoderSampleRate;
@@ -356,6 +358,7 @@ internal sealed class AudioEncodingSettingsSnapshot
         EncoderExeDirectory = encoderExeDirectory;
         EncoderAmplifier = encoderAmplifier;
         EncodeFileNameFormat = encodeFileNameFormat;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
     }
 
     internal EncoderType Encoder { get; }
@@ -373,6 +376,9 @@ internal sealed class AudioEncodingSettingsSnapshot
     internal float EncoderAmplifier { get; }
 
     internal string EncodeFileNameFormat { get; }
+
+    /// <summary>音声変換時に捕捉したサンプルレート変換品質を取得します。</summary>
+    internal int SampleRateConversionQuality { get; }
 }
 
 internal interface IAudioSettingsGateway
@@ -439,7 +445,8 @@ internal sealed class SettingsAudioGateway : IAudioSettingsGateway
             values.EncoderQuality,
             values.EncoderExeDir,
             values.EncoderAmplifier,
-            values.EncodeFileNameFormat);
+            values.EncodeFileNameFormat,
+            values.PlayerResamplingQuality);
     }
 
     public void ApplyEncoderFallback(EncoderType encoder)
@@ -579,8 +586,26 @@ internal interface IAudioPlaybackRuntime
 internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 {
     private readonly BassAudioSessionLease sessionLease = new();
+    private readonly Action<PlayerSettingsSnapshot, Action<BassAudioSession>> initializeNativeSession;
+    private readonly Func<BassAudioSession, bool> releaseNativeSession;
 
     private AudioPlaybackInitializationResult activeInitialization;
+
+    internal BassAudioPlaybackRuntime()
+        : this(InitializeNativeSession, Ribbit.Media.BassAudioPlayer.Free)
+    {
+    }
+
+    /// <summary>ネイティブ境界を差し替え、再生sessionの再利用と解放を検証できるruntimeを作成します。</summary>
+    internal BassAudioPlaybackRuntime(
+        Action<PlayerSettingsSnapshot, Action<BassAudioSession>> initializeNativeSession,
+        Func<BassAudioSession, bool> releaseNativeSession)
+    {
+        this.initializeNativeSession = initializeNativeSession
+            ?? throw new ArgumentNullException(nameof(initializeNativeSession));
+        this.releaseNativeSession = releaseNativeSession
+            ?? throw new ArgumentNullException(nameof(releaseNativeSession));
+    }
 
     public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
     {
@@ -593,28 +618,30 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
             if (retainedSession.State == BassAudioSessionState.Active
                 && activeInitialization != null)
             {
-                return activeInitialization;
-            }
+                if (retainedSession.SampleRateConversionQuality == settings.SampleRateConversionQuality)
+                {
+                    return activeInitialization;
+                }
 
-            throw new InvalidOperationException(
-                "The playback runtime still owns an audio session that is not active or fully released.");
+                if (!sessionLease.TryRelease(releaseNativeSession))
+                {
+                    throw new InvalidOperationException(
+                        "The playback runtime could not release its active audio session to apply the requested sample-rate conversion quality.");
+                }
+
+                activeInitialization = null;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    "The playback runtime still owns an audio session that is not active or fully released.");
+            }
         }
 
-        Ribbit.Media.BassAudioPlayer.DeviceDescriptor descriptor = string.IsNullOrWhiteSpace(settings.PlayerDevice)
-            ? default
-            : new Ribbit.Media.BassAudioPlayer.DeviceDescriptor(settings.PlayerDeviceName, settings.PlayerDevice);
-        Ribbit.Media.BassAudioPlayer.Frequency = settings.PlayerSampleRate;
-        Ribbit.Media.BassAudioPlayer.Format = settings.PlayerFormat;
-        SetVolume(settings.PlayerVolume);
         BassAudioSession initializedSession = null;
         try
         {
-            descriptor = Ribbit.Media.BassAudioPlayer.InitializeOwned(
-                BassAudioMapping.ToBassDriver(settings.PlayerDriver),
-                descriptor,
-                settings.PlayerBufferSize,
-                out initializedSession,
-                settings.PlayerWASAPIParam);
+            initializeNativeSession(settings, session => initializedSession = session);
             sessionLease.Attach(initializedSession);
             BassAudioBackendResult negotiated = initializedSession.NegotiationResult
                 ?? throw new InvalidOperationException(
@@ -645,7 +672,7 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 
     public void Free()
     {
-        if (sessionLease.TryRelease(Ribbit.Media.BassAudioPlayer.Free))
+        if (sessionLease.TryRelease(releaseNativeSession))
         {
             activeInitialization = null;
         }
@@ -706,6 +733,34 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
             "NullDevice is reserved for offline conversion and cannot initialize audible playback.");
     }
 
+    /// <summary>捕捉した再生設定でBASS sessionを初期化し、失敗時も取得済み所有権を呼び出し元へ渡します。</summary>
+    private static void InitializeNativeSession(
+        PlayerSettingsSnapshot settings,
+        Action<BassAudioSession> captureAcquiredSession)
+    {
+        Ribbit.Media.BassAudioPlayer.DeviceDescriptor descriptor = string.IsNullOrWhiteSpace(settings.PlayerDevice)
+            ? default
+            : new Ribbit.Media.BassAudioPlayer.DeviceDescriptor(settings.PlayerDeviceName, settings.PlayerDevice);
+        Ribbit.Media.BassAudioPlayer.Frequency = settings.PlayerSampleRate;
+        Ribbit.Media.BassAudioPlayer.Format = settings.PlayerFormat;
+        Ribbit.Media.BassAudioPlayer.DeviceVolume = Math.Min(100, Math.Max(0, settings.PlayerVolume)) / 100f;
+        BassAudioSession initializedSession = null;
+        try
+        {
+            Ribbit.Media.BassAudioPlayer.InitializeOwned(
+                BassAudioMapping.ToBassDriver(settings.PlayerDriver),
+                descriptor,
+                settings.PlayerBufferSize,
+                out initializedSession,
+                settings.SampleRateConversionQuality,
+                settings.PlayerWASAPIParam);
+        }
+        finally
+        {
+            captureAcquiredSession(initializedSession);
+        }
+    }
+
     private void TryRetainAndRetryFailedInitialization(BassAudioSession initializedSession)
     {
         if (initializedSession == null)
@@ -716,7 +771,7 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
         try
         {
             sessionLease.Attach(initializedSession);
-            if (sessionLease.TryRelease(Ribbit.Media.BassAudioPlayer.Free))
+            if (sessionLease.TryRelease(releaseNativeSession))
             {
                 activeInitialization = null;
             }

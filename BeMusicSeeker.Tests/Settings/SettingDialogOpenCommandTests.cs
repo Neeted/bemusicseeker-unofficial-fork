@@ -20,12 +20,15 @@ public sealed class SettingDialogOpenCommandTests
         var catalog = new TestAudioDeviceCatalog();
         var settingsSession = new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings
         {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
+            PlayerResamplingQuality = 2
         });
         using SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
         var presentation = new RecordingSettingsDialogPresentationPort();
         dialog.AttachPresentationPort(presentation);
 
+        Assert.AreEqual(2, dialog.PlayerResamplingQuality);
+        Assert.IsFalse(dialog.HasPendingSettingChanges());
         Assert.IsTrue(dialog.OpenCommand.CanExecute);
         dialog.OpenCommand.Execute();
 

@@ -14,7 +14,7 @@ internal readonly record struct BassAsioDeviceSnapshot(string Name, string Drive
 /// <summary>
 /// Exposes the native calls required to negotiate one ASIO output graph.
 /// </summary>
-internal interface IAsioNegotiationNativeBoundary
+internal interface IAsioNegotiationNativeBoundary : IBassMixerThreadNativeBoundary
 {
     /// <summary>Initializes the decode-only BASS core device.</summary>
     bool InitializeCore();
@@ -263,6 +263,21 @@ internal sealed class BassAsioNegotiator
         }
         session.MixerHandle = mixerHandle;
         session.TrackOutputHandle(mixerHandle);
+        try
+        {
+            BassMixerThreadConfigurator.SetAndConfirm(mixerHandle, native);
+        }
+        catch (BassMixerThreadConfigurationException exception)
+        {
+            throw Failure(
+                request,
+                session,
+                exception.NativeApi,
+                "BASS",
+                exception.NativeErrorCode,
+                exception.Message,
+                exception);
+        }
         session.OutputProcessor = new AudioOutputProcessor(negotiatedRate, initialGain);
         session.CallbackPcmRenderer = new AudioPcmRenderer(mixerHandle, negotiatedRate, channelCount: 2);
 
@@ -546,7 +561,8 @@ internal sealed class BassAsioNegotiator
         string stage,
         string source,
         Errors? error,
-        string message) =>
+        string message,
+        Exception innerException = null) =>
         new(
             request.Backend,
             BassAudioPlayer.DeviceDriver.ASIO,
@@ -555,12 +571,14 @@ internal sealed class BassAsioNegotiator
             session.ActualDevice,
             source,
             error,
-            message);
+            message,
+            innerException);
 }
 
 /// <summary>Forwards ASIO negotiation calls to ManagedBass.</summary>
 internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNativeBoundary
 {
+    private readonly IBassMixerThreadNativeBoundary mixerThreadNative = new BassMixerThreadNativeBoundary();
     private Errors? coreErrorOverride;
     private Errors? asioErrorOverride;
 
@@ -581,6 +599,17 @@ internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNative
 
     /// <inheritdoc />
     public int GetCoreDevice() => Bass.CurrentDevice;
+
+    /// <inheritdoc />
+    public bool SetMixerThreadCount(int mixerHandle, float threadCount) =>
+        mixerThreadNative.SetMixerThreadCount(mixerHandle, threadCount);
+
+    /// <inheritdoc />
+    public bool GetMixerThreadCount(int mixerHandle, out float threadCount) =>
+        mixerThreadNative.GetMixerThreadCount(mixerHandle, out threadCount);
+
+    /// <inheritdoc />
+    public Errors GetMixerThreadError() => GetCoreError();
 
     /// <inheritdoc />
     public void DisableCoreUpdatePeriod()

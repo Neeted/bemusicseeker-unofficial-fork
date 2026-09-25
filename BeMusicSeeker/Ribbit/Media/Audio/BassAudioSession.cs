@@ -64,21 +64,24 @@ internal sealed class BassAudioSession
     private AudioCallbackOutputFailure callbackOutputFailure;
     private int outputOverLevelNotificationState;
 
-    /// <summary>
-    /// Creates an initializing session for the requested backend and endpoint.
-    /// </summary>
+    /// <summary>要求backend、endpoint、SRC品質を捕捉した初期化中sessionを作成します。</summary>
     internal BassAudioSession(
         BassAudioPlayer.DeviceDriver requestedBackend,
-        BassAudioPlayer.DeviceDescriptor requestedDevice = default)
+        BassAudioPlayer.DeviceDescriptor requestedDevice = default,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         RequestedBackend = requestedBackend;
         RequestedDevice = requestedDevice;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
         ActualBackend = BassAudioPlayer.DeviceDriver.INVALID;
         CoreDeviceIndex = -1;
         WasapiDeviceIndex = -1;
         AsioDeviceIndex = -1;
         State = BassAudioSessionState.Initializing;
     }
+
+    /// <summary>初期化時に捕捉した、このsessionが使うSRC品質を取得します。</summary>
+    internal int SampleRateConversionQuality { get; }
 
     /// <summary>Gets the backend selected by the caller.</summary>
     internal BassAudioPlayer.DeviceDriver RequestedBackend { get; }
@@ -501,13 +504,12 @@ internal sealed class BassAudioSessionLifecycle
     internal bool HasUnconfirmedOwnership =>
         currentSession?.State is BassAudioSessionState.Initializing or BassAudioSessionState.CleanupPending;
 
-    /// <summary>
-    /// Starts ownership for a new initialization when no session is active or quarantined.
-    /// </summary>
+    /// <summary>有効なsessionや解放保留sessionがない場合、新しい初期化の所有sessionを開始します。</summary>
     internal bool TryBegin(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDescriptor requestedDevice,
-        out BassAudioSession session)
+        out BassAudioSession session,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         EnsureEntered();
         if (currentSession != null)
@@ -516,7 +518,7 @@ internal sealed class BassAudioSessionLifecycle
             return false;
         }
 
-        session = new BassAudioSession(requestedBackend, requestedDevice);
+        session = new BassAudioSession(requestedBackend, requestedDevice, sampleRateConversionQuality);
         Volatile.Write(ref currentSession, session);
         return true;
     }

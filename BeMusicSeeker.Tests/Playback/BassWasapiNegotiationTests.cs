@@ -145,13 +145,56 @@ public sealed class BassWasapiNegotiationTests
             eventModeRequested: false);
 
         CollectionAssert.AreEqual(
-            new[] { "CreateMixer", "StartWasapi" },
+            new[] { "CreateMixer", "SetMixerThreadCount", "GetMixerThreadCount", "StartWasapi" },
             native.GraphCalls);
+        Assert.AreEqual(BassMixerThreadConfigurator.RequiredThreadCount, native.MixerThreadCount);
         Assert.AreEqual(123, session.CallbackOutputHandle);
         Assert.AreEqual(0.35d, session.OutputProcessor.CurrentGain, 0.000001d);
         Assert.AreEqual(123, session.CallbackPcmRenderer.Channel);
         Assert.AreEqual(48000, session.CallbackPcmRenderer.SampleRate);
         Assert.AreEqual(2, session.CallbackPcmRenderer.ChannelCount);
+    }
+
+    [DataTestMethod]
+    [DataRow("set")]
+    [DataRow("get")]
+    [DataRow("mismatch")]
+    public void MixerThreadConfigurationFailuresReachTheWasapiInitializationResult(string failure)
+    {
+        var native = new RecordingWasapiBoundary();
+        if (failure == "set")
+        {
+            native.SetMixerThreadCountResult = false;
+            native.MixerThreadError = Errors.Busy;
+        }
+        else if (failure == "get")
+        {
+            native.GetMixerThreadCountResult = false;
+            native.MixerThreadError = Errors.Init;
+        }
+        else
+        {
+            native.ReportedMixerThreadCount = 1;
+        }
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassWasapiNegotiator(native).Initialize(
+                CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+                CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+                WasapiCallback,
+                initialGain: 1f,
+                eventModeRequested: false));
+
+        Assert.AreEqual(
+            failure == "set"
+                ? "BASS_ChannelSetAttribute(BASS_ATTRIB_MIXER_THREADS)"
+                : "BASS_ChannelGetAttribute(BASS_ATTRIB_MIXER_THREADS)",
+            exception.Stage);
+        Assert.AreEqual(
+            failure == "set" ? Errors.Busy : failure == "get" ? Errors.Init : null,
+            exception.NativeErrorCode);
+        Assert.IsTrue(native.GraphCalls.Contains("SetMixerThreadCount"));
+        Assert.AreEqual(failure == "set" ? 0 : 1, native.GraphCalls.Count(call => call == "GetMixerThreadCount"));
     }
 
     [TestMethod]
@@ -530,6 +573,16 @@ public sealed class BassWasapiNegotiationTests
 
         internal BassFlags MixerFlags { get; private set; }
 
+        internal int MixerThreadCount { get; private set; }
+
+        internal float? ReportedMixerThreadCount { get; set; }
+
+        internal bool SetMixerThreadCountResult { get; set; } = true;
+
+        internal bool GetMixerThreadCountResult { get; set; } = true;
+
+        internal Errors MixerThreadError { get; set; } = Errors.OK;
+
         internal Action? GetInfoObserver { get; set; }
 
         internal bool GetInfoObserved { get; private set; }
@@ -541,6 +594,25 @@ public sealed class BassWasapiNegotiationTests
         public bool InitializeCore() => true;
 
         public int GetCoreDevice() => 0;
+
+        public bool SetMixerThreadCount(int mixerHandle, float threadCount)
+        {
+            GraphCalls.Add("SetMixerThreadCount");
+            if (SetMixerThreadCountResult)
+            {
+                MixerThreadCount = (int)threadCount;
+            }
+            return SetMixerThreadCountResult;
+        }
+
+        public bool GetMixerThreadCount(int mixerHandle, out float threadCount)
+        {
+            GraphCalls.Add("GetMixerThreadCount");
+            threadCount = ReportedMixerThreadCount ?? MixerThreadCount;
+            return GetMixerThreadCountResult;
+        }
+
+        public Errors GetMixerThreadError() => MixerThreadError;
 
         public void DisableCoreUpdatePeriod()
         {

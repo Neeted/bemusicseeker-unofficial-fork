@@ -470,7 +470,24 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         float lParam,
         out BassAudioSession ownedSession,
         params object[] param)
+        => InitializeOwned(
+            driver,
+            desc,
+            lParam,
+            out ownedSession,
+            AudioResamplingQuality.Default,
+            param);
+
+    /// <summary>呼び出し元がsession用に捕捉した変換品質を使ってgraphを初期化します。</summary>
+    internal static DeviceDescriptor InitializeOwned(
+        DeviceDriver driver,
+        DeviceDescriptor desc,
+        float lParam,
+        out BassAudioSession ownedSession,
+        int sampleRateConversionQuality,
+        params object[] param)
     {
+        AudioResamplingQuality.Validate(sampleRateConversionQuality, nameof(sampleRateConversionQuality));
         ownedSession = null;
         if (driver == DeviceDriver.DIRECT_SOUND)
         {
@@ -549,7 +566,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 foreach (DeviceDriver backend in GetInitializationOrder(driver))
                 {
                     DeviceDescriptor attemptDevice = backend == driver ? desc : default;
-                    if (!SessionLifecycle.TryBegin(driver, desc, out BassAudioSession session))
+                    if (!SessionLifecycle.TryBegin(
+                        driver,
+                        desc,
+                        out BassAudioSession session,
+                        sampleRateConversionQuality))
                     {
                         throw new InvalidOperationException("The audio lifecycle already owns a session.");
                     }
@@ -1110,6 +1131,26 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         outputMixer = inputMixer;
         CurrentSession.MixerHandle = inputMixer;
         CurrentSession.OutputHandle = outputMixer;
+        try
+        {
+            BassMixerThreadConfigurator.SetAndConfirm(
+                inputMixer,
+                new BassMixerThreadNativeBoundary());
+        }
+        catch (BassMixerThreadConfigurationException exception)
+        {
+            Errors? error = exception.NativeErrorCode;
+            throw new AudioInitializationException(
+                DeviceDriver.NULL_DEVICE,
+                DeviceDriver.NULL_DEVICE,
+                exception.NativeApi,
+                default,
+                default,
+                "BASS",
+                error,
+                exception.Message,
+                exception);
+        }
         CurrentSession.ActualDevice = default;
         string fallbackReason = requestedFormat != SampleFormat.AUTO
             && requestedFormat != SampleFormat.SAMPLE_FLOAT_32BIT
@@ -2124,7 +2165,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         session.MixerHandle,
                         _handle,
                         sourceAdapter.ChannelLayout,
-                        FileName);
+                        FileName,
+                        session.SampleRateConversionQuality);
                     sourceMatrixConfigured = true;
                 }
 

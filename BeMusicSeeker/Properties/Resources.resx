@@ -689,6 +689,15 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Device_setting_desc1" xml:space="preserve">
     <value>※バッファサイズを大きくすると再生が安定しますが発音精度は悪くなります (0：自動)</value>
   </data>
+  <data name="Device_setting_resampling_quality" xml:space="preserve">
+    <value>サンプルレート変換品質:</value>
+  </data>
+  <data name="Device_setting_resampling_quality_desc" xml:space="preserve">
+    <value>音声のサンプリングレートを変換するときの品質です。高いほど変換誤差を抑えられますが、CPU負荷が増えます。音が途切れる場合は、低い設定を試してください。内蔵プレイヤーと音声ファイルへの変換に適用されます。既定値は4です。</value>
+  </data>
+  <data name="Error_InvalidAudioResamplingQuality" xml:space="preserve">
+    <value>サンプルレート変換品質は2～6で指定してください。</value>
+  </data>
   <data name="Msg_error_unexpected" xml:space="preserve">
     <value>予期しないエラーが発生しました。</value>
   </data>
@@ -1009,6 +1018,30 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   </data>
   <data name="Device_setting_buffersize" xml:space="preserve">
     <value>バッファサイズ:</value>
+  </data>
+  <data name="AudioConversionRangeFailureFormat" xml:space="preserve">
+    <value>音量が整数形式で保存できる上限を超えています。
+対象：{0}件、最大ピークの対象：{2}
+ピーク：＋{1} dB
+次のいずれかを選んで再実行してください。
+・現在の増幅率を約{3}%以下に下げる（追加増幅率の設定値：{4}以下）
+・PEAK正規化を選び、追加増幅率を1.0にする</value>
+  </data>
+  <data name="AudioConversionRangeFailureImpossibleFormat" xml:space="preserve">
+    <value>音量が整数形式で保存できる上限を超えています。
+対象：{0}件、最大ピークの対象：{2}
+ピーク：＋{1} dB
+追加増幅率の設定範囲内では、整数形式で保存できる範囲に調整できません。
+PEAK正規化を選び、追加増幅率を1.0にして再実行してください。</value>
+  </data>
+  <data name="AudioResamplingQualityOptionFormat" xml:space="preserve">
+    <value>{0}（{1}点）</value>
+  </data>
+  <data name="AudioConversionOtherFailureFormat" xml:space="preserve">
+    <value>{0}: {1}</value>
+  </data>
+  <data name="AudioConversionOtherFailuresRemainingFormat" xml:space="preserve">
+    <value>その他の変換失敗は{0}件です。残り{1}件の詳細はログを参照してください。</value>
   </data>
   <data name="Playlist_output_root" xml:space="preserve">
     <value>ルートフォルダ出力先: </value>

@@ -67,7 +67,8 @@ internal sealed class PlayerSettingsSnapshot
         int playerVolume,
         PlayerResolution lr2bodyResolution,
         bool isSaveLr2bodyWindowPosition,
-        WindowPlacement lr2bodyWindowPlacement)
+        WindowPlacement lr2bodyWindowPlacement,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
             new AudioOutputSelection(playerDriver, playerDevice, playerDeviceName));
@@ -79,6 +80,7 @@ internal sealed class PlayerSettingsSnapshot
         PlayerBufferSize = playerBufferSize;
         PlayerWASAPIParam = playerWasapiParam;
         PlayerVolume = playerVolume;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
         LR2bodyResolution = lr2bodyResolution;
         IsSaveLR2bodyWindowPosition = isSaveLr2bodyWindowPosition;
         LR2bodyWindowPlacement = lr2bodyWindowPlacement;
@@ -99,6 +101,9 @@ internal sealed class PlayerSettingsSnapshot
     internal bool PlayerWASAPIParam { get; }
 
     internal int PlayerVolume { get; }
+
+    /// <summary>再生session用に捕捉したサンプルレート変換品質を取得します。</summary>
+    internal int SampleRateConversionQuality { get; }
 
     internal PlayerResolution LR2bodyResolution { get; }
 
@@ -151,7 +156,8 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
             values.uBMplayVolume,
             PlayerResolutionSettingsAdapter.FromSettings(values),
             values.IsSaveLR2bodyWindowPosition,
-            Win32WindowPlacementAdapter.FromNative(values.LR2bodyWindowPlacement));
+            Win32WindowPlacementAdapter.FromNative(values.LR2bodyWindowPlacement),
+            values.PlayerResamplingQuality);
     }
 
     /// <summary>Updates runtime placement without requesting persistence during player cleanup.</summary>

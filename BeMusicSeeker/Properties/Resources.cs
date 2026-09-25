@@ -215,11 +215,27 @@ public class Resources
 
     public static string Device_setting_lowlatency => ResourceManager.GetString("Device_setting_lowlatency", resourceCulture);
 
+    public static string Device_setting_resampling_quality => ResourceManager.GetString("Device_setting_resampling_quality", resourceCulture);
+
+    public static string Device_setting_resampling_quality_desc => ResourceManager.GetString("Device_setting_resampling_quality_desc", resourceCulture);
+
+    public static string Error_InvalidAudioResamplingQuality => ResourceManager.GetString("Error_InvalidAudioResamplingQuality", resourceCulture);
+
     public static string Device_setting_samplerate => ResourceManager.GetString("Device_setting_samplerate", resourceCulture);
 
     public static string Device_setting_test => ResourceManager.GetString("Device_setting_test", resourceCulture);
 
     public static string Device_setting_volume => ResourceManager.GetString("Device_setting_volume", resourceCulture);
+
+    public static string AudioConversionRangeFailureFormat => ResourceManager.GetString("AudioConversionRangeFailureFormat", resourceCulture);
+
+    public static string AudioConversionRangeFailureImpossibleFormat => ResourceManager.GetString("AudioConversionRangeFailureImpossibleFormat", resourceCulture);
+
+    public static string AudioResamplingQualityOptionFormat => ResourceManager.GetString("AudioResamplingQualityOptionFormat", resourceCulture);
+
+    public static string AudioConversionOtherFailureFormat => ResourceManager.GetString("AudioConversionOtherFailureFormat", resourceCulture);
+
+    public static string AudioConversionOtherFailuresRemainingFormat => ResourceManager.GetString("AudioConversionOtherFailuresRemainingFormat", resourceCulture);
 
     public static string Diff_URL => ResourceManager.GetString("Diff_URL", resourceCulture);
 

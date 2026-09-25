@@ -29,6 +29,47 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Decode));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
+        Assert.AreEqual(BassMixerThreadConfigurator.RequiredThreadCount, native.MixerThreadCount);
+        CollectionAssert.AreEqual(
+            new[] { "set", "get" },
+            native.MixerThreadCalls);
+    }
+
+    [DataTestMethod]
+    [DataRow("set")]
+    [DataRow("get")]
+    [DataRow("mismatch")]
+    public void MixerThreadConfigurationFailuresReachTheAsioInitializationResult(string failure)
+    {
+        var native = new RecordingAsioBoundary();
+        if (failure == "set")
+        {
+            native.SetMixerThreadCountResult = false;
+            native.MixerThreadError = Errors.Busy;
+        }
+        else if (failure == "get")
+        {
+            native.GetMixerThreadCountResult = false;
+            native.MixerThreadError = Errors.Init;
+        }
+        else
+        {
+            native.ReportedMixerThreadCount = 1;
+        }
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => Initialize(native, SampleRate.AUTO, SampleFormat.AUTO));
+
+        Assert.AreEqual(
+            failure == "set"
+                ? "BASS_ChannelSetAttribute(BASS_ATTRIB_MIXER_THREADS)"
+                : "BASS_ChannelGetAttribute(BASS_ATTRIB_MIXER_THREADS)",
+            exception.Stage);
+        Assert.AreEqual(
+            failure == "set" ? Errors.Busy : failure == "get" ? Errors.Init : null,
+            exception.NativeErrorCode);
+        Assert.IsTrue(native.MixerThreadCalls.Contains("set"));
+        Assert.AreEqual(failure == "set" ? 0 : 1, native.MixerThreadCalls.Count(call => call == "get"));
     }
 
     [TestMethod]
@@ -335,6 +376,18 @@ public sealed class BassAsioNegotiationTests
 
         internal BassFlags MixerFlags { get; private set; }
 
+        internal int MixerThreadCount { get; private set; }
+
+        internal float? ReportedMixerThreadCount { get; set; }
+
+        internal bool SetMixerThreadCountResult { get; set; } = true;
+
+        internal bool GetMixerThreadCountResult { get; set; } = true;
+
+        internal Errors MixerThreadError { get; set; } = Errors.OK;
+
+        internal List<string> MixerThreadCalls { get; } = [];
+
         internal int MixerHandle { get; set; } = 123;
 
         internal int MixerHandleCreated { get; private set; }
@@ -360,6 +413,25 @@ public sealed class BassAsioNegotiationTests
         public bool InitializeCore() => true;
 
         public int GetCoreDevice() => 4;
+
+        public bool SetMixerThreadCount(int mixerHandle, float threadCount)
+        {
+            MixerThreadCalls.Add("set");
+            if (SetMixerThreadCountResult)
+            {
+                MixerThreadCount = (int)threadCount;
+            }
+            return SetMixerThreadCountResult;
+        }
+
+        public bool GetMixerThreadCount(int mixerHandle, out float threadCount)
+        {
+            MixerThreadCalls.Add("get");
+            threadCount = ReportedMixerThreadCount ?? MixerThreadCount;
+            return GetMixerThreadCountResult;
+        }
+
+        public Errors GetMixerThreadError() => MixerThreadError;
 
         public void DisableCoreUpdatePeriod()
         {

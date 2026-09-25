@@ -106,7 +106,17 @@ Oggは拡張子ではなくコンテナで判定し、libvorbisfileのfloat API�
 
 譜面ロードはBGM、可視1P/2P、ロング開始1P/2Pの使用音源だけを対象とします。欠落音源の既存の扱いは維持し、存在する使用音源の復号失敗は曲の失敗として成功済みsourceも回収します。未使用定義の破損を拒否理由にしません。
 
-BASSmix 2.4.13へsourceをpause状態で接続し、Float/Decode、必要なSRC=6と読み戻し、明示matrix、NORAMPINを確認してから再開します。無音区間も出力時計を維持します。WASAPI出力はBASS標準論理配置、ASIOは従来のL/Rです。同speakerを優先し、不足するFC・左右surroundは対応frontへ1/√2、BCは左右へ1/2で送ります。LFEは同名出力だけです。mono→stereoは両側1、stereo→monoは平均、multichannel→monoはstereo downmixの平均です。自動peak補正やpanの二重指定をしません。
+BASSmix 2.4.13へsourceをpause状態で接続し、Float/Decode、異なるレートに必要な指定SRC品質と読み戻し、明示matrix、NORAMPINを確認してから再開します。無音区間も出力時計を維持します。WASAPI出力はBASS標準論理配置、ASIOは従来のL/Rです。同speakerを優先し、不足するFC・左右surroundは対応frontへ1/√2、BCは左右へ1/2で送ります。LFEは同名出力だけです。mono→stereoは両側1、stereo→monoは平均、multichannel→monoはstereo downmixの平均です。自動peak補正やpanの二重指定をしません。
+
+### SRC品質と並列ミキシング
+
+SRC品質は再生・デバイステスト・音声変換で共通です。選択値は2～6（16・32・64・128・256点補間）、新規設定とキー欠落時の既定は4です。2は従来の明示指定なしで通常使われる16点補間に相当します。保存済みの範囲外値は拒否し、4へ黙って読み替えません。
+
+設定画面のオーディオ詳細ではバッファサイズと説明の直下に選択欄を置きます。注釈ではサンプリングレート変換の品質、高い設定による変換誤差の低減とCPU負荷増加、途切れる場合に低い設定を試すこと、内蔵プレイヤーと音声ファイル変換への適用を説明します。取消・保存失敗・変更判定は他の音声設定と同じ契約です。
+
+各開始時の要求へ品質を捕捉し、セッションの間は変更しません。保存後の次回再生で品質の異なる古いセッションを再利用せず、既存の停止・解放確認に従って作り直します。音源から可変の共有設定を読み直しません。デバイステスト中に品質が変われば、その要求の結果で設定や遅延表示を更新しません。
+
+出力ミキサーは初期化時にBASSmixの並列数を `min(4, Environment.ProcessorCount)` に設定して読み戻します。独自の並列SRCは実装しません。SRC品質と並列数の設定失敗、読戻し失敗、不一致は理由を保持して失敗とし、未設定のまま成功にしません。並列数の設定画面は設けません。採用理由と測定の限界は[設計判断](../../decisions/audio-library-boundaries.md#src品質と並列数を選ぶ理由)に記載します。
 
 ### 出力故障の受渡し
 
@@ -154,6 +164,7 @@ sourceの自然終了通知はSRCの先読み時点で発生するため、そ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 共通SRC品質の既定4・保存・取消・次回開始への反映 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`PlayerSettingsGateway`](../../../BeMusicSeeker/Models/Playback/PlayerSettingsGateway.cs)、[`AudioContracts`](../../../BeMusicSeeker/Models/Playback/AudioContracts.cs) | [`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)、[`SettingDialogOpenCommandTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogOpenCommandTests.cs)、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)で捕捉・保存失敗・古いテスト結果と画面の接続を確認する。 |
 | ロード、操作の受付、世代と解放の所有 | [`BassAudioRuntime`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassAudioRuntime.cs)、[`BassAudioSession`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassAudioSession.cs) | [`BassNativeRuntimeTests`](../../../BeMusicSeeker.Tests/Playback/BassNativeRuntimeTests.cs)、[`BassAudioSessionTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioSessionTests.cs)、[`BassCollectibleLoadContextTests`](../../../BeMusicSeeker.Tests/Playback/BassCollectibleLoadContextTests.cs) |
 | 機器の列挙、保存値、方式ごとの交渉と代替 | [`BassAudioRuntime`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassAudioRuntime.cs) | [`AudioDeviceCatalogTests`](../../../BeMusicSeeker.Tests/Playback/AudioDeviceCatalogTests.cs)、[`BassAudioDeviceEnumerationTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioDeviceEnumerationTests.cs)、[`BassAsioNegotiationTests`](../../../BeMusicSeeker.Tests/Playback/BassAsioNegotiationTests.cs)、[`BassWasapiNegotiationTests`](../../../BeMusicSeeker.Tests/Playback/BassWasapiNegotiationTests.cs) |
 | ミキサー所属、再生世代、ネイティブ失敗 | [`BassAudioPlayer`](../../../BeMusicSeeker/Ribbit/Media/BassAudioPlayer.cs) | [`BassMixerSourceControllerTests`](../../../BeMusicSeeker.Tests/Playback/BassMixerSourceControllerTests.cs)、[`BassAudioSessionTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioSessionTests.cs) |

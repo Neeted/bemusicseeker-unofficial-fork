@@ -196,9 +196,11 @@ public sealed class AudioContractsTests
     {
         BeMusicSeeker.Properties.Settings settings = testSettings;
         BMSAutoPlayWriter.Normalization originalNormalization = settings.EncoderNormalization;
+        int originalResamplingQuality = settings.PlayerResamplingQuality;
         try
         {
             settings.EncoderNormalization = Ribbit.BMS.BMSAutoPlayWriter.Normalization.RMS_VALUE;
+            settings.PlayerResamplingQuality = 2;
             SettingsAudioGateway gateway = new(() => settings);
 
             AudioEncodingSettingsSnapshot snapshot = gateway.CaptureEncodingSettings();
@@ -209,11 +211,47 @@ public sealed class AudioContractsTests
             Assert.AreEqual(settings.EncoderFormat, snapshot.EncoderFormat);
             Assert.AreEqual(settings.EncoderExeDir, snapshot.EncoderExeDirectory);
             Assert.AreEqual(settings.EncodeFileNameFormat, snapshot.EncodeFileNameFormat);
+            Assert.AreEqual(2, snapshot.SampleRateConversionQuality);
         }
         finally
         {
             settings.EncoderNormalization = originalNormalization;
+            settings.PlayerResamplingQuality = originalResamplingQuality;
         }
+    }
+
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(7)]
+    public void AudioResamplingQuality_RejectsUnsupportedPersistedValues(int quality)
+    {
+        BeMusicSeeker.Properties.Settings settings = testSettings;
+        int originalResamplingQuality = settings.PlayerResamplingQuality;
+        try
+        {
+            settings.PlayerResamplingQuality = quality;
+
+            Assert.ThrowsException<ArgumentOutOfRangeException>(
+                () => new SettingsAudioGateway(() => settings).CaptureEncodingSettings());
+            Assert.ThrowsException<ArgumentOutOfRangeException>(
+                () => new SettingsPlayerSettingsGateway(() => settings).CaptureSnapshot());
+        }
+        finally
+        {
+            settings.PlayerResamplingQuality = originalResamplingQuality;
+        }
+    }
+
+    [TestMethod]
+    public void AudioResamplingQuality_UsesFourAsTheMissingSettingDefault()
+    {
+        var settings = new BeMusicSeeker.Properties.Settings();
+
+        Assert.AreEqual(4, settings.PlayerResamplingQuality);
+        CollectionAssert.AreEqual(new[] { 16, 32, 64, 128, 256 },
+            new[] { 2, 3, 4, 5, 6 }
+                .Select(AudioResamplingQuality.GetSincPointCount)
+                .ToArray());
     }
 
     [TestMethod]
@@ -377,6 +415,82 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
+    public void PlaybackRuntime_ReleasesOldSessionWhenNextStartCapturesDifferentSourceQuality()
+    {
+        var initializedSessions = new List<BassAudioSession>();
+        var releaseAttempts = new List<BassAudioSession>();
+        bool confirmRelease = false;
+        var runtime = new BassAudioPlaybackRuntime(
+            (settings, captureSession) =>
+            {
+                BassAudioPlayer.DeviceDriver backend = BassAudioMapping.ToBassDriver(settings.PlayerDriver);
+                var device = new BassAudioPlayer.DeviceDescriptor("Test endpoint", "test-endpoint");
+                var session = new BassAudioSession(backend, device, settings.SampleRateConversionQuality)
+                {
+                    ActualBackend = backend,
+                    ActualDevice = device,
+                    State = BassAudioSessionState.Active,
+                    NegotiationResult = new BassAudioBackendResult(
+                        new BassAudioNegotiationRequest(
+                            backend,
+                            device,
+                            settings.PlayerSampleRate,
+                            settings.PlayerFormat,
+                            settings.PlayerBufferSize),
+                        device,
+                        SampleRate.SAMPLE_RATE_48000Hz,
+                        SampleFormat.SAMPLE_FLOAT_32BIT,
+                        SampleFormat.SAMPLE_FLOAT_32BIT,
+                        10,
+                        1,
+                        [],
+                        null)
+                };
+                initializedSessions.Add(session);
+                captureSession(session);
+            },
+            session =>
+            {
+                releaseAttempts.Add(session);
+                if (!confirmRelease)
+                {
+                    return false;
+                }
+
+                session.State = BassAudioSessionState.Released;
+                return true;
+            });
+
+        PlayerSettingsSnapshot originalSettings = CreatePlayerSettings(AudioDriver.WasapiShared, 4);
+        AudioPlaybackInitializationResult original = runtime.Initialize(originalSettings);
+        Assert.AreSame(original, runtime.Initialize(originalSettings));
+        Assert.AreEqual(1, initializedSessions.Count);
+
+        PlayerSettingsSnapshot savedSettingsForNextStart = CreatePlayerSettings(AudioDriver.WasapiShared, 2);
+        Assert.ThrowsException<InvalidOperationException>(
+            () => runtime.Initialize(savedSettingsForNextStart));
+        Assert.AreSame(original, runtime.Initialize(originalSettings));
+        Assert.AreEqual(1, initializedSessions.Count);
+        Assert.AreSame(initializedSessions[0], releaseAttempts[0]);
+        Assert.AreEqual(BassAudioSessionState.Active, initializedSessions[0].State);
+
+        confirmRelease = true;
+        AudioPlaybackInitializationResult replacement = runtime.Initialize(savedSettingsForNextStart);
+
+        Assert.AreNotSame(original, replacement);
+        Assert.AreEqual(2, initializedSessions.Count);
+        Assert.AreEqual(4, initializedSessions[0].SampleRateConversionQuality);
+        Assert.AreEqual(BassAudioSessionState.Released, initializedSessions[0].State);
+        Assert.AreEqual(2, initializedSessions[1].SampleRateConversionQuality);
+        Assert.AreSame(replacement, runtime.Initialize(savedSettingsForNextStart));
+
+        runtime.Free();
+        Assert.AreEqual(BassAudioSessionState.Released, initializedSessions[1].State);
+        Assert.AreEqual(3, releaseAttempts.Count);
+        Assert.AreSame(initializedSessions[1], releaseAttempts[2]);
+    }
+
+    [TestMethod]
     public void BackendResult_PreservesEarlierFailureWhenFallbackSucceeds()
     {
         var request = new BassAudioNegotiationRequest(
@@ -412,7 +526,9 @@ public sealed class AudioContractsTests
         StringAssert.Contains(fallback.FallbackReason, "fallbackDestination=WASAPI_SHARED");
     }
 
-    private static PlayerSettingsSnapshot CreatePlayerSettings(AudioDriver driver)
+    private static PlayerSettingsSnapshot CreatePlayerSettings(
+        AudioDriver driver,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         return new PlayerSettingsSnapshot(
             driver,
@@ -425,7 +541,8 @@ public sealed class AudioContractsTests
             50,
             new PlayerResolution(800, 600),
             false,
-            default);
+            default,
+            sampleRateConversionQuality);
     }
 
     private static void AssertPersistedEnumValue<TEnum>(TEnum value, int expected)

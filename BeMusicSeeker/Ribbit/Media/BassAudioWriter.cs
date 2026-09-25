@@ -87,12 +87,19 @@ public class BassAudioWriter : BassAudioPlayer
     /// </summary>
     /// <param name="ownedSession">取得済みnative資源を所有するsessionです。</param>
     internal static void InitializeOwnedSession(out BassAudioSession ownedSession)
+        => InitializeOwnedSession(out ownedSession, AudioResamplingQuality.Default);
+
+    /// <summary>初期化時に捕捉したSRC品質を使い、変換用の無音BASS graphを初期化します。</summary>
+    internal static void InitializeOwnedSession(
+        out BassAudioSession ownedSession,
+        int sampleRateConversionQuality)
     {
         BassAudioPlayer.InitializeOwned(
             DeviceDriver.NULL_DEVICE,
             default,
             0f,
-            out ownedSession);
+            out ownedSession,
+            sampleRateConversionQuality);
     }
 
     private static string GetEncoderDirectory(EncoderType encodeType)

@@ -25,6 +25,10 @@
           <Grid IsEnabled="{Binding IsPlayerBufferControlEnabled}"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlayerBufferSize, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlayerBufferSize, StringFormat={}{0:F0} ms}" /></Grid>
         </settings:SettingsField>
         <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc1, Mode=OneWay}" TextWrapping="Wrap" />
+        <settings:SettingsField Margin="0,12,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_quality, Mode=OneWay}">
+          <ComboBox SelectedValuePath="Key" DisplayMemberPath="Value" IsReadOnly="True" ItemsSource="{Binding PlayerResamplingQualityNames}" SelectedValue="{Binding PlayerResamplingQuality, Mode=TwoWay}" />
+        </settings:SettingsField>
+        <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_quality_desc, Mode=OneWay}" TextWrapping="Wrap" />
       </StackPanel>
     </settings:SettingsSection>
 

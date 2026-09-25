@@ -945,6 +945,45 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task ApplySettingsAsync_InternalPlayerResamplingChangeReplacesPlaybackRuntime()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            var settingsSession = new CountingSettingsEditSession(values);
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                playerFactoryPort: factory,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.PlayerResamplingQuality = 2;
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { "save", "factory-configured", "apply", "notify", "close" },
+                sequence);
+            Assert.AreEqual(2, values.PlayerResamplingQuality);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.IsNotNull(runtime.LastReplacementPlayer);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_PlayerFactoryFailureLeavesPlaybackUntouched()
     {
         string root = CreateTemporaryRoot();
@@ -1625,6 +1664,60 @@ public sealed class SettingDialogEditCompletionTests
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_ResamplingQualityChangedWhileRunning_DoesNotApplyStaleResult()
+    {
+        string root = CreateTemporaryRoot();
+        using var runtimeStarted = new ManualResetEventSlim();
+        using var releaseRuntime = new ManualResetEventSlim();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiShared,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                {
+                    Assert.AreEqual(4, request.SampleRateConversionQuality);
+                    runtimeStarted.Set();
+                    releaseRuntime.Wait();
+                    return AudioDeviceTestResultFactory.CreateSuccessful(
+                        request,
+                        actualDeviceName: "Stale quality result",
+                        latency: 25);
+                }));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            Task testTask = dialog.RunAudioDeviceTestAsync();
+            Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
+            dialog.PlayerResamplingQuality = 2;
+            releaseRuntime.Set();
+            await testTask;
+
+            Assert.AreEqual(2, dialog.PlayerResamplingQuality);
+            Assert.AreEqual("Requested device", settings.PlayerDeviceName);
+            Assert.AreEqual(0d, dialog.PlayerLatency);
+        }
+        finally
+        {
+            releaseRuntime.Set();
             Directory.Delete(root, recursive: true);
         }
     }
@@ -3437,6 +3530,7 @@ public sealed class SettingDialogEditCompletionTests
             dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             bool editedValue = dialog.ShowRecommUpdatedMsg;
+            dialog.PlayerResamplingQuality = 2;
 
             await dialog.ApplySettingsAsync();
 
@@ -3446,11 +3540,66 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(0, initializeCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(editedValue, dialog.ShowRecommUpdatedMsg);
+            Assert.AreEqual(2, dialog.PlayerResamplingQuality);
             Assert.IsTrue(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.IsEditCancellationEnabled);
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CancelSettings_RestoresResamplingQualityWithoutSaving()
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            var settingsSession = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
+
+            dialog.PlayerResamplingQuality = 2;
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+
+            dialog.CancelCommand.Execute();
+
+            Assert.AreEqual(4, dialog.PlayerResamplingQuality);
+            Assert.AreEqual(4, values.PlayerResamplingQuality);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(7)]
+    public void CheckValidation_RejectsUnsupportedResamplingQuality(int quality)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = quality;
+            var settingsSession = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
+
+            Assert.IsFalse(dialog.CheckValidation(out string error));
+            StringAssert.Contains(error, Resources.Error_InvalidAudioResamplingQuality);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            dialog?.Dispose();
             Directory.Delete(root, recursive: true);
         }
     }
@@ -4682,6 +4831,7 @@ public sealed class SettingDialogEditCompletionTests
         settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
         settings.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
         settings.PlayerBufferSize = 10;
+        settings.PlayerResamplingQuality = 4;
         settings.PlayerWASAPIParam = false;
         settings.uBMplayVolume = 50;
     }
@@ -4698,6 +4848,7 @@ public sealed class SettingDialogEditCompletionTests
         Assert.AreEqual("Requested device", settings.PlayerDeviceName);
         Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
+        Assert.AreEqual(4, settings.PlayerResamplingQuality);
     }
 
     private static (SettingsDialogViewModel Dialog, BeMusicSeeker.Models.LR2.LR2Config Config) CreateLr2RemovalDialog(

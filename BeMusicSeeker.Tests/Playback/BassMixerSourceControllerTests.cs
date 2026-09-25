@@ -37,14 +37,20 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(77, native.MixerHandle);
     }
 
-    [TestMethod]
-    public void ConfigurePausedSource_SetsAndReadsBackSrcThenAppliesExplicitMatrix()
+    [DataTestMethod]
+    [DataRow(2)]
+    [DataRow(3)]
+    [DataRow(4)]
+    [DataRow(5)]
+    [DataRow(6)]
+    public void ConfigurePausedSource_SetsAndReadsBackConfiguredSrcThenAppliesExplicitMatrix(int quality)
     {
         var native = new FakeNativeBoundary
         {
             MixerHandle = 77,
             SourceInfo = new BassMixerChannelInfo(44100, 2, BassFlags.Float | BassFlags.Decode),
-            MixerInfo = new BassMixerChannelInfo(48000, 2, BassFlags.Float)
+            MixerInfo = new BassMixerChannelInfo(48000, 2, BassFlags.Float),
+            ReportedSrcQuality = quality
         };
         var controller = new BassMixerSourceController(native);
 
@@ -52,12 +58,13 @@ public sealed class BassMixerSourceControllerTests
             77,
             12,
             AudioChannelLayout.CreateStandard(2),
-            "test.wav");
+            "test.wav",
+            quality);
 
         CollectionAssert.AreEqual(
             new[] { "info-source", "info-mixer", "src-set", "src-get", "matrix" },
             native.ConfigurationCalls.ToArray());
-        Assert.AreEqual(6f, native.SampleRateConversionQuality);
+        Assert.AreEqual((float)quality, native.SampleRateConversionQuality);
         float[,] matrix = native.LastMatrix
             ?? throw new AssertFailedException("The matrix must be set before source resume.");
         Assert.AreEqual(2, matrix.GetLength(0));
@@ -135,6 +142,81 @@ public sealed class BassMixerSourceControllerTests
 
         Assert.AreEqual(BassAudioPlaybackStage.MixerSourceFormat, exception.Stage);
         Assert.AreEqual(1, native.SetSrcCalls);
+        Assert.AreEqual(0, native.SetMatrixCalls);
+    }
+
+    [TestMethod]
+    public void ConfigurePausedSource_PreservesNativeErrorWhenSettingSrcFails()
+    {
+        var native = new FakeNativeBoundary
+        {
+            MixerHandle = 77,
+            SourceInfo = new BassMixerChannelInfo(44100, 2, BassFlags.Float | BassFlags.Decode),
+            MixerInfo = new BassMixerChannelInfo(48000, 2, BassFlags.Float),
+            SetSrcResult = false,
+            Error = Errors.NotAvailable
+        };
+        var controller = new BassMixerSourceController(native);
+
+        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+            () => controller.ConfigurePausedSource(
+                77,
+                12,
+                AudioChannelLayout.CreateStandard(2),
+                "test.wav",
+                2));
+
+        Assert.AreEqual(BassAudioPlaybackStage.MixerSourceFormat, exception.Stage);
+        Assert.AreEqual(Errors.NotAvailable, exception.NativeErrorCode);
+        CollectionAssert.AreEqual(new[] { "info-source", "info-mixer", "src-set" }, native.ConfigurationCalls.ToArray());
+        Assert.AreEqual(0, native.SetMatrixCalls);
+    }
+
+    [TestMethod]
+    public void ConfigurePausedSource_PreservesNativeErrorWhenReadingSrcFails()
+    {
+        var native = new FakeNativeBoundary
+        {
+            MixerHandle = 77,
+            SourceInfo = new BassMixerChannelInfo(44100, 2, BassFlags.Float | BassFlags.Decode),
+            MixerInfo = new BassMixerChannelInfo(48000, 2, BassFlags.Float),
+            GetSrcResult = false,
+            Error = Errors.Position
+        };
+        var controller = new BassMixerSourceController(native);
+
+        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+            () => controller.ConfigurePausedSource(
+                77,
+                12,
+                AudioChannelLayout.CreateStandard(2),
+                "test.wav",
+                2));
+
+        Assert.AreEqual(BassAudioPlaybackStage.MixerSourceFormat, exception.Stage);
+        Assert.AreEqual(Errors.Position, exception.NativeErrorCode);
+        CollectionAssert.AreEqual(
+            new[] { "info-source", "info-mixer", "src-set", "src-get" },
+            native.ConfigurationCalls.ToArray());
+        Assert.AreEqual(0, native.SetMatrixCalls);
+    }
+
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(7)]
+    public void ConfigurePausedSource_RejectsUnsupportedQualityBeforeNativeCalls(int quality)
+    {
+        var native = new FakeNativeBoundary { MixerHandle = 77 };
+        var controller = new BassMixerSourceController(native);
+
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => controller.ConfigurePausedSource(
+            77,
+            12,
+            AudioChannelLayout.CreateStandard(2),
+            "test.wav",
+            quality));
+
+        Assert.AreEqual(0, native.SetSrcCalls);
         Assert.AreEqual(0, native.SetMatrixCalls);
     }
 

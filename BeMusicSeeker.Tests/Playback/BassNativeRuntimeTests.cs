@@ -956,6 +956,54 @@ public sealed class BassNativeRuntimeTests
     }
 
     [TestMethod]
+    public void BassNullDeviceInitializesMixerThreadsAndAppliesCapturedSourceQuality()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session,
+                sampleRateConversionQuality: 2);
+
+            Assert.AreEqual(2, session.SampleRateConversionQuality);
+            Assert.IsTrue(Bass.ChannelGetAttribute(
+                session.MixerHandle,
+                (ChannelAttribute)0x15001,
+                out float mixerThreadCount));
+            Assert.AreEqual(BassMixerThreadConfigurator.RequiredThreadCount, (int)mixerThreadCount);
+
+            player = new BassAudioPlayer(wavePath);
+            player.Play(PlayWith.PAUSE);
+            BassAudioOwnedStream source = session.GetPlayerStreams().Single();
+            Assert.IsTrue(Bass.ChannelGetAttribute(
+                source.Handle,
+                ChannelAttribute.SampleRateConversion,
+                out float sourceQuality));
+            Assert.AreEqual(2f, sourceQuality);
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void BassAudioPlayer_MemoryFileProceduresSurviveForcedFullGc()
     {
         string wavePath = CreateNativeSmokeWaveFile();

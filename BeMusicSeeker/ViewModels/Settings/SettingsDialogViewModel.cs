@@ -760,6 +760,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private float tempPlayerBufferSize;
 
+    private int tempPlayerResamplingQuality;
+
     private bool tempPlayerWASAPIParam;
 
     private bool operationModeLR2DB;
@@ -4093,6 +4095,38 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>音声のサンプルレート変換品質を取得または設定します。</summary>
+    public int PlayerResamplingQuality
+    {
+        get => ApplicationSettings.PlayerResamplingQuality;
+        set
+        {
+            if (ApplicationSettings.PlayerResamplingQuality != value)
+            {
+                ApplicationSettings.PlayerResamplingQuality = value;
+                RaisePropertyChanged(nameof(PlayerResamplingQuality));
+            }
+        }
+    }
+
+    /// <summary>サンプルレート変換品質と対応するsinc点数の選択肢です。</summary>
+    public ReadOnlyDictionary<int, string> PlayerResamplingQualityNames { get; } =
+        new(new Dictionary<int, string>
+        {
+            [2] = FormatResamplingQualityOption(2),
+            [3] = FormatResamplingQualityOption(3),
+            [4] = FormatResamplingQualityOption(4),
+            [5] = FormatResamplingQualityOption(5),
+            [6] = FormatResamplingQualityOption(6)
+        });
+
+    private static string FormatResamplingQualityOption(int quality) =>
+        string.Format(
+            CultureInfo.CurrentCulture,
+            Resources.AudioResamplingQualityOptionFormat,
+            quality,
+            AudioResamplingQuality.GetSincPointCount(quality));
+
     public double PlayerLatency { get; private set; }
 
     public bool PlayerWASAPIParam
@@ -6039,7 +6073,8 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplicationSettings.PlayerBufferSize,
             ApplicationSettings.PlayerWASAPIParam,
             ApplicationSettings.uBMplayVolume,
-            playSound: true);
+            playSound: true,
+            ApplicationSettings.PlayerResamplingQuality);
         AudioDeviceTestStatusMessage = null;
         Task<AudioDeviceTestResult> testTask = audioDeviceTestWorkflow.TryRunAsync(request);
         RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
@@ -6280,6 +6315,7 @@ public partial class SettingsDialogViewModel : ViewModel
             && ApplicationSettings.PlayerSampleRate == request.PlayerSampleRate
             && ApplicationSettings.PlayerFormat == request.PlayerFormat
             && ApplicationSettings.PlayerBufferSize.Equals(request.PlayerBufferSize)
+            && ApplicationSettings.PlayerResamplingQuality == request.SampleRateConversionQuality
             && ApplicationSettings.PlayerWASAPIParam == request.PlayerWASAPIParam
             && ApplicationSettings.uBMplayVolume == request.PlayerVolume;
     }
@@ -6466,6 +6502,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempPlayerSampleRate = ApplicationSettings.PlayerSampleRate;
         tempPlayerFormat = ApplicationSettings.PlayerFormat;
         tempPlayerBufferSize = ApplicationSettings.PlayerBufferSize;
+        tempPlayerResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
         tempPlayerWASAPIParam = ApplicationSettings.PlayerWASAPIParam;
         tempLanguage = ApplicationSettings.Lang;
         tempLanguageDisplayName = ApplicationSettings.LangDisplayName;
@@ -6594,6 +6631,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempPlayerSampleRate != ApplicationSettings.PlayerSampleRate
             || tempPlayerFormat != ApplicationSettings.PlayerFormat
             || tempPlayerBufferSize != ApplicationSettings.PlayerBufferSize
+            || tempPlayerResamplingQuality != ApplicationSettings.PlayerResamplingQuality
             || tempPlayerWASAPIParam != ApplicationSettings.PlayerWASAPIParam
             || !string.Equals(tempLanguage, ApplicationSettings.Lang, StringComparison.Ordinal)
             || !string.Equals(tempLanguageDisplayName, ApplicationSettings.LangDisplayName, StringComparison.Ordinal);
@@ -6676,7 +6714,15 @@ public partial class SettingsDialogViewModel : ViewModel
         bool forceInternalPlayerForStandaloneModeChange =
             !ApplicationSettings.OperationModeLR2DB
             && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-        if (playerSelectionChanged || playerRuntimePathChanged || forceInternalPlayerForStandaloneModeChange)
+        bool internalPlayerResamplingQualityChanged =
+            !ApplicationSettings.UsePlayeruBMplay
+            && !ApplicationSettings.UsePlayerLR2body
+            && !ApplicationSettings.UsePlayerBMIIDXView
+            && tempPlayerResamplingQuality != ApplicationSettings.PlayerResamplingQuality;
+        if (playerSelectionChanged
+            || playerRuntimePathChanged
+            || forceInternalPlayerForStandaloneModeChange
+            || internalPlayerResamplingQualityChanged)
         {
             impact |= SettingsPostSaveImpact.PlayerRuntime;
         }
@@ -7194,7 +7240,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool HasValidationRelevantSettingChanges()
     {
-        return rightClickActionSettingsEditor.IsDirty
+        return !AudioResamplingQuality.IsValid(ApplicationSettings.PlayerResamplingQuality)
+            || rightClickActionSettingsEditor.IsDirty
             || tempOperationModeLR2DB != operationModeLR2DB
             || HasSearchRootSettingsChanged()
             || HasCustomFolderOutputBaseSettingsChanged()
@@ -7238,6 +7285,13 @@ public partial class SettingsDialogViewModel : ViewModel
         if (!CheckRightClickActionSettings(out string rightClickError))
         {
             errMsg += rightClickError + Environment.NewLine;
+            result = false;
+        }
+        if (!AudioResamplingQuality.IsValid(ApplicationSettings.PlayerResamplingQuality))
+        {
+            errMsg += FormatSettingValidationMessage(
+                BeMusicSeeker.Properties.Resources.Device_setting,
+                BeMusicSeeker.Properties.Resources.Error_InvalidAudioResamplingQuality) + Environment.NewLine;
             result = false;
         }
         if (OperationModeLR2DB)
@@ -7692,6 +7746,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.PlayerSampleRate = tempPlayerSampleRate;
         ApplicationSettings.PlayerFormat = tempPlayerFormat;
         ApplicationSettings.PlayerBufferSize = tempPlayerBufferSize;
+        ApplicationSettings.PlayerResamplingQuality = tempPlayerResamplingQuality;
         ApplicationSettings.PlayerWASAPIParam = tempPlayerWASAPIParam;
         ApplicationSettings.Lang = tempLanguage;
         ApplicationSettings.LangDisplayName = tempLanguageDisplayName;
@@ -7793,6 +7848,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(PlayerSampleRate));
         RaisePropertyChanged(nameof(PlayerFormat));
         RaisePropertyChanged(nameof(PlayerBufferSize));
+        RaisePropertyChanged(nameof(PlayerResamplingQuality));
         RaisePropertyChanged(nameof(PlayerWASAPIParam));
         RaisePropertyChanged(nameof(Languages));
         RaisePropertyChanged(nameof(IsOperationModeChanged));

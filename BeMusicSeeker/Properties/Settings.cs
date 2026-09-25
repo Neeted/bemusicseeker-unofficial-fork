@@ -1422,6 +1422,22 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>音声サンプルレート変換の品質を取得または設定します。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("4")]
+    public int PlayerResamplingQuality
+    {
+        get
+        {
+            return (int)this["PlayerResamplingQuality"];
+        }
+        set
+        {
+            this["PlayerResamplingQuality"] = value;
+        }
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("")]

@@ -21,8 +21,10 @@ public sealed class PortableSettingsPersistenceTests
         File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
         Settings settings = OpenSettings(files.Path);
         settings.Lang = "fr-FR";
+        settings.PlayerResamplingQuality = 2;
         settings.Save();
         Assert.AreEqual("fr-FR", OpenSettings(files.Path).Lang);
+        Assert.AreEqual(2, OpenSettings(files.Path).PlayerResamplingQuality);
         Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
@@ -35,6 +37,7 @@ public sealed class PortableSettingsPersistenceTests
         File.WriteAllText(files.Path, Config());
         Assert.AreEqual(defaultLanguage, OpenSettings(files.Path).Lang);
         Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
+        Assert.AreEqual(4, OpenSettings(files.Path).PlayerResamplingQuality);
     }
 
     [DataTestMethod]

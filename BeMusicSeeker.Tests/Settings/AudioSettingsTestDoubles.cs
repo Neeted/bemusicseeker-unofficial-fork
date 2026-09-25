@@ -54,6 +54,8 @@ internal sealed class TestAudioSettingsGateway : IAudioSettingsGateway
 
     public AudioNormalization EncoderNormalization { get; set; } = AudioNormalization.None;
 
+    internal int SampleRateConversionQuality { get; set; } = AudioResamplingQuality.Default;
+
     internal EncoderType Encoder { get; private set; } = EncoderType.WAVE;
 
     public AudioEncodingSettingsSnapshot CaptureEncodingSettings()
@@ -66,7 +68,8 @@ internal sealed class TestAudioSettingsGateway : IAudioSettingsGateway
             0.8f,
             string.Empty,
             1f,
-            "%TITLE%");
+            "%TITLE%",
+            SampleRateConversionQuality);
     }
 
     public void ApplyEncoderFallback(EncoderType encoder)

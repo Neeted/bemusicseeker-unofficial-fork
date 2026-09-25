@@ -577,6 +577,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 var page = (AudioSettingsPage)content.Content;
                 SettingsField latencyField = FindLogicalDescendants<SettingsField>(page).Single(field =>
                     GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_latency");
+                SettingsField bufferField = FindLogicalDescendants<SettingsField>(page).Single(field =>
+                    GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_buffersize");
+                SettingsField qualityField = FindLogicalDescendants<SettingsField>(page).Single(field =>
+                    GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_resampling_quality");
                 Button testButton = FindLogicalDescendants<Button>(page).Single(button =>
                     GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Device_setting_test");
                 SettingsSection? measurementSection = FindNearestSettingsSection(testButton);
@@ -593,6 +597,22 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual("レイテンシ", latencyField.Header);
                 Assert.AreEqual("Resources.Device_setting_test",
                     GetBindingPath(measurementSection!, HeaderedContentControl.HeaderProperty));
+
+                StackPanel advancedContent = advancedSection.Content as StackPanel
+                    ?? throw new AssertFailedException("The advanced audio section must contain its settings stack.");
+                TextBlock bufferDescription = advancedContent.Children.OfType<TextBlock>().Single(textBlock =>
+                    GetBindingPath(textBlock, TextBlock.TextProperty) == "Resources.Device_setting_desc1");
+                ComboBox qualitySelector = qualityField.Content as ComboBox
+                    ?? throw new AssertFailedException("The resampling quality field must contain a selector.");
+                TextBlock qualityDescription = FindLogicalDescendants<TextBlock>(advancedContent).Single(textBlock =>
+                    GetBindingPath(textBlock, TextBlock.TextProperty) == "Resources.Device_setting_resampling_quality_desc");
+
+                Assert.IsTrue(advancedContent.Children.IndexOf(bufferField) < advancedContent.Children.IndexOf(bufferDescription));
+                Assert.IsTrue(advancedContent.Children.IndexOf(bufferDescription) < advancedContent.Children.IndexOf(qualityField));
+                Assert.IsTrue(advancedContent.Children.IndexOf(qualityField) < advancedContent.Children.IndexOf(qualityDescription));
+                Assert.AreEqual("PlayerResamplingQuality", GetBindingPath(qualitySelector, Selector.SelectedValueProperty));
+                Assert.AreEqual("PlayerResamplingQualityNames", GetBindingPath(qualitySelector, ItemsControl.ItemsSourceProperty));
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
             }
             finally
             {
