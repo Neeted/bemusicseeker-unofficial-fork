@@ -65,6 +65,21 @@ internal sealed class FloatWaveSource
     /// <summary>BASS が読む WAVE 順に並べたチャンネル配置を取得します。</summary>
     internal AudioChannelLayout ChannelLayout { get; }
 
+    /// <summary>出力レートにおいて有限音源が占めるSRC後のフレーム数を切り上げて取得します。</summary>
+    /// <param name="outputSampleRate">出力サンプルレート。</param>
+    /// <returns>区間 [0, FrameCount / SampleRate) に含まれる出力格子のフレーム数。</returns>
+    internal long GetOutputFrameCount(int outputSampleRate)
+    {
+        if (outputSampleRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(outputSampleRate));
+        }
+
+        long scaledFrameCount = checked(audio.FrameCount * outputSampleRate);
+        long wholeFrames = scaledFrameCount / audio.SampleRate;
+        return scaledFrameCount % audio.SampleRate == 0 ? wholeFrames : checked(wholeFrames + 1);
+    }
+
     /// <summary>現在位置からWAVEヘッダーとインターリーブPCMをまたいで読み取ります。</summary>
     internal int Read(IntPtr destination, int requestedLength)
     {

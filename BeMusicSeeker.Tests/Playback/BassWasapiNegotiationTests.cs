@@ -147,7 +147,7 @@ public sealed class BassWasapiNegotiationTests
         CollectionAssert.AreEqual(
             new[] { "CreateMixer", "SetMixerThreadCount", "GetMixerThreadCount", "StartWasapi" },
             native.GraphCalls);
-        Assert.AreEqual(BassMixerThreadConfigurator.RequiredThreadCount, native.MixerThreadCount);
+        Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
         Assert.AreEqual(123, session.CallbackOutputHandle);
         Assert.AreEqual(0.35d, session.OutputProcessor.CurrentGain, 0.000001d);
         Assert.AreEqual(123, session.CallbackPcmRenderer.Channel);
@@ -174,7 +174,7 @@ public sealed class BassWasapiNegotiationTests
         }
         else
         {
-            native.ReportedMixerThreadCount = 1;
+            native.ReportedMixerThreadCount = Math.Min(4, Environment.ProcessorCount) + 1;
         }
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -222,6 +222,7 @@ public sealed class BassWasapiNegotiationTests
             initialGain: 0.2f,
             eventModeRequested: false);
 
+        Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
         Assert.AreEqual(0.2d, session.OutputProcessor.CurrentGain, 0.000001d);
         Assert.IsTrue(native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.Dither));
     }

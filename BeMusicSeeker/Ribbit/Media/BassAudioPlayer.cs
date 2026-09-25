@@ -327,6 +327,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public TimeSpan Duration { get; }
 
+    /// <summary>保持中の有限音源メタデータから、指定出力レートでのSRC後フレーム数を取得します。</summary>
+    /// <param name="outputSampleRate">出力サンプルレート。</param>
+    /// <returns>音源の有限入力区間に対応する出力フレーム数。</returns>
+    /// <remarks>TimeSpanへの変換で失われる端数を使わず、元フレーム数と元レートで計算します。</remarks>
+    internal long GetOutputFrameCount(int outputSampleRate) =>
+        (_floatWaveSource
+            ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The finite float source is no longer available."))
+        .GetOutputFrameCount(outputSampleRate);
+
     public PlayState PlayState
     {
         get
@@ -1135,7 +1144,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             BassMixerThreadConfigurator.SetAndConfirm(
                 inputMixer,
-                new BassMixerThreadNativeBoundary());
+                new BassMixerThreadNativeBoundary(),
+                BassMixerThreadConfigurator.OfflineThreadCount);
         }
         catch (BassMixerThreadConfigurationException exception)
         {

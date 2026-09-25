@@ -396,7 +396,10 @@ internal sealed class BassWasapiNegotiator
         session.TrackOutputHandle(mixerHandle);
         try
         {
-            BassMixerThreadConfigurator.SetAndConfirm(mixerHandle, native);
+            BassMixerThreadConfigurator.SetAndConfirm(
+                mixerHandle,
+                native,
+                BassMixerThreadConfigurator.RealtimeThreadCount);
         }
         catch (BassMixerThreadConfigurationException exception)
         {

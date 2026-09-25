@@ -63,23 +63,15 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         }
 
         ResetPlaybackState();
-        AudioTagInfo tagInfo = new(
-            artist: ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim(),
-            title: ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim(),
-            genre: base.Bms.Genre.Trim() ?? string.Empty,
-            durationSeconds: base.Duration.TotalSeconds,
-            bpm: base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty,
-            fileName: base.Bms.Path,
-            comment: base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0)
-                ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))
-                : string.Empty));
+        string artist = ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim();
+        string title = ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim();
         if (string.IsNullOrWhiteSpace(filePathWithoutExtension))
         {
             filePathWithoutExtension = AppContext.BaseDirectory;
         }
         if (LongPathFileSystem.DirectoryExists(filePathWithoutExtension))
         {
-            string input = "[" + tagInfo.Artist + "] " + tagInfo.Title;
+            string input = "[" + artist + "] " + title;
             filePathWithoutExtension = Path.Combine(
                 filePathWithoutExtension,
                 input.NaturalNormalizationForFileName()
@@ -93,7 +85,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         }
 
         AudioPcmRenderer renderer = BassAudioWriter.CreatePcmRenderer();
-        long totalFrames = AudioPcmRenderer.TimeToFrame(base.Duration, renderer.SampleRate);
+        long totalFrames = GetRenderFrameCount(renderer.SampleRate);
         if (totalFrames == 0)
         {
             // BASSencはPCMを供給しないとWAVヘッダーも出力しません。
@@ -106,6 +98,16 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         int totalFrameCount = checked((int)totalFrames);
         int totalSampleCount = checked(totalFrameCount * renderer.ChannelCount);
         float[] renderedPcm = new float[totalSampleCount];
+        AudioTagInfo tagInfo = new(
+            artist,
+            title,
+            genre: base.Bms.Genre.Trim() ?? string.Empty,
+            durationSeconds: (double)totalFrames / renderer.SampleRate,
+            bpm: base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty,
+            fileName: base.Bms.Path,
+            comment: base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0)
+                ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))
+                : string.Empty));
 
         long renderedFrames = 0;
         foreach (TimeSpan eventTime in GetRenderTimes())
@@ -129,9 +131,13 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
             renderedFrames = eventFrame;
         }
 
-        if (renderedFrames != totalFrames)
+        if (renderedFrames < totalFrames)
         {
-            throw new InvalidOperationException("The BMS event timeline did not reach the declared duration.");
+            int finalIntervalFrames = checked((int)(totalFrames - renderedFrames));
+            renderer.ReadFramesExactly(
+                renderedPcm,
+                checked((int)renderedFrames),
+                finalIntervalFrames);
         }
 
         AudioPcmLevels levels = AudioPcmRenderer.Measure(renderedPcm, renderer.ChannelCount);
@@ -173,31 +179,67 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
 
     private TimeSpan[] GetRenderTimes()
     {
-        TimeSpan[] events = [.. (from time in new IEnumerable<TimeSpan>[5]
-        {
-            BgmNotesQueue.Select(note => note.AbsoluteTime),
-            from note in VisibleNotes1PQueue.SelectMany(queue => queue)
-                select note.AbsoluteTime,
-            from note in VisibleNotes2PQueue.SelectMany(queue => queue)
-                select note.AbsoluteTime,
-            from note in LongNotes1PQueue.SelectMany(queue => queue)
-                where ((uint)note.Type & 0xFFFFFFF0u) == 80
-                select note.AbsoluteTime,
-            from note in LongNotes2PQueue.SelectMany(queue => queue)
-                where ((uint)note.Type & 0xFFFFFFF0u) == 96
-                select note.AbsoluteTime
-        }.SelectMany(times => times)
-            where time <= base.Duration
-            orderby time
-            select time < TimeSpan.Zero ? TimeSpan.Zero : time).SequentialDistinct()];
+        return [.. GetRenderableAudioNotes()
+            .Select(note => note.AbsoluteTime)
+            .Where(time => time <= base.Duration)
+            .OrderBy(time => time)
+            .Select(time => time < TimeSpan.Zero ? TimeSpan.Zero : time)
+            .SequentialDistinct()];
+    }
 
-        if (events.Length == 0 || events[^1] != base.Duration)
+    private long GetRenderFrameCount(int outputSampleRate)
+    {
+        long totalFrames = AudioPcmRenderer.TimeToFrame(base.Duration, outputSampleRate);
+        foreach (BMSFile.Chart.Note note in GetRenderableAudioNotes())
         {
-            Array.Resize(ref events, events.Length + 1);
-            events[^1] = base.Duration;
+            if (note.AbsoluteTime > base.Duration)
+            {
+                continue;
+            }
+
+            BassAudioWriter source = base.AudioPlayers[note.Index];
+            if (source == null)
+            {
+                continue;
+            }
+
+            TimeSpan eventTime = note.AbsoluteTime < TimeSpan.Zero ? TimeSpan.Zero : note.AbsoluteTime;
+            long eventStartFrame = AudioPcmRenderer.TimeToFrame(eventTime, outputSampleRate);
+            long eventEndFrame = checked(eventStartFrame + source.GetOutputFrameCount(outputSampleRate));
+            totalFrames = System.Math.Max(totalFrames, eventEndFrame);
         }
 
-        return events;
+        return totalFrames;
+    }
+
+    private IEnumerable<BMSFile.Chart.Note> GetRenderableAudioNotes()
+    {
+        foreach (BMSFile.Chart.Note note in BgmNotesQueue)
+        {
+            yield return note;
+        }
+        foreach (BMSFile.Chart.Note note in VisibleNotes1PQueue.SelectMany(queue => queue))
+        {
+            yield return note;
+        }
+        foreach (BMSFile.Chart.Note note in VisibleNotes2PQueue.SelectMany(queue => queue))
+        {
+            yield return note;
+        }
+        foreach (BMSFile.Chart.Note note in LongNotes1PQueue.SelectMany(queue => queue))
+        {
+            if (((uint)note.Type & 0xFFFFFFF0u) == 80)
+            {
+                yield return note;
+            }
+        }
+        foreach (BMSFile.Chart.Note note in LongNotes2PQueue.SelectMany(queue => queue))
+        {
+            if (((uint)note.Type & 0xFFFFFFF0u) == 96)
+            {
+                yield return note;
+            }
+        }
     }
 
     private static double GetNormalizationGain(

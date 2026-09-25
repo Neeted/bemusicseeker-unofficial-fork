@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -236,56 +235,6 @@ public sealed class AudioMixerSignalTests
         }
     }
 
-    [TestMethod]
-    [TestCategory("Performance")]
-    public void SyntheticAudioWorkloads_ReportLoadRenderWallTimeAndManagedAllocation()
-    {
-        PerformanceWorkload[] workloads =
-        [
-            new("short-song", 8, 12000),
-            new("many-keysounds", 128, 4800),
-            new("long-track", 1, 48000L * 120)
-        ];
-
-        foreach (PerformanceWorkload workload in workloads)
-        {
-            var waves = new List<TemporaryFloatWave>(workload.SourceCount);
-            try
-            {
-                for (int sourceIndex = 0; sourceIndex < workload.SourceCount; sourceIndex++)
-                {
-                    float value = 0.0625f + (sourceIndex % 4) * 0.0078125f;
-                    waves.Add(TemporaryFloatWave.Create(48000, workload.FramesPerSource, _ => value));
-                }
-
-                using var graph = NativeAudioGraph.Start(48000);
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
-                long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
-                var stopwatch = Stopwatch.StartNew();
-                foreach (TemporaryFloatWave wave in waves)
-                {
-                    graph.CreatePlayer(wave.Path).Play();
-                }
-                graph.DiscardFramesExactly(workload.FramesPerSource);
-                graph.DisposePlayers();
-                stopwatch.Stop();
-                long allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
-
-                TestContext.WriteLine(
-                    $"{workload.Name}: sources={workload.SourceCount}, sourceRate=48000, framesPerSource={workload.FramesPerSource}, outputRate=48000, renderedFrames={workload.FramesPerSource}, elapsedMs={stopwatch.Elapsed.TotalMilliseconds:F3}, managedAllocatedBytes={allocatedBytes}, playerCleanupIncluded=true, waveGenerationIncluded=false, nullDeviceStartupIncluded=false, baselineRecorded=false, compareOnSameMachineAndConfiguration=true.");
-            }
-            finally
-            {
-                foreach (TemporaryFloatWave wave in waves)
-                {
-                    wave.Dispose();
-                }
-            }
-        }
-    }
-
     private static int CeilingOutputFrames(int sourceRate, int outputRate, long sourceFrames)
     {
         long numerator = checked(sourceFrames * outputRate);
@@ -293,6 +242,22 @@ public sealed class AudioMixerSignalTests
     }
 
     private static double MeasureProjectedAmplitude(
+        float[] interleavedStereo,
+        int sampleRate,
+        int frequency,
+        int startFrame,
+        int frameCount)
+    {
+        (double sineAmplitude, double cosineAmplitude) = MeasureProjectedComponents(
+            interleavedStereo,
+            sampleRate,
+            frequency,
+            startFrame,
+            frameCount);
+        return Math.Sqrt(sineAmplitude * sineAmplitude + cosineAmplitude * cosineAmplitude);
+    }
+
+    internal static (double SineAmplitude, double CosineAmplitude) MeasureProjectedComponents(
         float[] interleavedStereo,
         int sampleRate,
         int frequency,
@@ -325,12 +290,10 @@ public sealed class AudioMixerSignalTests
 
         double sineAmplitude = sineProjection / sineNorm;
         double cosineAmplitude = cosineProjection / cosineNorm;
-        return Math.Sqrt(sineAmplitude * sineAmplitude + cosineAmplitude * cosineAmplitude);
+        return (sineAmplitude, cosineAmplitude);
     }
 
-    private readonly record struct PerformanceWorkload(string Name, int SourceCount, long FramesPerSource);
-
-    private sealed class NativeAudioGraph : IDisposable
+    internal sealed class NativeAudioGraph : IDisposable
     {
         private const int PullBufferFrames = 16384;
 
@@ -400,6 +363,9 @@ public sealed class AudioMixerSignalTests
 
         internal AudioPcmRenderer Renderer { get; }
 
+        internal int SampleRateConversionQuality => session?.SampleRateConversionQuality
+            ?? throw new InvalidOperationException("The native audio graph has no active session.");
+
         internal static NativeAudioGraph Start(
             int outputRate,
             int sampleRateConversionQuality = AudioResamplingQuality.Default)
@@ -419,12 +385,17 @@ public sealed class AudioMixerSignalTests
             return output;
         }
 
-        internal void DiscardFramesExactly(long frameCount)
+        internal void DiscardFramesExactly(long frameCount, int framesPerRead = PullBufferFrames)
         {
+            if (framesPerRead <= 0 || framesPerRead > PullBufferFrames)
+            {
+                throw new ArgumentOutOfRangeException(nameof(framesPerRead));
+            }
+
             long remaining = frameCount;
             while (remaining > 0)
             {
-                int frames = checked((int)Math.Min(remaining, PullBufferFrames));
+                int frames = checked((int)Math.Min(remaining, framesPerRead));
                 Renderer.ReadFramesExactly(pullBuffer, 0, frames);
                 remaining -= frames;
             }
@@ -515,7 +486,7 @@ public sealed class AudioMixerSignalTests
         }
     }
 
-    private sealed class TemporaryFloatWave : IDisposable
+    internal sealed class TemporaryFloatWave : IDisposable
     {
         private TemporaryFloatWave(string path)
         {

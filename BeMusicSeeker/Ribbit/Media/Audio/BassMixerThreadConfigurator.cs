@@ -36,21 +36,32 @@ internal sealed class BassMixerThreadNativeBoundary : IBassMixerThreadNativeBoun
 /// <summary>ミキサーのthread数を要求値へ設定・検証します。</summary>
 internal static class BassMixerThreadConfigurator
 {
-    /// <summary>各ミキサーに設定するnative thread数です。</summary>
-    internal static int RequiredThreadCount => System.Math.Min(4, Environment.ProcessorCount);
+    /// <summary>リアルタイム再生ミキサーに設定するnative thread数です。</summary>
+    internal static int RealtimeThreadCount => System.Math.Min(4, Environment.ProcessorCount);
 
-    /// <summary>指定したミキサーでスレッド数を設定し、同じ値が読み戻せることを確認します。</summary>
+    /// <summary>オフライン変換ミキサーに設定するnative thread数です。</summary>
+    internal const int OfflineThreadCount = 1;
+
+    /// <summary>指定したミキサーでthread数を設定し、要求値と同じ値が読み戻せることを確認します。</summary>
+    /// <param name="mixerHandle">設定対象のBASS mixer handle。</param>
+    /// <param name="native">native attribute呼出しの境界。</param>
+    /// <param name="requestedThreadCount">正のthread数。</param>
     internal static void SetAndConfirm(
         int mixerHandle,
-        IBassMixerThreadNativeBoundary native)
+        IBassMixerThreadNativeBoundary native,
+        int requestedThreadCount)
     {
         ArgumentNullException.ThrowIfNull(native);
         if (mixerHandle == 0)
         {
             throw new ArgumentOutOfRangeException(nameof(mixerHandle));
         }
+        if (requestedThreadCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(requestedThreadCount));
+        }
 
-        float requested = RequiredThreadCount;
+        float requested = requestedThreadCount;
         const string setApi = "BASS_ChannelSetAttribute(BASS_ATTRIB_MIXER_THREADS)";
         const string getApi = "BASS_ChannelGetAttribute(BASS_ATTRIB_MIXER_THREADS)";
         bool set;

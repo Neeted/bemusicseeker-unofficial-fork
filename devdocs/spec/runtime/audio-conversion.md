@@ -12,11 +12,13 @@
 
 ### 無音の変換用セッション
 
-`NullDevice` は物理的な出力先を使わない変換専用です。内部ミキサーはFloat32・unityで動作します。変換はジョブ固有のNONE係数0.16を持ち、再生用DeviceVolumeとmuteを参照・変更しません。SRC品質は[音声実行基盤](audio.md#src品質と並列ミキシング)の共通設定を開始時に捕捉します。
+`NullDevice` は物理的な出力先を使わない変換専用です。内部ミキサーはFloat32・unityで動作し、有限音源末尾の欠落に対する暫定措置として初期化時から1スレッドに固定します。BASSmix 2.4.13を維持し、設定・読戻しを確認します。根拠と解除条件は[設計判断](../../decisions/audio-library-boundaries.md#並列ミキシングの末尾欠落に対する暫定措置)を参照します。変換はジョブ固有のNONE係数0.16を持ち、再生用DeviceVolumeとmuteを参照・変更しません。SRC品質は[音声実行基盤](audio.md#src品質と並列ミキシング)の共通設定を開始時に捕捉します。
 
 曲を一回だけレンダーして完成PCMをジョブの配列に保持し、同一データを測定・正規化・エンコードします。PCM全体の再コピーや二回レンダー、レベルAPIによる別のデータ消費はしません。長尺では入力PCMと完成PCMのメモリが同時に必要です。任意サイズのストレージ退避は設けず、配列上限超過は失敗します。
 
-イベントは絶対ticks×出力rateを最近傍偶数へ丸めたフレームに配置し、区間差だけをレンダーします。同フレームは元時刻順、同時刻は既存ForwardToのBGM→ロング1P→ロング2P→可視1P→可視2Pを保ちます。終端は既存Durationとし、尾部追加や無音切捨てはしません。
+イベントは絶対ticks×出力rateを最近傍偶数へ丸めたフレームに配置し、区間差だけをレンダーします。同フレームは元時刻順、同時刻は既存ForwardToのBGM→ロング1P→ロング2P→可視1P→可視2Pを保ちます。各発音の長さは復号済みの正確な入力フレーム数Nから整数演算で `ceil(N×出力rate/入力rate)` とし、丸めた開始フレームに加えて終端を求めます。総フレーム数は、全発音の終端と既存Durationを最近傍偶数へ丸めたフレーム数の最大値です。後者を下限として、欠損音源のイベントやロングノート終点に由来する従来の末尾無音を維持します。
+
+最終区間までミキサーから実PCMを取得し、一律のフレーム追加やゼロ埋めでSRCの末尾を補いません。同じ音源の再発音は従来どおり先頭へ戻し、最後の発音までの区間を取得します。タグの時間長は完成PCMの総フレーム数から求め、リアルタイム再生のDurationは変更しません。
 
 全体Peakは最大絶対値、RMSは全チャンネル全サンプルの二乗平均平方根です。二乗和はdouble補償加算で求めます。追加増幅Aは有限・非負に限り、NONEは0.16×A、PEAKは0.99/Peak×A、RMSは0.4/RMS×Aです。無音・空入力の測定は0で、無音を維持します。gainはdoubleで計算し、最終適用時にfloat32へ丸めます。
 
@@ -101,7 +103,7 @@ flowchart TB
 | 選択後の出力先消失を再生停止前に拒否し、変換開始時にも再確認 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs)、`BassSelectedChartAudioConversionExecutor` | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) は選択直後の消失時に停止・進捗・通知が行われないこと、停止時に消失した場合にexecutorが拒否することを確認する。 |
 | ファイルごとの結果、主失敗、解放できない場合の停止 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs) | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) |
 | 別途用意した実エンコーダーとの接続 | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
-| 一回render・全体RMS・絶対frame・空変換拒否・再生設定不変 | [`BMSAutoPlayWriter`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、[`AudioPcmRenderer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcmRenderer.cs) | [`BMSAutoPlayWriterTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs)、[`AudioPcmRendererTests`](../../../BeMusicSeeker.Tests/Playback/AudioPcmRendererTests.cs) |
+| 一回render・全体RMS・絶対frame・有限音源の最終フレーム・従来の末尾無音・空変換拒否・再生設定不変 | [`BMSAutoPlayWriter`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、[`AudioPcmRenderer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcmRenderer.cs) | [`BMSAutoPlayWriterTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) は固定入力から独立に求めた出力長・非零の最終音フレーム・開始時刻の丸め・再発音・末尾無音をWAVで確認する。[`AudioPcmRendererTests`](../../../BeMusicSeeker.Tests/Playback/AudioPcmRendererTests.cs) はフレーム取得・測定の契約を確認する。 |
 | 最終整数変換・float過大値保存・24bitの正確な格子 | [`AudioPcm24Quantizer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcm24Quantizer.cs)、`AudioEncoderSession` | [`AudioOutputNativeTests`](../../../BeMusicSeeker.Tests/Playback/AudioOutputNativeTests.cs) は正負0.25LSBと無音を各2^20 sample、平均誤差≤0.02LSB、最大誤差≤2LSBで検査する。24bit無音の−1/0/+1頻度は1/8・3/4・1/8に各0.005以内。 |
 
 ## 関連資料

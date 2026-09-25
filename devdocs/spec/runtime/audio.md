@@ -74,6 +74,8 @@ stateDiagram-v2
 
 ASIOのエンジンとコールバックはFloat32固定です。形式設定や読み戻しに失敗した場合、整数エンジンを試さず、既存の方式代替へ進み理由を記録します。保存済みの整数形式の列挙値は変更しません。機器のnative形式はChannelGetInfoから取得して区別し、整数機器への最終変換だけTPDF ditherを指定します。DSDは対象外です。
 
+機器のPCM形式は16・24・32bit整数、32bit容器に16・18・20・24bitを格納する整数形式、Float32を受理します。32bit容器の整数は機器形式の分類では整数32bitとし、交渉診断にnativeの値・容器幅・有効ビット数を残します。容器幅や有効ビット数をコールバックのバイト幅へ流用せず、コールバックは常に1サンプル4バイトです。未知の形式や情報取得失敗をPCMと推測しません。
+
 明示レートは要求値、ドライバーの現在値、重複しない標準値の順です。Autoは固定48000ではなく現在値から始めます。採用されたレートと形式を読み戻します。独自のP/Invokeで未提供の直接接続を補いません。
 
 WASAPIのエンジンはFloat32です。共有では機器のミックスレートとチャンネル数、ネイティブ既定のバッファ・周期を使います。共有の `BassWasapi.Init` に排他フラグを渡さず、イベントの有無に応じたフラグとバッファ・周期0を指定します。排他は `Exclusive | AutoFormat` と必要なイベントフラグ、候補周期を使います。共有に排他の機器形式を埋め込みません。
@@ -116,7 +118,7 @@ SRC品質は再生・デバイステスト・音声変換で共通です。選�
 
 各開始時の要求へ品質を捕捉し、セッションの間は変更しません。保存後の次回再生で品質の異なる古いセッションを再利用せず、既存の停止・解放確認に従って作り直します。音源から可変の共有設定を読み直しません。デバイステスト中に品質が変われば、その要求の結果で設定や遅延表示を更新しません。
 
-出力ミキサーは初期化時にBASSmixの並列数を `min(4, Environment.ProcessorCount)` に設定して読み戻します。独自の並列SRCは実装しません。SRC品質と並列数の設定失敗、読戻し失敗、不一致は理由を保持して失敗とし、未設定のまま成功にしません。並列数の設定画面は設けません。採用理由と測定の限界は[設計判断](../../decisions/audio-library-boundaries.md#src品質と並列数を選ぶ理由)に記載します。
+リアルタイム再生の出力ミキサーは初期化時にBASSmixの並列数を `min(4, Environment.ProcessorCount)` に設定して読み戻します。ファイル変換のNullDeviceは、BASSmixの複数スレッド経路で有限音源の末尾が欠ける問題への暫定措置として、初期化時から1スレッドに固定します。再生開始後の切替や失敗時の再実行は行わず、再生側の4スレッド経路の問題が解消したとは扱いません。独自の並列SRCは実装しません。SRC品質と並列数の設定失敗、読戻し失敗、不一致は理由を保持して失敗とし、未設定のまま成功にしません。並列数の設定画面は設けません。採用理由と測定の限界は[設計判断](../../decisions/audio-library-boundaries.md#src品質と並列数を選ぶ理由)に記載します。
 
 ### 出力故障の受渡し
 
@@ -130,7 +132,9 @@ SRC品質は再生・デバイステスト・音声変換で共通です。選�
 
 自然終了の通知はセッションの音源所有者からプレイヤーを解決し、コールバック外へ例外を投げません。`BASS_SYNC_ONETIME` と再生世代で古い通知を拒否します。ロックを取れなければ、停止状態とvoice数を更新する通知を世代付きで一つ保留し、次のインスタンス操作で同じ世代の通知だけを適用します。
 
-sourceの自然終了通知はSRCの先読み時点で発生するため、その場でmixerから外しません。接続を保ってSRC末尾を出力し、次のPlayは先頭seekして再利用し、明示Stop・Disposeで所属を解除します。pending通知の適用もnative削除を行いません。有限入力Nフレームの出力は `[0, N/入力rate)` の出力格子、すなわち `ceil(N×出力rate/入力rate)` フレームまでとし、以後はNonStop mixerの無音です。SRC=6の信号検査は44.1↔48、48↔96kHzで1/5/10/18kHzの振幅差≤0.01dB、96→48kHzの30/36/42kHz入力のalias≤−90dBを要求します。
+sourceの自然終了通知はSRCの先読み時点で発生するため、その場でmixerから外しません。接続を保ってSRC末尾を出力し、次のPlayは先頭seekして再利用し、明示Stop・Disposeで所属を解除します。pending通知の適用もnative削除を行いません。有限入力Nフレームの出力は `[0, N/入力rate)` の出力格子、すなわち `ceil(N×出力rate/入力rate)` フレームまでとし、以後はNonStop mixerの無音です。
+
+SRC=6の信号検査は44.1↔48、48↔96kHzで1/5/10/18kHzの振幅差≤0.01dB、96→48kHzの30/36/42kHz入力のalias≤−90dBを要求します。既定SRC=4にはこの基準や新しい数値品質保証を当てはめず、明示実行の周波数特性測定を設けます。振幅0.5・1秒の正弦の中央0.5秒を測り、44.1↔48、48↔96、44.1/48→192/384kHzで1/5/10/18kHzの符号付き振幅差、96→48kHzで同じ入力に対するaliasを入力振幅比のdBで全件記録します。測定完了と有限値は検査しますが、値の大小を品質の合否にはしません。同条件の版間比較用であり、高域の平坦性や不可聴性の保証ではありません。
 
 全ての `Play` は新しい論理再生世代を開始し、古い終了通知と未処理状態を無効にします。自然終了位置は長さの位置に保ちます。破棄と再生は同じインスタンス境界で直列化し、所属解除と資源の解放確認で所有・件数・未処理状態を解消します。解放済みハンドルを再使用しません。
 
@@ -170,7 +174,8 @@ sourceの自然終了通知はSRCの先読み時点で発生するため、そ�
 | ミキサー所属、再生世代、ネイティブ失敗 | [`BassAudioPlayer`](../../../BeMusicSeeker/Ribbit/Media/BassAudioPlayer.cs) | [`BassMixerSourceControllerTests`](../../../BeMusicSeeker.Tests/Playback/BassMixerSourceControllerTests.cs)、[`BassAudioSessionTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioSessionTests.cs) |
 | 元レート・有限float32・コンテナ判定・配置・合法chain | [`AudioSourceLoader`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoader.cs)、[`VorbisDecoder`](../../../BeMusicSeeker/Ribbit/Media/Audio/VorbisDecoder.cs) | [`AudioSourceLoaderTests`](../../../BeMusicSeeker.Tests/Playback/AudioSourceLoaderTests.cs) はPCM8/16/24/32、float32/64、valid bits、chunkと拒否条件、[`VorbisDecoderTests`](../../../BeMusicSeeker.Tests/Playback/VorbisDecoderTests.cs) は直接libvorbis参照PCM・chainと破損を検査する。 |
 | 曲内一回復号・独立cursor・使用音源だけのロード | [`AudioSourceCache`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceCache.cs)、[`FloatWaveSource`](../../../BeMusicSeeker/Ribbit/Media/Audio/FloatWaveSource.cs)、[`BMSAutoPlayer`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayer.cs) | `AudioSourceLoaderTests`、[`BMSAutoPlayerInputTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayerInputTests.cs) |
-| SRC品質・有限終端・最初と再開の信号・float加算 | [`BassMixerSourceController`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassMixerSourceController.cs) | [`AudioMixerSignalTests`](../../../BeMusicSeeker.Tests/Playback/AudioMixerSignalTests.cs) は解析的正弦・定数の数学的終端を実DLLで検査する。性能区分では短尺・128音源・120秒音源のロードからrender完了と解放までを測り、旧版との比較なしに速度改善を主張しない。 |
+| SRC品質・有限終端・最初と再開の信号・float加算 | [`BassMixerSourceController`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassMixerSourceController.cs) | [`AudioMixerSignalTests`](../../../BeMusicSeeker.Tests/Playback/AudioMixerSignalTests.cs) はSRC6の解析的正弦・全品質の定数の数学的終端を実DLLで検査する。 |
+| 既定SRC4の周波数特性と処理負荷の測定 | 同じ本番音源・ミキサーの無音機器経路 | [`AudioMixerPerformanceTests`](../../../BeMusicSeeker.Tests/Performance/AudioMixerPerformanceTests.cs) は周波数特性の全条件を記録する。同率の短尺・128音源・120秒音源の処理に加え、44.1/48kHz各64音源・各2秒を192kHzへ256フレーム単位で取得し、読込み・発音・取得・プレイヤー解放を3反復測る。実際に読み戻した1スレッドを条件へ記録し、従来の4スレッド測定と区別する。生成・初期化・作業バッファ・セッション解放は時間測定外とし、マネージド割当量を総メモリ量と扱わない。品質や処理時間に新たな合否閾値を設けず、同一環境での比較なしに速度改善を主張しない。 |
 | 5ms共通gain・callback短readと故障の引渡し | [`AudioOutputProcessor`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioOutputProcessor.cs)、[`AudioPcmRenderer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcmRenderer.cs) | [`AudioOutputProcessorTests`](../../../BeMusicSeeker.Tests/Playback/AudioOutputProcessorTests.cs)、[`AudioPcmRendererTests`](../../../BeMusicSeeker.Tests/Playback/AudioPcmRendererTests.cs)、`BassAudioSessionTests` |
 | 効果の対応と引数ABI | [`BassAudioPlayer`](../../../BeMusicSeeker/Ribbit/Media/BassAudioPlayer.cs) | [`BassAudioEffectTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioEffectTests.cs)、[`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs) |
 | 進行と自然終了、最新要求、設定と失敗表示 | [`AudioDeviceTestWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Settings/AudioDeviceTestWorkflowOwner.cs) | [`AudioDeviceTestWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/AudioDeviceTestWorkflowOwnerTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |

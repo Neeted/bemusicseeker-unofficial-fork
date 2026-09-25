@@ -29,7 +29,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Decode));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
-        Assert.AreEqual(BassMixerThreadConfigurator.RequiredThreadCount, native.MixerThreadCount);
+        Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
         CollectionAssert.AreEqual(
             new[] { "set", "get" },
             native.MixerThreadCalls);
@@ -54,7 +54,7 @@ public sealed class BassAsioNegotiationTests
         }
         else
         {
-            native.ReportedMixerThreadCount = 1;
+            native.ReportedMixerThreadCount = Math.Min(4, Environment.ProcessorCount) + 1;
         }
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -114,22 +114,111 @@ public sealed class BassAsioNegotiationTests
         StringAssert.Contains(result.FallbackReason, "normalized");
     }
 
-    [TestMethod]
-    public void IntegerNativeEndpoint_UsesFloatCallbackAndRequestsNativeDither()
+    [DataTestMethod]
+    [DataRow(16, SampleFormat.SAMPLE_INT_16BIT, 16, 16)]
+    [DataRow(17, SampleFormat.SAMPLE_INT_24BIT, 24, 24)]
+    [DataRow(18, SampleFormat.SAMPLE_INT_32BIT, 32, 32)]
+    [DataRow(24, SampleFormat.SAMPLE_INT_32BIT, 32, 16)]
+    [DataRow(25, SampleFormat.SAMPLE_INT_32BIT, 32, 18)]
+    [DataRow(26, SampleFormat.SAMPLE_INT_32BIT, 32, 20)]
+    [DataRow(27, SampleFormat.SAMPLE_INT_32BIT, 32, 24)]
+    public void IntegerNativeEndpoint_UsesFloatCallbackAndRecordsNativePrecision(
+        int nativeFormatValue,
+        SampleFormat expectedEndpointFormat,
+        int expectedContainerBits,
+        int expectedEffectiveBits)
     {
         var native = new RecordingAsioBoundary
         {
-            EndpointNativeFormat = AsioSampleFormat.Bit16
+            EndpointNativeFormat = (AsioSampleFormat)nativeFormatValue
         };
+        BassAudioSession session = CreateSession();
 
-        BassAudioBackendResult result = Initialize(native, SampleRate.AUTO, SampleFormat.AUTO);
+        BassAudioBackendResult result = new BassAsioNegotiator(native).Initialize(
+            CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+            session,
+            Callback);
 
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.CallbackFormat);
-        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
+        Assert.AreEqual(expectedEndpointFormat, result.EndpointFormat);
+        Assert.AreEqual(2, result.ActualChannels);
+        Assert.AreEqual(2, native.MixerChannels);
         Assert.AreEqual((AsioSampleFormat)((int)AsioSampleFormat.Float | 0x100), native.SetFormats.Single());
         Assert.AreEqual(AsioSampleFormat.Float, native.GetChannelFormat());
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
+        Assert.AreEqual(8, sizeof(float) * result.ActualChannels);
+        StringAssert.Contains(
+            result.Attempts.Single(attempt => attempt.Stage == "BASS_ASIO_ChannelGetInfo").Outcome,
+            "nativeFormat=" + nativeFormatValue + " containerBits=" + expectedContainerBits
+            + " effectiveBits=" + expectedEffectiveBits);
+        Assert.IsTrue(string.IsNullOrEmpty(result.FallbackReason));
+    }
+
+    [DataTestMethod]
+    [DataRow(32)]
+    [DataRow(33)]
+    [DataRow(-1)]
+    [DataRow(123)]
+    public void UnsupportedNativeEndpointFormat_FailsBeforeCreatingFloatMixer(int nativeFormatValue)
+    {
+        var native = new RecordingAsioBoundary
+        {
+            EndpointNativeFormat = (AsioSampleFormat)nativeFormatValue
+        };
+        BassAudioSession session = CreateSession();
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassAsioNegotiator(native).Initialize(
+                CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+                session,
+                Callback));
+
+        Assert.AreEqual("BASS_ASIO_ChannelGetInfo", exception.Stage);
+        Assert.AreEqual(0, native.MixerHandleCreated);
+        Assert.AreEqual(0, native.SetFormats.Count);
+        Assert.IsTrue(session.CoreInitialized);
+        Assert.IsTrue(session.AsioInitialized);
+    }
+
+    [TestMethod]
+    public void EndpointNativeFormatReadFailure_PreservesAcquiredAsioOwnership()
+    {
+        var native = new RecordingAsioBoundary
+        {
+            GetEndpointNativeFormatResult = false,
+            EndpointNativeFormatError = Errors.Device
+        };
+        BassAudioSession session = CreateSession();
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassAsioNegotiator(native).Initialize(
+                CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
+                session,
+                Callback));
+
+        Assert.AreEqual("BASS_ASIO_ChannelGetInfo", exception.Stage);
+        Assert.AreEqual("BASSASIO", exception.NativeErrorSource);
+        Assert.AreEqual(Errors.Device, exception.NativeErrorCode);
+        Assert.AreEqual(0, native.MixerHandleCreated);
+        Assert.IsTrue(session.CoreInitialized);
+        Assert.IsTrue(session.AsioInitialized);
+    }
+
+    [TestMethod]
+    public void FloatCallbackFormatReadbackMismatch_FailsBeforeCreatingMixer()
+    {
+        var native = new RecordingAsioBoundary
+        {
+            ReportedChannelFormat = AsioSampleFormat.Bit16
+        };
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => Initialize(native, SampleRate.AUTO, SampleFormat.AUTO));
+
+        Assert.AreEqual("BASS_ASIO_ChannelSetFormat", exception.Stage);
+        Assert.AreEqual(AsioSampleFormat.Float, native.SetFormats.Single());
+        Assert.AreEqual(0, native.MixerHandleCreated);
     }
 
     [TestMethod]
@@ -374,7 +463,15 @@ public sealed class BassAsioNegotiationTests
 
         internal AsioSampleFormat EndpointNativeFormat { get; set; } = AsioSampleFormat.Float;
 
+        internal bool GetEndpointNativeFormatResult { get; set; } = true;
+
+        internal Errors EndpointNativeFormatError { get; set; } = Errors.Device;
+
+        internal AsioSampleFormat? ReportedChannelFormat { get; set; }
+
         internal BassFlags MixerFlags { get; private set; }
+
+        internal int MixerChannels { get; private set; }
 
         internal int MixerThreadCount { get; private set; }
 
@@ -492,18 +589,19 @@ public sealed class BassAsioNegotiationTests
             return true;
         }
 
-        public AsioSampleFormat GetChannelFormat() => currentFormat;
+        public AsioSampleFormat GetChannelFormat() => ReportedChannelFormat ?? currentFormat;
 
         public bool TryGetEndpointNativeFormat(out AsioSampleFormat format, out Errors error)
         {
             format = EndpointNativeFormat;
-            error = Errors.OK;
-            return true;
+            error = GetEndpointNativeFormatResult ? Errors.OK : EndpointNativeFormatError;
+            return GetEndpointNativeFormatResult;
         }
 
         public int CreateMixer(int rate, int channels, BassFlags flags)
         {
             MixerFlags = flags;
+            MixerChannels = channels;
             MixerHandleCreated = MixerHandle;
             return MixerHandle;
         }

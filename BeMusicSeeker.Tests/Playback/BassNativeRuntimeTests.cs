@@ -977,7 +977,7 @@ public sealed class BassNativeRuntimeTests
                 session.MixerHandle,
                 (ChannelAttribute)0x15001,
                 out float mixerThreadCount));
-            Assert.AreEqual(BassMixerThreadConfigurator.RequiredThreadCount, (int)mixerThreadCount);
+            Assert.AreEqual(1f, mixerThreadCount);
 
             player = new BassAudioPlayer(wavePath);
             player.Play(PlayWith.PAUSE);

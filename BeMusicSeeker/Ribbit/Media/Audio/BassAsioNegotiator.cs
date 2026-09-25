@@ -91,6 +91,14 @@ internal sealed class BassAsioNegotiator
     // ManagedBass.Asio 4.0.2の公開enumにBASS_ASIO_FORMAT_DITHERがないため、native定数を指定します。
     private const int AsioFormatDitherFlag = 0x100;
 
+    // ManagedBass.Asio 4.0.2の公開enumにない32-bit容器PCM形式です。
+    // 値はBASSASIO公式ヘッダーc/bassasio.hのBASS_ASIO_FORMAT_32BIT16～32BIT24に従います。
+    // https://www.un4seen.com/files/bassasio14.zip
+    private const int AsioFormat32Bit16 = 24;
+    private const int AsioFormat32Bit18 = 25;
+    private const int AsioFormat32Bit20 = 26;
+    private const int AsioFormat32Bit24 = 27;
+
     private static readonly int[] StandardRates =
         [48000, 44100, 96000, 88200, 192000, 176400, 32000, 22050, 11025];
 
@@ -228,7 +236,8 @@ internal sealed class BassAsioNegotiator
                 + BassNativeErrorFormatter.Format(endpointFormatError));
         }
 
-        SampleFormat endpointFormat = FromAsioFormat(endpointNativeFormat);
+        (SampleFormat endpointFormat, int containerBits, int effectiveBits) =
+            DescribeNativeFormat(endpointNativeFormat);
         if (endpointFormat == SampleFormat.UNKNOWN)
         {
             throw Failure(
@@ -240,6 +249,14 @@ internal sealed class BassAsioNegotiator
                 "ASIO endpoint format " + endpointNativeFormat
                 + " is not supported by the Float32 PCM output path.");
         }
+
+        attempts.Add(new BassAudioBackendAttempt(
+            "BASS_ASIO_ChannelGetInfo",
+            "BASSASIO",
+            null,
+            "accepted nativeFormat=" + (int)endpointNativeFormat
+            + " containerBits=" + containerBits
+            + " effectiveBits=" + effectiveBits));
 
         SampleFormat engineFormat = NegotiateFormat(
             request,
@@ -265,7 +282,10 @@ internal sealed class BassAsioNegotiator
         session.TrackOutputHandle(mixerHandle);
         try
         {
-            BassMixerThreadConfigurator.SetAndConfirm(mixerHandle, native);
+            BassMixerThreadConfigurator.SetAndConfirm(
+                mixerHandle,
+                native,
+                BassMixerThreadConfigurator.RealtimeThreadCount);
         }
         catch (BassMixerThreadConfigurationException exception)
         {
@@ -546,14 +566,19 @@ internal sealed class BassAsioNegotiator
         }
     }
 
-    private static SampleFormat FromAsioFormat(AsioSampleFormat format) => format switch
-    {
-        AsioSampleFormat.Float => SampleFormat.SAMPLE_FLOAT_32BIT,
-        AsioSampleFormat.Bit16 => SampleFormat.SAMPLE_INT_16BIT,
-        AsioSampleFormat.Bit24 => SampleFormat.SAMPLE_INT_24BIT,
-        AsioSampleFormat.Bit32 => SampleFormat.SAMPLE_INT_32BIT,
-        _ => SampleFormat.UNKNOWN
-    };
+    private static (SampleFormat EndpointFormat, int ContainerBits, int EffectiveBits) DescribeNativeFormat(
+        AsioSampleFormat format) => format switch
+        {
+            AsioSampleFormat.Float => (SampleFormat.SAMPLE_FLOAT_32BIT, 32, 32),
+            AsioSampleFormat.Bit16 => (SampleFormat.SAMPLE_INT_16BIT, 16, 16),
+            AsioSampleFormat.Bit24 => (SampleFormat.SAMPLE_INT_24BIT, 24, 24),
+            AsioSampleFormat.Bit32 => (SampleFormat.SAMPLE_INT_32BIT, 32, 32),
+            (AsioSampleFormat)AsioFormat32Bit16 => (SampleFormat.SAMPLE_INT_32BIT, 32, 16),
+            (AsioSampleFormat)AsioFormat32Bit18 => (SampleFormat.SAMPLE_INT_32BIT, 32, 18),
+            (AsioSampleFormat)AsioFormat32Bit20 => (SampleFormat.SAMPLE_INT_32BIT, 32, 20),
+            (AsioSampleFormat)AsioFormat32Bit24 => (SampleFormat.SAMPLE_INT_32BIT, 32, 24),
+            _ => (SampleFormat.UNKNOWN, 0, 0)
+        };
 
     private static AudioInitializationException Failure(
         BassAudioNegotiationRequest request,

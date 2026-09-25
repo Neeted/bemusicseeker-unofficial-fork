@@ -89,7 +89,8 @@ public sealed class BMSAutoPlayWriterTests
 
         using var writer = new BMSAutoPlayWriter(new BMSFile(directory.File("chart.bms")));
         writer.LoadResources();
-        long expectedFrameCount = AudioPcmRenderer.TimeToFrame(writer.Duration, 48000);
+        // #001は120 BPMの2秒地点で、0.1秒の音源を含むチャート長は2.1秒です。
+        const long expectedFrameCount = 2L * 48000 + 4800;
 
         writer.Write(
             EncoderType.WAVE,
@@ -119,6 +120,137 @@ public sealed class BMSAutoPlayWriterTests
         }
         Assert.IsTrue(peak > 0.98f, "The note at time zero must be rendered and normalized.");
         Assert.IsTrue(peak <= 0.991f, "Peak normalization must use the rendered PCM without clipping.");
+    }
+
+    [DataTestMethod]
+    [DataRow("01", 2)]
+    [DataRow("11", 3)]
+    [DataRow("21", 4)]
+    [DataRow("51", 5)]
+    [DataRow("61", 6)]
+    public void Write_UsesCeilingFiniteSourceFramesForEveryAudioEventGroup(string channel, int sampleRateConversionQuality)
+    {
+        const int sourceRate = 44100;
+        const int sourceFrames = 4411;
+        const int outputRate = 48000;
+        ReinitializeAudioRuntime(
+            SampleFormat.SAMPLE_FLOAT_32BIT,
+            SampleRate.SAMPLE_RATE_48000Hz,
+            sampleRateConversionQuality);
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(sourceRate, sourceFrames, _ => 0.25f));
+        string channelLine = BuildChannelLine(channel, 1, (0, "01"));
+        AudioTestWaveFile wave = WriteOutputChart(
+            directory,
+            "finite-source-" + channel,
+            "#WAV01 audio.wav\n" + channelLine + "\n");
+
+        Assert.AreEqual((ushort)3, wave.Format);
+        Assert.AreEqual(outputRate, wave.SampleRate);
+        Assert.AreEqual((ushort)2, wave.Channels);
+        int expectedFrames = CeilingFrameRatio(sourceFrames, outputRate, sourceRate);
+        Assert.AreEqual(expectedFrames, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
+    }
+
+    [TestMethod]
+    public void Write_RoundsEachAbsoluteStartAndKeepsTheLastDownsampledFrame()
+    {
+        const int sourceRate = 48000;
+        const int sourceFrames = 4801;
+        const int outputRate = 44100;
+        using var directory = new TemporaryDirectory();
+        ReinitializeAudioRuntime(SampleFormat.SAMPLE_FLOAT_32BIT, SampleRate.SAMPLE_RATE_44100Hz);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(sourceRate, sourceFrames, _ => 0.25f));
+        string eventLine = BuildChannelLine("01", 4, (1, "01"), (3, "01"));
+        const string chartName = "downsampled-endpoints";
+        File.WriteAllText(
+            directory.File(chartName + ".bms"),
+            "#PLAYER 1\n#TITLE downsampled endpoints\n#BPM 120\n#00002:0.01\n#WAV01 audio.wav\n"
+                + eventLine + "\n",
+            Encoding.ASCII);
+
+        AudioTestWaveFile wave = WriteOutputChart(directory, chartName, null);
+
+        const int firstStartFrame = 220;
+        const int secondStartFrame = 662;
+        const int expectedEndFrame = 5073;
+        Assert.AreEqual(outputRate, wave.SampleRate);
+        Assert.AreEqual(expectedEndFrame, wave.DataLength / (wave.Channels * sizeof(float)));
+        for (int frame = 0; frame < firstStartFrame; frame++)
+        {
+            Assert.AreEqual(0f, ReadFloatSample(wave, frame, 0), $"Unexpected audio before the first start at frame {frame}.");
+        }
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, firstStartFrame, 0));
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, secondStartFrame, 0));
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedEndFrame - 1, 0));
+    }
+
+    [TestMethod]
+    public void Write_KeepsTheLongerEarlierVoiceThroughItsCeilingEnd()
+    {
+        const int outputRate = 48000;
+        const int longFrames = 4411;
+        const int shortFrames = 441;
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("long.wav"), BuildFloatWave(44100, longFrames, _ => 0.25f));
+        File.WriteAllBytes(directory.File("short.wav"), BuildFloatWave(44100, shortFrames, _ => 0.125f));
+        string laterShortNote = BuildChannelLine("01", 2, (1, "02"));
+        AudioTestWaveFile wave = WriteOutputChart(
+            directory,
+            "long-before-short",
+            "#WAV01 long.wav\n#WAV02 short.wav\n#00002:0.01\n#00051:01\n" + laterShortNote + "\n");
+
+        int expectedFrames = CeilingFrameRatio(longFrames, outputRate, 44100);
+        Assert.AreEqual(expectedFrames, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
+    }
+
+    [TestMethod]
+    public void Write_RetriggerExtendsEndFromTheRestartedSource()
+    {
+        const int sourceRate = 44100;
+        const int sourceFrames = 4411;
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(sourceRate, sourceFrames, _ => 0.25f));
+        string eventLine = BuildChannelLine("01", 2, (0, "01"), (1, "01"));
+        AudioTestWaveFile wave = WriteOutputChart(
+            directory,
+            "retriggered-source",
+            "#WAV01 audio.wav\n#00002:0.01\n" + eventLine + "\n");
+
+        const int expectedEndFrame = 5282;
+        Assert.AreEqual(expectedEndFrame, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedEndFrame - 1, 0));
+    }
+
+    [DataTestMethod]
+    [DataRow("missing-bgm")]
+    [DataRow("long-end-1p")]
+    [DataRow("long-end-2p")]
+    public void Write_PreservesSilenceUntilLaterMissingOrLongEndEvent(string eventKind)
+    {
+        const int sourceRate = 44100;
+        const int sourceFrames = 32;
+        const int expectedFrames = 720;
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("short.wav"), BuildFloatWave(sourceRate, sourceFrames, _ => 0.25f));
+        string longEndOrMissingEvent = eventKind switch
+        {
+            "missing-bgm" => BuildChannelLine("01", 2, (0, "01"), (1, "02")),
+            "long-end-1p" => BuildChannelLine("51", 2, (0, "01"), (1, "02")),
+            "long-end-2p" => BuildChannelLine("61", 2, (0, "01"), (1, "02")),
+            _ => throw new ArgumentOutOfRangeException(nameof(eventKind))
+        };
+        string resourceLines = "#WAV01 short.wav\n#WAV02 missing.wav\n#00002:0.015\n";
+        AudioTestWaveFile wave = WriteOutputChart(
+            directory,
+            "preserved-silence-" + eventKind,
+            resourceLines + longEndOrMissingEvent + "\n");
+
+        Assert.AreEqual(expectedFrames, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, 0, 0));
+        Assert.AreEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
     }
 
     [TestMethod]
@@ -269,7 +401,8 @@ public sealed class BMSAutoPlayWriterTests
         using (var writer = new BMSAutoPlayWriter(new BMSFile(directory.File(name + ".bms"))))
         {
             writer.LoadResources();
-            long expectedFrames = AudioPcmRenderer.TimeToFrame(writer.Duration, 48000);
+            // #001は120 BPMの2秒地点で、0.1秒の音源を含むチャート長は2.1秒です。
+            const long expectedFrames = 2L * 48000 + 4800;
             writer.Write(
                 EncoderType.WAVE,
                 0.4f,
@@ -283,7 +416,10 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
-    private void ReinitializeAudioRuntime(SampleFormat outputFormat)
+    private void ReinitializeAudioRuntime(
+        SampleFormat outputFormat,
+        SampleRate outputRate = SampleRate.SAMPLE_RATE_48000Hz,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         if (!BassAudioWriter.TryReleaseEncoder())
         {
@@ -296,9 +432,103 @@ public sealed class BMSAutoPlayWriterTests
 
         ownedSession = null;
         BassAudioRuntime.Shutdown();
-        BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+        BassAudioPlayer.Frequency = outputRate;
         BassAudioPlayer.Format = outputFormat;
-        BassAudioWriter.InitializeOwnedSession(out ownedSession);
+        BassAudioWriter.InitializeOwnedSession(out ownedSession, sampleRateConversionQuality);
+    }
+
+    private static AudioTestWaveFile WriteOutputChart(
+        TemporaryDirectory directory,
+        string name,
+        string? chartBody)
+    {
+        string chartPath = directory.File(name + ".bms");
+        if (chartBody != null)
+        {
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\n#TITLE " + name + "\n#ARTIST test\n#BPM 120\n" + chartBody,
+                Encoding.ASCII);
+        }
+
+        string outputPathWithoutExtension = directory.File(name + "-output");
+        using var writer = new BMSAutoPlayWriter(new BMSFile(chartPath));
+        writer.LoadResources();
+        writer.Write(
+            EncoderType.WAVE,
+            0.4f,
+            outputPathWithoutExtension,
+            BMSAutoPlayWriter.Normalization.NONE);
+        return AudioTestWaveFileReader.Read(File.ReadAllBytes(outputPathWithoutExtension + ".wav"));
+    }
+
+    private static string BuildChannelLine(string channel, int slotCount, params (int Slot, string Index)[] notes)
+    {
+        string[] slots = new string[slotCount];
+        Array.Fill(slots, "00");
+        foreach ((int slot, string index) in notes)
+        {
+            if (slot < 0 || slot >= slots.Length || index.Length != 2)
+            {
+                throw new ArgumentOutOfRangeException(nameof(notes));
+            }
+            slots[slot] = index;
+        }
+
+        return "#000" + channel + ":" + string.Concat(slots);
+    }
+
+    private static byte[] BuildFloatWave(int sampleRate, int frameCount, Func<int, float> sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        int dataLength = checked(frameCount * sizeof(float));
+        byte[] wave = new byte[checked(44 + dataLength)];
+        using var stream = new MemoryStream(wave);
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+        writer.Write(checked(36 + dataLength));
+        writer.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+        writer.Write(16);
+        writer.Write((ushort)3);
+        writer.Write((ushort)1);
+        writer.Write(sampleRate);
+        writer.Write(checked(sampleRate * sizeof(float)));
+        writer.Write((ushort)sizeof(float));
+        writer.Write((ushort)(sizeof(float) * 8));
+        writer.Write(Encoding.ASCII.GetBytes("data"));
+        writer.Write(dataLength);
+        for (int frame = 0; frame < frameCount; frame++)
+        {
+            float value = sample(frame);
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentException("The generated float WAVE must contain only finite samples.", nameof(sample));
+            }
+            writer.Write(value);
+        }
+
+        return wave;
+    }
+
+    private static int CeilingFrameRatio(long sourceFrames, int outputRate, int sourceRate)
+    {
+        long numerator = checked(sourceFrames * outputRate);
+        long quotient = numerator / sourceRate;
+        return checked((int)(quotient + (numerator % sourceRate == 0 ? 0 : 1)));
+    }
+
+    private static float ReadFloatSample(AudioTestWaveFile wave, int frame, int channel)
+    {
+        if (frame < 0 || frame >= wave.DataLength / (wave.Channels * sizeof(float))
+            || channel < 0 || channel >= wave.Channels)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frame));
+        }
+
+        int sampleIndex = checked(frame * wave.Channels + channel);
+        int offset = checked(wave.DataOffset + sampleIndex * sizeof(float));
+        int sampleBits = BinaryPrimitives.ReadInt32LittleEndian(wave.Bytes.AsSpan(offset, sizeof(float)));
+        return BitConverter.Int32BitsToSingle(sampleBits);
     }
 
     private static (double Peak, double Rms) MeasureWave(AudioTestWaveFile wave)
