@@ -26,6 +26,8 @@
 | テストの追加・変更・削除 | [テスト作成](devdocs/spec/development/test-authoring.md)、[テスト検証](devdocs/spec/development/testing.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
 | ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
+委譲した実装の不備は、まず元の実装担当へ差し戻します。不備の発見だけで障害解決担当を呼ばず、[差し戻しと呼出し条件](devdocs/spec/development/agent-workflow.md#不備の差し戻し)で判断します。
+
 ## 実装で守る境界
 
 `MainWindow` とルートの ViewModel は、画面の枠組みと構成要素の接続を担当します。機能の状態・判断・永続化・処理順は、既存の機能別 ViewModel、管理主体、サービス、DB窓口へ置きます。フォーカス、選択、スクロール、ドラッグなど画面固有の処理は、画面側に置いて構いません。単なる転送クラスや、他者の可変状態・ロックを集める巨大な窓口は作りません。

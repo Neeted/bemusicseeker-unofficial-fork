@@ -7,8 +7,8 @@
 | [design-advisor.toml](design-advisor.toml) | 必要な設計判断への助言。 |
 | [test-contract-designer.toml](test-contract-designer.toml) | 実装前の独立テスト設計。 |
 | [plan-clarifier.toml](plan-clarifier.toml) | 実装直前の引継ぎ点検。 |
-| [implementation-worker.toml](implementation-worker.toml) | 確定した範囲の実装。 |
-| [issue-resolver.toml](issue-resolver.toml) | 技術的障害の解決。 |
+| [implementation-worker.toml](implementation-worker.toml) | 確定した範囲の実装・差し戻し修正。 |
+| [issue-resolver.toml](issue-resolver.toml) | 通常修正を試した担当が報告した技術的な行き詰まりの解決。 |
 | [preflight-static-review.toml](preflight-static-review.toml) | 最終レビュー前の反復予備レビュー。 |
 | [repo-static-review.toml](repo-static-review.toml) | 通常変更の独立レビュー。 |
 | [critical-static-review.toml](critical-static-review.toml) | 重大変更の独立レビュー。 |
