@@ -9,7 +9,8 @@
 | [plan-clarifier.toml](plan-clarifier.toml) | 実装直前の引継ぎ点検。 |
 | [implementation-worker.toml](implementation-worker.toml) | 確定した範囲の実装。 |
 | [issue-resolver.toml](issue-resolver.toml) | 技術的障害の解決。 |
+| [preflight-static-review.toml](preflight-static-review.toml) | 最終レビュー前の反復予備レビュー。 |
 | [repo-static-review.toml](repo-static-review.toml) | 通常変更の独立レビュー。 |
 | [critical-static-review.toml](critical-static-review.toml) | 重大変更の独立レビュー。 |
 
-レビューの通常用と重大用は代替の入口であり、両方を毎回呼びません。TOMLには役割固有の入口と禁止事項を書き、共通手順を複製しません。
+予備レビューは毎回新しい `preflight-static-review` を使い、指摘がなくなってから通常用または重大用の最終レビューへ進みます。最終レビューの通常用と重大用は代替の入口であり、両方を毎回呼びません。TOMLには役割固有の入口と禁止事項を書き、共通手順を複製しません。
