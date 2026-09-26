@@ -10,7 +10,7 @@
   <ResourceDictionary.MergedDictionaries>
     <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
   </ResourceDictionary.MergedDictionaries>
-  <!-- 通常セクションと折り畳みセクションで、次のセクションまでの余白を共有する。 -->
+  <!-- 設定セクションの下余白。 -->
   <Thickness x:Key="SettingsSectionMargin">0,0,0,28</Thickness>
   <Style x:Key="SettingsTrackRepeatButtonStyle"
          TargetType="{x:Type RepeatButton}"
@@ -150,11 +150,6 @@
     <Setter Property="Margin" Value="0,6,0,0" />
   </Style>
   <Style TargetType="{x:Type Expander}" BasedOn="{StaticResource SettingsExpanderStyle}" />
-  <Style x:Key="SettingsSectionExpanderStyle"
-         TargetType="{x:Type Expander}"
-         BasedOn="{StaticResource SettingsExpanderStyle}">
-    <Setter Property="Margin" Value="{StaticResource SettingsSectionMargin}" />
-  </Style>
 
   <Style x:Key="settingsNavigationItemStyle"
          TargetType="{x:Type ListBoxItem}"

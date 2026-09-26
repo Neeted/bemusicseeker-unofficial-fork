@@ -33,6 +33,13 @@
       </StackPanel>
     </settings:SettingsSection>
 
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}">
+      <StackPanel>
+        <settings:SettingsField Margin="0,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlaybackPanel.PlayerVolume, ElementName=page, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, ElementName=page, StringFormat={}{0}%}" /></Grid></settings:SettingsField>
+        <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" TextWrapping="Wrap" />
+      </StackPanel>
+    </settings:SettingsSection>
+
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}">
       <StackPanel>
         <Button x:Name="buttonPlayerTest" HorizontalAlignment="Left" Style="{StaticResource SettingsQuietButtonStyle}" IsEnabled="{Binding IsAudioDeviceTestAvailable}" Content="{Binding AudioDeviceTestButtonContent, Mode=OneWay}" Click="buttonPlayerTestClick" />
@@ -43,7 +50,7 @@
       </StackPanel>
     </settings:SettingsSection>
 
-    <Expander x:Name="audioAdvancedSettings" Style="{StaticResource SettingsSectionExpanderStyle}" IsExpanded="False" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_audio_advanced, Mode=OneWay}">
+    <settings:SettingsSection x:Name="audioAdvancedSettings" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_audio_advanced, Mode=OneWay}">
       <StackPanel>
         <CheckBox Visibility="{Binding IsPlayerWasapiDriver, Converter={StaticResource BooleanToVisibilityConverter}}" x:Name="checkBoxWasapiLowLatency" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
         <settings:SettingsField Visibility="{Binding IsPlayerBufferControlEnabled, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,12,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_buffersize, Mode=OneWay}">
@@ -54,13 +61,6 @@
           <ComboBox IsEnabled="{Binding IsAudioOutputSelectionEnabled}" SelectedValuePath="Key" DisplayMemberPath="Value" IsReadOnly="True" ItemsSource="{Binding PlayerResamplingQualityNames}" SelectedValue="{Binding PlayerResamplingQuality, Mode=TwoWay}" />
         </settings:SettingsField>
         <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_quality_desc, Mode=OneWay}" TextWrapping="Wrap" />
-      </StackPanel>
-    </Expander>
-
-    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}">
-      <StackPanel>
-        <settings:SettingsField Margin="0,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlaybackPanel.PlayerVolume, ElementName=page, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, ElementName=page, StringFormat={}{0}%}" /></Grid></settings:SettingsField>
-        <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" TextWrapping="Wrap" />
       </StackPanel>
     </settings:SettingsSection>
   </StackPanel>

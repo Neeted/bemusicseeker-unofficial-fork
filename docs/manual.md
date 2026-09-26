@@ -223,6 +223,8 @@ Even in standalone mode, you can specify LR2body as the playback application. Th
 
 Configure playback driver, output device, sample rate, format, buffer size, volume, and related settings. If there is no sound, latency is large, or audio cuts out, check the settings in this tab.
 
+This page contains Output Settings, Volume, Test, and Advanced Audio Settings in that order. Advanced Audio Settings contains the low-latency option for applicable drivers, buffer size, and resampling quality. Technical diagnostics for capability queries and tests can each be expanded when needed.
+
 When this page opens, it automatically checks the selected driver and output device. Changing the driver or device resets sample rate and format to `Auto`; changing the sample rate resets only the format to `Auto`. These are draft values and do not take effect in settings until you save.
 
 `Stop playback and test` stops current playback and tests the selected conditions directly, without treating normal-playback fallback as a successful test of those conditions. The test runs outside the UI thread. Until playback and output resources are released, settings controls are disabled and saving, canceling, closing the dialog, and starting another test are unavailable. Capability and test results never write values back to settings.

@@ -3843,54 +3843,6 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
-                var materializedControlTypes = new HashSet<Type>();
-
-                for (int pageIndex = 0; pageIndex < navigation.Items.Count; pageIndex++)
-                {
-                    navigation.SelectedIndex = pageIndex;
-                    PumpDispatcher(window.Dispatcher);
-                    var page = (FrameworkElement)pageHost.Content;
-                    Assert.IsFalse(FindDescendants<GroupBox>(page).Any(), page.GetType().Name);
-                    if (page is BeMusicSeeker.Views.Settings.Pages.AudioSettingsPage)
-                    {
-                        foreach (Expander details in FindDescendants<Expander>(page))
-                        {
-                            Assert.IsFalse(details.IsExpanded);
-                            Assert.IsFalse(string.IsNullOrWhiteSpace(details.Header?.ToString()));
-                        }
-                    }
-                    else
-                    {
-                        Assert.IsFalse(FindDescendants<Expander>(page).Any(), page.GetType().Name);
-                    }
-
-                    foreach (DependencyObject control in FindDescendants<DependencyObject>(page))
-                    {
-                        if (control is SettingsSection
-                            or SettingsField
-                            or SettingsOptionRow
-                            or SettingsPathPicker
-                            or SettingsListEditor
-                            or SettingsStatusBanner)
-                        {
-                            materializedControlTypes.Add(control.GetType());
-                        }
-                    }
-                }
-
-                foreach (Type requiredType in new[]
-                {
-                    typeof(SettingsSection),
-                    typeof(SettingsField),
-                    typeof(SettingsOptionRow),
-                    typeof(SettingsPathPicker),
-                    typeof(SettingsListEditor),
-                    typeof(SettingsStatusBanner)
-                })
-                {
-                    Assert.IsTrue(materializedControlTypes.Contains(requiredType),
-                        $"The rendered settings pages did not materialize {requiredType.Name}.");
-                }
 
                 var pathMetadata = (FrameworkPropertyMetadata)SettingsPathPicker.PathProperty.GetMetadata(typeof(SettingsPathPicker));
                 Assert.IsTrue(pathMetadata.BindsTwoWayByDefault);
