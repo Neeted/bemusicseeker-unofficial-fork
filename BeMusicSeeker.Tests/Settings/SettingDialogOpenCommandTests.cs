@@ -51,11 +51,17 @@ public sealed class SettingDialogOpenCommandTests
 
         Assert.AreEqual(3, dialog.PlayerDriverNames.Count);
         Assert.IsFalse(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerSampleRateSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerFormatReadOnly);
+        Assert.IsTrue(dialog.IsPlayerSampleRateReadOnly);
         Assert.IsTrue(dialog.IsPlayerWasapiDriver);
-        Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
+        Assert.IsFalse(dialog.IsPlayerBufferControlEnabled);
 
         dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
         Assert.IsTrue(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerSampleRateSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerFormatReadOnly);
+        Assert.IsFalse(dialog.IsPlayerSampleRateReadOnly);
         Assert.IsTrue(dialog.IsPlayerWasapiDriver);
 
         dialog.PlayerWASAPIParam = true;
@@ -65,7 +71,10 @@ public sealed class SettingDialogOpenCommandTests
         Assert.IsFalse(dialog.IsPlayerBufferControlEnabled);
 
         dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.Asio);
-        Assert.IsTrue(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerSampleRateSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerFormatReadOnly);
+        Assert.IsFalse(dialog.IsPlayerSampleRateReadOnly);
         Assert.IsFalse(dialog.IsPlayerWasapiDriver);
         Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
     }

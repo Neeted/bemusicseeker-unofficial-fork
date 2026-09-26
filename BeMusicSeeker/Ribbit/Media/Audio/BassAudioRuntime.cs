@@ -6,6 +6,8 @@ namespace Ribbit.Media.Audio;
 
 public static class BassAudioRuntime
 {
+    /// <summary>通常開始・照会・明示テスト・解放を同じ受付で直ちに判定します。</summary>
+    internal static bool TryEnterAudioRequest(out IDisposable lease) => RuntimeGate.TryEnterRequest(out lease);
     private enum InitializationStage
     {
         NativeLoad,
@@ -17,6 +19,9 @@ public static class BassAudioRuntime
     private static readonly object SessionOwnerSync = new();
     private static readonly BassAudioOperationGate RuntimeGate = new();
 
+    /// <summary>native受付とcallback保護を共有する唯一のプロセスgateです。</summary>
+    internal static BassAudioOperationGate OperationGate => RuntimeGate;
+
     private static bool _isInitialized;
 
     private static Func<bool> _releaseAudioSessionForShutdown;
@@ -26,6 +31,17 @@ public static class BassAudioRuntime
     /// </summary>
     public static void Initialize()
     {
+        if (!TryEnterAudioRequest(out IDisposable admission))
+        {
+            if (RuntimeGate.IsCleanupQuarantined)
+            {
+                throw new InvalidOperationException(
+                    "The native runtime cannot initialize because a previous audio session still owns native resources after cleanup failed.");
+            }
+
+            throw new InvalidOperationException("The native runtime is busy with another audio request.");
+        }
+        using IDisposable requestAdmission = admission;
         InitializeRuntime();
     }
 

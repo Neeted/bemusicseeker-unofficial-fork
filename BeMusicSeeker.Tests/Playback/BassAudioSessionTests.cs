@@ -4,6 +4,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -14,6 +17,217 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassAudioSessionTests
 {
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void DeviceTestRuntime_PartialFailureAndCleanupFailurePreserveRequestAndAllowExplicitRecovery(bool cleanupInInitialization)
+    {
+        var lifecycle = new BassAudioSessionLifecycle();
+        var gate = new BassAudioOperationGate(initiallyOpen: true);
+        var native = new RecordingNativeBoundary();
+        bool failInitialization = false;
+        int initializationCalls = 0;
+        var primary = new InvalidOperationException("initialization failed after core acquisition");
+        var request = new AudioDeviceTestRequest(AudioDriver.Asio, "device", "Device",
+            SampleRate.AUTO, SampleFormat.SAMPLE_INT_16BIT, 10, false, 50, playSound: false);
+
+        bool ReleaseSession(BassAudioSession session)
+        {
+            if (session.IsReleased)
+            {
+                return true;
+            }
+            if (!gate.TryEnterSessionCleanup(out BassAudioExclusiveLease exclusive))
+            {
+                return false;
+            }
+            using (exclusive)
+            using (lifecycle.Enter())
+            {
+                bool released = BassAudioSessionCleanup.Release(session, native);
+                lifecycle.CompleteCleanup(session);
+                exclusive.Complete(released);
+                return released;
+            }
+        }
+
+        var runtime = new BassAudioDeviceTestRuntime(ApplicationPathPolicy.Current,
+            new UnusedTestSoundBoundary(),
+            (input, acquired) =>
+            {
+                initializationCalls++;
+                using BassAudioExclusiveLease exclusive = gate.EnterSessionInitialization();
+                exclusive.ObserveOwnership(() => !lifecycle.HasUnconfirmedOwnership);
+                using (lifecycle.Enter())
+                {
+                    Assert.IsTrue(lifecycle.TryBegin(input.AudioOutputRequest, out BassAudioSession session));
+                    acquired(session);
+                    session.CoreInitialized = true;
+                    session.CoreDeviceIndex = 0;
+                    session.ActualBackend = BassAudioPlayer.DeviceDriver.ASIO;
+                    session.AsioInitialized = true;
+                    session.AsioDeviceIndex = 0;
+                    session.ActualDevice = new BassAudioPlayer.DeviceDescriptor("Device", "device");
+                    if (failInitialization)
+                    {
+                        if (cleanupInInitialization)
+                        {
+                            BassAudioSessionCleanup.Release(session, native, primary);
+                            lifecycle.CompleteCleanup(session);
+                        }
+                        throw primary;
+                    }
+                    session.NegotiationResult = new BassAudioBackendResult(
+                        new BassAudioNegotiationRequest(session.ActualBackend, session.ActualDevice,
+                            SampleRate.AUTO, SampleFormat.AUTO, 10),
+                        session.ActualDevice, SampleRate.SAMPLE_RATE_48000Hz,
+                        SampleFormat.SAMPLE_FLOAT_32BIT, SampleFormat.SAMPLE_INT_24BIT, 12, 0, [], null);
+                    lifecycle.MarkActive(session);
+                }
+            },
+            ReleaseSession,
+            gate);
+
+        bool TryRunAdmitted(out AudioDeviceTestResult? result)
+        {
+            if (!gate.TryEnterRequest(out IDisposable admission))
+            {
+                result = null;
+                return false;
+            }
+            using (admission)
+            {
+                result = runtime.Run(request);
+                return true;
+            }
+        }
+
+        void QueryCapabilities()
+        {
+            Assert.IsTrue(gate.TryEnterRequest(out IDisposable admission));
+            using (admission)
+            {
+                using BassAudioExclusiveLease exclusive = gate.EnterSessionInitialization();
+                exclusive.ObserveOwnership(() => !lifecycle.HasUnconfirmedOwnership);
+                using (lifecycle.Enter())
+                {
+                    var query = new AudioDeviceCapabilityRequest(request.PlayerDriver, request.PlayerDevice,
+                        request.PlayerDeviceName, SampleRate.AUTO, SampleFormat.AUTO);
+                    AudioDeviceCapabilityResult result = BassAudioCapabilitySession.QueryAsio(query, lifecycle, native,
+                        session =>
+                        {
+                            session.AsioInitialized = true;
+                            session.AsioDeviceIndex = 0;
+                            return new AudioDeviceCapabilityResult(query.Backend, query.DeviceIdentity, query.DeviceName,
+                                AudioDeviceCapabilityStatus.Available, [SampleRate.SAMPLE_RATE_48000Hz]);
+                        });
+                    Assert.AreEqual(AudioDeviceCapabilityStatus.Available, result.Status);
+                    Assert.IsNull(lifecycle.CurrentSession);
+                }
+            }
+        }
+        QueryCapabilities();
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? first));
+        Assert.IsNotNull(first);
+        Assert.IsTrue(first.Succeeded);
+        Assert.IsNotNull(first.Initialization);
+        Assert.IsFalse(first.Initialization.FallbackOccurred);
+        Assert.AreEqual(SampleFormat.AUTO, first.Initialization.RequestedFormat);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, first.Request.PlayerFormat);
+        Assert.IsNull(lifecycle.CurrentSession);
+        Assert.IsFalse(gate.AdmissionClosed);
+        QueryCapabilities();
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? second));
+        Assert.IsNotNull(second);
+        Assert.IsTrue(second.Succeeded);
+        Assert.AreEqual(2, native.Count("FreeCore"));
+        Assert.AreEqual(4, native.Count("FreeAsio"));
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? third));
+        Assert.IsNotNull(third);
+        Assert.IsTrue(third.Succeeded);
+        Assert.IsNull(lifecycle.CurrentSession);
+
+        native.FreeCoreResult = false;
+        native.CoreError = Errors.Unknown;
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? cleanupFailed));
+        Assert.IsNotNull(cleanupFailed);
+        Assert.IsFalse(cleanupFailed.Succeeded);
+        Assert.IsNotNull(cleanupFailed.Initialization);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, cleanupFailed.ActualRate);
+        Assert.AreEqual(12d, cleanupFailed.Latency);
+        Assert.IsNotNull(cleanupFailed.CleanupFailure);
+        Assert.IsNull(cleanupFailed.PrimaryFailure);
+        Assert.IsTrue(lifecycle.HasCleanupPending);
+        Assert.IsTrue(gate.AdmissionClosed);
+
+        int rejectedRetryCoreSelections = native.Count("SetCoreDevice");
+        int rejectedRetryCoreReleases = native.Count("FreeCore");
+        int rejectedRetryInitializations = initializationCalls;
+        BassAudioSession quarantinedSession = lifecycle.CurrentSession;
+        native.FreeCoreResult = true;
+        Assert.IsFalse(TryRunAdmitted(out _));
+        Assert.AreEqual(rejectedRetryCoreSelections, native.Count("SetCoreDevice"));
+        Assert.AreEqual(rejectedRetryCoreReleases, native.Count("FreeCore"));
+        Assert.AreEqual(rejectedRetryInitializations, initializationCalls);
+        Assert.AreSame(quarantinedSession, lifecycle.CurrentSession);
+        Assert.IsTrue(lifecycle.HasCleanupPending);
+        Assert.IsTrue(gate.AdmissionClosed);
+
+        Assert.IsTrue(ReleaseSession(lifecycle.CurrentSession));
+        Assert.IsNull(lifecycle.CurrentSession);
+        Assert.IsFalse(gate.AdmissionClosed);
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? recovered));
+        Assert.IsNotNull(recovered);
+        Assert.IsTrue(recovered.Succeeded);
+        failInitialization = true;
+        native.FreeCoreResult = false;
+        int previousCleanupCount = native.Count("FreeCore");
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? combined));
+        Assert.IsNotNull(combined);
+        Assert.AreEqual(previousCleanupCount + 1, native.Count("FreeCore"));
+        Assert.AreSame(request, combined.Request);
+        Assert.AreSame(primary, combined.PrimaryFailure);
+        Assert.IsNotNull(combined.CleanupFailure);
+        Assert.IsNull(combined.Initialization);
+        Assert.IsNull(combined.ActualRate);
+        Assert.IsNull(combined.Latency);
+        Assert.IsTrue(lifecycle.HasCleanupPending);
+
+        native.FreeCoreResult = true;
+        failInitialization = false;
+        Assert.IsTrue(ReleaseSession(lifecycle.CurrentSession));
+        Assert.IsNull(lifecycle.CurrentSession);
+        Assert.IsFalse(gate.AdmissionClosed);
+        Assert.IsTrue(TryRunAdmitted(out AudioDeviceTestResult? finallyRecovered));
+        Assert.IsNotNull(finallyRecovered);
+        Assert.IsTrue(finallyRecovered.Succeeded);
+        Assert.IsNull(lifecycle.CurrentSession);
+        Assert.IsFalse(gate.AdmissionClosed);
+    }
+
+    private sealed class UnusedTestSoundBoundary : IAudioDeviceTestSoundBoundary
+    {
+        public bool FileExists(string path) => throw new AssertFailedException("Sound was not requested.");
+        public IAudioPlayer CreatePlayer(string path) => throw new AssertFailedException("Sound was not requested.");
+        public long GetTimestamp() => throw new AssertFailedException("Sound was not requested.");
+        public TimeSpan GetElapsedTime(long start, long end) => throw new AssertFailedException("Sound was not requested.");
+        public void Wait(TimeSpan interval) => throw new AssertFailedException("Sound was not requested.");
+    }
+
+    [TestMethod]
+    public void ExclusiveLease_CopiedReferenceSharesCompletionAndDisposesOnce()
+    {
+        var gate = new BassAudioOperationGate(initiallyOpen: true);
+        BassAudioExclusiveLease lease = gate.EnterSessionInitialization();
+        BassAudioExclusiveLease copied = lease;
+        copied.ObserveOwnership(() => true);
+        lease.Dispose();
+        copied.Dispose();
+        Assert.IsFalse(gate.AdmissionClosed);
+        using BassAudioExclusiveLease next = gate.EnterSessionInitialization();
+        next.ObserveOwnership(() => true);
+    }
+
     [TestMethod]
     public void CallbackOutputFailureAndOverLevelArePendingOncePerAudioSession()
     {
@@ -137,6 +351,198 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(2, native.Count("FreeStream"));
         Assert.AreEqual(1, native.Count("FreeCore"));
         Assert.AreEqual(0, session.CallbackOutputHandle);
+    }
+
+    [TestMethod]
+    public void AsioCapabilityQuery_CancellationReleasesThePartiallyAcquiredSession()
+    {
+        var gate = new BassAudioOperationGate(initiallyOpen: true);
+        var lifecycle = new BassAudioSessionLifecycle();
+        var native = new RecordingNativeBoundary();
+        using (BassAudioExclusiveLease exclusive = gate.EnterSessionInitialization())
+        using (lifecycle.Enter())
+        {
+            AudioDeviceCapabilityResult result = BassAudioCapabilitySession.QueryAsio(
+                CreateAsioCapabilityRequest(), lifecycle, native, session =>
+                {
+                    session.CoreInitialized = true;
+                    session.CoreDeviceIndex = 4;
+                    session.AsioInitialized = true;
+                    session.AsioDeviceIndex = 2;
+                    throw new OperationCanceledException();
+                });
+            Assert.AreEqual(AudioDeviceCapabilityStatus.Failed, result.Status);
+            Assert.IsFalse(lifecycle.HasUnconfirmedOwnership);
+            Assert.IsNull(lifecycle.CurrentSession);
+            Assert.AreEqual(1, native.Count("FreeAsio"));
+            Assert.AreEqual(1, native.Count("FreeCore"));
+            exclusive.Complete(success: true);
+        }
+        Assert.IsTrue(gate.TryEnterRequest(out IDisposable next));
+        next.Dispose();
+    }
+
+    [TestMethod]
+    public void AsioCapabilityQuery_RejectsAnActiveSessionWithoutChangingOwnership()
+    {
+        var lifecycle = new BassAudioSessionLifecycle();
+        var native = new RecordingNativeBoundary();
+        AudioDeviceCapabilityRequest request = CreateAsioCapabilityRequest();
+        int queryCalls = 0;
+        BassAudioSession activeSession;
+        AudioDeviceCapabilityResult result;
+
+        using (lifecycle.Enter())
+        {
+            Assert.IsTrue(lifecycle.TryBegin(
+                BassAudioPlayer.DeviceDriver.ASIO,
+                new BassAudioPlayer.DeviceDescriptor("ASIO", "asio-id"),
+                out activeSession));
+            lifecycle.MarkActive(activeSession);
+
+            result = BassAudioCapabilitySession.QueryAsio(
+                request,
+                lifecycle,
+                native,
+                _ =>
+                {
+                    queryCalls++;
+                    return new AudioDeviceCapabilityResult(
+                        request.Backend,
+                        request.DeviceIdentity,
+                        request.DeviceName,
+                        AudioDeviceCapabilityStatus.Available);
+                });
+
+            Assert.AreSame(activeSession, lifecycle.CurrentSession);
+            Assert.AreEqual(BassAudioSessionState.Active, activeSession.State);
+        }
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Busy, result.Status);
+        Assert.AreEqual(0, queryCalls);
+        Assert.AreEqual(0, native.Count("SetCoreDevice"));
+    }
+
+    [TestMethod]
+    public void AsioCapabilityQuery_CleanupFailureFailsAndRetainsSessionOwnership()
+    {
+        var lifecycle = new BassAudioSessionLifecycle();
+        var native = new RecordingNativeBoundary
+        {
+            SetCoreDeviceResult = false,
+            CoreError = Errors.Device
+        };
+        AudioDeviceCapabilityRequest request = CreateAsioCapabilityRequest();
+        BassAudioSession? ownedSession = null;
+        AudioDeviceCapabilityResult result;
+
+        using (lifecycle.Enter())
+        {
+            result = BassAudioCapabilitySession.QueryAsio(
+                request,
+                lifecycle,
+                native,
+                session =>
+                {
+                    ownedSession = session;
+                    session.CoreInitialized = true;
+                    session.CoreDeviceIndex = 4;
+                    return new AudioDeviceCapabilityResult(
+                        request.Backend,
+                        request.DeviceIdentity,
+                        request.DeviceName,
+                        AudioDeviceCapabilityStatus.Available,
+                        supportedRates: [SampleRate.SAMPLE_RATE_48000Hz]);
+                });
+
+            BassAudioSession cleanupPendingSession = ownedSession
+                ?? throw new AssertFailedException("The ASIO query did not acquire a session.");
+            Assert.AreSame(cleanupPendingSession, lifecycle.CurrentSession);
+            Assert.AreEqual(BassAudioSessionState.CleanupPending, cleanupPendingSession.State);
+            Assert.IsTrue(lifecycle.HasUnconfirmedOwnership);
+        }
+
+        BassAudioSession retainedSession = ownedSession
+            ?? throw new AssertFailedException("The ASIO query did not retain its session.");
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Failed, result.Status);
+        Assert.AreEqual("audio session cleanup", result.FailureStage);
+        Assert.AreEqual(1, result.Attempts.Count);
+        Assert.AreEqual("audio session cleanup", result.Attempts[0].Stage);
+        Assert.AreEqual(0, native.Count("FreeCore"));
+
+        using (lifecycle.Enter())
+        {
+            AudioDeviceCapabilityResult retry = BassAudioCapabilitySession.QueryAsio(
+                request,
+                lifecycle,
+                native,
+                _ => throw new AssertFailedException("A cleanup-pending session must remain owned."));
+            Assert.AreEqual(AudioDeviceCapabilityStatus.Busy, retry.Status);
+            Assert.AreSame(retainedSession, lifecycle.CurrentSession);
+        }
+    }
+
+    [TestMethod]
+    public void AsioCapabilityQuery_CleanupFailurePreservesPrimaryNativeFailure()
+    {
+        var lifecycle = new BassAudioSessionLifecycle();
+        var native = new RecordingNativeBoundary
+        {
+            SetCoreDeviceResult = false,
+            CoreError = Errors.Device
+        };
+        AudioDeviceCapabilityRequest request = CreateAsioCapabilityRequest();
+        BassAudioSession? ownedSession = null;
+        AudioDeviceCapabilityResult result;
+
+        using (lifecycle.Enter())
+        {
+            result = BassAudioCapabilitySession.QueryAsio(
+                request,
+                lifecycle,
+                native,
+                session =>
+                {
+                    ownedSession = session;
+                    session.CoreInitialized = true;
+                    session.CoreDeviceIndex = 4;
+                    return new AudioDeviceCapabilityResult(
+                        request.Backend,
+                        request.DeviceIdentity,
+                        request.DeviceName,
+                        AudioDeviceCapabilityStatus.Failed,
+                        failureStage: "BASS_ASIO_GetDeviceInfos",
+                        nativeErrorSource: "BASSASIO",
+                        nativeErrorCode: Errors.Init);
+                });
+
+            BassAudioSession cleanupPendingSession = ownedSession
+                ?? throw new AssertFailedException("The ASIO query did not acquire a session.");
+            Assert.AreSame(cleanupPendingSession, lifecycle.CurrentSession);
+            Assert.AreEqual(BassAudioSessionState.CleanupPending, cleanupPendingSession.State);
+            Assert.IsTrue(lifecycle.HasUnconfirmedOwnership);
+        }
+
+        BassAudioSession retainedSession = ownedSession
+            ?? throw new AssertFailedException("The ASIO query did not retain its session.");
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Failed, result.Status);
+        Assert.AreEqual("BASS_ASIO_GetDeviceInfos", result.FailureStage);
+        Assert.AreEqual("BASSASIO", result.NativeErrorSource);
+        Assert.AreEqual(Errors.Init, result.NativeErrorCode);
+        Assert.AreEqual(1, result.Attempts.Count);
+        Assert.AreEqual("audio session cleanup", result.Attempts[0].Stage);
+        Assert.AreEqual(0, native.Count("FreeCore"));
+
+        using (lifecycle.Enter())
+        {
+            AudioDeviceCapabilityResult retry = BassAudioCapabilitySession.QueryAsio(
+                request,
+                lifecycle,
+                native,
+                _ => throw new AssertFailedException("A cleanup-pending session must remain owned."));
+            Assert.AreEqual(AudioDeviceCapabilityStatus.Busy, retry.Status);
+            Assert.AreSame(retainedSession, lifecycle.CurrentSession);
+        }
     }
 
     [TestMethod]
@@ -904,6 +1310,65 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
+    public void OperationGate_CleanupQuarantineRejectsNewRootsButAllowsAcceptedContinuationAndCleanup()
+    {
+        var gate = new BassAudioOperationGate(initiallyOpen: true);
+        Assert.IsTrue(gate.TryEnterRequest(out IDisposable admission));
+        using (admission)
+        {
+            using (BassAudioExclusiveLease initialization = gate.EnterSessionInitialization())
+            {
+                initialization.Complete(success: false);
+            }
+
+            Assert.IsTrue(gate.IsCleanupQuarantined);
+            Assert.IsTrue(gate.TryEnterRequest(out IDisposable continuation));
+            continuation.Dispose();
+
+            using var newRootAttempted = new ManualResetEventSlim();
+            bool newRootAccepted = false;
+            Exception? newRootFailure = null;
+            ThreadPool.UnsafeQueueUserWorkItem(
+                _ =>
+                {
+                    try
+                    {
+                        newRootAccepted = gate.TryEnterRequest(out IDisposable newRoot);
+                        if (newRootAccepted)
+                        {
+                            newRoot.Dispose();
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        newRootFailure = exception;
+                    }
+                    finally
+                    {
+                        newRootAttempted.Set();
+                    }
+                },
+                null);
+            newRootAttempted.Wait();
+            if (newRootFailure != null)
+            {
+                throw new InvalidOperationException("A separate audio request attempt failed.", newRootFailure);
+            }
+            Assert.IsFalse(newRootAccepted);
+
+            Assert.IsTrue(gate.TryEnterSessionCleanup(out BassAudioExclusiveLease cleanup));
+            using (cleanup)
+            {
+                cleanup.Complete(success: true);
+            }
+            Assert.IsFalse(gate.IsCleanupQuarantined);
+        }
+
+        Assert.IsTrue(gate.TryEnterRequest(out IDisposable nextRequest));
+        nextRequest.Dispose();
+    }
+
+    [TestMethod]
     public void OperationGate_WaitingShutdownKeepsAdmissionClosedWhenRuntimeInitializationCompletes()
     {
         var gate = new BassAudioOperationGate();
@@ -1132,4 +1597,11 @@ public sealed class BassAudioSessionTests
 
         internal int Count(string operation) => calls.Count(call => call == operation);
     }
+
+    private static AudioDeviceCapabilityRequest CreateAsioCapabilityRequest() => new(
+        AudioDriver.Asio,
+        "asio-id",
+        "ASIO",
+        SampleRate.SAMPLE_RATE_48000Hz,
+        SampleFormat.SAMPLE_INT_24BIT);
 }

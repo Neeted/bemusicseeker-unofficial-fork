@@ -1609,6 +1609,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         var viewModel = base.DataContext as MainWindowViewModel;
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
+        Task settingsAudioTestTask = viewModel?.SettingDialog.AudioDeviceTestCompletionTask ?? Task.CompletedTask;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
@@ -1622,7 +1623,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
-        await Task.WhenAll(propertyOperationTask, bulkApplyTask).ConfigureAwait(true);
+        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTestTask).ConfigureAwait(true);
         await Task.WhenAll(propertyCleanupTask, bulkCleanupTask).ConfigureAwait(true);
 
         CaptureWindowStateForClosing();
@@ -1661,6 +1662,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
+            settingsWindow?.CloseForOwnerShutdown();
             CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
             if (closeRequestStarted)

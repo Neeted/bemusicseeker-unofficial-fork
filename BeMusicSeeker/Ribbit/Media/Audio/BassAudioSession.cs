@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Wasapi;
@@ -68,11 +69,13 @@ internal sealed class BassAudioSession
     internal BassAudioSession(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDescriptor requestedDevice = default,
-        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        AudioOutputRequest outputRequest = null)
     {
         RequestedBackend = requestedBackend;
         RequestedDevice = requestedDevice;
         SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        OutputRequest = outputRequest;
         ActualBackend = BassAudioPlayer.DeviceDriver.INVALID;
         CoreDeviceIndex = -1;
         WasapiDeviceIndex = -1;
@@ -82,6 +85,9 @@ internal sealed class BassAudioSession
 
     /// <summary>初期化時に捕捉した、このsessionが使うSRC品質を取得します。</summary>
     internal int SampleRateConversionQuality { get; }
+
+    /// <summary>このsessionの初期化条件全体です。旧変換入口で未設定の場合はnullです。</summary>
+    internal AudioOutputRequest OutputRequest { get; }
 
     /// <summary>Gets the backend selected by the caller.</summary>
     internal BassAudioPlayer.DeviceDriver RequestedBackend { get; }
@@ -142,6 +148,10 @@ internal sealed class BassAudioSession
 
     /// <summary>Gets the current ownership phase.</summary>
     internal BassAudioSessionState State { get; set; }
+
+    /// <summary>直近の解放で確認できなかったnative操作を、そのsessionの終端診断へ渡します。</summary>
+    internal IReadOnlyList<BassAudioCleanupDiagnostic> CleanupDiagnostics { get; set; }
+        = Array.Empty<BassAudioCleanupDiagnostic>();
 
     /// <summary>Gets whether native resources still require cleanup.</summary>
     internal bool HasNativeOwnership =>
@@ -523,6 +533,32 @@ internal sealed class BassAudioSessionLifecycle
         return true;
     }
 
+    /// <summary>変更不能な音声出力要求を保持するsessionを開始します。</summary>
+    internal bool TryBegin(AudioOutputRequest request, out BassAudioSession session)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureEntered();
+        if (currentSession != null)
+        {
+            session = currentSession;
+            return false;
+        }
+
+        AudioDriver backend = request.Backend;
+        AudioOutputSelection selection = AudioDriverPolicy.NormalizePersistedSelection(
+            new AudioOutputSelection(backend, request.DeviceIdentity, request.DeviceName));
+        BassAudioPlayer.DeviceDescriptor device = string.IsNullOrWhiteSpace(selection.DeviceIdentity)
+            ? default
+            : new BassAudioPlayer.DeviceDescriptor(selection.DeviceName, selection.DeviceIdentity);
+        session = new BassAudioSession(
+            BassAudioMapping.ToBassDriver(selection.Backend),
+            device,
+            request.SampleRateConversionQuality,
+            request);
+        Volatile.Write(ref currentSession, session);
+        return true;
+    }
+
     /// <summary>Marks the owned session as usable after initialization succeeds.</summary>
     internal void MarkActive(BassAudioSession session)
     {
@@ -638,6 +674,54 @@ internal sealed class BassAudioOperationGate
     private bool cleanupQuarantined;
     private bool shutdownRequested;
     private bool shutdownInProgress;
+    private readonly AsyncLocal<BassAudioRequestLease> requestContext = new();
+    private BassAudioRequestLease activeRequest;
+
+    /// <summary>受理済み要求の処理・後片付けが終わり、論理的な受付を解放したことを通知します。</summary>
+    internal event Action RequestReleased;
+
+    /// <summary>副作用より前に一件の要求を受理します。受理済み要求の非同期継続だけが受付を引き継ぎます。</summary>
+    internal bool TryEnterRequest(out IDisposable lease)
+    {
+        lock (syncRoot)
+        {
+            if (activeRequest != null && ReferenceEquals(activeRequest, requestContext.Value))
+            {
+                lease = new BassAudioRequestLease(null);
+                return true;
+            }
+            if (activeRequest != null || exclusiveActive || waitingExclusive != 0 || IsAdmissionClosed)
+            {
+                lease = null;
+                return false;
+            }
+            var request = new BassAudioRequestLease(this);
+            activeRequest = request;
+            requestContext.Value = request;
+            lease = request;
+            return true;
+        }
+    }
+
+    private void ReleaseRequest(BassAudioRequestLease request)
+    {
+        lock (syncRoot)
+        {
+            if (ReferenceEquals(activeRequest, request))
+            {
+                activeRequest = null;
+            }
+        }
+        requestContext.Value = null;
+        RequestReleased?.Invoke();
+    }
+
+    private sealed class BassAudioRequestLease(BassAudioOperationGate owner) : IDisposable
+    {
+        private BassAudioOperationGate owner = owner;
+
+        public void Dispose() => Interlocked.Exchange(ref owner, null)?.ReleaseRequest(this);
+    }
 
     /// <summary>Creates a closed gate, or an open test gate when requested.</summary>
     internal BassAudioOperationGate(bool initiallyOpen = false)
@@ -832,6 +916,18 @@ internal sealed class BassAudioOperationGate
         }
     }
 
+    /// <summary>Gets whether new audio requests are quarantined after unconfirmed cleanup.</summary>
+    internal bool IsCleanupQuarantined
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return cleanupQuarantined;
+            }
+        }
+    }
+
     /// <summary>Gets whether shutdown has rejected new root operations.</summary>
     internal bool IsShutdownRequested
     {
@@ -1020,7 +1116,7 @@ internal ref struct BassAudioOperationLease
 }
 
 /// <summary>Owns one exclusive audio lifecycle transition until its outcome is recorded.</summary>
-internal ref struct BassAudioExclusiveLease
+internal sealed class BassAudioExclusiveLease : IDisposable
 {
     private BassAudioOperationGate gate;
     private readonly BassAudioExclusiveOperation operation;
@@ -1028,6 +1124,11 @@ internal ref struct BassAudioExclusiveLease
     private readonly int ownerThreadId;
     private bool completionSpecified;
     private bool success;
+    private Func<bool> ownershipConsistent;
+
+    /// <summary>session所有者の解放確認から終端を判定し、呼出元のComplete忘れに依存しません。</summary>
+    internal void ObserveOwnership(Func<bool> ownershipConsistent)
+        => this.ownershipConsistent = ownershipConsistent ?? throw new ArgumentNullException(nameof(ownershipConsistent));
 
     internal BassAudioExclusiveLease(
         BassAudioOperationGate gate,
@@ -1058,13 +1159,13 @@ internal ref struct BassAudioExclusiveLease
         {
             return;
         }
-        gate = null;
         ownedGate.ExitExclusive(
             operation,
             runtimeWasOpen,
-            completionSpecified,
-            success,
+            ownershipConsistent != null || completionSpecified,
+            ownershipConsistent?.Invoke() ?? success,
             ownerThreadId);
+        gate = null;
     }
 }
 
@@ -1299,17 +1400,23 @@ internal static class BassAudioSessionCleanup
         }
 
         var failures = new List<string>();
+        var diagnostics = new List<BassAudioCleanupDiagnostic>();
         try
         {
-            bool backendReleased = ReleaseBackend(session, native, failures);
+            bool backendReleased = ReleaseBackend(session, native, failures, diagnostics);
             if (backendReleased)
             {
-                ReleaseCore(session, native, failures);
+                ReleaseCore(session, native, failures, diagnostics);
             }
         }
         catch (Exception exception)
         {
             failures.Add("cleanup orchestration threw: " + exception.Message);
+            diagnostics.Add(new BassAudioCleanupDiagnostic(
+                "audio session cleanup",
+                "BassAudioSession",
+                null,
+                exception.GetType().Name));
         }
         finally
         {
@@ -1317,6 +1424,7 @@ internal static class BassAudioSessionCleanup
                 ? BassAudioSessionState.CleanupPending
                 : BassAudioSessionState.Released;
 
+            session.CleanupDiagnostics = diagnostics.ToArray();
             if (failures.Count != 0)
             {
                 TryLogCleanupFailure(session, failures, primaryException);
@@ -1329,7 +1437,8 @@ internal static class BassAudioSessionCleanup
     private static bool ReleaseBackend(
         BassAudioSession session,
         IAudioSessionNativeBoundary native,
-        List<string> failures)
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         if (session.AsioInitialized)
         {
@@ -1337,7 +1446,9 @@ internal static class BassAudioSessionCleanup
                 () => native.SetAsioDevice(session.AsioDeviceIndex),
                 "BASS_ASIO_SetDevice(" + session.AsioDeviceIndex + ")",
                 native.GetAsioError,
-                failures);
+                "BASSASIO",
+                failures,
+                diagnostics);
             if (selection == DeviceSelectionResult.Failed)
             {
                 return false;
@@ -1350,13 +1461,25 @@ internal static class BassAudioSessionCleanup
             else
             {
                 if (session.IsStarted
-                    && !TryReleaseCall(native.StopAsio, "BASS_ASIO_Stop", native.GetAsioError, failures))
+                    && !TryReleaseCall(
+                        native.StopAsio,
+                        "BASS_ASIO_Stop",
+                        native.GetAsioError,
+                        "BASSASIO",
+                        failures,
+                        diagnostics))
                 {
                     return false;
                 }
                 session.IsStarted = false;
 
-                if (!TryReleaseCall(native.FreeAsio, "BASS_ASIO_Free", native.GetAsioError, failures))
+                if (!TryReleaseCall(
+                    native.FreeAsio,
+                    "BASS_ASIO_Free",
+                    native.GetAsioError,
+                    "BASSASIO",
+                    failures,
+                    diagnostics))
                 {
                     return false;
                 }
@@ -1370,7 +1493,9 @@ internal static class BassAudioSessionCleanup
                 () => native.SetWasapiDevice(session.WasapiDeviceIndex),
                 "BASS_WASAPI_SetDevice(" + session.WasapiDeviceIndex + ")",
                 native.GetWasapiError,
-                failures);
+                "BASSWASAPI",
+                failures,
+                diagnostics);
             if (selection == DeviceSelectionResult.Failed)
             {
                 return false;
@@ -1387,13 +1512,21 @@ internal static class BassAudioSessionCleanup
                         () => native.StopWasapi(reset: true),
                         "BASS_WASAPI_Stop",
                         native.GetWasapiError,
-                        failures))
+                        "BASSWASAPI",
+                        failures,
+                        diagnostics))
                 {
                     return false;
                 }
                 session.IsStarted = false;
 
-                if (!TryReleaseCall(native.FreeWasapi, "BASS_WASAPI_Free", native.GetWasapiError, failures))
+                if (!TryReleaseCall(
+                    native.FreeWasapi,
+                    "BASS_WASAPI_Free",
+                    native.GetWasapiError,
+                    "BASSWASAPI",
+                    failures,
+                    diagnostics))
                 {
                     return false;
                 }
@@ -1407,7 +1540,8 @@ internal static class BassAudioSessionCleanup
     private static void ReleaseCore(
         BassAudioSession session,
         IAudioSessionNativeBoundary native,
-        List<string> failures)
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         if (!session.CoreInitialized
             && session.MixerHandle == 0
@@ -1422,7 +1556,9 @@ internal static class BassAudioSessionCleanup
             () => native.SetCoreDevice(session.CoreDeviceIndex),
             "BASS_SetDevice(" + session.CoreDeviceIndex + ")",
             native.GetCoreError,
-            failures);
+            "BASS",
+            failures,
+            diagnostics);
         if (selection == DeviceSelectionResult.Failed)
         {
             return;
@@ -1452,7 +1588,9 @@ internal static class BassAudioSessionCleanup
                 () => native.FreeStream(handle),
                 "BASS_StreamFree(" + handle + ")",
                 native.GetStreamError,
-                failures))
+                "BASS",
+                failures,
+                diagnostics))
             {
                 session.ConfirmPlayerStreamReleased(handle);
                 ClearHandle(session, handle);
@@ -1464,7 +1602,13 @@ internal static class BassAudioSessionCleanup
             && session.OutputHandle == 0
             && session.AdditionalStreamHandles.Count == 0
             && session.GetPlayerStreams().Count == 0
-            && TryReleaseCall(native.FreeCore, "BASS_Free", native.GetCoreError, failures))
+            && TryReleaseCall(
+                native.FreeCore,
+                "BASS_Free",
+                native.GetCoreError,
+                "BASS",
+                failures,
+                diagnostics))
         {
             session.CoreInitialized = false;
         }
@@ -1474,7 +1618,9 @@ internal static class BassAudioSessionCleanup
         Func<bool> select,
         string operation,
         Func<Errors> getError,
-        List<string> failures)
+        string nativeErrorSource,
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         try
         {
@@ -1491,10 +1637,16 @@ internal static class BassAudioSessionCleanup
             }
 
             failures.Add(operation + " failed: " + BassNativeErrorFormatter.Format(error));
+            diagnostics.Add(new BassAudioCleanupDiagnostic(operation, nativeErrorSource, error, string.Empty));
         }
         catch (Exception exception)
         {
             failures.Add(operation + " threw: " + exception.Message);
+            diagnostics.Add(new BassAudioCleanupDiagnostic(
+                operation,
+                nativeErrorSource,
+                null,
+                exception.GetType().Name));
         }
 
         return DeviceSelectionResult.Failed;
@@ -1520,7 +1672,9 @@ internal static class BassAudioSessionCleanup
         Func<bool> release,
         string operation,
         Func<Errors> getError,
-        List<string> failures)
+        string nativeErrorSource,
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         try
         {
@@ -1537,10 +1691,16 @@ internal static class BassAudioSessionCleanup
             }
 
             failures.Add(operation + " failed: " + BassNativeErrorFormatter.Format(error));
+            diagnostics.Add(new BassAudioCleanupDiagnostic(operation, nativeErrorSource, error, string.Empty));
         }
         catch (Exception exception)
         {
             failures.Add(operation + " threw: " + exception.Message);
+            diagnostics.Add(new BassAudioCleanupDiagnostic(
+                operation,
+                nativeErrorSource,
+                null,
+                exception.GetType().Name));
         }
 
         return false;
@@ -1601,9 +1761,14 @@ internal static class BassAudioSessionCleanup
     }
 }
 
-/// <summary>
-/// Describes a native initialization failure before cleanup can overwrite the error state.
-/// </summary>
+/// <summary>native session cleanupの失敗段階を任意例外メッセージから独立して保持します。</summary>
+internal sealed record BassAudioCleanupDiagnostic(
+    string Stage,
+    string NativeErrorSource,
+    Errors? NativeErrorCode,
+    string ExceptionType);
+
+/// <summary>解放処理がnative errorを上書きする前の初期化失敗情報を保持します。</summary>
 internal sealed class AudioInitializationException : Exception
 {
     /// <summary>Creates an empty initialization failure for exception infrastructure.</summary>
@@ -1623,7 +1788,8 @@ internal sealed class AudioInitializationException : Exception
     {
     }
 
-    /// <summary>Creates a contextual native audio initialization failure.</summary>
+    /// <summary>初期化要求、失敗段階、native error、先行試行を保持する例外を作成します。</summary>
+    /// <param name="attempts">初期化時に記録したnative交渉の判定です。</param>
     internal AudioInitializationException(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDriver actualBackend,
@@ -1633,7 +1799,8 @@ internal sealed class AudioInitializationException : Exception
         string nativeErrorSource,
         Errors? nativeErrorCode,
         string message,
-        Exception innerException = null)
+        Exception innerException = null,
+        IReadOnlyList<BassAudioBackendAttempt> attempts = null)
         : base(message, innerException)
     {
         RequestedBackend = requestedBackend;
@@ -1643,6 +1810,7 @@ internal sealed class AudioInitializationException : Exception
         ActualDevice = actualDevice;
         NativeErrorSource = nativeErrorSource;
         NativeErrorCode = nativeErrorCode;
+        Attempts = Array.AsReadOnly(attempts?.ToArray() ?? Array.Empty<BassAudioBackendAttempt>());
     }
 
     /// <summary>Gets the backend selected by the caller.</summary>
@@ -1665,4 +1833,33 @@ internal sealed class AudioInitializationException : Exception
 
     /// <summary>Gets the captured native error code.</summary>
     internal Errors? NativeErrorCode { get; }
+
+    /// <summary>初期化失敗までに保持したネイティブ判定を順に取得します。</summary>
+    internal IReadOnlyList<BassAudioBackendAttempt> Attempts { get; }
+
+    /// <summary>この失敗を主エラーとして保ち、先行backendの判定を前置きします。</summary>
+    internal AudioInitializationException WithEarlierAttempts(
+        IReadOnlyList<BassAudioBackendAttempt> earlierAttempts)
+    {
+        ArgumentNullException.ThrowIfNull(earlierAttempts);
+        if (earlierAttempts.Count == 0)
+        {
+            return this;
+        }
+
+        var attempts = new List<BassAudioBackendAttempt>(earlierAttempts.Count + Attempts.Count);
+        attempts.AddRange(earlierAttempts);
+        attempts.AddRange(Attempts);
+        return new AudioInitializationException(
+            RequestedBackend,
+            ActualBackend,
+            Stage,
+            RequestedDevice,
+            ActualDevice,
+            NativeErrorSource,
+            NativeErrorCode,
+            Message,
+            InnerException,
+            attempts);
+    }
 }

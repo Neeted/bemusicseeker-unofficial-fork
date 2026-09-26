@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using ManagedBass.Wasapi;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -127,6 +131,247 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
         Assert.AreEqual(5d, result.LatencyMilliseconds, 0.0001d);
         StringAssert.Contains(result.FallbackReason, "endpoint mix rate 48000");
+    }
+
+    [TestMethod]
+    public void WasapiSharedCapabilityQuery_ReportsTheSelectedMixShape()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfo = CreateWasapiDevice(
+                "Shared Device",
+                "shared-id",
+                isDefault: true,
+                mixRate: 96000,
+                mixChannels: 6),
+            CheckFormatResultProvider = (_, rate, channels, flags) =>
+            {
+                Assert.AreEqual(96000, rate);
+                Assert.AreEqual(6, channels);
+                Assert.AreEqual(WasapiInitFlags.Shared, flags);
+                return ((int)WasapiFormat.Bit24, Errors.OK);
+            }
+        };
+        AudioDeviceCapabilityRequest request = new(
+            AudioDriver.WasapiShared,
+            "shared-id",
+            "Shared Device",
+            SampleRate.SAMPLE_RATE_44100Hz,
+            SampleFormat.SAMPLE_INT_16BIT);
+
+        AudioDeviceCapabilityResult result = new BassWasapiNegotiator(native).QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Available, result.Status);
+        CollectionAssert.AreEqual(new[] { SampleRate.SAMPLE_RATE_96000Hz }, result.SupportedRates.ToArray());
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, result.EndpointFormat);
+        Assert.AreEqual(24, result.EndpointContainerBits);
+        Assert.AreEqual(6, result.EndpointChannels);
+        Assert.AreEqual(0, native.InitializationCalls.Count);
+        Assert.AreEqual(0, native.GraphCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task WasapiSharedCapabilityQuery_CancellationDuringDeviceInfoReadSkipsFormatCheckAndReleasesWorkflow()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfo = CreateWasapiDevice(
+                "Shared Device",
+                "shared-id",
+                isDefault: true,
+                mixRate: 96000,
+                mixChannels: 2)
+        };
+        AudioDeviceTestWorkflowOwner? owner = null;
+        native.DeviceInfoObserver = () => owner!.CancelCurrentQuery();
+        owner = new AudioDeviceTestWorkflowOwner(
+            new NoOpAudioDeviceTestPlaybackPort(),
+            new UnusedAudioDeviceTestRuntime(),
+            new WasapiCapabilityRuntimeForTest(native));
+        int releaseNotifications = 0;
+        owner.OperationReleased += () => releaseNotifications++;
+
+        Task<AudioDeviceCapabilityResult> queryTask = owner.TryQueryCapabilitiesAsync(
+            new AudioDeviceCapabilityRequest(
+                AudioDriver.WasapiShared,
+                "shared-id",
+                "Shared Device",
+                SampleRate.SAMPLE_RATE_48000Hz,
+                SampleFormat.AUTO));
+
+        try
+        {
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await queryTask);
+        }
+        finally
+        {
+            owner.CancelCurrentQuery();
+            try
+            {
+                await queryTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        Assert.IsTrue(native.DeviceInfoObserved);
+        Assert.AreEqual(0, native.CheckFormatCallCount);
+        Assert.IsFalse(owner.IsRunning);
+        Assert.AreEqual(1, releaseNotifications);
+    }
+
+    [TestMethod]
+    public void WasapiExclusiveCapabilityQuery_RecordsOnlyExactRateAndFormatReadbacks()
+    {
+        var checkedDevices = new List<int>();
+        var checkedRates = new List<int>();
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfo = CreateWasapiDevice(
+                "WASAPI Device",
+                "wasapi-id",
+                isDefault: true,
+                mixRate: 23456),
+            CheckFormatResultProvider = (deviceIndex, rate, channels, flags) =>
+            {
+                checkedDevices.Add(deviceIndex);
+                checkedRates.Add(rate);
+                Assert.AreEqual(2, channels);
+                var requested = (WasapiFormat)(((int)flags >> 16) & 0xFF);
+                return rate == 352800 && requested == WasapiFormat.Float
+                    ? ((int)WasapiFormat.Bit16, Errors.OK)
+                    : ((int)requested, Errors.OK);
+            }
+        };
+        AudioDeviceCapabilityRequest request = new(
+            AudioDriver.WasapiExclusive,
+            "wasapi-id",
+            "WASAPI Device",
+            (SampleRate)12345,
+            SampleFormat.SAMPLE_FLOAT_32BIT);
+
+        AudioDeviceCapabilityResult result = new BassWasapiNegotiator(native).QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Available, result.Status);
+        Assert.IsTrue(result.FormatCapabilities.Any(capability =>
+            capability.Rate == SampleRate.SAMPLE_RATE_352800Hz
+            && capability.Format == SampleFormat.SAMPLE_FLOAT_32BIT
+            && !capability.IsSupported));
+        Assert.IsTrue(result.FormatCapabilities.Any(capability =>
+            capability.Rate == SampleRate.SAMPLE_RATE_352800Hz
+            && capability.Format == SampleFormat.SAMPLE_INT_16BIT
+            && capability.IsSupported));
+        Assert.IsTrue(checkedRates.Contains(23456));
+        Assert.IsTrue(checkedRates.Contains(12345));
+        Assert.IsTrue(checkedRates.Contains(352800));
+        Assert.IsTrue(checkedRates.Contains(384000));
+        Assert.IsTrue(checkedDevices.Count > 0);
+        Assert.IsTrue(checkedDevices.All(index => index == 0));
+        Assert.AreEqual(0, native.InitializationCalls.Count);
+        Assert.AreEqual(0, native.GraphCalls.Count);
+
+        checkedRates.Clear();
+        native.DeviceInfo = CreateWasapiDevice(
+            "WASAPI Device",
+            "wasapi-id",
+            isDefault: true,
+            mixRate: 34567);
+        AudioDeviceCapabilityResult nextResult = new BassWasapiNegotiator(native).QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Available, nextResult.Status);
+        Assert.IsTrue(checkedRates.Contains(34567));
+        Assert.IsTrue(checkedRates.Contains(12345));
+        Assert.IsFalse(checkedRates.Contains(23456));
+    }
+
+    [TestMethod]
+    public void WasapiCapabilityQuery_FailsOnNativeCheckErrorAndDoesNotUseDefaultDeviceInstead()
+    {
+        int checkCount = 0;
+        var native = new RecordingWasapiBoundary
+        {
+            CheckFormatResultProvider = (_, _, _, _) =>
+            {
+                checkCount++;
+                return (-1, Errors.Device);
+            }
+        };
+        AudioDeviceCapabilityRequest request = new(
+            AudioDriver.WasapiExclusive,
+            "missing-device-id",
+            "Missing device",
+            SampleRate.SAMPLE_RATE_352800Hz,
+            SampleFormat.AUTO);
+
+        AudioDeviceCapabilityResult missing = new BassWasapiNegotiator(native).QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Failed, missing.Status);
+        Assert.AreEqual("audio device selection", missing.FailureStage);
+        Assert.AreEqual(0, checkCount);
+        Assert.AreEqual(0, missing.SupportedRates.Count);
+
+        request = new AudioDeviceCapabilityRequest(
+            AudioDriver.WasapiExclusive,
+            "wasapi-id",
+            "WASAPI Device",
+            SampleRate.SAMPLE_RATE_352800Hz,
+            SampleFormat.AUTO);
+        AudioDeviceCapabilityResult failed = new BassWasapiNegotiator(native).QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Failed, failed.Status);
+        Assert.AreEqual("BASS_WASAPI_CheckFormat", failed.FailureStage);
+        Assert.AreEqual(Errors.Device, failed.NativeErrorCode);
+        Assert.AreEqual(0, failed.SupportedRates.Count);
+        Assert.AreEqual(1, checkCount);
+    }
+
+    [TestMethod]
+    public void WasapiExclusiveCapabilityQuery_ClassifiesModeAndCandidateRejections()
+    {
+        var unavailableNative = new RecordingWasapiBoundary
+        {
+            CheckFormatResultProvider = (_, _, _, _) => (-1, Errors.NotAvailable)
+        };
+        AudioDeviceCapabilityRequest request = new(
+            AudioDriver.WasapiExclusive,
+            "wasapi-id",
+            "WASAPI Device",
+            (SampleRate)12345,
+            SampleFormat.SAMPLE_INT_16BIT);
+
+        AudioDeviceCapabilityResult unavailable = new BassWasapiNegotiator(unavailableNative)
+            .QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Unsupported, unavailable.Status);
+        Assert.AreEqual("BASS_WASAPI_CheckFormat", unavailable.FailureStage);
+        Assert.AreEqual("BASSWASAPI/BASS_ErrorGetCode", unavailable.NativeErrorSource);
+        Assert.AreEqual(Errors.NotAvailable, unavailable.NativeErrorCode);
+        Assert.AreEqual(1, unavailable.Attempts.Count);
+        Assert.AreEqual(Errors.NotAvailable, unavailable.Attempts[0].NativeErrorCode);
+
+        int checkCount = 0;
+        var candidateNative = new RecordingWasapiBoundary
+        {
+            CheckFormatResultProvider = (_, _, _, flags) =>
+            {
+                checkCount++;
+                var requestedFormat = (WasapiFormat)(((int)flags >> 16) & 0xFF);
+                return requestedFormat == WasapiFormat.Float
+                    ? (-1, Errors.SampleFormat)
+                    : ((int)requestedFormat, Errors.OK);
+            }
+        };
+
+        AudioDeviceCapabilityResult candidateResult = new BassWasapiNegotiator(candidateNative)
+            .QueryCapabilities(request);
+
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Available, candidateResult.Status);
+        Assert.IsTrue(checkCount > 1);
+        Assert.IsTrue(candidateResult.FormatCapabilities.Any(capability =>
+            capability.Format == SampleFormat.SAMPLE_FLOAT_32BIT && !capability.IsSupported));
+        Assert.IsTrue(candidateResult.FormatCapabilities.Any(capability =>
+            capability.Format == SampleFormat.SAMPLE_INT_16BIT && capability.IsSupported));
     }
 
     [TestMethod]
@@ -298,22 +543,36 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(Errors.Init, exception.NativeErrorCode);
     }
 
-    [TestMethod]
-    public void WasapiShared_EventFailureFallsBackToNonEventNativeDefaults()
+    [DataTestMethod]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    public void WasapiShared_EventFailurePreservesThePurposeAndExplicitMode(bool deviceTest, bool eventMode)
     {
+        AudioOutputPurpose purpose = deviceTest ? AudioOutputPurpose.DeviceTest : AudioOutputPurpose.Playback;
         var native = new RecordingWasapiBoundary();
         native.InitializationResults.Enqueue(false);
         native.InitializationErrors.Enqueue(Errors.Busy);
         native.InitializationResults.Enqueue(true);
         BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
-        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
-            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+        BassAudioBackendResult Initialize() => new BassWasapiNegotiator(native).Initialize(
+            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, eventModeRequested: eventMode, purpose: purpose),
             session,
             WasapiCallback,
             initialGain: 0.35f,
-            eventModeRequested: true);
+            eventModeRequested: eventMode);
 
+        if (purpose == AudioOutputPurpose.DeviceTest || !eventMode)
+        {
+            AudioInitializationException failure = Assert.ThrowsException<AudioInitializationException>(() => Initialize());
+            Assert.AreEqual("BASS_WASAPI_Init", failure.Stage);
+            Assert.AreEqual(eventMode, native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.EventDriven));
+            Assert.AreEqual(0, native.MixerRate);
+            return;
+        }
+        BassAudioBackendResult result = Initialize();
         Assert.AreEqual(2, native.InitializationCalls.Count);
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.Kind == WasapiInitializationKind.SharedNoFormat));
@@ -507,11 +766,220 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual("BASSWASAPI", exception.NativeErrorSource);
     }
 
+    [TestMethod]
+    public void DeviceTest_UnavailableDeviceDoesNotSelectCompatibleNameOrDefault()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfos =
+            [
+                CreateWasapiDevice("Selected WASAPI", "replacement-id"),
+                CreateWasapiDevice("Default WASAPI", "default-id", isDefault: true)
+            ]
+        };
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+            device: new BassAudioPlayer.DeviceDescriptor("Selected WASAPI", "stale-id"),
+            purpose: AudioOutputPurpose.DeviceTest);
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassWasapiNegotiator(native).Initialize(
+                request,
+                CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+                WasapiCallback,
+                initialGain: 0.4f,
+                eventModeRequested: false));
+
+        Assert.AreEqual("BASS_WASAPI_GetDeviceInfos", exception.Stage);
+        Assert.AreEqual(0, native.InitializationCalls.Count);
+    }
+
+    [TestMethod]
+    public void DeviceTest_ExplicitRateReadbackMismatchFailsBeforeCreatingMixer()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiInfo = new BassWasapiInfoSnapshot(48000, 2, WasapiFormat.Float, 3840)
+        };
+        native.InitializationResults.Enqueue(true);
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+            SampleRate.SAMPLE_RATE_44100Hz,
+            purpose: AudioOutputPurpose.DeviceTest);
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassWasapiNegotiator(native).Initialize(
+                request,
+                CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+                WasapiCallback,
+                initialGain: 0.4f,
+                eventModeRequested: false));
+
+        Assert.AreEqual("BASS_WASAPI_GetInfo", exception.Stage);
+        Assert.AreEqual(44100, native.InitializationCalls.Single().Rate);
+        Assert.AreEqual(0, native.MixerRate);
+    }
+
+    [TestMethod]
+    public void DeviceTest_ExplicitFormatReadbackMismatchFailsBeforeCreatingMixer()
+    {
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiInfo = new BassWasapiInfoSnapshot(48000, 2, WasapiFormat.Float, 3840)
+        };
+        native.InitializationResults.Enqueue(true);
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+            SampleRate.SAMPLE_RATE_48000Hz,
+            format: SampleFormat.SAMPLE_INT_16BIT,
+            purpose: AudioOutputPurpose.DeviceTest);
+
+        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            () => new BassWasapiNegotiator(native).Initialize(
+                request,
+                CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+                WasapiCallback,
+                initialGain: 0.4f,
+                eventModeRequested: false));
+
+        Assert.AreEqual("BASS_WASAPI_GetInfo", exception.Stage);
+        Assert.IsFalse(native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.AutoFormat));
+        Assert.AreEqual(0, native.MixerRate);
+    }
+
+    [DataTestMethod]
+    [DataRow(true, true)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    public void WasapiExclusive_BufferAdjustmentPreservesPurposeAndExplicitMode(bool deviceTest, bool eventMode)
+    {
+        AudioOutputPurpose purpose = deviceTest ? AudioOutputPurpose.DeviceTest : AudioOutputPurpose.Playback;
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiInfo = new BassWasapiInfoSnapshot(48000, 2, WasapiFormat.Float, 3840)
+        };
+        native.InitializationResults.Enqueue(false);
+        native.InitializationErrors.Enqueue(Errors.Busy);
+        native.InitializationResults.Enqueue(true);
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+            SampleRate.SAMPLE_RATE_48000Hz,
+            format: SampleFormat.SAMPLE_FLOAT_32BIT,
+            eventModeRequested: eventMode,
+            purpose: purpose);
+
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            request,
+            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            WasapiCallback,
+            initialGain: 0.4f,
+            eventModeRequested: eventMode);
+
+        Assert.AreEqual(2, native.InitializationCalls.Count);
+        Assert.AreEqual(eventMode, native.InitializationCalls[0].Flags.HasFlag(WasapiInitFlags.EventDriven));
+        Assert.AreEqual(eventMode && purpose == AudioOutputPurpose.DeviceTest,
+            native.InitializationCalls[1].Flags.HasFlag(WasapiInitFlags.EventDriven));
+        Assert.IsTrue(native.InitializationCalls.All(call =>
+            call.Flags.HasFlag(WasapiInitFlags.AutoFormat) == (purpose == AudioOutputPurpose.Playback)));
+        Assert.AreEqual(48000, native.InitializationCalls[0].Rate);
+        Assert.AreEqual(48000, native.InitializationCalls[1].Rate);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
+        StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_BUSY");
+    }
+
+    [DataTestMethod]
+    [DataRow(true, true)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    public void AutoRateWithExplicitFormat_InitializesTheFirstExactSupportedPairWithoutPriorQuery(bool deviceTest, bool lowerFormatReadback)
+    {
+        AudioOutputPurpose purpose = deviceTest ? AudioOutputPurpose.DeviceTest : AudioOutputPurpose.Playback;
+        var checkedRates = new List<int>();
+        var native = new RecordingWasapiBoundary
+        {
+            DeviceInfo = CreateWasapiDevice("WASAPI Device", "wasapi-id", isDefault: true, mixRate: 44100),
+            WasapiInfo = new BassWasapiInfoSnapshot(48000, 2, WasapiFormat.Bit24, 2880),
+            CheckFormatResultProvider = (_, rate, channels, flags) =>
+            {
+                checkedRates.Add(rate);
+                Assert.AreEqual(2, channels);
+                Assert.AreEqual(WasapiFormat.Bit24, (WasapiFormat)((int)flags >> 16));
+                Assert.IsFalse(flags.HasFlag(WasapiInitFlags.AutoFormat));
+                // HIWORDは下位形式を返し得る。44.1k/16bitを24bitの対応と扱わない。
+                return rate == 44100 ? (lowerFormatReadback ? ((int)WasapiFormat.Bit16, Errors.OK) : (-1, Errors.SampleFormat))
+                    : rate == 48000 ? ((int)WasapiFormat.Bit24, Errors.OK)
+                    : (-1, Errors.SampleFormat);
+            }
+        };
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE, SampleRate.AUTO,
+            format: SampleFormat.SAMPLE_INT_24BIT, purpose: purpose);
+        BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
+            request, CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            WasapiCallback, initialGain: 0.4f, eventModeRequested: false);
+        CollectionAssert.AreEqual(new[] { 44100, 48000 }, checkedRates);
+        Assert.AreEqual(48000, native.InitializationCalls.Single().Rate);
+        Assert.AreEqual(purpose == AudioOutputPurpose.Playback,
+            native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.AutoFormat));
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, result.ActualRate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, result.EndpointFormat);
+        Assert.AreEqual(SampleRate.AUTO, request.Rate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, request.Format);
+        Assert.IsNull(result.FallbackReason);
+    }
+
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void AutoRateWithUnavailableExplicitFormat_RespectsPurposeFallbackPolicy(bool deviceTest)
+    {
+        AudioOutputPurpose purpose = deviceTest ? AudioOutputPurpose.DeviceTest : AudioOutputPurpose.Playback;
+        var native = new RecordingWasapiBoundary
+        {
+            WasapiInfo = new BassWasapiInfoSnapshot(48000, 2, WasapiFormat.Bit16, 1920),
+            CheckFormatResultProvider = (_, _, _, _) => (-1, Errors.SampleFormat)
+        };
+        BassAudioNegotiationRequest request = CreateWasapiRequest(
+            BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE, SampleRate.AUTO,
+            format: SampleFormat.SAMPLE_INT_24BIT, purpose: purpose);
+        BassAudioBackendResult Initialize() => new BassWasapiNegotiator(native).Initialize(
+            request, CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            WasapiCallback, initialGain: 0.4f, eventModeRequested: false);
+        if (purpose == AudioOutputPurpose.DeviceTest)
+        {
+            AudioInitializationException failure = Assert.ThrowsException<AudioInitializationException>(() => Initialize());
+            Assert.AreEqual("BASS_WASAPI_CheckFormat", failure.Stage);
+            Assert.AreEqual(0, native.InitializationCalls.Count);
+            Assert.AreEqual(0, native.MixerRate);
+        }
+        else
+        {
+            BassAudioBackendResult result = Initialize();
+            Assert.IsTrue(native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.AutoFormat));
+            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(result.FallbackReason));
+        }
+        Assert.AreEqual(SampleRate.AUTO, request.Rate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, request.Format);
+    }
+
     private static BassAudioNegotiationRequest CreateWasapiRequest(
         BassAudioPlayer.DeviceDriver backend,
         SampleRate rate = SampleRate.AUTO,
-        BassAudioPlayer.DeviceDescriptor device = default) =>
-        new(backend, device, rate, SampleFormat.AUTO, 20f);
+        BassAudioPlayer.DeviceDescriptor device = default,
+        SampleFormat format = SampleFormat.AUTO,
+        bool eventModeRequested = false,
+        AudioOutputPurpose purpose = AudioOutputPurpose.Playback) =>
+        new(
+            backend,
+            device,
+            rate,
+            format,
+            20f,
+            eventModeRequested,
+            purpose: purpose);
 
     private static BassAudioSession CreateWasapiSession(BassAudioPlayer.DeviceDriver backend) =>
         new(backend) { ActualBackend = backend };
@@ -533,6 +1001,34 @@ public sealed class BassWasapiNegotiationTests
             MinimumUpdatePeriod: 0.005d,
             MixFrequency: mixRate,
             MixChannels: mixChannels);
+
+    private sealed class NoOpAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
+    {
+        public void StopPlayback()
+        {
+        }
+    }
+
+    private sealed class UnusedAudioDeviceTestRuntime : IAudioDeviceTestRuntime
+    {
+        public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
+            => throw new AssertFailedException("The capability query must not run a device test.");
+    }
+
+    private sealed class WasapiCapabilityRuntimeForTest : IAudioDeviceCapabilityRuntime
+    {
+        private readonly BassWasapiNegotiator negotiator;
+
+        internal WasapiCapabilityRuntimeForTest(IWasapiNegotiationNativeBoundary native)
+        {
+            negotiator = new BassWasapiNegotiator(native);
+        }
+
+        public AudioDeviceCapabilityResult Query(
+            AudioDeviceCapabilityRequest request,
+            CancellationToken cancellationToken)
+            => negotiator.QueryCapabilities(request, cancellationToken);
+    }
 
     private sealed class RecordingWasapiBoundary : IWasapiNegotiationNativeBoundary
     {
@@ -561,12 +1057,20 @@ public sealed class BassWasapiNegotiationTests
 
         internal Errors DeviceInfoError { get; set; } = Errors.Device;
 
+        internal Action? DeviceInfoObserver { get; set; }
+
+        internal bool DeviceInfoObserved { get; private set; }
+
+        internal int CheckFormatCallCount { get; private set; }
+
         internal BassWasapiInfoSnapshot WasapiInfo { get; set; } =
             new(48000, 2, WasapiFormat.Float, 3840);
 
         internal bool GetWasapiInfoResult { get; set; } = true;
 
         internal Errors WasapiInfoError { get; set; } = Errors.Init;
+
+        internal Func<int, int, int, WasapiInitFlags, (int Format, Errors Error)>? CheckFormatResultProvider { get; set; }
 
         internal int MixerRate { get; private set; }
 
@@ -633,6 +1137,8 @@ public sealed class BassWasapiNegotiationTests
             out BassWasapiDeviceSnapshot deviceInfo,
             out Errors error)
         {
+            DeviceInfoObserver?.Invoke();
+            DeviceInfoObserved = true;
             deviceInfo = DeviceInfos == null ? DeviceInfo : DeviceInfos[deviceIndex];
             error = GetDeviceInfoResult ? Errors.OK : DeviceInfoError;
             return GetDeviceInfoResult;
@@ -705,6 +1211,24 @@ public sealed class BassWasapiNegotiationTests
             info = WasapiInfo;
             error = GetWasapiInfoResult ? Errors.OK : WasapiInfoError;
             return GetWasapiInfoResult;
+        }
+
+        public int CheckWasapiFormat(
+            int deviceIndex,
+            int rate,
+            int channels,
+            WasapiInitFlags flags,
+            out Errors error)
+        {
+            CheckFormatCallCount++;
+            (int format, Errors nativeError) = CheckFormatResultProvider?.Invoke(
+                deviceIndex,
+                rate,
+                channels,
+                flags)
+                ?? ((int)WasapiFormat.Float, Errors.OK);
+            error = format < 0 ? nativeError : Errors.OK;
+            return format;
         }
 
         public int CreateMixer(int rate, int channels, BassFlags flags)

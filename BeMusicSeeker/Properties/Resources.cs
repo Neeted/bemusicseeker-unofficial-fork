@@ -211,8 +211,6 @@ public class Resources
 
     public static string Device_setting_format => ResourceManager.GetString("Device_setting_format", resourceCulture);
 
-    public static string Device_setting_latency => ResourceManager.GetString("Device_setting_latency", resourceCulture);
-
     public static string Device_setting_lowlatency => ResourceManager.GetString("Device_setting_lowlatency", resourceCulture);
 
     public static string Device_setting_resampling_quality => ResourceManager.GetString("Device_setting_resampling_quality", resourceCulture);
@@ -1962,11 +1960,11 @@ public class Resources
 
     public static string AudioDeviceUnavailableFormat => ResourceManager.GetString("AudioDeviceUnavailableFormat", resourceCulture);
 
-    public static string AudioDeviceTestSuccessFormat => ResourceManager.GetString("AudioDeviceTestSuccessFormat", resourceCulture);
+    public static string AudioDeviceTestSucceeded => ResourceManager.GetString("AudioDeviceTestSucceeded", resourceCulture);
 
-    public static string AudioDeviceTestFallbackFormat => ResourceManager.GetString("AudioDeviceTestFallbackFormat", resourceCulture);
+    public static string AudioDeviceTestPlaybackFailureReason => ResourceManager.GetString("AudioDeviceTestPlaybackFailureReason", resourceCulture);
 
-    public static string AudioDeviceTestStreamFailureFormat => ResourceManager.GetString("AudioDeviceTestStreamFailureFormat", resourceCulture);
+    public static string AudioDeviceTestResultDetailsFormat => ResourceManager.GetString("AudioDeviceTestResultDetailsFormat", resourceCulture);
 
     public static string AudioDeviceTestStreamProgressFailureReason => ResourceManager.GetString("AudioDeviceTestStreamProgressFailureReason", resourceCulture);
 
@@ -1978,11 +1976,7 @@ public class Resources
 
     public static string AudioDeviceTestPlayerCreationFailureReason => ResourceManager.GetString("AudioDeviceTestPlayerCreationFailureReason", resourceCulture);
 
-    public static string AudioDeviceTestPlayerCreationFailureReasonFormat => ResourceManager.GetString("AudioDeviceTestPlayerCreationFailureReasonFormat", resourceCulture);
-
     public static string AudioDeviceTestInvalidDurationReason => ResourceManager.GetString("AudioDeviceTestInvalidDurationReason", resourceCulture);
-
-    public static string AudioDeviceTestPlaybackStartFailureReasonFormat => ResourceManager.GetString("AudioDeviceTestPlaybackStartFailureReasonFormat", resourceCulture);
 
     public static string AudioDeviceTestPlaybackPositionFailureReason => ResourceManager.GetString("AudioDeviceTestPlaybackPositionFailureReason", resourceCulture);
 
@@ -1993,6 +1987,56 @@ public class Resources
     public static string AudioDeviceTestObservationTimeoutReason => ResourceManager.GetString("AudioDeviceTestObservationTimeoutReason", resourceCulture);
 
     public static string AudioDeviceTestUnexpectedFailureReason => ResourceManager.GetString("AudioDeviceTestUnexpectedFailureReason", resourceCulture);
+
+    public static string AudioDeviceTestStartButton => ResourceManager.GetString("AudioDeviceTestStartButton", resourceCulture);
+
+    public static string AudioDeviceTechnicalDetails => ResourceManager.GetString("AudioDeviceTechnicalDetails", resourceCulture);
+
+    public static string AudioOutputSelectionResetMessage => ResourceManager.GetString("AudioOutputSelectionResetMessage", resourceCulture);
+
+    public static string AudioSampleRateSelectionResetMessage => ResourceManager.GetString("AudioSampleRateSelectionResetMessage", resourceCulture);
+
+    public static string AudioDeviceCapabilityQueryInProgress => ResourceManager.GetString("AudioDeviceCapabilityQueryInProgress", resourceCulture);
+
+    public static string AudioDeviceCapabilityNotQueried => ResourceManager.GetString("AudioDeviceCapabilityNotQueried", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnsupported => ResourceManager.GetString("AudioDeviceCapabilityUnsupported", resourceCulture);
+
+    public static string AudioDeviceCapabilityFailed => ResourceManager.GetString("AudioDeviceCapabilityFailed", resourceCulture);
+
+    public static string AudioDeviceCapabilityBusy => ResourceManager.GetString("AudioDeviceCapabilityBusy", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnsupportedChoice => ResourceManager.GetString("AudioDeviceCapabilityUnsupportedChoice", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnqueriedChoice => ResourceManager.GetString("AudioDeviceCapabilityUnqueriedChoice", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnavailableChoiceFormat => ResourceManager.GetString("AudioDeviceCapabilityUnavailableChoiceFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityAuto => ResourceManager.GetString("AudioDeviceCapabilityAuto", resourceCulture);
+
+    public static string AudioDeviceCapabilityFormatFormat => ResourceManager.GetString("AudioDeviceCapabilityFormatFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityStereoFormatsFormat => ResourceManager.GetString("AudioDeviceCapabilityStereoFormatsFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilitySharedRateFormat => ResourceManager.GetString("AudioDeviceCapabilitySharedRateFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityPrecisionFormat => ResourceManager.GetString("AudioDeviceCapabilityPrecisionFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityPrecisionPairFormat => ResourceManager.GetString("AudioDeviceCapabilityPrecisionPairFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityPrecisionUnknown => ResourceManager.GetString("AudioDeviceCapabilityPrecisionUnknown", resourceCulture);
+
+    public static string AudioSampleRateOptionFormat => ResourceManager.GetString("AudioSampleRateOptionFormat", resourceCulture);
+
+    public static string AudioSampleFormat8Bit => ResourceManager.GetString("AudioSampleFormat8Bit", resourceCulture);
+
+    public static string AudioSampleFormat16Bit => ResourceManager.GetString("AudioSampleFormat16Bit", resourceCulture);
+
+    public static string AudioSampleFormat24Bit => ResourceManager.GetString("AudioSampleFormat24Bit", resourceCulture);
+
+    public static string AudioSampleFormat32Bit => ResourceManager.GetString("AudioSampleFormat32Bit", resourceCulture);
+
+    public static string AudioSampleFormatFloat32 => ResourceManager.GetString("AudioSampleFormatFloat32", resourceCulture);
 
     public static string Operation_Mode_Standalone => ResourceManager.GetString("Operation_Mode_Standalone", resourceCulture);
     public static string Operation_Mode_LR2 => ResourceManager.GetString("Operation_Mode_LR2", resourceCulture);
@@ -2623,5 +2667,8 @@ public class Resources
 
     /// <summary>音声出力失敗と処理段階の表示書式を取得します。</summary>
     public static string AudioCallbackOutputFailureFormat => ResourceManager.GetString("AudioCallbackOutputFailureFormat", resourceCulture);
+
+    /// <summary>native解放を確認できなかったことを示します。</summary>
+    public static string AudioDeviceTestCleanupFailure => ResourceManager.GetString("AudioDeviceTestCleanupFailure", resourceCulture);
 
 }

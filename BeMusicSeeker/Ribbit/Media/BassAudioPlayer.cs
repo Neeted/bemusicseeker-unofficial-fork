@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using ManagedBass.Fx;
@@ -75,6 +76,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     private static readonly BassAudioSessionLifecycle SessionLifecycle;
 
     private static readonly IAudioSessionNativeBoundary SessionNative;
+
+    /// <summary>出力sessionのnative資源解放を確認した後に通知します。</summary>
+    internal static event Action AudioSessionReleased;
 
     private static readonly BassWasapiNegotiator WasapiNegotiator;
 
@@ -177,6 +181,177 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
         }
     }
+
+    /// <summary>未解放のnative所有を保持するsessionが残っているか取得します。</summary>
+    internal static bool HasCleanupPendingNativeResources
+    {
+        get
+        {
+            using (SessionLifecycle.Enter())
+            {
+                return SessionLifecycle.HasCleanupPending;
+            }
+        }
+    }
+
+    /// <summary>未解放sessionがある場合、既存のcleanup失敗分類を返します。</summary>
+    internal static AudioInitializationException? GetCleanupPendingFailure(
+        DeviceDriver requestedBackend,
+        DeviceDescriptor requestedDevice)
+    {
+        using (SessionLifecycle.Enter())
+        {
+            BassAudioSession pending = SessionLifecycle.CurrentSession;
+            return SessionLifecycle.HasCleanupPending && pending != null
+                ? CreateCleanupPendingFailure(requestedBackend, requestedDevice, pending)
+                : null;
+        }
+    }
+
+    private static AudioInitializationException CreateCleanupPendingFailure(
+        DeviceDriver requestedBackend,
+        DeviceDescriptor requestedDevice,
+        BassAudioSession pending) =>
+        new(
+            requestedBackend,
+            pending.ActualBackend,
+            "audio session cleanup",
+            requestedDevice,
+            pending.ActualDevice,
+            "BassAudioSession",
+            null,
+            "A previous audio session still owns native resources after cleanup failed.");
+
+    /// <summary>既存sessionの使用中は拒否し、選択した機器だけの能力を一回照会します。</summary>
+    internal static AudioDeviceCapabilityResult QueryAudioDeviceCapabilities(
+        AudioDeviceCapabilityRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission))
+        {
+            if (Ribbit.Media.Audio.BassAudioRuntime.OperationGate.IsCleanupQuarantined)
+            {
+                AudioInitializationException? cleanupFailure = GetCleanupPendingFailure(
+                    BassAudioMapping.ToBassDriver(request.Backend),
+                    CreateCapabilityDeviceDescriptor(request));
+                if (cleanupFailure != null)
+                {
+                    return CreateCapabilityFailure(
+                        request,
+                        cleanupFailure.Stage,
+                        cleanupFailure.NativeErrorSource,
+                        cleanupFailure.NativeErrorCode);
+                }
+            }
+
+            return CreateCapabilityResult(request, AudioDeviceCapabilityStatus.Busy);
+        }
+        using IDisposable requestAdmission = admission;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!AudioDriverPolicy.IsSelectable(request.Backend))
+        {
+            return CreateCapabilityFailure(request, "backend selection", null, null);
+        }
+        if (HasUnconfirmedNativeCleanup)
+        {
+            return CreateCapabilityFailure(request, "audio session cleanup", "BassAudioSession", null);
+        }
+        if (ActiveSession != null)
+        {
+            return CreateCapabilityResult(request, AudioDeviceCapabilityStatus.Busy);
+        }
+
+        try
+        {
+            Ribbit.Media.Audio.BassAudioRuntime.Initialize();
+        }
+        catch
+        {
+            return CreateCapabilityFailure(request, "native runtime", "BassAudioRuntime", null);
+        }
+
+        BassAudioExclusiveLease lifecycle;
+        try
+        {
+            lifecycle = EnterAudioSessionInitialization(
+                BassAudioMapping.ToBassDriver(request.Backend),
+                CreateCapabilityDeviceDescriptor(request));
+        }
+        catch (AudioInitializationException)
+        {
+            return CreateCapabilityFailure(
+                request,
+                "audio session lifecycle",
+                "BassAudioOperationGate",
+                null);
+        }
+
+        using (lifecycle)
+        {
+            using (SessionLifecycle.Enter())
+            {
+                if (SessionLifecycle.IsActive || SessionLifecycle.HasUnconfirmedOwnership)
+                {
+                    lifecycle.Complete(!HasUnconfirmedNativeCleanup);
+                    return CreateCapabilityResult(request, AudioDeviceCapabilityStatus.Busy);
+                }
+
+                if (request.Backend is AudioDriver.WasapiShared or AudioDriver.WasapiExclusive)
+                {
+                    AudioDeviceCapabilityResult wasapiResult;
+                    try
+                    {
+                        wasapiResult = new BassWasapiNegotiator(
+                            new BassWasapiNegotiationNativeBoundary()).QueryCapabilities(request, cancellationToken);
+                    }
+                    catch
+                    {
+                        wasapiResult = CreateCapabilityFailure(request, "capability query", null, null);
+                    }
+                    lifecycle.Complete(success: true);
+                    return wasapiResult;
+                }
+
+                AudioDeviceCapabilityResult result = BassAudioCapabilitySession.QueryAsio(
+                    request,
+                    SessionLifecycle,
+                    SessionNative,
+                    session => new BassAsioNegotiator(
+                        new BassAsioNegotiationNativeBoundary()).QueryCapabilities(request, session, cancellationToken),
+                    exception => TryLogAudioSessionWarning(
+                        "ASIO capability query failed. exceptionType=" + exception.GetType().FullName));
+
+                lifecycle.Complete(!HasUnconfirmedNativeCleanup);
+                return result;
+            }
+        }
+    }
+
+    private static DeviceDescriptor CreateCapabilityDeviceDescriptor(AudioDeviceCapabilityRequest request) =>
+        new(request.DeviceName, request.DeviceIdentity);
+
+    private static AudioDeviceCapabilityResult CreateCapabilityResult(
+        AudioDeviceCapabilityRequest request,
+        AudioDeviceCapabilityStatus status) =>
+        new(
+            request.Backend,
+            request.DeviceIdentity,
+            request.DeviceName,
+            status);
+
+    private static AudioDeviceCapabilityResult CreateCapabilityFailure(
+        AudioDeviceCapabilityRequest request,
+        string stage,
+        string nativeErrorSource,
+        Errors? nativeErrorCode) =>
+        new(
+            request.Backend,
+            request.DeviceIdentity,
+            request.DeviceName,
+            AudioDeviceCapabilityStatus.Failed,
+            failureStage: stage,
+            nativeErrorSource: nativeErrorSource,
+            nativeErrorCode: nativeErrorCode);
 
     private static BassAudioSession CurrentSession => SessionLifecycle.CurrentSession;
 
@@ -440,21 +615,42 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return true;
         }
 
+        bool hasRequestAdmission =
+            Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission);
+        if (!hasRequestAdmission
+            && (!Ribbit.Media.Audio.BassAudioRuntime.OperationGate.IsCleanupQuarantined
+                || Ribbit.Media.Audio.BassAudioRuntime.OperationGate.IsShutdownRequested
+                || !HasCleanupPendingNativeResources))
+        {
+            return false;
+        }
+        using IDisposable? requestAdmission = admission;
+
         if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioSessionCleanup(
             out BassAudioExclusiveLease lifecycle))
         {
             return expectedSession?.IsReleased == true;
         }
 
+        BassAudioSession releasedSession = null;
+        bool released = false;
         try
         {
-            return ReleaseCurrentSessionUnderExclusive(expectedSession, allowAnySession);
+            released = ReleaseCurrentSessionUnderExclusive(
+                expectedSession,
+                allowAnySession,
+                out releasedSession);
         }
         finally
         {
             lifecycle.Complete(!HasUnconfirmedNativeCleanup);
             lifecycle.Dispose();
         }
+        if (!hasRequestAdmission && released && releasedSession != null)
+        {
+            NotifyAudioSessionReleased();
+        }
+        return released;
     }
 
     /// <summary>
@@ -495,9 +691,81 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         out BassAudioSession ownedSession,
         int sampleRateConversionQuality,
         params object[] param)
+        => InitializeOwnedCore(
+            driver,
+            desc,
+            lParam,
+            out ownedSession,
+            sampleRateConversionQuality,
+            outputRequest: null,
+            playerVolume: null,
+            param ?? Array.Empty<object>());
+
+    /// <summary>変更不能な出力要求を受理してから、native出力へ設定を適用します。</summary>
+    internal static DeviceDescriptor InitializeOwned(
+        AudioOutputRequest request,
+        int playerVolume,
+        out BassAudioSession ownedSession)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        DeviceDescriptor device = string.IsNullOrWhiteSpace(request.DeviceIdentity)
+            ? default
+            : new DeviceDescriptor(request.DeviceName, request.DeviceIdentity);
+        return InitializeOwnedCore(
+            BassAudioMapping.ToBassDriver(request.Backend),
+            device,
+            request.BufferSize,
+            out ownedSession,
+            request.SampleRateConversionQuality,
+            request,
+            playerVolume,
+            Array.Empty<object>());
+    }
+
+    private static DeviceDescriptor InitializeOwnedCore(
+        DeviceDriver driver,
+        DeviceDescriptor desc,
+        float lParam,
+        out BassAudioSession ownedSession,
+        int sampleRateConversionQuality,
+        AudioOutputRequest outputRequest,
+        int? playerVolume,
+        object[] param)
     {
         AudioResamplingQuality.Validate(sampleRateConversionQuality, nameof(sampleRateConversionQuality));
         ownedSession = null;
+        DeviceDriver requestedBackend = outputRequest == null
+            ? driver
+            : BassAudioMapping.ToBassDriver(outputRequest.Backend);
+        DeviceDescriptor requestedDevice = outputRequest == null
+            ? desc
+            : new DeviceDescriptor(outputRequest.DeviceName, outputRequest.DeviceIdentity);
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission))
+        {
+            if (Ribbit.Media.Audio.BassAudioRuntime.OperationGate.IsCleanupQuarantined)
+            {
+                AudioInitializationException? cleanupFailure =
+                    GetCleanupPendingFailure(requestedBackend, requestedDevice);
+                if (cleanupFailure != null)
+                {
+                    throw cleanupFailure;
+                }
+            }
+
+            throw new AudioInitializationException(requestedBackend, DeviceDriver.INVALID,
+                "audio request busy", requestedDevice, default, "BassAudioOperationGate", null,
+                "Another audio request is still preparing or releasing its native resources.");
+        }
+        using IDisposable requestAdmission = admission;
+        if (outputRequest != null)
+        {
+            driver = BassAudioMapping.ToBassDriver(outputRequest.Backend);
+            desc = string.IsNullOrWhiteSpace(outputRequest.DeviceIdentity)
+                ? default
+                : new DeviceDescriptor(outputRequest.DeviceName, outputRequest.DeviceIdentity);
+            lParam = outputRequest.BufferSize;
+            sampleRateConversionQuality = outputRequest.SampleRateConversionQuality;
+        }
         if (driver == DeviceDriver.DIRECT_SOUND)
         {
             driver = DeviceDriver.WASAPI_SHARED;
@@ -541,15 +809,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 if (SessionLifecycle.HasCleanupPending)
                 {
                     BassAudioSession pending = SessionLifecycle.CurrentSession;
-                    throw new AudioInitializationException(
-                        driver,
-                        pending.ActualBackend,
-                        "audio session cleanup",
-                        desc,
-                        pending.ActualDevice,
-                        "BassAudioSession",
-                        null,
-                        "A previous audio session still owns native resources after cleanup failed.");
+                    throw CreateCleanupPendingFailure(driver, desc, pending);
                 }
                 if (driver == DeviceDriver.INVALID)
                 {
@@ -564,22 +824,36 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         "Audio initialization was requested with an invalid backend.");
                 }
 
-                SampleRate requestedFrequency = _frequency;
-                SampleFormat requestedFormat = _format;
-                bool requestedEventMode = param.Length != 0
+                SampleRate requestedFrequency = outputRequest?.Rate ?? _frequency;
+                SampleFormat requestedFormat = outputRequest?.Format ?? _format;
+                bool requestedEventMode = outputRequest?.EventMode ?? (param.Length != 0
                     && param[0] is bool eventMode
-                    && eventMode;
+                    && eventMode);
+                AudioOutputPurpose purpose = outputRequest?.Purpose ?? AudioOutputPurpose.Playback;
+                if (playerVolume.HasValue)
+                {
+                    DeviceVolume = System.Math.Min(100, System.Math.Max(0, playerVolume.Value)) / 100f;
+                }
                 Exception primaryException = null;
+                AudioInitializationException latestInitializationException = null;
+                IReadOnlyList<BassAudioBackendAttempt> attemptsBeforeLatestFailure = Array.Empty<BassAudioBackendAttempt>();
                 var earlierAttempts = new List<BassAudioBackendAttempt>();
                 var crossBackendFallbackReasons = new List<string>();
-                foreach (DeviceDriver backend in GetInitializationOrder(driver))
+                IReadOnlyList<DeviceDriver> initializationOrder = purpose == AudioOutputPurpose.DeviceTest
+                    ? [driver]
+                    : GetInitializationOrder(driver);
+                foreach (DeviceDriver backend in initializationOrder)
                 {
                     DeviceDescriptor attemptDevice = backend == driver ? desc : default;
-                    if (!SessionLifecycle.TryBegin(
-                        driver,
-                        desc,
-                        out BassAudioSession session,
-                        sampleRateConversionQuality))
+                    BassAudioSession session;
+                    bool beganSession = outputRequest == null
+                        ? SessionLifecycle.TryBegin(
+                            driver,
+                            desc,
+                            out session,
+                            sampleRateConversionQuality)
+                        : SessionLifecycle.TryBegin(outputRequest, out session);
+                    if (!beganSession)
                     {
                         throw new InvalidOperationException("The audio lifecycle already owns a session.");
                     }
@@ -588,9 +862,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     ownedSession = session;
 
                     session.ActualBackend = backend;
-                    _frequency = requestedFrequency;
-                    _format = requestedFormat;
-                    latencyParam = lParam;
+                    if (outputRequest == null)
+                    {
+                        _frequency = requestedFrequency;
+                        _format = requestedFormat;
+                        latencyParam = lParam;
+                    }
                     DriverType = backend;
                     initializationStage = "begin";
                     TryLogInitializationAttemptStart(
@@ -604,12 +881,25 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         requestedEventMode);
                     try
                     {
+                        var negotiationRequest = new BassAudioNegotiationRequest(
+                            backend,
+                            attemptDevice,
+                            requestedFrequency,
+                            requestedFormat,
+                            lParam,
+                            requestedEventMode,
+                            sampleRateConversionQuality,
+                            purpose);
                         DeviceDescriptor actualDescriptor = backend switch
                         {
-                            DeviceDriver.ASIO => InitializeAsio(attemptDevice),
-                            DeviceDriver.WASAPI_EXCLUSIVE => InitializeWasapiNegotiated(attemptDevice, isSharedMode: false, param),
-                            DeviceDriver.WASAPI_SHARED => InitializeWasapiNegotiated(attemptDevice, isSharedMode: true, param),
-                            DeviceDriver.NULL_DEVICE => InitializeNullDevice(),
+                            DeviceDriver.ASIO => InitializeAsio(negotiationRequest),
+                            DeviceDriver.WASAPI_EXCLUSIVE => InitializeWasapiNegotiated(
+                                negotiationRequest,
+                                isSharedMode: false),
+                            DeviceDriver.WASAPI_SHARED => InitializeWasapiNegotiated(
+                                negotiationRequest,
+                                isSharedMode: true),
+                            DeviceDriver.NULL_DEVICE when outputRequest == null => InitializeNullDevice(),
                             _ => throw new ArgumentOutOfRangeException(nameof(driver))
                         };
                         if (session.NegotiationResult != null && earlierAttempts.Count != 0)
@@ -646,11 +936,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     {
                         AudioInitializationException contextual = AddInitializationContext(exception, session);
                         primaryException ??= contextual;
+                        latestInitializationException = contextual;
+                        attemptsBeforeLatestFailure = earlierAttempts.ToArray();
+                        earlierAttempts.AddRange(contextual.Attempts);
                         earlierAttempts.Add(new BassAudioBackendAttempt(
                             contextual.Stage,
                             contextual.NativeErrorSource,
                             contextual.NativeErrorCode,
-                            "backend=" + DescribeBackendForDiagnostics(backend) + " failed: " + contextual.Message));
+                            "backend=" + DescribeBackendForDiagnostics(backend) + " failed"));
                         crossBackendFallbackReasons.Add(
                             "attemptedBackend=" + DescribeBackendForDiagnostics(backend)
                             + " stage=" + contextual.Stage
@@ -674,11 +967,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         ResetManagedState();
                         if (SessionLifecycle.HasCleanupPending)
                         {
-                            throw primaryException;
+                            throw contextual.WithEarlierAttempts(attemptsBeforeLatestFailure);
                         }
                     }
                 }
 
+                if (latestInitializationException != null)
+                {
+                    throw latestInitializationException.WithEarlierAttempts(attemptsBeforeLatestFailure);
+                }
                 throw primaryException ?? new InvalidOperationException("No audio backend was available.");
             }
         }
@@ -869,7 +1166,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         try
         {
-            return Ribbit.Media.Audio.BassAudioRuntime.EnterAudioSessionInitialization();
+            BassAudioExclusiveLease lease = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioSessionInitialization();
+            lease.ObserveOwnership(() => !HasUnconfirmedNativeCleanup);
+            return lease;
         }
         catch (Exception exception)
         {
@@ -913,7 +1212,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     private static bool ReleaseCurrentSessionUnderExclusive(
         BassAudioSession expectedSession,
         bool allowAnySession)
+        => ReleaseCurrentSessionUnderExclusive(expectedSession, allowAnySession, out _);
+
+    private static bool ReleaseCurrentSessionUnderExclusive(
+        BassAudioSession expectedSession,
+        bool allowAnySession,
+        out BassAudioSession releasedSession)
     {
+        releasedSession = null;
         using (SessionLifecycle.Enter())
         {
             if (!SessionLifecycle.TryGetForRelease(
@@ -937,6 +1243,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 CaptureManagedHandles(session);
                 BassAudioSessionCleanup.Release(session, SessionNative);
                 SessionLifecycle.CompleteCleanup(session);
+                if (session.IsReleased)
+                {
+                    releasedSession = session;
+                }
             }
             finally
             {
@@ -944,6 +1254,29 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
 
             return !SessionLifecycle.HasCleanupPending;
+        }
+    }
+
+    private static void NotifyAudioSessionReleased()
+    {
+        Action? callbacks = AudioSessionReleased;
+        if (callbacks == null)
+        {
+            return;
+        }
+
+        foreach (Delegate callback in callbacks.GetInvocationList())
+        {
+            try
+            {
+                ((Action)callback)();
+            }
+            catch (Exception exception)
+            {
+                TryLogAudioSessionWarning(
+                    "Audio session release notification failed. exceptionType="
+                    + exception.GetType().FullName);
+            }
         }
     }
 
@@ -996,6 +1329,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     static BassAudioPlayer()
     {
         SessionLifecycle = new BassAudioSessionLifecycle();
+        Ribbit.Media.Audio.BassAudioRuntime.OperationGate.RequestReleased += () =>
+        {
+            if (ActiveSession == null && !HasUnconfirmedNativeCleanup)
+            {
+                NotifyAudioSessionReleased();
+            }
+        };
         SessionNative = new BassAudioSessionNativeBoundary();
         WasapiNegotiator = new BassWasapiNegotiator(new BassWasapiNegotiationNativeBoundary());
         StaticLockObject = new object();
@@ -1052,15 +1392,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         Ribbit.Media.Audio.BassAudioRuntime.RegisterAudioSessionShutdown(ReleaseCurrentSessionUnderExclusive);
     }
 
-    private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default)
+    private static DeviceDescriptor InitializeAsio(BassAudioNegotiationRequest request)
     {
         initializationStage = "ASIO negotiation";
-        var request = new BassAudioNegotiationRequest(
-            DeviceDriver.ASIO,
-            desc,
-            _frequency,
-            _format,
-            latencyParam);
         BassAudioBackendResult result = new BassAsioNegotiator(
             new BassAsioNegotiationNativeBoundary()).Initialize(
                 request, CurrentSession, AsioProc,
@@ -1071,25 +1405,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         _frequency = result.ActualRate;
         _format = result.EngineFormat;
         Latency = result.LatencyMilliseconds;
-        return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
+        return request.Device.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
     private static DeviceDescriptor InitializeWasapiNegotiated(
-        DeviceDescriptor desc = default,
-        bool isSharedMode = false,
-        params object[] param)
+        BassAudioNegotiationRequest request,
+        bool isSharedMode)
     {
         initializationStage = "WASAPI negotiation";
-        bool eventModeRequested = param is { Length: > 0 } && param[0] is true;
-        DeviceDriver backend = isSharedMode
-            ? DeviceDriver.WASAPI_SHARED
-            : DeviceDriver.WASAPI_EXCLUSIVE;
-        var request = new BassAudioNegotiationRequest(
-            backend,
-            desc,
-            _frequency,
-            _format,
-            latencyParam);
         float initialGain = GetEffectiveDeviceVolumeForInitialization(
             _deviceVolume,
             IsDeviceMuted);
@@ -1098,14 +1421,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 CurrentSession,
                 WasapiProc,
                 initialGain,
-                eventModeRequested);
+                request.EventModeRequested);
 
         inputMixer = result.MixerHandle;
         outputMixer = result.MixerHandle;
         _frequency = result.ActualRate;
         _format = result.EngineFormat;
         Latency = result.LatencyMilliseconds;
-        return desc.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
+        return request.Device.Equals(default(DeviceDescriptor)) ? default : result.ActualDevice;
     }
 
     private static DeviceDescriptor InitializeNullDevice(DeviceDescriptor desc = default)

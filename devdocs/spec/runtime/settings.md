@@ -16,13 +16,27 @@
 
 `Settings.Default` 自体が編集途中の値を持つ項目があります。保存済み値のスナップショットと現在値を比較して変更を判定し、プロパティ変更通知の発生回数で判定しません。画面を開くたびに「全般」から表示し、前回の分類・スクロール位置は引き継ぎません。閉じる際は表示用処理を終えた後にデータコンテキストとバインディングを切り離します。遅れて届く表示イベントで閉じた画面を再有効化しません。
 
-設定表示中は背面の再生操作を抑止しますが、再生中の音を停止する操作ではありません。表示の終了・失敗でも抑止を解除します。音声テスト中は設定の保存、取消、閉じる操作を受け付けず、テストの終了後に戻します。
+設定表示中は背面の再生操作を抑止しますが、再生中の音を停止する操作ではありません。表示の終了・失敗でも抑止を解除します。音声テストはUIスレッド外で実行します。受付から音源と出力sessionの解放完了まで、設定画面の編集、保存、取消、利用者による閉鎖、重複テストを拒否し、画面操作を無効にします。所有者の終了処理は利用者の閉鎖と区別し、受理済み処理とnative資源の追跡を続けます。閉じた画面へ遅れて届くテスト結果は表示しません。
 
 ### 分類と表示
 
-分類は11個で、末尾は詳細設定、右クリックメニュー、このソフトについての順です。各分類の画面は共通の設定 ViewModel を利用し、分類別の状態管理を重ねません。外枠の既定サイズは820×760、最小サイズは820×600、左の分類欄は216です。本文は幅に追従し、分類変更時に本文の縦スクロールを先頭へ戻します。横スクロールや固定最大幅による余白を作りません。
+分類は11個で、末尾は詳細設定、右クリックメニュー、このソフトについての順です。外枠と保存・取消は共通の設定 ViewModel が接続し、音声の下書き・候補・照会・テスト表示は既存の `AudioDeviceTestWorkflowOwner` に集約します。同じ音声状態をルートへ重複して保持せず、分類ごとの管理主体を一律には増やしません。外枠の既定サイズは820×760、最小サイズは820×600、左の分類欄は216です。本文は幅に追従し、分類変更時に本文の縦スクロールを先頭へ戻します。横スクロールや固定最大幅による余白を作りません。
 
 全般ではLR2の場所、状態、手動同期、履歴DBの状態を区別します。音声設定は出力先、詳細設定、専用テストを分けます。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作はそれぞれの目的が分かる見出しで示します。「このソフトについて」はバージョン、ライセンス、リンク、読み取り専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。文化圏変更の購読は表示中だけ保持します。
+
+### 音声設定の編集と照会
+
+出力先、方式に意味のある出力条件、テスト、折り畳んだ詳細設定の順に表示します。WASAPI共有の手動バッファ入力とASIOのイベント駆動入力は表示せず、ASIO形式と共有mix条件は読取り専用にします。成功時は候補と機器情報だけを示し、照会状態は一か所、nativeの診断は閉じた詳細欄で確認できます。
+
+音声ページを表示すると、選択中の方式・機器の能力を一回照会します。表示中に方式・機器を利用者が変更した場合も照会し、実行中に続けて選択が変わったときは現在の選択だけを次に照会します。照会は通常再生を止めません。照会開始後の保存・取消は可能で、保存値は照会結果から変更しません。失敗・非対応は自動再試行せず、次のページ表示または選択変更まで結果を保持します。
+
+編集下書きでは driver または device を変更すると sample rate と format を Auto に戻し、sample rate を変更すると format だけを Auto に戻します。format の変更は rate を変えません。設定読込み、再Binding、一覧更新の一時的なnull、同じ値の通知、能力照会、テスト結果では下書きをリセットしません。リセット理由は出力欄の近くに表示し、取消は保存済み値へ戻します。
+
+候補は driver、device、rate、format の順に絞ります。WASAPI排他のrate候補は確認済みのrate全体を形式選択に関係なく表示し、format候補だけを選択rateに対応する確認済み形式へ絞ります。rateがAutoなら確認済みの形式全体を表示します。
+
+デバイステストの受付から音源と出力sessionの解放完了までは設定画面の全操作を無効にします。テストボタンは開始表示のまま無効になり、停止・取消の受付はありません。結果は要求と実値を分けて表示し、成功・失敗にかかわらず編集中の値や保存済み設定を書き戻しません。解放失敗が終端した場合は失敗結果を表示し、画面の操作制限を解除します。未解放native所有は音声session側に保持し、新しい音声要求は停止やnative初期化より前に解放未確認の失敗として拒否します。明示的なsession cleanupがnative解放を確認した後に受付を戻します。技術的な診断は折りたたんで表示します。
+
+アプリ所有者の終了では設定画面を先に閉じ、受理済みテストのTaskが結果処理とnative後片付けを完了してから音声Runtimeを終了します。閉じた画面へ結果を反映しません。
 
 外観ページの「既定のパネル画像を変更する」は再生パネルの画像を差し替える設定であり、譜面の `STAGEFILE` を変更しません。外部画像が有効でパスが不正な場合、全体検証・保存前検証のどちらも「外観」の不備として案内します。無効な場合は、その画像パスを検証の必要条件にしません。
 
@@ -53,7 +67,7 @@ LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが�
 
 変更がなければ、取消は画面を閉じるだけです。設定全体の復元、XMLの再読込み、再描画、再読込み処理を行いません。変更があれば編集値とプレビューを保存済みスナップショットへ戻して閉じます。
 
-通常の閉じる操作、Alt+F4、Escは取消です。ただし、保存成功・変更なし・手動同期に伴う ViewModel からの終了要求では取消を重ねません。`IsEditCancellationEnabled` が無効の間は利用者の閉じる操作を拒否しますが、所有者の終了処理を妨げません。
+通常の閉じる操作、Alt+F4、Escは取消です。ただし、保存成功・変更なし・手動同期に伴う ViewModel からの終了要求では取消を重ねません。`IsEditCancellationEnabled` が無効の間は利用者の閉じる操作を拒否しますが、所有者の終了処理を妨げません。音声テスト中はこの契約により利用者の閉鎖を拒否し、所有者の終了処理はテスト資源の追跡を維持したまま画面を閉じます。
 
 設定から開始したスコア再読込み・ファイル差分更新の失敗で再試行待ちになった場合、取消と手動同期を無効にし、次のOKで同じ処理を再試行します。既に保存した設定を再保存せず、編集内容と失敗状態を保持します。
 
@@ -152,6 +166,7 @@ stateDiagram-v2
 | 動作モード変更の確認・再起動要求・失敗通知 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `OperationModeLR2DB` | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) の `SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest`: 初回編集、確認の許可・取消、要求失敗時のモード復元・編集再開・保存と終了の抑止、既定通知一回と差替え通知への元例外引渡し。 |
 | 初回・修復設定の保存、閉鎖、通知、初期化の順序 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSettings_ClosesBeforeNotificationAndAwaitsInitialization`: 単独・LR2、初回通知の有無、表示終了と通知の待機、二重要求の拒否。 |
 | 初回設定の実表示と失敗後の再表示 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実際の通知、親ウィンドウ、モーダル表示の終了、失敗後の編集受付、終了要求時の再表示抑止。 |
+| 設定テスト中のアプリ終了と音声後片付け順序 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_OwnerShutdownWaitsForAcceptedAudioTestBeforeRuntimeShutdown`: MainWindow所有の実Windowを閉じ、Dispatcherを動かしたまま受理済み音声Taskとnative受付が終了前に失効しないこと、解放後のRuntime shutdown、閉画面への結果抑止を確認する。 |
 | 初回保存・通知・初期化の失敗と再試行 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSaveFailureKeepsDraftWithoutClosingOrInitializing`、`ApplySettingsAsync_InitialSettingsDialogFailureIsReported`、`ApplySettingsAsync_InitialInitializationFailureReopensAfterCleanupAndCanRetry`、`ApplySettingsAsync_InitialDirectoryFailureReopensOnceAfterCleanupAndCanRetry`: 保存失敗では入力保持、通知失敗では初期化抑止、初期化失敗では保存済み値と再試行受付を保持。 |
 | 設定部品とAutomation選択、実入力の受入 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、実フォーカスとキー操作は[入力操作の明示受入](../development/testing.md#入力操作の明示受入) |
 | 変更範囲と検索ルートの比較 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`StartupSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/Startup/StartupSettingsSnapshotTests.cs)、[`CustomFolderOutputSettingsSnapshotTests`](../../../BeMusicSeeker.Tests/Playlist/CustomFolderOutputSettingsSnapshotTests.cs) |

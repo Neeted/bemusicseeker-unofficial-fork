@@ -14,6 +14,7 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class AudioContractsTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = new();
@@ -134,6 +135,80 @@ public sealed class AudioContractsTests
         Assert.AreEqual(1, AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive));
         Assert.AreEqual(2, AudioDriverPolicy.IndexOf(AudioDriver.Asio));
         Assert.AreEqual(-1, AudioDriverPolicy.IndexOf(AudioDriver.DirectSound));
+    }
+
+    [TestMethod]
+    public void AudioOutputRequest_EqualityIncludesEveryOutputConditionButNotVolume()
+    {
+        PlayerSettingsSnapshot baselineSettings = CreatePlayerSettings(AudioDriver.WasapiExclusive);
+        AudioOutputRequest baseline = baselineSettings.AudioOutputRequest;
+
+        Assert.IsTrue(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            playerVolume: 87).AudioOutputRequest));
+        Assert.IsFalse(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.Asio,
+            deviceIdentity: "device-a",
+            deviceName: "Device A").AudioOutputRequest));
+        Assert.IsFalse(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            playerSampleRate: SampleRate.SAMPLE_RATE_44100Hz).AudioOutputRequest));
+        Assert.IsFalse(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            playerFormat: SampleFormat.SAMPLE_INT_24BIT).AudioOutputRequest));
+        Assert.IsFalse(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            playerBufferSize: 20).AudioOutputRequest));
+        Assert.IsFalse(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            playerWasapiParam: true).AudioOutputRequest));
+        Assert.IsFalse(baseline.Equals(CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            sampleRateConversionQuality: 2).AudioOutputRequest));
+        Assert.AreEqual(AudioOutputPurpose.Playback, baseline.Purpose);
+    }
+
+    [TestMethod]
+    public void OutputRequests_IgnoreNonEditableModeConditionsWithoutChangingSavedIntent()
+    {
+        PlayerSettingsSnapshot shared = CreatePlayerSettings(AudioDriver.WasapiShared,
+            playerSampleRate: SampleRate.SAMPLE_RATE_44100Hz,
+            playerFormat: SampleFormat.SAMPLE_INT_16BIT, playerBufferSize: 20);
+        Assert.AreEqual(SampleRate.AUTO, shared.AudioOutputRequest.Rate);
+        Assert.AreEqual(SampleFormat.AUTO, shared.AudioOutputRequest.Format);
+        Assert.AreEqual(0f, shared.AudioOutputRequest.BufferSize);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, shared.PlayerSampleRate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, shared.PlayerFormat);
+        Assert.AreEqual(20f, shared.PlayerBufferSize);
+        PlayerSettingsSnapshot asio = CreatePlayerSettings(AudioDriver.Asio,
+            playerSampleRate: SampleRate.SAMPLE_RATE_44100Hz,
+            playerFormat: SampleFormat.SAMPLE_INT_16BIT, playerWasapiParam: true);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, asio.AudioOutputRequest.Rate);
+        Assert.AreEqual(SampleFormat.AUTO, asio.AudioOutputRequest.Format);
+        Assert.IsFalse(asio.AudioOutputRequest.EventMode);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, asio.PlayerFormat);
+        Assert.IsTrue(asio.PlayerWASAPIParam);
+
+        void AssertNoFallback(PlayerSettingsSnapshot settings, SampleRate actualRate)
+        {
+            BassAudioPlayer.DeviceDriver backend = BassAudioMapping.ToBassDriver(settings.PlayerDriver);
+            var device = new BassAudioPlayer.DeviceDescriptor("Selected device", "selected-id");
+            var session = new BassAudioSession(backend) { ActualBackend = backend, ActualDevice = device };
+            var negotiated = new BassAudioBackendResult(
+                new BassAudioNegotiationRequest(backend, device, settings.AudioOutputRequest.Rate,
+                    settings.AudioOutputRequest.Format, settings.AudioOutputRequest.BufferSize),
+                device, actualRate, SampleFormat.SAMPLE_FLOAT_32BIT, SampleFormat.SAMPLE_FLOAT_32BIT,
+                10, 1, [], null);
+            AudioPlaybackInitializationResult result = BassAudioPlaybackRuntime.CreateInitializationResult(
+                settings.AudioOutputRequest, settings.PlayerVolume, session, negotiated);
+            Assert.IsFalse(result.FallbackOccurred);
+            Assert.AreEqual(settings.AudioOutputRequest.Rate, result.RequestedRate);
+            Assert.AreEqual(SampleFormat.AUTO, result.RequestedFormat);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
+        }
+        AssertNoFallback(shared, SampleRate.SAMPLE_RATE_48000Hz);
+        AssertNoFallback(asio, SampleRate.SAMPLE_RATE_44100Hz);
     }
 
     [TestMethod]
@@ -354,7 +429,14 @@ public sealed class AudioContractsTests
             6,
             18.5,
             "attemptedBackend=ASIO; fallbackDestination=WASAPI_SHARED",
-            isSilentFallback: false);
+            isSilentFallback: false,
+            endpointContainerBits: 16,
+            endpointEffectiveBits: 16,
+            attempts:
+            [
+                new BassAudioBackendAttempt("BASS_ASIO_ChannelGetFormat", "BASSASIO", null, "mismatched"),
+                new BassAudioBackendAttempt("BASS_WASAPI_GetInfo", "BASSWASAPI", null, "readback")
+            ]);
 
         Assert.AreEqual(AudioDriver.Asio, result.RequestedBackend);
         Assert.AreEqual(AudioDriver.WasapiShared, result.ActualBackend);
@@ -365,6 +447,11 @@ public sealed class AudioContractsTests
         Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, result.RequestedFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
+        Assert.AreEqual(16, result.EndpointContainerBits);
+        Assert.AreEqual(16, result.EndpointEffectiveBits);
+        Assert.AreEqual(2, result.Attempts.Count);
+        Assert.AreEqual("BASS_ASIO_ChannelGetFormat", result.Attempts[0].Stage);
+        Assert.AreEqual("BASS_WASAPI_GetInfo", result.Attempts[1].Stage);
         Assert.AreEqual(6, result.ActualChannels);
         Assert.IsTrue(result.FallbackOccurred);
         Assert.IsFalse(result.IsSilentFallback);
@@ -415,6 +502,69 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
+    public async Task PlaybackRuntime_TransientAudioRequestBusyIsTypedAndHasNoNativeSideEffects()
+    {
+        var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blocker = Task.Run(async () =>
+        {
+            try
+            {
+                if (!BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission))
+                {
+                    throw new InvalidOperationException("The audio request gate was not available for the test blocker.");
+                }
+                using (admission)
+                {
+                    accepted.TrySetResult();
+                    await release.Task;
+                }
+            }
+            catch (Exception exception)
+            {
+                accepted.TrySetException(exception);
+                throw;
+            }
+        });
+        int initializeCalls = 0;
+        int releaseCalls = 0;
+        var runtime = new BassAudioPlaybackRuntime(
+            (_, _) => initializeCalls++,
+            _ =>
+            {
+                releaseCalls++;
+                return true;
+            });
+        PlayerSettingsSnapshot settings = CreatePlayerSettings(
+            AudioDriver.WasapiExclusive,
+            deviceIdentity: "requested-device-id",
+            deviceName: "Requested device",
+            playerSampleRate: SampleRate.SAMPLE_RATE_44100Hz,
+            playerFormat: SampleFormat.SAMPLE_INT_24BIT);
+
+        try
+        {
+            await accepted.Task;
+
+            AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+                () => runtime.Initialize(settings));
+
+            Assert.AreEqual("audio request busy", exception.Stage);
+            Assert.AreEqual("BassAudioOperationGate", exception.NativeErrorSource);
+            Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE, exception.RequestedBackend);
+            Assert.AreEqual("requested-device-id", exception.RequestedDevice.Driver);
+            Assert.AreEqual("Requested device", exception.RequestedDevice.Name);
+            Assert.AreEqual(0, initializeCalls);
+            Assert.AreEqual(0, releaseCalls);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await blocker;
+        }
+    }
+
+    [TestMethod]
     public void PlaybackRuntime_ReleasesOldSessionWhenNextStartCapturesDifferentSourceQuality()
     {
         var initializedSessions = new List<BassAudioSession>();
@@ -425,7 +575,11 @@ public sealed class AudioContractsTests
             {
                 BassAudioPlayer.DeviceDriver backend = BassAudioMapping.ToBassDriver(settings.PlayerDriver);
                 var device = new BassAudioPlayer.DeviceDescriptor("Test endpoint", "test-endpoint");
-                var session = new BassAudioSession(backend, device, settings.SampleRateConversionQuality)
+                var session = new BassAudioSession(
+                    backend,
+                    device,
+                    settings.SampleRateConversionQuality,
+                    settings.AudioOutputRequest)
                 {
                     ActualBackend = backend,
                     ActualDevice = device,
@@ -465,6 +619,10 @@ public sealed class AudioContractsTests
         AudioPlaybackInitializationResult original = runtime.Initialize(originalSettings);
         Assert.AreSame(original, runtime.Initialize(originalSettings));
         Assert.AreEqual(1, initializedSessions.Count);
+        Assert.AreSame(
+            original,
+            runtime.Initialize(CreatePlayerSettings(AudioDriver.WasapiShared, 4, playerVolume: 83)));
+        Assert.AreEqual(1, initializedSessions.Count);
 
         PlayerSettingsSnapshot savedSettingsForNextStart = CreatePlayerSettings(AudioDriver.WasapiShared, 2);
         Assert.ThrowsException<InvalidOperationException>(
@@ -499,6 +657,11 @@ public sealed class AudioContractsTests
             SampleRate.SAMPLE_RATE_48000Hz,
             SampleFormat.SAMPLE_FLOAT_32BIT,
             10);
+        var successfulAttempt = new BassAudioBackendAttempt(
+            "BASS_WASAPI_Start",
+            "BASSWASAPI",
+            null,
+            "started");
         var result = new BassAudioBackendResult(
             request,
             new BassAudioPlayer.DeviceDescriptor("Endpoint", "endpoint-id"),
@@ -507,38 +670,58 @@ public sealed class AudioContractsTests
             SampleFormat.SAMPLE_FLOAT_32BIT,
             10,
             42,
-            [],
-            null);
-        var failedAttempt = new BassAudioBackendAttempt(
+            [successfulAttempt],
+            null,
+            endpointContainerBits: 32,
+            endpointEffectiveBits: 24);
+        var firstFailedAttempt = new BassAudioBackendAttempt(
             "BASS_WASAPI_Init",
             "BASSWASAPI",
             Errors.Busy,
             "exclusive failed");
+        var secondFailedAttempt = new BassAudioBackendAttempt(
+            "BASS_WASAPI_GetDeviceInfo",
+            "BASSWASAPI",
+            Errors.Device,
+            "selected endpoint failed");
 
         BassAudioBackendResult fallback = result.WithEarlierAttempts(
-            [failedAttempt],
+            [firstFailedAttempt, secondFailedAttempt],
             "attemptedBackend=WASAPI_EXCLUSIVE nativeErrorCode=BASS_ERROR_BUSY; "
             + "fallbackDestination=WASAPI_SHARED");
 
-        Assert.AreEqual(1, fallback.Attempts.Count);
-        Assert.AreSame(failedAttempt, fallback.Attempts[0]);
+        Assert.AreEqual(3, fallback.Attempts.Count);
+        Assert.AreSame(firstFailedAttempt, fallback.Attempts[0]);
+        Assert.AreSame(secondFailedAttempt, fallback.Attempts[1]);
+        Assert.AreSame(successfulAttempt, fallback.Attempts[2]);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, fallback.ActualRate);
+        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, fallback.EngineFormat);
+        Assert.AreEqual(32, fallback.EndpointContainerBits);
+        Assert.AreEqual(24, fallback.EndpointEffectiveBits);
         StringAssert.Contains(fallback.FallbackReason, "BASS_ERROR_BUSY");
         StringAssert.Contains(fallback.FallbackReason, "fallbackDestination=WASAPI_SHARED");
     }
 
     private static PlayerSettingsSnapshot CreatePlayerSettings(
         AudioDriver driver,
-        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        string deviceIdentity = "",
+        string deviceName = "",
+        SampleRate playerSampleRate = SampleRate.AUTO,
+        SampleFormat playerFormat = SampleFormat.AUTO,
+        float playerBufferSize = 10,
+        bool playerWasapiParam = false,
+        int playerVolume = 50)
     {
         return new PlayerSettingsSnapshot(
             driver,
-            string.Empty,
-            string.Empty,
-            SampleRate.AUTO,
-            SampleFormat.AUTO,
-            10,
-            false,
-            50,
+            deviceIdentity,
+            deviceName,
+            playerSampleRate,
+            playerFormat,
+            playerBufferSize,
+            playerWasapiParam,
+            playerVolume,
             new PlayerResolution(800, 600),
             false,
             default,

@@ -1,6 +1,9 @@
+#nullable enable annotations
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -38,7 +41,17 @@ internal sealed class AudioDeviceTestRequest
         PlayerBufferSize = playerBufferSize;
         PlayerWASAPIParam = playerWASAPIParam;
         PlayerVolume = playerVolume;
-        SampleRateConversionQuality = sampleRateConversionQuality;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        AudioOutputRequest = new AudioOutputRequest(
+            PlayerDriver,
+            PlayerDevice,
+            PlayerDeviceName,
+            PlayerSampleRate,
+            PlayerFormat,
+            PlayerBufferSize,
+            PlayerWASAPIParam,
+            SampleRateConversionQuality,
+            AudioOutputPurpose.DeviceTest);
         PlaySound = playSound;
     }
 
@@ -61,10 +74,13 @@ internal sealed class AudioDeviceTestRequest
     /// <summary>このテスト開始時に捕捉したサンプルレート変換品質です。</summary>
     internal int SampleRateConversionQuality { get; }
 
+    /// <summary>選択条件のテストへ渡す一回分の音声出力要求を取得します。</summary>
+    internal AudioOutputRequest AudioOutputRequest { get; }
+
     internal bool PlaySound { get; }
 }
 
-/// <summary>Identifies the feature boundary at which an audio-device test failed.</summary>
+/// <summary>オーディオデバイステストで失敗した処理の境界を表します。</summary>
 internal enum AudioDeviceTestFailureKind
 {
     /// <summary>The test completed without a failure.</summary>
@@ -98,7 +114,7 @@ internal enum AudioDeviceTestFailureKind
     ObservationTimedOut,
 
     /// <summary>An unexpected test-sound operation failed.</summary>
-    Unexpected
+    Unexpected,
 }
 
 /// <summary>
@@ -110,27 +126,38 @@ internal sealed class AudioDeviceTestResult
     /// Creates a device-test result from native initialization and an explicitly classified
     /// stream observation.
     /// </summary>
+    /// <param name="cleanupDiagnostics">native cleanup stages and errors captured without exception messages.</param>
     internal AudioDeviceTestResult(
-        AudioPlaybackInitializationResult initialization,
+        AudioDeviceTestRequest request,
+        AudioPlaybackInitializationResult? initialization,
         bool streamProgressRequired,
         bool streamProgressSucceeded,
         TimeSpan wallClockDuration,
         TimeSpan playbackPositionDuration,
         double? progressRatio,
-        string failureReason,
+        string? failureReason,
         AudioDeviceTestFailureKind failureKind = AudioDeviceTestFailureKind.None,
         BassAudioPlaybackStage? playbackStage = null,
-        string nativeErrorSource = null,
+        string? nativeErrorSource = null,
         Errors? nativeErrorCode = null,
-        string diagnosticReason = null,
+        string? diagnosticReason = null,
         int? playbackSourceHandle = null,
         int? playbackExpectedMixerHandle = null,
         int? playbackActualMixerHandle = null,
         BassAudioPlayer.DeviceDriver? playbackBackend = null,
         BassAudioSessionState? playbackSessionState = null,
-        int? playbackCoreDeviceIndex = null)
+        int? playbackCoreDeviceIndex = null,
+        Exception? primaryFailure = null,
+        Exception? cleanupFailure = null,
+        IReadOnlyList<BassAudioCleanupDiagnostic>? cleanupDiagnostics = null)
     {
-        Initialization = initialization ?? throw new ArgumentNullException(nameof(initialization));
+        ArgumentNullException.ThrowIfNull(request);
+        Initialization = initialization;
+        Request = request;
+        PrimaryFailure = primaryFailure;
+        CleanupFailure = cleanupFailure;
+        CleanupDiagnostics = Array.AsReadOnly(cleanupDiagnostics?.ToArray()
+            ?? Array.Empty<BassAudioCleanupDiagnostic>());
         if (streamProgressRequired
             && !streamProgressSucceeded
             && failureKind == AudioDeviceTestFailureKind.None)
@@ -158,8 +185,20 @@ internal sealed class AudioDeviceTestResult
         PlaybackCoreDeviceIndex = playbackCoreDeviceIndex;
     }
 
+    /// <summary>初期化失敗でも保持する、受理時に固定した要求です。</summary>
+    internal AudioDeviceTestRequest Request { get; }
+
+    /// <summary>解放に先行した初期化・再生・取消の失敗です。</summary>
+    internal Exception? PrimaryFailure { get; }
+
+    /// <summary>主失敗と独立して保持する、native解放の失敗です。</summary>
+    internal Exception? CleanupFailure { get; }
+
+    /// <summary>解放を確認できなかったnative段階とエラーを構造化して保持します。</summary>
+    internal IReadOnlyList<BassAudioCleanupDiagnostic> CleanupDiagnostics { get; }
+
     /// <summary>Gets the requested and negotiated native initialization values.</summary>
-    internal AudioPlaybackInitializationResult Initialization { get; }
+    internal AudioPlaybackInitializationResult? Initialization { get; }
 
     /// <summary>Gets whether native device initialization completed.</summary>
     internal bool DeviceInitializationSucceeded => Initialization != null;
@@ -174,7 +213,7 @@ internal sealed class AudioDeviceTestResult
     internal bool StreamProgressSucceeded { get; }
 
     /// <summary>Gets whether every result required by the request succeeded.</summary>
-    internal bool Succeeded => DeviceInitializationSucceeded
+    internal bool Succeeded => PrimaryFailure == null && CleanupFailure == null && DeviceInitializationSucceeded
         && (!StreamProgressRequired || StreamProgressSucceeded);
 
     /// <summary>Gets the measured wall-clock interval after startup pre-roll.</summary>
@@ -187,7 +226,7 @@ internal sealed class AudioDeviceTestResult
     internal double? ProgressRatio { get; }
 
     /// <summary>Gets why stream observation failed, if it failed.</summary>
-    internal string FailureReason { get; }
+    internal string? FailureReason { get; }
 
     /// <summary>Gets the feature boundary that produced the failure.</summary>
     internal AudioDeviceTestFailureKind FailureKind { get; }
@@ -196,7 +235,7 @@ internal sealed class AudioDeviceTestResult
     internal BassAudioPlaybackStage? PlaybackStage { get; }
 
     /// <summary>Gets the native API that supplied the playback error.</summary>
-    internal string NativeErrorSource { get; }
+    internal string? NativeErrorSource { get; }
 
     /// <summary>Gets the native playback error code captured at the failure boundary.</summary>
     internal Errors? NativeErrorCode { get; }
@@ -220,64 +259,64 @@ internal sealed class AudioDeviceTestResult
     internal int? PlaybackCoreDeviceIndex { get; }
 
     /// <summary>Gets a diagnostic reason retained for logs and non-user-facing diagnostics.</summary>
-    internal string DiagnosticReason { get; }
+    internal string? DiagnosticReason { get; }
 
     /// <summary>Gets the backend selected by the caller.</summary>
-    internal AudioDriver RequestedBackend => Initialization.RequestedBackend;
+    internal AudioDriver RequestedBackend => Request.AudioOutputRequest.Backend;
 
     /// <summary>Gets the backend that owns the initialized native session.</summary>
-    internal AudioDriver ActualBackend => Initialization.ActualBackend;
+    internal AudioDriver? ActualBackend => Initialization?.ActualBackend;
 
     /// <summary>Gets whether native negotiation used a fallback.</summary>
-    internal bool FallbackOccurred => Initialization.FallbackOccurred;
+    internal bool FallbackOccurred => Initialization?.FallbackOccurred == true;
 
     /// <summary>Gets why native negotiation used a fallback.</summary>
-    internal string FallbackReason => Initialization.FallbackReason;
+    internal string? FallbackReason => Initialization?.FallbackReason;
 
     /// <summary>Gets the requested endpoint identity.</summary>
-    internal string RequestedDevice => Initialization.RequestedDevice;
+    internal string RequestedDevice => Request.AudioOutputRequest.DeviceIdentity;
 
     /// <summary>Gets the requested endpoint display name.</summary>
-    internal string RequestedDeviceName => Initialization.RequestedDeviceName;
+    internal string RequestedDeviceName => Request.AudioOutputRequest.DeviceName;
 
     /// <summary>Gets the negotiated endpoint identity.</summary>
-    internal string ActualDevice => Initialization.ActualDevice;
+    internal string? ActualDevice => Initialization?.ActualDevice;
 
     /// <summary>Gets the negotiated endpoint display name.</summary>
-    internal string ActualDeviceName => Initialization.ActualDeviceName;
+    internal string? ActualDeviceName => Initialization?.ActualDeviceName;
 
     /// <summary>Gets the requested sample rate.</summary>
-    internal SampleRate RequestedRate => Initialization.RequestedRate;
+    internal SampleRate RequestedRate => Request.AudioOutputRequest.Rate;
 
     /// <summary>Gets the requested sample format.</summary>
-    internal SampleFormat RequestedFormat => Initialization.RequestedFormat;
+    internal SampleFormat RequestedFormat => Request.AudioOutputRequest.Format;
 
     /// <summary>Gets the requested buffer size in milliseconds.</summary>
-    internal float RequestedBufferSize => Initialization.RequestedBufferSize;
+    internal float RequestedBufferSize => Request.AudioOutputRequest.BufferSize;
 
     /// <summary>Gets whether event-driven WASAPI was requested.</summary>
-    internal bool RequestedEventMode => Initialization.RequestedEventMode;
+    internal bool RequestedEventMode => Request.AudioOutputRequest.EventMode;
 
     /// <summary>Gets the requested output volume.</summary>
-    internal int RequestedVolume => Initialization.RequestedVolume;
+    internal int RequestedVolume => Request.PlayerVolume;
 
     /// <summary>Gets the negotiated sample rate.</summary>
-    internal SampleRate ActualRate => Initialization.ActualRate;
+    internal SampleRate? ActualRate => Initialization?.ActualRate;
 
     /// <summary>Gets the internal mixer format.</summary>
-    internal SampleFormat EngineFormat => Initialization.EngineFormat;
+    internal SampleFormat? EngineFormat => Initialization?.EngineFormat;
 
     /// <summary>Gets the native endpoint or callback format.</summary>
-    internal SampleFormat EndpointFormat => Initialization.EndpointFormat;
+    internal SampleFormat? EndpointFormat => Initialization?.EndpointFormat;
 
     /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>
-    internal int ActualChannels => Initialization.ActualChannels;
+    internal int? ActualChannels => Initialization?.ActualChannels;
 
     /// <summary>Gets the negotiated latency in milliseconds.</summary>
-    internal double Latency => Initialization.Latency;
+    internal double? Latency => Initialization?.Latency;
 
     /// <summary>Gets whether a non-audible fallback was substituted.</summary>
-    internal bool IsSilentFallback => Initialization.IsSilentFallback;
+    internal bool IsSilentFallback => Initialization?.IsSilentFallback == true;
 }
 
 /// <summary>Abstracts file, player, monotonic-clock, and wait operations used by the test sound.</summary>
@@ -295,11 +334,11 @@ internal interface IAudioDeviceTestSoundBoundary
     /// <summary>Gets elapsed monotonic time between two timestamps.</summary>
     TimeSpan GetElapsedTime(long startTimestamp, long endTimestamp);
 
-    /// <summary>Waits before polling the stream again.</summary>
+    /// <summary>次の再生観測まで待機します。</summary>
     void Wait(TimeSpan interval);
 }
 
-/// <summary>Binds test-sound observation to the system clock and BASS player.</summary>
+/// <summary>テスト音声の観測をシステム時刻とBASSプレイヤーへ接続します。</summary>
 internal sealed class SystemAudioDeviceTestSoundBoundary : IAudioDeviceTestSoundBoundary
 {
     /// <inheritdoc />
@@ -316,14 +355,18 @@ internal sealed class SystemAudioDeviceTestSoundBoundary : IAudioDeviceTestSound
         => Stopwatch.GetElapsedTime(startTimestamp, endTimestamp);
 
     /// <inheritdoc />
-    public void Wait(TimeSpan interval) => Thread.Sleep(interval);
+    public void Wait(TimeSpan interval)
+        => Thread.Sleep(interval);
 }
 
 /// <summary>
 /// Contains one bounded observation of playback-position progress and natural completion.
 /// </summary>
-internal readonly struct AudioDeviceTestStreamObservation
+internal readonly record struct AudioDeviceTestStreamObservation
 {
+    /// <summary>再生の観測値を上書きしない、音源プレイヤー解放時の失敗です。</summary>
+    internal Exception CleanupFailure { get; init; }
+
     /// <summary>Creates an immutable stream observation.</summary>
     internal AudioDeviceTestStreamObservation(
         bool succeeded,
@@ -421,10 +464,9 @@ internal static class AudioDeviceTestStreamObserver
 
     private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// Observes one test-sound playback through natural completion and reports bounded real-time
-    /// progress after startup pre-roll.
-    /// </summary>
+    /// <summary>テスト音声を自然終了まで観測し、再生進行結果を返します。</summary>
+    /// <param name="testSoundPath">観測するテスト音声のパス。</param>
+    /// <param name="soundBoundary">時刻、プレイヤー、待機を提供する境界。</param>
     internal static AudioDeviceTestStreamObservation Observe(
         string testSoundPath,
         IAudioDeviceTestSoundBoundary soundBoundary)
@@ -457,276 +499,297 @@ internal static class AudioDeviceTestStreamObserver
                 diagnosticReason: exception.ToString());
         }
 
-        using (player)
+        AudioDeviceTestStreamObservation observation;
+        try
         {
-            TimeSpan duration;
-            try
-            {
-                duration = player.Duration;
-            }
-            catch (Exception exception)
-            {
-                if (exception is BassAudioPlaybackException playbackException)
-                {
-                    return Failure(
-                        "Reading the test-sound duration failed.",
-                        AudioDeviceTestFailureKind.Unexpected,
-                        playbackException);
-                }
-                return Failure(
-                    "Reading the test-sound duration failed unexpectedly.",
-                    AudioDeviceTestFailureKind.Unexpected,
-                    diagnosticReason: exception.ToString());
-            }
-            if (duration <= TimeSpan.Zero)
-            {
-                return Failure(
-                    "The test sound did not report a valid duration.",
-                    AudioDeviceTestFailureKind.InvalidDuration);
-            }
+            observation = ObservePlayer(player, soundBoundary);
+        }
+        catch (Exception exception)
+        {
+            observation = Failure("Observing the test-sound player failed unexpectedly.",
+                diagnosticReason: exception.ToString());
+        }
+        try
+        {
+            player.Dispose();
+        }
+        catch (Exception exception)
+        {
+            observation = observation with { CleanupFailure = exception };
+        }
+        return observation;
+    }
 
-            TimeSpan completionTimeout = duration > TimeSpan.MaxValue - ObservationTimeout
-                ? TimeSpan.MaxValue
-                : duration + ObservationTimeout;
-            TimeSpan initialPosition;
+    private static AudioDeviceTestStreamObservation ObservePlayer(
+        IAudioPlayer player, IAudioDeviceTestSoundBoundary soundBoundary)
+    {
+        TimeSpan duration;
+        try
+        {
+            duration = player.Duration;
+        }
+        catch (Exception exception)
+        {
+            if (exception is BassAudioPlaybackException playbackException)
+            {
+                return Failure(
+                    "Reading the test-sound duration failed.",
+                    AudioDeviceTestFailureKind.Unexpected,
+                    playbackException);
+            }
+            return Failure(
+                "Reading the test-sound duration failed unexpectedly.",
+                AudioDeviceTestFailureKind.Unexpected,
+                diagnosticReason: exception.ToString());
+        }
+        if (duration <= TimeSpan.Zero)
+        {
+            return Failure(
+                "The test sound did not report a valid duration.",
+                AudioDeviceTestFailureKind.InvalidDuration);
+        }
+
+        TimeSpan completionTimeout = duration > TimeSpan.MaxValue - ObservationTimeout
+            ? TimeSpan.MaxValue
+            : duration + ObservationTimeout;
+        TimeSpan initialPosition;
+        try
+        {
+            initialPosition = player.CurrentTime;
+        }
+        catch (Exception exception)
+        {
+            if (exception is BassAudioPlaybackException playbackException)
+            {
+                return Failure(
+                    "Reading the initial test-sound position failed.",
+                    AudioDeviceTestFailureKind.Unexpected,
+                    playbackException);
+            }
+            return Failure(
+                "Reading the initial test-sound position failed unexpectedly.",
+                AudioDeviceTestFailureKind.Unexpected,
+                diagnosticReason: exception.ToString());
+        }
+        TimeSpan previousPosition = initialPosition;
+        long overallStart = soundBoundary.GetTimestamp();
+        long progressStart = 0;
+        TimeSpan progressStartPosition = TimeSpan.Zero;
+        bool progressValidated = false;
+        TimeSpan validatedWallClockDuration = TimeSpan.Zero;
+        TimeSpan validatedPlaybackDuration = TimeSpan.Zero;
+        double? validatedProgressRatio = null;
+        try
+        {
+            player.Play();
+        }
+        catch (BassAudioPlaybackException exception)
+        {
+            return Failure(
+                "Starting the test-sound player failed.",
+                AudioDeviceTestFailureKind.PlaybackStartFailed,
+                exception);
+        }
+        catch (Exception exception)
+        {
+            return Failure(
+                "Starting the test-sound player failed unexpectedly.",
+                AudioDeviceTestFailureKind.Unexpected,
+                diagnosticReason: exception.ToString());
+        }
+        while (true)
+        {
+            soundBoundary.Wait(PollInterval);
+            long now = soundBoundary.GetTimestamp();
+            TimeSpan currentPosition;
+            PlayState playState;
             try
             {
-                initialPosition = player.CurrentTime;
+                currentPosition = player.CurrentTime;
+                playState = player.PlayState;
             }
             catch (Exception exception)
             {
                 if (exception is BassAudioPlaybackException playbackException)
                 {
                     return Failure(
-                        "Reading the initial test-sound position failed.",
+                        "Observing the test-sound player failed.",
                         AudioDeviceTestFailureKind.Unexpected,
                         playbackException);
                 }
                 return Failure(
-                    "Reading the initial test-sound position failed unexpectedly.",
+                    "Observing the test-sound player failed unexpectedly.",
                     AudioDeviceTestFailureKind.Unexpected,
                     diagnosticReason: exception.ToString());
             }
-            TimeSpan previousPosition = initialPosition;
-            long overallStart = soundBoundary.GetTimestamp();
-            long progressStart = 0;
-            TimeSpan progressStartPosition = TimeSpan.Zero;
-            bool progressValidated = false;
-            TimeSpan validatedWallClockDuration = TimeSpan.Zero;
-            TimeSpan validatedPlaybackDuration = TimeSpan.Zero;
-            double? validatedProgressRatio = null;
-            try
+            TimeSpan completionPosition = currentPosition;
+            if (playState == PlayState.Stopped)
             {
-                player.Play();
-            }
-            catch (BassAudioPlaybackException exception)
-            {
-                return Failure(
-                    "Starting the test-sound player failed.",
-                    AudioDeviceTestFailureKind.PlaybackStartFailed,
-                    exception);
-            }
-            catch (Exception exception)
-            {
-                return Failure(
-                    "Starting the test-sound player failed unexpectedly.",
-                    AudioDeviceTestFailureKind.Unexpected,
-                    diagnosticReason: exception.ToString());
-            }
-            while (true)
-            {
-                soundBoundary.Wait(PollInterval);
-                long now = soundBoundary.GetTimestamp();
-                TimeSpan currentPosition;
-                PlayState playState;
                 try
                 {
-                    currentPosition = player.CurrentTime;
-                    playState = player.PlayState;
+                    completionPosition = player.CurrentTime;
                 }
                 catch (Exception exception)
                 {
                     if (exception is BassAudioPlaybackException playbackException)
                     {
                         return Failure(
-                            "Observing the test-sound player failed.",
+                            "Reading the completed test-sound position failed.",
                             AudioDeviceTestFailureKind.Unexpected,
                             playbackException);
                     }
                     return Failure(
-                        "Observing the test-sound player failed unexpectedly.",
+                        "Reading the completed test-sound position failed unexpectedly.",
                         AudioDeviceTestFailureKind.Unexpected,
                         diagnosticReason: exception.ToString());
                 }
-                TimeSpan completionPosition = currentPosition;
-                if (playState == PlayState.Stopped)
+            }
+            if (currentPosition < previousPosition)
+            {
+                TimeSpan wallClockDuration = progressStart == 0
+                    ? soundBoundary.GetElapsedTime(overallStart, now)
+                    : soundBoundary.GetElapsedTime(progressStart, now);
+                TimeSpan playbackDuration = progressStart == 0
+                    ? currentPosition - initialPosition
+                    : currentPosition - progressStartPosition;
+                return new AudioDeviceTestStreamObservation(
+                    false,
+                    wallClockDuration,
+                    playbackDuration,
+                    CalculateRatio(playbackDuration, wallClockDuration),
+                    "The test-sound playback position moved backwards.",
+                    AudioDeviceTestFailureKind.PlaybackPositionMovedBackwards);
+            }
+
+            if (progressStart == 0)
+            {
+                if (currentPosition > previousPosition)
                 {
-                    try
-                    {
-                        completionPosition = player.CurrentTime;
-                    }
-                    catch (Exception exception)
-                    {
-                        if (exception is BassAudioPlaybackException playbackException)
-                        {
-                            return Failure(
-                                "Reading the completed test-sound position failed.",
-                                AudioDeviceTestFailureKind.Unexpected,
-                                playbackException);
-                        }
-                        return Failure(
-                            "Reading the completed test-sound position failed unexpectedly.",
-                            AudioDeviceTestFailureKind.Unexpected,
-                            diagnosticReason: exception.ToString());
-                    }
+                    progressStart = now;
+                    progressStartPosition = currentPosition;
                 }
-                if (currentPosition < previousPosition)
+                else if (playState == PlayState.Stopped)
                 {
-                    TimeSpan wallClockDuration = progressStart == 0
-                        ? soundBoundary.GetElapsedTime(overallStart, now)
-                        : soundBoundary.GetElapsedTime(progressStart, now);
-                    TimeSpan playbackDuration = progressStart == 0
-                        ? currentPosition - initialPosition
-                        : currentPosition - progressStartPosition;
+                    TimeSpan wallClockDuration = soundBoundary.GetElapsedTime(overallStart, now);
+                    TimeSpan playbackDuration = currentPosition - initialPosition;
                     return new AudioDeviceTestStreamObservation(
                         false,
                         wallClockDuration,
                         playbackDuration,
                         CalculateRatio(playbackDuration, wallClockDuration),
-                        "The test-sound playback position moved backwards.",
-                        AudioDeviceTestFailureKind.PlaybackPositionMovedBackwards);
+                        "The test sound stopped before playback progress was observed.",
+                        AudioDeviceTestFailureKind.PlaybackStoppedEarly);
                 }
-
-                if (progressStart == 0)
+            }
+            else
+            {
+                TimeSpan wallClockDuration = soundBoundary.GetElapsedTime(progressStart, now);
+                TimeSpan playbackDuration = currentPosition - progressStartPosition;
+                if (playState == PlayState.Stopped)
                 {
-                    if (currentPosition > previousPosition)
+                    if (completionPosition < duration)
                     {
-                        progressStart = now;
-                        progressStartPosition = currentPosition;
-                    }
-                    else if (playState == PlayState.Stopped)
-                    {
-                        TimeSpan wallClockDuration = soundBoundary.GetElapsedTime(overallStart, now);
-                        TimeSpan playbackDuration = currentPosition - initialPosition;
                         return new AudioDeviceTestStreamObservation(
                             false,
                             wallClockDuration,
                             playbackDuration,
                             CalculateRatio(playbackDuration, wallClockDuration),
-                            "The test sound stopped before playback progress was observed.",
+                            "The test sound stopped before reaching its reported duration.",
                             AudioDeviceTestFailureKind.PlaybackStoppedEarly);
                     }
-                }
-                else
-                {
-                    TimeSpan wallClockDuration = soundBoundary.GetElapsedTime(progressStart, now);
-                    TimeSpan playbackDuration = currentPosition - progressStartPosition;
-                    if (playState == PlayState.Stopped)
+
+                    if (!progressValidated)
                     {
-                        if (completionPosition < duration)
+                        if (wallClockDuration < RequiredProgressInterval)
                         {
                             return new AudioDeviceTestStreamObservation(
                                 false,
                                 wallClockDuration,
                                 playbackDuration,
                                 CalculateRatio(playbackDuration, wallClockDuration),
-                                "The test sound stopped before reaching its reported duration.",
+                                "The test sound ended before a complete progress interval was observed.",
                                 AudioDeviceTestFailureKind.PlaybackStoppedEarly);
                         }
 
-                        if (!progressValidated)
-                        {
-                            if (wallClockDuration < RequiredProgressInterval)
-                            {
-                                return new AudioDeviceTestStreamObservation(
-                                    false,
-                                    wallClockDuration,
-                                    playbackDuration,
-                                    CalculateRatio(playbackDuration, wallClockDuration),
-                                    "The test sound ended before a complete progress interval was observed.",
-                                    AudioDeviceTestFailureKind.PlaybackStoppedEarly);
-                            }
-
-                            double terminalRatio = CalculateRatio(playbackDuration, wallClockDuration) ?? 0;
-                            if (terminalRatio < 0.75 || terminalRatio > 1.25)
-                            {
-                                return new AudioDeviceTestStreamObservation(
-                                    false,
-                                    wallClockDuration,
-                                    playbackDuration,
-                                    terminalRatio,
-                                    "The test-sound progress ratio was outside the accepted range.",
-                                    AudioDeviceTestFailureKind.PlaybackRateOutOfRange);
-                            }
-
-                            validatedWallClockDuration = wallClockDuration;
-                            validatedPlaybackDuration = playbackDuration;
-                            validatedProgressRatio = terminalRatio;
-                        }
-
-                        return new AudioDeviceTestStreamObservation(
-                            true,
-                            validatedWallClockDuration,
-                            validatedPlaybackDuration,
-                            validatedProgressRatio,
-                            null,
-                            AudioDeviceTestFailureKind.None);
-                    }
-
-                    if (currentPosition <= previousPosition)
-                    {
-                        return new AudioDeviceTestStreamObservation(
-                            false,
-                            wallClockDuration,
-                            playbackDuration,
-                            CalculateRatio(playbackDuration, wallClockDuration),
-                            "The test-sound playback position stopped advancing.",
-                            AudioDeviceTestFailureKind.PlaybackDidNotAdvance);
-                    }
-                    if (!progressValidated && wallClockDuration >= RequiredProgressInterval)
-                    {
-                        double ratio = CalculateRatio(playbackDuration, wallClockDuration) ?? 0;
-                        if (ratio < 0.75 || ratio > 1.25)
+                        double terminalRatio = CalculateRatio(playbackDuration, wallClockDuration) ?? 0;
+                        if (terminalRatio < 0.75 || terminalRatio > 1.25)
                         {
                             return new AudioDeviceTestStreamObservation(
                                 false,
                                 wallClockDuration,
                                 playbackDuration,
-                                ratio,
+                                terminalRatio,
                                 "The test-sound progress ratio was outside the accepted range.",
                                 AudioDeviceTestFailureKind.PlaybackRateOutOfRange);
                         }
 
-                        progressValidated = true;
                         validatedWallClockDuration = wallClockDuration;
                         validatedPlaybackDuration = playbackDuration;
-                        validatedProgressRatio = ratio;
+                        validatedProgressRatio = terminalRatio;
                     }
-                }
 
-                previousPosition = currentPosition;
-                TimeSpan overallElapsed = soundBoundary.GetElapsedTime(overallStart, now);
-                if (!progressValidated && overallElapsed >= ObservationTimeout)
-                {
-                    TimeSpan playbackDuration = currentPosition - initialPosition;
                     return new AudioDeviceTestStreamObservation(
-                        false,
-                        overallElapsed,
-                        playbackDuration,
-                        CalculateRatio(playbackDuration, overallElapsed),
-                        "The test sound did not produce a complete progress observation before timeout.",
-                        AudioDeviceTestFailureKind.ObservationTimedOut);
-                }
-                if (progressValidated && overallElapsed >= completionTimeout)
-                {
-                    return new AudioDeviceTestStreamObservation(
-                        false,
+                        true,
                         validatedWallClockDuration,
                         validatedPlaybackDuration,
                         validatedProgressRatio,
-                        "The test sound did not reach its natural end before timeout.",
-                        AudioDeviceTestFailureKind.ObservationTimedOut);
+                        null,
+                        AudioDeviceTestFailureKind.None);
                 }
+
+                if (currentPosition <= previousPosition)
+                {
+                    return new AudioDeviceTestStreamObservation(
+                        false,
+                        wallClockDuration,
+                        playbackDuration,
+                        CalculateRatio(playbackDuration, wallClockDuration),
+                        "The test-sound playback position stopped advancing.",
+                        AudioDeviceTestFailureKind.PlaybackDidNotAdvance);
+                }
+                if (!progressValidated && wallClockDuration >= RequiredProgressInterval)
+                {
+                    double ratio = CalculateRatio(playbackDuration, wallClockDuration) ?? 0;
+                    if (ratio < 0.75 || ratio > 1.25)
+                    {
+                        return new AudioDeviceTestStreamObservation(
+                            false,
+                            wallClockDuration,
+                            playbackDuration,
+                            ratio,
+                            "The test-sound progress ratio was outside the accepted range.",
+                            AudioDeviceTestFailureKind.PlaybackRateOutOfRange);
+                    }
+
+                    progressValidated = true;
+                    validatedWallClockDuration = wallClockDuration;
+                    validatedPlaybackDuration = playbackDuration;
+                    validatedProgressRatio = ratio;
+                }
+            }
+
+            previousPosition = currentPosition;
+            TimeSpan overallElapsed = soundBoundary.GetElapsedTime(overallStart, now);
+            if (!progressValidated && overallElapsed >= ObservationTimeout)
+            {
+                TimeSpan playbackDuration = currentPosition - initialPosition;
+                return new AudioDeviceTestStreamObservation(
+                    false,
+                    overallElapsed,
+                    playbackDuration,
+                    CalculateRatio(playbackDuration, overallElapsed),
+                    "The test sound did not produce a complete progress observation before timeout.",
+                    AudioDeviceTestFailureKind.ObservationTimedOut);
+            }
+            if (progressValidated && overallElapsed >= completionTimeout)
+            {
+                return new AudioDeviceTestStreamObservation(
+                    false,
+                    validatedWallClockDuration,
+                    validatedPlaybackDuration,
+                    validatedProgressRatio,
+                    "The test sound did not reach its natural end before timeout.",
+                    AudioDeviceTestFailureKind.ObservationTimedOut);
             }
         }
     }
@@ -760,10 +823,13 @@ internal static class AudioDeviceTestStreamObserver
             exception?.Backend,
             exception?.SessionState,
             exception?.CoreDeviceIndex);
+
 }
 
 internal interface IAudioDeviceTestRuntime
 {
+    /// <summary>捕捉済み出力条件でテストを実行し、解放完了まで所有します。</summary>
+    /// <param name="request">テスト開始時に捕捉した出力要求。</param>
     AudioDeviceTestResult Run(AudioDeviceTestRequest request);
 }
 
@@ -772,24 +838,59 @@ internal interface IAudioDeviceTestPlaybackPort
     void StopPlayback();
 }
 
-internal sealed class AudioDeviceTestWorkflowOwner
+/// <summary>音声backendの選択済み機器能力を一回照会する境界です。</summary>
+internal interface IAudioDeviceCapabilityRuntime
 {
+    /// <summary>取消要求をnative呼出し間で確認し、取得した資源を解放して終了します。</summary>
+    AudioDeviceCapabilityResult Query(AudioDeviceCapabilityRequest request, CancellationToken cancellationToken);
+}
+
+/// <summary>既存音声sessionの所有規則を通して機器能力を照会します。</summary>
+internal sealed class BassAudioDeviceCapabilityRuntime : IAudioDeviceCapabilityRuntime
+{
+    /// <inheritdoc />
+    public AudioDeviceCapabilityResult Query(AudioDeviceCapabilityRequest request, CancellationToken cancellationToken)
+        => BassAudioPlayer.QueryAudioDeviceCapabilities(request, cancellationToken);
+}
+
+/// <summary>機器照会とテストの受付、解放完了を所有します。</summary>
+internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
+{
+    private readonly object syncRoot = new();
+
     private readonly IAudioDeviceTestPlaybackPort playbackPort;
 
     private readonly IAudioDeviceTestRuntime runtime;
 
+    private readonly IAudioDeviceCapabilityRuntime capabilityRuntime;
+
+    private CancellationTokenSource activeQueryCancellation;
+
     private int isRunning;
+
+    private int isTestRunning;
 
     internal AudioDeviceTestWorkflowOwner(
         IAudioDeviceTestPlaybackPort playbackPort,
-        IAudioDeviceTestRuntime runtime)
+        IAudioDeviceTestRuntime runtime,
+        IAudioDeviceCapabilityRuntime capabilityRuntime = null)
     {
         this.playbackPort = playbackPort ?? throw new ArgumentNullException(nameof(playbackPort));
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        this.capabilityRuntime = capabilityRuntime ?? new BassAudioDeviceCapabilityRuntime();
     }
 
+    /// <summary>機器照会またはテストが受付を使用中かどうかを取得します。</summary>
     internal bool IsRunning => Volatile.Read(ref isRunning) != 0;
 
+    /// <summary>テストを実行中かどうかを取得します。</summary>
+    internal bool IsTestRunning => Volatile.Read(ref isTestRunning) != 0;
+
+    /// <summary>受理した照会またはテストの資源解放後、受付が可能になったことを通知します。</summary>
+    internal event Action OperationReleased;
+
+    /// <summary>通常出力を停止して一件のテストを受付・実行し、解放完了まで所有します。</summary>
+    /// <param name="request">テスト開始時に捕捉した出力要求。</param>
     internal async Task<AudioDeviceTestResult> TryRunAsync(AudioDeviceTestRequest request)
     {
         if (request == null)
@@ -802,14 +903,97 @@ internal sealed class AudioDeviceTestWorkflowOwner
             return null;
         }
 
+        if (!BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission))
+        {
+            Volatile.Write(ref isRunning, 0);
+            if (!BassAudioRuntime.OperationGate.IsCleanupQuarantined)
+            {
+                return null;
+            }
+
+            AudioInitializationException cleanupFailure = BassAudioPlayer.GetCleanupPendingFailure(
+                BassAudioMapping.ToBassDriver(request.AudioOutputRequest.Backend),
+                new BassAudioPlayer.DeviceDescriptor(request.PlayerDeviceName, request.PlayerDevice));
+            return cleanupFailure == null
+                ? null
+                : new AudioDeviceTestResult(
+                    request,
+                    null,
+                    request.PlaySound,
+                    false,
+                    TimeSpan.Zero,
+                    TimeSpan.Zero,
+                    null,
+                    cleanupFailure.Message,
+                    AudioDeviceTestFailureKind.Unexpected,
+                    primaryFailure: cleanupFailure);
+        }
+        using IDisposable requestAdmission = admission;
+
+        Volatile.Write(ref isTestRunning, 1);
         try
         {
-            playbackPort.StopPlayback();
-            return await Task.Run(() => runtime.Run(request));
+            return await Task.Run(() =>
+            {
+                playbackPort.StopPlayback();
+                return runtime.Run(request);
+            });
+        }
+        catch (Exception exception)
+        {
+            return new AudioDeviceTestResult(request, null, request.PlaySound, false,
+                TimeSpan.Zero, TimeSpan.Zero, null, exception.Message,
+                AudioDeviceTestFailureKind.Unexpected,
+                primaryFailure: exception);
         }
         finally
         {
+            Volatile.Write(ref isTestRunning, 0);
             Volatile.Write(ref isRunning, 0);
+            requestAdmission.Dispose();
+            OperationReleased?.Invoke();
+        }
+    }
+
+    /// <summary>古い選択や閉じた画面の照会を、native呼出し間で終了させます。</summary>
+    internal void CancelCurrentQuery()
+    {
+        lock (syncRoot)
+        {
+            activeQueryCancellation?.Cancel();
+        }
+    }
+
+    /// <summary>通常再生を止めずに同じworkflow受付を使って機器能力を照会します。</summary>
+    internal async Task<AudioDeviceCapabilityResult> TryQueryCapabilitiesAsync(
+        AudioDeviceCapabilityRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (Interlocked.Exchange(ref isRunning, 1) != 0)
+        {
+            return null;
+        }
+
+        using var cancellationSource = new CancellationTokenSource();
+        lock (syncRoot)
+        {
+            activeQueryCancellation = cancellationSource;
+        }
+        try
+        {
+            return await Task.Run(() => capabilityRuntime.Query(request, cancellationSource.Token));
+        }
+        finally
+        {
+            lock (syncRoot)
+            {
+                if (ReferenceEquals(activeQueryCancellation, cancellationSource))
+                {
+                    activeQueryCancellation = null;
+                }
+            }
+            Volatile.Write(ref isRunning, 0);
+            OperationReleased?.Invoke();
         }
     }
 }
@@ -821,80 +1005,116 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
     private readonly BassAudioSessionLease sessionLease = new();
 
     private readonly IAudioDeviceTestSoundBoundary soundBoundary;
+    private readonly Action<AudioDeviceTestRequest, Action<BassAudioSession>> initializeSession;
+    private readonly Func<BassAudioSession, bool> releaseSession;
+    private readonly BassAudioOperationGate operationGate;
 
     internal BassAudioDeviceTestRuntime(ApplicationPathSnapshot applicationPathSnapshot)
         : this(applicationPathSnapshot, new SystemAudioDeviceTestSoundBoundary())
     {
     }
 
-    /// <summary>Creates a runtime with a replaceable test-sound observation boundary.</summary>
+    /// <summary>本番の取得・解放と、差替え可能なテスト音声の観測境界を接続します。</summary>
     internal BassAudioDeviceTestRuntime(
         ApplicationPathSnapshot applicationPathSnapshot,
         IAudioDeviceTestSoundBoundary soundBoundary)
+        : this(applicationPathSnapshot, soundBoundary, InitializeSession, BassAudioPlayer.Free, BassAudioRuntime.OperationGate)
+    {
+    }
+
+    /// <summary>同じ受付・session所有経路を使い、外部のnative取得と解放だけを差し替えます。</summary>
+    internal BassAudioDeviceTestRuntime(
+        ApplicationPathSnapshot applicationPathSnapshot,
+        IAudioDeviceTestSoundBoundary soundBoundary,
+        Action<AudioDeviceTestRequest, Action<BassAudioSession>> initializeSession,
+        Func<BassAudioSession, bool> releaseSession,
+        BassAudioOperationGate operationGate)
     {
         this.applicationPathSnapshot = applicationPathSnapshot ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.soundBoundary = soundBoundary ?? throw new ArgumentNullException(nameof(soundBoundary));
+        this.initializeSession = initializeSession ?? throw new ArgumentNullException(nameof(initializeSession));
+        this.releaseSession = releaseSession ?? throw new ArgumentNullException(nameof(releaseSession));
+        this.operationGate = operationGate ?? throw new ArgumentNullException(nameof(operationGate));
+    }
+
+    private static void InitializeSession(AudioDeviceTestRequest request, Action<BassAudioSession> acquired)
+    {
+        BassAudioSession session = null;
+        try
+        {
+            _ = BassAudioPlayer.InitializeOwned(request.AudioOutputRequest, request.PlayerVolume, out session);
+        }
+        finally
+        {
+            acquired(session);
+        }
     }
 
     public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!sessionLease.TryRelease(BassAudioPlayer.Free))
-        {
-            throw new InvalidOperationException(
-                "A previous audio device test still owns native resources after cleanup failed.");
-        }
-        BassAudioPlaybackRuntime.ThrowIfAudiblePlaybackUsesNullDevice(
-            request.PlayerDriver,
-            request.PlayerDevice,
-            request.PlayerDeviceName);
-
-        BassAudioPlayer.DeviceDescriptor descriptor = string.IsNullOrWhiteSpace(request.PlayerDevice)
-            ? default
-            : new BassAudioPlayer.DeviceDescriptor(request.PlayerDeviceName, request.PlayerDevice);
         BassAudioSession ownedSession = null;
-        Exception primaryException = null;
+        AudioPlaybackInitializationResult initialization = null;
+        AudioDeviceTestStreamObservation observation = default;
+        Exception primaryFailure = null;
+        Exception cleanupFailure = null;
         try
         {
-            BassAudioPlayer.Frequency = request.PlayerSampleRate;
-            BassAudioPlayer.Format = request.PlayerFormat;
-            BassAudioPlayer.DeviceVolume = Math.Min(100, Math.Max(0, request.PlayerVolume)) / 100f;
-            descriptor = BassAudioPlayer.InitializeOwned(
-                BassAudioMapping.ToBassDriver(request.PlayerDriver),
-                descriptor,
-                request.PlayerBufferSize,
-                out ownedSession,
-                request.SampleRateConversionQuality,
-                request.PlayerWASAPIParam);
+            if (sessionLease.Session != null && !sessionLease.TryRelease(releaseSession))
+            {
+                throw new InvalidOperationException("A previous audio device test still owns native resources.");
+            }
+            BassAudioPlaybackRuntime.ThrowIfAudiblePlaybackUsesNullDevice(
+                request.PlayerDriver, request.PlayerDevice, request.PlayerDeviceName);
+            initializeSession(request, session => ownedSession = session);
             sessionLease.Attach(ownedSession);
-            using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
+            if (!operationGate.TryEnterOperation(out BassAudioOperationLease admittedOperation))
+            {
+                throw new InvalidOperationException("The native audio operation gate rejected the admitted test.");
+            }
+            using BassAudioOperationLease operation = admittedOperation;
             BassAudioBackendResult negotiated = ownedSession.NegotiationResult
-                ?? throw new InvalidOperationException(
-                    "An audible BASS device test completed without a negotiated backend result.");
-            var initialization = new AudioPlaybackInitializationResult(
-                request.PlayerDriver,
-                request.PlayerDevice,
-                request.PlayerDeviceName,
-                request.PlayerSampleRate,
-                request.PlayerFormat,
-                request.PlayerBufferSize,
-                request.PlayerWASAPIParam,
-                request.PlayerVolume,
-                BassAudioMapping.FromBassDriver(ownedSession.ActualBackend),
-                ownedSession.ActualDevice.Driver,
-                ownedSession.ActualDevice.Name,
-                negotiated.ActualRate,
-                negotiated.EngineFormat,
-                negotiated.EndpointFormat,
-                negotiated.ActualChannels,
-                negotiated.LatencyMilliseconds,
-                negotiated.FallbackReason,
-                ownedSession.ActualBackend == BassAudioPlayer.DeviceDriver.NULL_DEVICE);
+                ?? throw new InvalidOperationException("The audio device test has no negotiated result.");
+            initialization = BassAudioPlaybackRuntime.CreateInitializationResult(
+                request.AudioOutputRequest, request.PlayerVolume, ownedSession, negotiated);
 
-            AudioDeviceTestStreamObservation observation = request.PlaySound
-                ? AudioDeviceTestStreamObserver.Observe(applicationPathSnapshot.TestSoundPath, soundBoundary)
+            observation = request.PlaySound
+                ? AudioDeviceTestStreamObserver.Observe(
+                    applicationPathSnapshot.TestSoundPath,
+                    soundBoundary)
                 : new AudioDeviceTestStreamObservation(true, TimeSpan.Zero, TimeSpan.Zero, null, null);
-            var result = new AudioDeviceTestResult(
+            cleanupFailure = observation.CleanupFailure;
+
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            observation = new AudioDeviceTestStreamObservation(false, TimeSpan.Zero, TimeSpan.Zero, null,
+                exception.Message, AudioDeviceTestFailureKind.Unexpected);
+        }
+        finally
+        {
+            try
+            {
+                if (ownedSession != null && sessionLease.Session == null)
+                {
+                    sessionLease.Attach(ownedSession);
+                }
+                if ((primaryFailure != null && sessionLease.Session?.State == BassAudioSessionState.CleanupPending)
+                    || !sessionLease.TryRelease(releaseSession))
+                {
+                    var sessionFailure = new InvalidOperationException(
+                        "The audio device test could not confirm native cleanup.");
+                    cleanupFailure = cleanupFailure == null ? sessionFailure : new AggregateException(cleanupFailure, sessionFailure);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = cleanupFailure == null ? exception : new AggregateException(cleanupFailure, exception);
+            }
+        }
+        var result = new AudioDeviceTestResult(
+                request,
                 initialization,
                 request.PlaySound,
                 observation.Succeeded,
@@ -912,48 +1132,12 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 observation.PlaybackActualMixerHandle,
                 observation.PlaybackBackend,
                 observation.PlaybackSessionState,
-                observation.PlaybackCoreDeviceIndex);
-            TryLogTestResult(result);
-            return result;
-        }
-        catch (Exception exception)
-        {
-            primaryException = exception;
-            throw;
-        }
-        finally
-        {
-            ReleaseTestSession(ownedSession, primaryException);
-        }
-    }
-
-    private void ReleaseTestSession(BassAudioSession ownedSession, Exception primaryException)
-    {
-        try
-        {
-            if (ownedSession != null && sessionLease.Session == null)
-            {
-                sessionLease.Attach(ownedSession);
-            }
-            if (!sessionLease.TryRelease(BassAudioPlayer.Free) && primaryException == null)
-            {
-                throw new InvalidOperationException(
-                    "The audio device test completed without confirming native cleanup.");
-            }
-        }
-        catch (Exception cleanupException) when (primaryException != null)
-        {
-            try
-            {
-                NLogWrapper.GetLogger(nameof(BassAudioDeviceTestRuntime)).Warn(
-                    "Audio device test cleanup failed while preserving the primary error: "
-                    + cleanupException.Message);
-            }
-            catch
-            {
-                // Diagnostics must not replace the device-test exception.
-            }
-        }
+                observation.PlaybackCoreDeviceIndex,
+                primaryFailure,
+                cleanupFailure,
+                sessionLease.Session?.CleanupDiagnostics);
+        TryLogTestResult(result);
+        return result;
     }
 
     private static void TryLogTestResult(AudioDeviceTestResult result)
@@ -967,12 +1151,14 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 + " requestedFormat=" + result.RequestedFormat
                 + " requestedBufferMs=" + result.RequestedBufferSize
                 + " requestedEventMode=" + result.RequestedEventMode
-                + " actualBackend=" + AudioDriverDisplayNames.Get(result.ActualBackend)
+                + " actualBackend=" + result.ActualBackend?.ToString()
                 + " actualDevice=[name=" + result.ActualDeviceName + ",identity=" + result.ActualDevice + "]"
                 + " actualRate=" + result.ActualRate
                 + " actualChannels=" + result.ActualChannels
                 + " engineFormat=" + result.EngineFormat
                 + " endpointFormat=" + result.EndpointFormat
+                + " endpointContainerBits=" + result.Initialization?.EndpointContainerBits
+                + " endpointEffectiveBits=" + result.Initialization?.EndpointEffectiveBits
                 + " latencyMs=" + result.Latency
                 + " initializationSucceeded=" + result.DeviceInitializationSucceeded
                 + " streamProgressRequired=" + result.StreamProgressRequired
@@ -982,7 +1168,15 @@ internal sealed class BassAudioDeviceTestRuntime : IAudioDeviceTestRuntime
                 + " progressRatio=" + result.ProgressRatio
                 + " fallbackOccurred=" + result.FallbackOccurred
                 + " fallbackReason=" + result.FallbackReason
+                + " attempts=" + string.Join(
+                    " | ",
+                    (result.Initialization?.Attempts ?? []).Select(attempt =>
+                        attempt.Stage + " outcome=" + attempt.Outcome
+                        + " nativeErrorSource=" + (attempt.NativeErrorSource ?? "none")
+                        + " nativeErrorCode=" + BassNativeErrorFormatter.Format(attempt.NativeErrorCode)))
                 + " isSilentFallback=" + result.IsSilentFallback
+                 + " primaryFailure=" + result.PrimaryFailure
+                 + " cleanupFailure=" + result.CleanupFailure
                  + " failureKind=" + result.FailureKind
                  + " playbackStage=" + result.PlaybackStage
                  + " nativeErrorSource=" + result.NativeErrorSource

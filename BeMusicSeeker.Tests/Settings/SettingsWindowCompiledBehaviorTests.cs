@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -10,6 +11,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -17,6 +19,7 @@ using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
@@ -147,6 +150,338 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void AudioPagesBindPlayerCapabilitiesAndIndependentEncodingOptions()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz,
+                PlayerFormat = SampleFormat.SAMPLE_INT_16BIT,
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true,
+                UsePlayeruBMplay = false,
+                UsePlayerLR2body = false,
+                UsePlayerBMIIDXView = false
+            });
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                owner.SettingDialog.SetPresentationActive(active: false);
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationAudio");
+                Materialize(window);
+
+                var audioPage = (AudioSettingsPage)content.Content;
+                var testButton = (Button)audioPage.FindName("buttonPlayerTest");
+                var playerSampleRate = (ComboBox)audioPage.FindName("comboBoxPlayerSampleRate");
+                var playerFormat = (ComboBox)audioPage.FindName("comboBoxPlayerFormat");
+                var endpointFormat = (TextBlock)audioPage.FindName("textPlayerCapabilityFormat");
+                var sharedRate = (TextBlock)audioPage.FindName("textPlayerCapabilityRate");
+
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerSampleRateNames),
+                    playerSampleRate.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerFormatNames),
+                    playerFormat.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.AudioDeviceCapabilityFormatDescription),
+                    endpointFormat.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.AudioDeviceCapabilityRateDescription),
+                    sharedRate.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.SelectedPlayerSampleRate),
+                    playerSampleRate.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(Resources.AudioDeviceTestStartButton, testButton.Content);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.AudioDeviceTestButtonContent),
+                    testButton.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path.Path);
+                Assert.IsNull(audioPage.FindName("buttonAudioCapabilityRefresh"));
+
+                int savedDriverIndex = owner.SettingDialog.PlayerDriverIndex;
+                var driverSelector = (ComboBox)audioPage.FindName("comboBoxPlayerDriver");
+                ComboBox deviceSelector = FindLogicalDescendants<ComboBox>(audioPage).Single(comboBox =>
+                    GetBindingPath(comboBox, Selector.SelectedItemProperty)
+                        == nameof(SettingsDialogViewModel.SelectedPlayerDevice));
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, playerSampleRate.SelectedValue);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, playerFormat.SelectedValue);
+
+                driverSelector.SelectedIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
+                Materialize(window);
+                Assert.AreEqual(SampleRate.AUTO, owner.SettingDialog.PlayerSampleRate);
+                Assert.AreEqual(SampleFormat.AUTO, owner.SettingDialog.PlayerFormat);
+                Assert.AreEqual(Visibility.Visible, playerSampleRate.Visibility);
+                Assert.AreEqual(Visibility.Visible, playerFormat.Visibility);
+
+                playerSampleRate.SelectedValue = SampleRate.SAMPLE_RATE_44100Hz;
+                playerFormat.SelectedValue = SampleFormat.SAMPLE_INT_16BIT;
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, owner.SettingDialog.PlayerSampleRate);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, owner.SettingDialog.PlayerFormat);
+
+                playerSampleRate.SelectedValue = null;
+                playerFormat.SelectedValue = null;
+                deviceSelector.SelectedItem = null;
+                Materialize(window);
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, owner.SettingDialog.PlayerSampleRate);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, owner.SettingDialog.PlayerFormat);
+                playerSampleRate.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
+                playerFormat.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
+                deviceSelector.GetBindingExpression(Selector.SelectedItemProperty)?.UpdateTarget();
+
+                var formatItems = new Dictionary<SampleFormat, string>(owner.SettingDialog.PlayerFormatNames);
+                playerFormat.SetCurrentValue(ItemsControl.ItemsSourceProperty, formatItems);
+                playerFormat.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.UpdateTarget();
+                playerSampleRate.SelectedValue = SampleRate.SAMPLE_RATE_44100Hz;
+                playerFormat.SelectedValue = SampleFormat.SAMPLE_INT_16BIT;
+                driverSelector.GetBindingExpression(Selector.SelectedIndexProperty)?.UpdateTarget();
+                deviceSelector.GetBindingExpression(Selector.SelectedItemProperty)?.UpdateTarget();
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, owner.SettingDialog.PlayerSampleRate);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, owner.SettingDialog.PlayerFormat);
+
+                driverSelector.SelectedIndex = AudioDriverPolicy.IndexOf(AudioDriver.Asio);
+                Materialize(window);
+                Assert.AreEqual(SampleRate.AUTO, owner.SettingDialog.PlayerSampleRate);
+                Assert.AreEqual(SampleFormat.AUTO, owner.SettingDialog.PlayerFormat);
+                Assert.AreEqual(Visibility.Visible, playerSampleRate.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, playerFormat.Visibility);
+                Assert.AreEqual(Visibility.Visible, endpointFormat.Visibility);
+                Assert.AreEqual(Resources.AudioDeviceCapabilityNotQueried, endpointFormat.Text);
+                owner.SettingDialog.PlayerDriverIndex = savedDriverIndex;
+                Materialize(window);
+
+                navigation.SelectedItem = window.FindName("navigationRecording");
+                Materialize(window);
+                var recordingPage = (RecordingSettingsPage)content.Content;
+                var encoderSampleRate = (ComboBox)recordingPage.FindName("comboBoxEncoderSampleRate");
+                var encoderFormat = (ComboBox)recordingPage.FindName("comboBoxEncoderFormat");
+                Assert.AreEqual(nameof(SettingsDialogViewModel.EncoderSampleRateNames),
+                    encoderSampleRate.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.EncoderFormatNames),
+                    encoderFormat.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.IsFalse(((SettingsDialogViewModel)owner.SettingDialog).EncoderSampleRateNames
+                    .ContainsKey(SampleRate.SAMPLE_RATE_384000Hz));
+            }
+            finally
+            {
+                window.CloseForOwnerShutdown();
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ExclusiveRateChoicesRemainIndependentFromFormatAndRealBindingResetsFormatToAuto()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Settings settings = new()
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                PlayerSampleRate = SampleRate.AUTO,
+                PlayerFormat = SampleFormat.AUTO,
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true
+            };
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            var queryApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
+                new AudioDeviceCapabilityResult(
+                    request.Backend,
+                    request.DeviceIdentity,
+                    request.DeviceName,
+                    AudioDeviceCapabilityStatus.Available,
+                    [SampleRate.SAMPLE_RATE_44100Hz, SampleRate.SAMPLE_RATE_48000Hz],
+                    [
+                        new(SampleRate.SAMPLE_RATE_44100Hz, SampleFormat.SAMPLE_INT_16BIT, true),
+                        new(SampleRate.SAMPLE_RATE_48000Hz, SampleFormat.SAMPLE_INT_24BIT, true)
+                    ]));
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new NoOpAudioDeviceTestPlaybackPort(),
+                new SuccessfulAudioDeviceTestRuntime(),
+                capabilityRuntime);
+            var audioSettingsGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(AudioDriver.WasapiExclusive, null, null)
+            };
+            var dialog = new SettingsDialogViewModel(
+                owner,
+                owner.PlaylistWorkspace,
+                owner.PlaylistWorkspace,
+                owner.PlayHistory,
+                owner.LibraryFolderTree,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
+                owner.Lr2SongDbSyncWorkflow,
+                new NoOpSettingsEditSession(settings),
+                schemaDialogs: new UiDialogCoordinator(),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                audioDeviceTestWorkflow: workflow,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: audioSettingsGateway);
+            dialog.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
+                    && dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_48000Hz))
+                {
+                    queryApplied.TrySetResult();
+                }
+            };
+            var window = new SettingsWindow
+            {
+                DataContext = dialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
+                Materialize(window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(queryApplied.Task, "exclusive-audio-capability-query");
+
+                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var rates = (ComboBox)page.FindName("comboBoxPlayerSampleRate");
+                var formats = (ComboBox)page.FindName("comboBoxPlayerFormat");
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerSampleRateNames),
+                    rates.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerFormatNames),
+                    formats.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                CollectionAssert.AreEquivalent(
+                    new[] { SampleRate.AUTO, SampleRate.SAMPLE_RATE_44100Hz, SampleRate.SAMPLE_RATE_48000Hz },
+                    rates.Items.OfType<KeyValuePair<SampleRate, string>>().Select(item => item.Key).ToArray());
+                CollectionAssert.AreEquivalent(
+                    new[] { SampleFormat.AUTO, SampleFormat.SAMPLE_INT_16BIT, SampleFormat.SAMPLE_INT_24BIT },
+                    formats.Items.OfType<KeyValuePair<SampleFormat, string>>().Select(item => item.Key).ToArray());
+
+                formats.SelectedValue = SampleFormat.SAMPLE_INT_24BIT;
+                Materialize(window);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, dialog.PlayerFormat);
+                Assert.AreEqual(SampleRate.AUTO, dialog.PlayerSampleRate);
+
+                rates.SelectedValue = SampleRate.SAMPLE_RATE_44100Hz;
+                Materialize(window);
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, dialog.PlayerSampleRate);
+                Assert.AreEqual(SampleFormat.AUTO, dialog.PlayerFormat);
+                Assert.AreEqual(SampleFormat.AUTO, formats.SelectedValue);
+                CollectionAssert.AreEquivalent(
+                    new[] { SampleFormat.AUTO, SampleFormat.SAMPLE_INT_16BIT },
+                    formats.Items.OfType<KeyValuePair<SampleFormat, string>>().Select(item => item.Key).ToArray());
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                dialog.Dispose();
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void VisibleAudioSettingsPageAutomaticallyQueriesTheSelectedOutput()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Settings settings = new()
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true
+            };
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            var queryApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int queryCount = 0;
+            AudioDeviceCapabilityRequest? capturedRequest = null;
+            var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
+            {
+                capturedRequest = request;
+                queryCount++;
+                return new AudioDeviceCapabilityResult(
+                    request.Backend,
+                    request.DeviceIdentity,
+                    request.DeviceName,
+                    AudioDeviceCapabilityStatus.Available,
+                    [SampleRate.SAMPLE_RATE_44100Hz]);
+            });
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new NoOpAudioDeviceTestPlaybackPort(),
+                new SuccessfulAudioDeviceTestRuntime(),
+                capabilityRuntime);
+            var dialog = new SettingsDialogViewModel(
+                owner,
+                owner.PlaylistWorkspace,
+                owner.PlaylistWorkspace,
+                owner.PlayHistory,
+                owner.LibraryFolderTree,
+                new TestSettingsDialogPlayerFactoryPort(),
+                new TestSettingsDialogPlaybackRuntimePort(),
+                owner.Lr2SongDbSyncWorkflow,
+                new NoOpSettingsEditSession(settings),
+                schemaDialogs: new UiDialogCoordinator(),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                audioDeviceTestWorkflow: workflow,
+                externalShellGateway: ExternalShellGatewayPolicy.Current,
+                applicationPathSnapshot: ApplicationPathPolicy.Current,
+                audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                audioSettingsGateway: new TestAudioSettingsGateway());
+            dialog.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
+                    && dialog.PlayerSampleRateNames.Count > 1)
+                {
+                    queryApplied.TrySetResult();
+                }
+            };
+            var window = new SettingsWindow
+            {
+                DataContext = dialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = window.FindName("navigationAudio");
+                Materialize(window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(queryApplied.Task, "visible-audio-page-capability-query");
+
+                Assert.AreEqual(1, queryCount);
+                AudioDeviceCapabilityRequest request = capturedRequest
+                    ?? throw new AssertFailedException("Visible audio page did not query the selected output.");
+                Assert.AreEqual(AudioDriver.WasapiShared, request.Backend);
+                Assert.IsNull(request.DeviceIdentity);
+                Assert.IsNull(dialog.AudioDeviceCapabilityStatusMessage);
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                dialog.Dispose();
                 owner.SettingDialog.Dispose();
             }
         });
@@ -554,7 +889,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     }
 
     [TestMethod]
-    public void AudioMeasurementControlsShareDedicatedLocalizedSemanticSection()
+    public void AudioOutputTestAndAdvancedControlsUseSeparateSections()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
@@ -570,33 +905,36 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     PlaybackPanel = owner.PlaybackPanel
                 };
                 Materialize(window);
+                owner.SettingDialog.SetPresentationActive(active: false);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var content = (ContentControl)window.FindName("settingsPageContent");
                 navigation.SelectedItem = window.FindName("navigationAudio");
                 Materialize(window);
                 var page = (AudioSettingsPage)content.Content;
-                SettingsField latencyField = FindLogicalDescendants<SettingsField>(page).Single(field =>
-                    GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_latency");
                 SettingsField bufferField = FindLogicalDescendants<SettingsField>(page).Single(field =>
                     GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_buffersize");
                 SettingsField qualityField = FindLogicalDescendants<SettingsField>(page).Single(field =>
                     GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_resampling_quality");
                 Button testButton = FindLogicalDescendants<Button>(page).Single(button =>
-                    GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Device_setting_test");
+                    GetBindingPath(button, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.AudioDeviceTestButtonContent));
                 SettingsSection? measurementSection = FindNearestSettingsSection(testButton);
-                SettingsSection? latencySection = FindNearestSettingsSection(latencyField);
-                SettingsSection advancedSection = FindLogicalDescendants<SettingsSection>(page).Single(section =>
+                var driverSelector = (ComboBox)page.FindName("comboBoxPlayerDriver");
+                SettingsSection? outputSection = FindNearestSettingsSection(driverSelector);
+                Expander advancedSection = FindLogicalDescendants<Expander>(page).Single(section =>
                     GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Settings_audio_advanced");
                 SettingsSection volumeSection = FindLogicalDescendants<SettingsSection>(page).Single(section =>
                     GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_volume");
 
-                Assert.AreSame(measurementSection, latencySection);
-                Assert.AreNotSame(advancedSection, measurementSection);
+                Assert.AreNotSame(measurementSection, outputSection);
+                Assert.AreNotSame<object>(advancedSection, measurementSection);
+                Assert.IsFalse(advancedSection.IsExpanded);
+                advancedSection.IsExpanded = true;
                 Assert.AreNotSame(volumeSection, measurementSection);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(measurementSection!.Header?.ToString()));
-                Assert.AreEqual("レイテンシ", latencyField.Header);
                 Assert.AreEqual("Resources.Device_setting_test",
                     GetBindingPath(measurementSection!, HeaderedContentControl.HeaderProperty));
+                Assert.AreEqual("Resources.Device_setting",
+                    GetBindingPath(outputSection!, HeaderedContentControl.HeaderProperty));
 
                 StackPanel advancedContent = advancedSection.Content as StackPanel
                     ?? throw new AssertFailedException("The advanced audio section must contain its settings stack.");

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using BeMusicSeeker.Models;
 using ManagedBass;
 using Ribbit.Media;
 
@@ -16,13 +17,19 @@ internal sealed class BassAudioNegotiationRequest
         BassAudioPlayer.DeviceDescriptor device,
         SampleRate rate,
         SampleFormat format,
-        float latencyMilliseconds)
+        float latencyMilliseconds,
+        bool eventModeRequested = false,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        AudioOutputPurpose purpose = AudioOutputPurpose.Playback)
     {
         Backend = backend;
         Device = device;
         Rate = rate;
         Format = format;
         LatencyMilliseconds = latencyMilliseconds;
+        EventModeRequested = eventModeRequested;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        Purpose = purpose;
     }
 
     /// <summary>Gets the requested backend.</summary>
@@ -39,6 +46,18 @@ internal sealed class BassAudioNegotiationRequest
 
     /// <summary>Gets the requested backend latency in milliseconds.</summary>
     internal float LatencyMilliseconds { get; }
+
+    /// <summary>イベント駆動の出力を要求したか取得します。</summary>
+    internal bool EventModeRequested { get; }
+
+    /// <summary>開始時に捕捉した標本化周波数変換品質を取得します。</summary>
+    internal int SampleRateConversionQuality { get; }
+
+    /// <summary>通常再生または選択条件テストの用途を取得します。</summary>
+    internal AudioOutputPurpose Purpose { get; }
+
+    /// <summary>選択した出力条件の代替を禁止する要求か取得します。</summary>
+    internal bool RequiresExactSelection => Purpose == AudioOutputPurpose.DeviceTest;
 }
 
 /// <summary>
@@ -72,12 +91,12 @@ internal sealed class BassAudioBackendAttempt
     internal string Outcome { get; }
 }
 
-/// <summary>
-/// Describes the values accepted by a backend independently from the caller's request.
-/// </summary>
+/// <summary>利用者の要求から独立して、backendが受理した値を保持します。</summary>
 internal sealed class BassAudioBackendResult
 {
-    /// <summary>Creates an immutable successful backend result.</summary>
+    /// <summary>backendが受理した出力値、形式精度、交渉試行を保持する結果を作成します。</summary>
+    /// <param name="endpointContainerBits">機器が報告したサンプル容器幅です。</param>
+    /// <param name="endpointEffectiveBits">機器が報告した有効精度です。</param>
     internal BassAudioBackendResult(
         BassAudioNegotiationRequest request,
         BassAudioPlayer.DeviceDescriptor actualDevice,
@@ -89,7 +108,9 @@ internal sealed class BassAudioBackendResult
         IReadOnlyList<BassAudioBackendAttempt> attempts,
         string fallbackReason,
         int actualChannels = 2,
-        SampleFormat callbackFormat = SampleFormat.UNKNOWN)
+        SampleFormat callbackFormat = SampleFormat.UNKNOWN,
+        int endpointContainerBits = 0,
+        int endpointEffectiveBits = 0)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         ActualDevice = actualDevice;
@@ -102,6 +123,8 @@ internal sealed class BassAudioBackendResult
         Attempts = attempts ?? throw new ArgumentNullException(nameof(attempts));
         FallbackReason = fallbackReason;
         ActualChannels = actualChannels;
+        EndpointContainerBits = endpointContainerBits;
+        EndpointEffectiveBits = endpointEffectiveBits;
     }
 
     /// <summary>Gets the original caller request.</summary>
@@ -130,6 +153,12 @@ internal sealed class BassAudioBackendResult
 
     /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>
     internal int ActualChannels { get; }
+
+    /// <summary>backendが報告する場合に機器のサンプル容器幅を取得します。</summary>
+    internal int EndpointContainerBits { get; }
+
+    /// <summary>backendが報告する場合に機器の有効精度を取得します。</summary>
+    internal int EndpointEffectiveBits { get; }
 
     /// <summary>Gets the decode mixer owned by the audio session.</summary>
     internal int MixerHandle { get; }
@@ -172,6 +201,8 @@ internal sealed class BassAudioBackendResult
             attempts,
             fallbackReason,
             ActualChannels,
-            CallbackFormat);
+            CallbackFormat,
+            EndpointContainerBits,
+            EndpointEffectiveBits);
     }
 }
