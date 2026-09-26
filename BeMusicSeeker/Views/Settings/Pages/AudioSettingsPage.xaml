@@ -28,7 +28,7 @@
         <settings:SettingsStatusBanner Margin="0,0,0,8" Icon="!" Status="Warning" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding UnavailablePlayerDriverDescription}" />
         <settings:SettingsStatusBanner Margin="0,0,0,8" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioDeviceCapabilityStatusMessage}" />
         <Expander Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.AudioDeviceTechnicalDetails, Mode=OneWay}" IsExpanded="False" Visibility="{Binding HasAudioDeviceCapabilityDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
-          <TextBlock Margin="0,6,0,0" Text="{Binding AudioDeviceCapabilityDiagnosticMessage}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding AudioDeviceCapabilityDiagnosticMessage}" TextWrapping="Wrap" />
         </Expander>
       </StackPanel>
     </settings:SettingsSection>
@@ -37,13 +37,13 @@
       <StackPanel>
         <Button x:Name="buttonPlayerTest" HorizontalAlignment="Left" Style="{StaticResource SettingsQuietButtonStyle}" IsEnabled="{Binding IsAudioDeviceTestAvailable}" Content="{Binding AudioDeviceTestButtonContent, Mode=OneWay}" Click="buttonPlayerTestClick" />
         <settings:SettingsStatusBanner Margin="0,10,0,0" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioDeviceTestStatusMessage}" />
-        <Expander Margin="0,6,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.AudioDeviceTechnicalDetails, Mode=OneWay}" IsExpanded="False" Visibility="{Binding HasAudioDeviceTestDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
-          <TextBlock Margin="0,6,0,0" Text="{Binding AudioDeviceTestDiagnosticMessage}" TextWrapping="Wrap" />
+        <Expander Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.AudioDeviceTechnicalDetails, Mode=OneWay}" IsExpanded="False" Visibility="{Binding HasAudioDeviceTestDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <TextBlock Text="{Binding AudioDeviceTestDiagnosticMessage}" TextWrapping="Wrap" />
         </Expander>
       </StackPanel>
     </settings:SettingsSection>
 
-    <Expander x:Name="audioAdvancedSettings" IsExpanded="False" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_audio_advanced, Mode=OneWay}">
+    <Expander x:Name="audioAdvancedSettings" Style="{StaticResource SettingsSectionExpanderStyle}" IsExpanded="False" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_audio_advanced, Mode=OneWay}">
       <StackPanel>
         <CheckBox Visibility="{Binding IsPlayerWasapiDriver, Converter={StaticResource BooleanToVisibilityConverter}}" x:Name="checkBoxWasapiLowLatency" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
         <settings:SettingsField Visibility="{Binding IsPlayerBufferControlEnabled, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,12,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_buffersize, Mode=OneWay}">

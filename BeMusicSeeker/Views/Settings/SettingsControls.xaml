@@ -10,6 +10,8 @@
   <ResourceDictionary.MergedDictionaries>
     <ResourceDictionary Source="/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml" />
   </ResourceDictionary.MergedDictionaries>
+  <!-- 通常セクションと折り畳みセクションで、次のセクションまでの余白を共有する。 -->
+  <Thickness x:Key="SettingsSectionMargin">0,0,0,28</Thickness>
   <Style x:Key="SettingsTrackRepeatButtonStyle"
          TargetType="{x:Type RepeatButton}"
          BasedOn="{StaticResource App.Canonical.TrackRepeatButtonStyle}" />
@@ -143,8 +145,16 @@
          BasedOn="{StaticResource App.Canonical.ExpanderHeaderToggleStyle}" />
   <Style x:Key="SettingsExpanderStyle"
          TargetType="{x:Type Expander}"
-         BasedOn="{StaticResource App.Canonical.ExpanderStyle}" />
+         BasedOn="{StaticResource App.Canonical.ExpanderStyle}">
+    <!-- セクション内の詳細表示。セクション間の下余白は親が持つ。 -->
+    <Setter Property="Margin" Value="0,6,0,0" />
+  </Style>
   <Style TargetType="{x:Type Expander}" BasedOn="{StaticResource SettingsExpanderStyle}" />
+  <Style x:Key="SettingsSectionExpanderStyle"
+         TargetType="{x:Type Expander}"
+         BasedOn="{StaticResource SettingsExpanderStyle}">
+    <Setter Property="Margin" Value="{StaticResource SettingsSectionMargin}" />
+  </Style>
 
   <Style x:Key="settingsNavigationItemStyle"
          TargetType="{x:Type ListBoxItem}"
@@ -222,7 +232,7 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsSection}">
-    <Setter Property="Margin" Value="0,0,0,28" />
+    <Setter Property="Margin" Value="{StaticResource SettingsSectionMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
