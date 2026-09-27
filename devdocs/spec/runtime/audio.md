@@ -146,7 +146,7 @@ WASAPI排他の能力候補はdriver、device、rate、formatの順に絞りま�
 
 Oggは拡張子ではなくコンテナで判定し、libvorbisfileのfloat APIを使います。復号失敗を別decoderで隠しません。同じ形式のchainだけを連結し、CRC破損、page欠落、EOS欠落、切断、非Vorbis、同時多重化、形式変更chainを拒否します。これは途中まで再生可能な壊れたファイルも拒否する互換性変更です。
 
-キャッシュは一回の曲ロードに限定し、正規化絶対パスの並列初回復号を一回にまとめます。ロード後はsourceがPCMを保持し、バッチ全曲分を蓄積しません。sourceごとの `FloatWaveSource` は小さいヘッダーと共有PCMを仮想WAVEとして提示し、再生位置を共有しません。native解放未確認時はPCMとdelegateの所有を維持します。
+PCMの共有は一回の曲ロードに限り、正規化絶対pathが同じ入力を一度だけ復号します。ロード後はsourceがPCMを保持し、バッチ全曲分を蓄積しません。sourceごとの `FloatWaveSource` は小さいヘッダーと共有PCMを仮想WAVEとして提示し、再生位置を共有しません。native解放未確認時はPCMとdelegateの所有を維持します。
 
 譜面ロードはBGM、可視1P/2P、ロング開始1P/2Pの使用音源だけを対象とします。欠落音源の既存の扱いは維持し、存在する使用音源の復号失敗は曲の失敗として成功済みsourceも回収します。未使用定義の破損を拒否理由にしません。
 
@@ -165,6 +165,18 @@ SRC品質は再生・デバイステスト・音声変換で共通です。選�
 ### 出力故障の受渡し
 
 コールバックは実フレーム数で短いreadを継続し、故障を値でセッションに一件保持して以後を無音にします。例外・ログ・ファイル処理・復号をコールバックへ持ち込みません。通常の再生時計・位置観測で故障を回収し、既存の例外・停止・解放経路へ渡します。機器境界の過大レベルはセッションにつき一回、管理側の診断へ記録します。リミッターや自動減衰は追加しません。
+
+### 譜面の音源事前読込み
+
+`BMSAutoPlayer` は実際に使うBGM・可視音符・ロングノート開始のWAV indexだけを読み込みます。未使用定義は開かず、欠落音源は従来どおり無音として扱います。拡張子の探索順とサブフォルダーからbasenameへの救済も維持します。使用音源の破損は曲の読み込み失敗です。複数の失敗は最小WAV indexを主失敗として報告し、先に作成したsourceは回収してから結果を返します。
+
+一回の曲ロード中だけ、正規化した絶対pathを `OrdinalIgnoreCase` でまとめます。同じファイルは一度だけ開いてnative memoryへ読み込み、元のrate・level・layout・frame countを保つ有限float32 PCMへ一度だけ復号します。各WAV indexには別々のBASS sourceと読取りcursorを作り、復号PCMだけを共有します。全対象の成功後に `AudioPlayers` を公開します。別の曲ロードでは再読込み・再復号し、曲をまたぐcache、stream再生、再試行、メモリ追出しは設けません。
+
+並列読込みはunique path数Uに対してreaderを `min(2, U)`、decoderを `min(U, max(1, Environment.ProcessorCount - 1))` とし、読取り済み入力queueを4件に制限します。読取りと復号を逐次指定した場合も同じ処理関数を使い、workerを作りません。入力ごとの読取り・復号失敗は記録して残りを続けます。worker自体が停止した場合は内部取消でproducerを止め、全workerの終了とqueue内入力の回収を待ちます。
+
+ファイル入力は一つのnative連続memory ownerとread-only stream viewで扱い、署名・WAVE metadata・BASS・Vorbisが同じ入力を参照します。WAV/MP3の入力にmanaged `byte[]` のサイズ上限を新設せず、PCM配列とRIFFの既存上限、およびVorbis入力の `Array.MaxLength` 上限は維持します。先頭signatureは一回だけ読み、`OggS`ならVorbis上限をnative全体bufferの確保前に確認して、先読み分を同じbufferへ含めます。BASS一時decoderが入力を参照している間は入力を音声sessionへ移し、stream解放callbackでnative解放確認後に解放します。解放未確認ならsessionが入力とhandleを保持します。Vorbis入力はnative decoderのClose後に解放します。I/O失敗は `InspectContainer` と元例外を保ち、形式・復号段階の分類も維持します。
+
+譜面再生とBMS音声変換は同じ事前復号pipelineを使います。pathを受け取る `BassAudioPlayer`、`AudioSourceLoader.Load`、`VorbisDecoder.Decode` の入口も同じ読み込み・復号経路を通し、復号済みsourceを受け取るplayer/writer constructorはファイルを再確認・再読込みしません。再生開始直前の強制GCは行いません。次曲では旧曲の停止・source解放確認後に次の出力要求をruntimeへ渡し、その後に新しい譜面解析・音源読取りを行います。旧sourceの解放が未確認なら `SourceRelease` を主失敗にして既存session cleanupへ進み、出力sessionの再初期化や次player作成へ進みません。cleanup後に新曲を自動再試行しません。
 
 ### 曲の再生と解放
 
@@ -222,7 +234,7 @@ SRC=6の信号検査は44.1↔48、48↔96kHzで1/5/10/18kHzの振幅差≤0.01d
 | デバイステストの要求/実値表示と技術診断の分離 | [`AudioDeviceTestWorkflowOwner.Presentation`](../../../BeMusicSeeker/ViewModels/Settings/AudioDeviceTestWorkflowOwner.Presentation.cs)、[`AudioDeviceTestWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Settings/AudioDeviceTestWorkflowOwner.cs)、[`AudioPlaybackInitializationResult`](../../../BeMusicSeeker/Models/Playback/AudioContracts.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)で代替成功、初期化失敗、再生開始失敗の要求/実値・翻訳表示・技術診断・保存不変を検査する。 |
 | ミキサー所属、再生世代、ネイティブ失敗 | [`BassAudioPlayer`](../../../BeMusicSeeker/Ribbit/Media/BassAudioPlayer.cs) | [`BassMixerSourceControllerTests`](../../../BeMusicSeeker.Tests/Playback/BassMixerSourceControllerTests.cs)、[`BassAudioSessionTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioSessionTests.cs) |
 | 元レート・有限float32・コンテナ判定・配置・合法chain | [`AudioSourceLoader`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoader.cs)、[`VorbisDecoder`](../../../BeMusicSeeker/Ribbit/Media/Audio/VorbisDecoder.cs) | [`AudioSourceLoaderTests`](../../../BeMusicSeeker.Tests/Playback/AudioSourceLoaderTests.cs) はPCM8/16/24/32、float32/64、valid bits、chunkと拒否条件、[`VorbisDecoderTests`](../../../BeMusicSeeker.Tests/Playback/VorbisDecoderTests.cs) は直接libvorbis参照PCM・chainと破損を検査する。 |
-| 曲内一回復号・独立cursor・使用音源だけのロード | [`AudioSourceCache`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceCache.cs)、[`FloatWaveSource`](../../../BeMusicSeeker/Ribbit/Media/Audio/FloatWaveSource.cs)、[`BMSAutoPlayer`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayer.cs) | `AudioSourceLoaderTests`、[`BMSAutoPlayerInputTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayerInputTests.cs) |
+| 曲内一回読取り・一回復号、独立cursor、使用音源だけのロード、有界pipeline、session変更拒否、旧source解放 | [`AudioInputFile`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioInputFile.cs)、[`AudioSourceLoadPipeline`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoadPipeline.cs)、[`FloatWaveSource`](../../../BeMusicSeeker/Ribbit/Media/Audio/FloatWaveSource.cs)、[`BMSAutoPlayer`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayer.cs)、[`InternalBMSAutoPlayerSoundOnly`](../../../BeMusicSeeker/Models/Playback/InternalBMSAutoPlayerSoundOnly.cs) | [`AudioSourceLoaderTests`](../../../BeMusicSeeker.Tests/Playback/AudioSourceLoaderTests.cs)の`AudioInputFile_RejectsOversizedOggBeforeNativeAllocationAfterSplitSignatureRead`と`AudioInputFile_DoesNotApplyOggInputLimitToWaveSignature`、[`BassAudioSessionTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioSessionTests.cs)、[`BMSAutoPlayerInputTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayerInputTests.cs)、[`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)の`InternalPlayer_ReleasesOldPlayerBeforeChangingOutputSession`と`InternalPlayer_SourceReleaseFailureStopsBeforeCallingNextPlayerFactory` |
 | SRC品質・有限終端・最初と再開の信号・float加算 | [`BassMixerSourceController`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassMixerSourceController.cs) | [`AudioMixerSignalTests`](../../../BeMusicSeeker.Tests/Playback/AudioMixerSignalTests.cs) はSRC6の解析的正弦・全品質の定数の数学的終端を実DLLで検査する。 |
 | 既定SRC4の周波数特性と処理負荷の測定 | 同じ本番音源・ミキサーの無音機器経路 | [`AudioMixerPerformanceTests`](../../../BeMusicSeeker.Tests/Performance/AudioMixerPerformanceTests.cs) は周波数特性の全条件を記録する。同率の短尺・128音源・120秒音源の処理に加え、44.1/48kHz各64音源・各2秒を192kHzへ256フレーム単位で取得し、読込み・発音・取得・プレイヤー解放を3反復測る。実際に読み戻した1スレッドを条件へ記録し、従来の4スレッド測定と区別する。生成・初期化・作業バッファ・セッション解放は時間測定外とし、マネージド割当量を総メモリ量と扱わない。品質や処理時間に新たな合否閾値を設けず、同一環境での比較なしに速度改善を主張しない。 |
 | 5ms共通gain・callback短readと故障の引渡し | [`AudioOutputProcessor`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioOutputProcessor.cs)、[`AudioPcmRenderer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcmRenderer.cs) | [`AudioOutputProcessorTests`](../../../BeMusicSeeker.Tests/Playback/AudioOutputProcessorTests.cs)、[`AudioPcmRendererTests`](../../../BeMusicSeeker.Tests/Playback/AudioPcmRendererTests.cs)、`BassAudioSessionTests` |

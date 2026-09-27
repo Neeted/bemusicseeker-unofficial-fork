@@ -304,7 +304,6 @@ public sealed class AudioMixerSignalTests
         private readonly bool previousMute;
         private readonly List<BassAudioPlayer> players = [];
         private readonly float[] pullBuffer = new float[PullBufferFrames * 2];
-        private readonly AudioSourceCache sourceCache = new();
         private BassAudioSession? session;
         private bool disposed;
 
@@ -373,7 +372,7 @@ public sealed class AudioMixerSignalTests
 
         internal BassAudioPlayer CreatePlayer(string path)
         {
-            BassAudioPlayer player = new(path, sourceCache);
+            BassAudioPlayer player = new(path);
             players.Add(player);
             return player;
         }

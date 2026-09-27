@@ -4,7 +4,6 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
-using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using Ribbit.Logging;
 
@@ -55,17 +54,68 @@ internal static class AudioSourceLoader
 
     /// <summary>サンプルレート、レベル、チャンネル順を変えずにファイルを復号します。</summary>
     internal static DecodedAudio Load(string path)
+        => LoadWithSession(path).Audio;
+
+    /// <summary>一度読み込んだpath入力のPCMと復号に使ったsessionを一緒に返します。</summary>
+    /// <param name="path">読み込む音声pathです。</param>
+    /// <param name="openInput">未指定ならpathを開き、指定時はそのstreamを一度だけ読み込みます。</param>
+    /// <param name="freeTemporaryDecoder">一時decoderの解放境界です。未指定ならBASSへ解放を依頼します。</param>
+    internal static DecodedAudioSessionSource LoadWithSession(
+        string path,
+        Func<string, Stream>? openInput = null,
+        Func<int, bool>? freeTemporaryDecoder = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        BassAudioSession expectedSession;
+        using (BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation())
+        {
+            BassAudioSession? session = BassAudioPlayer.CurrentSessionForAdmittedOperation;
+            if (session?.State != BassAudioSessionState.Active)
+            {
+                throw new InvalidOperationException("An active audio session is required to decode a source.");
+            }
+            expectedSession = session;
+        }
+
+        using var input = AudioInputFile.Read(path, openInput);
+        DecodedAudio audio = Decode(input, expectedSession, freeTemporaryDecoder);
+        return new DecodedAudioSessionSource(audio, expectedSession);
+    }
+
+    /// <summary>既に読み込んだ入力を捕捉した音声sessionで復号します。</summary>
+    /// <param name="input">一回read済みで、復号後まで所有する入力です。</param>
+    /// <param name="expectedSession">読み込み開始時に捕捉したsessionです。</param>
+    /// <param name="freeTemporaryDecoder">一時decoderの解放境界です。未指定ならBASSへ解放を依頼します。</param>
+    internal static DecodedAudio Decode(
+        AudioInputFile input,
+        BassAudioSession? expectedSession,
+        Func<int, bool>? freeTemporaryDecoder = null)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
+        BassAudioSession? session = BassAudioPlayer.CurrentSessionForAdmittedOperation;
+        if (session?.State != BassAudioSessionState.Active)
+        {
+            throw new InvalidOperationException("An active audio session is required to decode a source.");
+        }
+        if (expectedSession != null
+            && (!ReferenceEquals(expectedSession, session) || expectedSession.State != BassAudioSessionState.Active))
+        {
+            throw new InvalidOperationException("The audio session changed while BMS resources were loading.");
+        }
+        if (session.CoreDeviceIndex >= 0)
+        {
+            Bass.CurrentDevice = session.CoreDeviceIndex;
+        }
+
+        using Stream signatureInput = input.OpenReadView();
         try
         {
-            string fullPath = System.IO.Path.GetFullPath(path);
-            using FileStream input = LongPathFileSystem.OpenRead(fullPath);
             Span<byte> signature = stackalloc byte[12];
             int signatureLength = 0;
             while (signatureLength < signature.Length)
             {
-                int bytesRead = input.Read(signature[signatureLength..]);
+                int bytesRead = signatureInput.Read(signature[signatureLength..]);
                 if (bytesRead == 0)
                 {
                     break;
@@ -78,11 +128,16 @@ internal static class AudioSourceLoader
                 && signature[8..12].SequenceEqual("WAVE"u8);
             if (isOgg)
             {
-                return VorbisDecoder.Decode(fullPath);
+                return VorbisDecoder.Decode(input);
             }
 
-            WaveFormat? waveFormat = hasWaveSignature ? WaveFormat.Read(fullPath) : null;
-            return DecodeWithBass(fullPath, waveFormat);
+            WaveFormat? waveFormat = null;
+            if (hasWaveSignature)
+            {
+                using Stream waveInput = input.OpenReadView();
+                waveFormat = WaveFormat.Read(waveInput, input.Path);
+            }
+            return DecodeWithBass(input, waveFormat, session, freeTemporaryDecoder);
         }
         catch (AudioSourceLoadException)
         {
@@ -92,50 +147,127 @@ internal static class AudioSourceLoader
         {
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.InspectContainer,
-                path,
+                input.Path,
                 "The audio input could not be inspected.",
                 exception);
         }
     }
 
-    private static DecodedAudio DecodeWithBass(string path, WaveFormat? waveFormat)
+    private static DecodedAudio DecodeWithBass(
+        AudioInputFile input,
+        WaveFormat? waveFormat,
+        BassAudioSession session,
+        Func<int, bool>? freeTemporaryDecoder)
     {
-        using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-        BassAudioSession session = BassAudioPlayer.ActiveSession
-            ?? throw new InvalidOperationException("An audio session is required to decode a source.");
         int handle = Bass.CreateStream(
-            LongPathFileSystem.ToExtendedPath(path),
+            input.Memory,
             0L,
-            0L,
+            input.Length,
             BassFlags.Float | BassFlags.Prescan | BassFlags.Decode);
         if (handle == 0)
         {
             Errors error = Bass.LastError;
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.DecodeWithBass,
-                path,
+                input.Path,
                 "BASS could not decode the audio input as float32.",
                 nativeErrorCode: (int)error);
         }
 
         // 一時decoderも解放確認までセッションに所有させ、失敗時にhandleを失わないようにします。
-        session.TrackPlayerStream(handle, session, static _ => { });
+        try
+        {
+            session.TrackPlayerStream(handle, input, input.ConfirmNativeRelease);
+            input.TransferToSession();
+        }
+        catch
+        {
+            bool alreadyOwned = false;
+            bool tracked = false;
+            try
+            {
+                tracked = session.TryTrackPlayerStreamForCleanup(
+                    handle,
+                    input,
+                    input.ConfirmNativeRelease,
+                    out alreadyOwned);
+                if (tracked)
+                {
+                    input.TransferToSession();
+                }
+            }
+            catch
+            {
+                // Preserve the source-tracking failure while making a best-effort native release.
+            }
+
+            if (tracked)
+            {
+                TryReleaseTemporaryDecoder(handle, session, freeNativeStream: freeTemporaryDecoder);
+            }
+            else if (!alreadyOwned)
+            {
+                TryReleaseTemporaryDecoder(handle, session: null, freeNativeStream: freeTemporaryDecoder);
+            }
+            throw;
+        }
         DecodedAudio? result = null;
         Exception? primaryFailure = null;
         try
         {
-            result = DecodeBassStream(handle, path, waveFormat);
+            result = DecodeBassStream(handle, input.Path, waveFormat);
         }
         catch (Exception exception)
         {
             primaryFailure = exception;
         }
 
-        bool released = false;
-        Exception? releaseFailure = null;
+        bool released = TryReleaseTemporaryDecoder(
+            handle,
+            session,
+            out Exception? releaseFailure,
+            freeTemporaryDecoder);
+
+        if (primaryFailure != null)
+        {
+            if (releaseFailure != null)
+            {
+                primaryFailure.Data["AudioSourceCleanupFailure"] = releaseFailure;
+                TryLogCleanupFailure(input.Path, releaseFailure);
+            }
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
+        if (!released)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeWithBass,
+                input.Path,
+                "BASS could not release the temporary input decoder.",
+                releaseFailure);
+        }
+
+        return result ?? throw new InvalidOperationException("The input decoder returned no PCM.");
+    }
+
+    private static bool TryReleaseTemporaryDecoder(
+        int handle,
+        BassAudioSession? session,
+        Func<int, bool>? freeNativeStream = null) =>
+        TryReleaseTemporaryDecoder(handle, session, out _, freeNativeStream);
+
+    private static bool TryReleaseTemporaryDecoder(
+        int handle,
+        BassAudioSession? session,
+        out Exception? releaseFailure,
+        Func<int, bool>? freeNativeStream = null)
+    {
+        releaseFailure = null;
+        bool released;
         try
         {
-            released = Bass.StreamFree(handle);
+            released = freeNativeStream == null
+                ? Bass.StreamFree(handle)
+                : freeNativeStream(handle);
             if (!released)
             {
                 Errors error = Bass.LastError;
@@ -150,33 +282,15 @@ internal static class AudioSourceLoader
         }
         catch (Exception exception)
         {
+            released = false;
             releaseFailure = exception;
         }
 
         if (released)
         {
-            session.ConfirmPlayerStreamReleased(handle);
+            session?.ConfirmPlayerStreamReleased(handle);
         }
-
-        if (primaryFailure != null)
-        {
-            if (releaseFailure != null)
-            {
-                primaryFailure.Data["AudioSourceCleanupFailure"] = releaseFailure;
-                TryLogCleanupFailure(path, releaseFailure);
-            }
-            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
-        }
-        if (!released)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "BASS could not release the temporary input decoder.",
-                releaseFailure);
-        }
-
-        return result ?? throw new InvalidOperationException("The input decoder returned no PCM.");
+        return released;
     }
 
     private static DecodedAudio DecodeBassStream(int handle, string path, WaveFormat? waveFormat)
@@ -404,12 +518,11 @@ internal static class AudioSourceLoader
 
         internal AudioChannelLayout ChannelLayout { get; }
 
-        internal static WaveFormat Read(string path)
+        internal static WaveFormat Read(Stream stream, string path)
         {
             try
             {
-                using FileStream stream = LongPathFileSystem.OpenRead(path);
-                using var reader = new BinaryReader(stream);
+                using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
                 if (stream.Length < 12)
                 {
                     throw new InvalidDataException("The RIFF header is truncated.");
@@ -558,3 +671,6 @@ internal static class AudioSourceLoader
         }
     }
 }
+
+/// <summary>一時decoderで復号した音源と、そのnative sourceを作る対象sessionです。</summary>
+internal readonly record struct DecodedAudioSessionSource(DecodedAudio Audio, BassAudioSession Session);

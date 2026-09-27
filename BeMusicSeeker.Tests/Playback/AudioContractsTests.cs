@@ -409,6 +409,287 @@ public sealed class AudioContractsTests
     }
 
     [TestMethod]
+    public async Task InternalPlayer_LateCancelledStartDoesNotCloseTheReplacementSong()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string oldPath = WritePlaybackChart(directory, "old.bms", bpm: 400, measure: 50);
+        string newPath = WritePlaybackChart(directory, "new.bms", bpm: 400, measure: 1);
+        var events = new List<string>();
+        var runtime = new RecordingAudioPlaybackRuntime(events)
+        {
+            InitializeResult = CreatePlaybackInitializationResult(),
+        };
+        var player = new InternalBMSAutoPlayerSoundOnly(
+            new SettingsPlayerSettingsGateway(() => testSettings),
+            runtime);
+        int oldCallbackCount = 0;
+        int newCallbackCount = 0;
+        Task oldStart = player.PlayStart(oldPath, (_, _) => oldCallbackCount++);
+        Task newStart = Task.CompletedTask;
+
+        var failures = new List<Exception>();
+        try
+        {
+            newStart = player.PlayStart(newPath, (_, _) => newCallbackCount++);
+            Assert.IsTrue(player.Duration > TimeSpan.Zero);
+
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+                () => oldStart);
+
+            Assert.IsTrue(player.Duration > TimeSpan.Zero, "The old start's delayed cleanup must leave the new song active.");
+            Assert.AreEqual(0, oldCallbackCount);
+            Assert.AreEqual(0, newCallbackCount);
+            await newStart;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        // Short replacement charts finish naturally; only a failed assertion needs CloseProcess to signal cancellation.
+        if (!oldStart.IsCompleted || !newStart.IsCompleted)
+        {
+            CaptureCleanup(failures, player.CloseProcess);
+        }
+        await CaptureTaskCompletionAsync(oldStart, failures, exception => exception is OperationCanceledException);
+        await CaptureTaskCompletionAsync(newStart, failures, exception => exception is OperationCanceledException);
+        CaptureCleanup(failures, player.CloseProcess);
+        CaptureCleanup(failures, () => Directory.Delete(directory, recursive: true));
+        ThrowFailures(failures);
+    }
+
+    [TestMethod]
+    public async Task InternalPlayer_ReleasesOldPlayerBeforeChangingOutputSession()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string oldPath = WritePlaybackChart(directory, "old.bms", bpm: 400, measure: 50);
+        string newPath = WritePlaybackChart(directory, "new.bms", bpm: 400, measure: 1);
+        var events = new List<string>();
+        var initializedSessions = new List<BassAudioSession>();
+        BeMusicSeeker.Properties.Settings settings = CreateAudiblePlaybackSettings(SampleRate.SAMPLE_RATE_44100Hz);
+        BassAudioPlaybackRuntime runtime = CreateInjectedBassAudioPlaybackRuntime(events, initializedSessions);
+        ObservingBMSAutoPlayer? oldPlayer = null;
+        int factoryCalls = 0;
+        var player = new InternalBMSAutoPlayerSoundOnly(
+            new SettingsPlayerSettingsGateway(() => settings),
+            runtime,
+            autoPlayerFactory: path =>
+            {
+                factoryCalls++;
+                events.Add("player-factory:" + factoryCalls);
+                if (oldPlayer == null)
+                {
+                    oldPlayer = new ObservingBMSAutoPlayer(new Ribbit.BMS.BMSFile(path), events);
+                    return oldPlayer;
+                }
+                return new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path));
+            });
+        Task oldStart = player.PlayStart(oldPath);
+        Task newStart = Task.CompletedTask;
+
+        var failures = new List<Exception>();
+        try
+        {
+            Assert.AreEqual(1, initializedSessions.Count);
+            AudioOutputRequest firstRequest = initializedSessions[0].OutputRequest;
+            settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_48000Hz;
+
+            newStart = player.PlayStart(newPath);
+
+            Assert.AreEqual(2, initializedSessions.Count);
+            Assert.IsFalse(firstRequest.Equals(initializedSessions[1].OutputRequest));
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "native-initialize:1",
+                    "player-factory:1",
+                    "old-stop-joined",
+                    "old-source-release-complete",
+                    "session-release:1",
+                    "native-initialize:2",
+                    "player-factory:2",
+                },
+                events);
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+                () => oldStart);
+            await newStart;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        if (!oldStart.IsCompleted || !newStart.IsCompleted)
+        {
+            CaptureCleanup(failures, player.CloseProcess);
+        }
+        await CaptureTaskCompletionAsync(oldStart, failures, exception => exception is OperationCanceledException);
+        await CaptureTaskCompletionAsync(newStart, failures, exception => exception is OperationCanceledException);
+        CaptureCleanup(failures, player.CloseProcess);
+        CaptureCleanup(failures, () => Directory.Delete(directory, recursive: true));
+        ThrowFailures(failures);
+    }
+
+    [TestMethod]
+    public async Task InternalPlayer_SourceReleaseFailureStopsBeforeCallingNextPlayerFactory()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string oldPath = WritePlaybackChart(directory, "old.bms", bpm: 400, measure: 1);
+        string invalidNextPath = Path.Combine(directory, "invalid-next.bms");
+        File.WriteAllText(invalidNextPath, "not a BMS chart", System.Text.Encoding.ASCII);
+        var expectedFailure = new BassAudioPlaybackException(
+            BassAudioPlaybackStage.SourceRelease,
+            oldPath,
+            41,
+            17,
+            0,
+            "BASS_StreamFree",
+            nativeErrorCode: null,
+            message: BeMusicSeeker.Properties.Resources.AudioDeviceTestCleanupFailure);
+        var events = new List<string>();
+        var initializedSessions = new List<BassAudioSession>();
+        BeMusicSeeker.Properties.Settings settings = CreateAudiblePlaybackSettings(SampleRate.SAMPLE_RATE_44100Hz);
+        ThrowingReleaseBMSAutoPlayer? oldPlayer = null;
+        int factoryCalls = 0;
+        BassAudioPlaybackRuntime runtime = CreateInjectedBassAudioPlaybackRuntime(events, initializedSessions);
+        var player = new InternalBMSAutoPlayerSoundOnly(
+            new SettingsPlayerSettingsGateway(() => settings),
+            runtime,
+            autoPlayerFactory: path =>
+            {
+                factoryCalls++;
+                events.Add("player-factory:" + factoryCalls);
+                if (oldPlayer != null)
+                {
+                    return new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path));
+                }
+                oldPlayer = new ThrowingReleaseBMSAutoPlayer(
+                    new Ribbit.BMS.BMSFile(path), expectedFailure, events);
+                return oldPlayer;
+            });
+        Task oldStart = player.PlayStart(oldPath);
+        Task rejectedStart = Task.CompletedTask;
+
+        var failures = new List<Exception>();
+        try
+        {
+            await oldStart;
+            Assert.AreEqual(1, initializedSessions.Count);
+            settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_48000Hz;
+
+            rejectedStart = player.PlayStart(invalidNextPath);
+            BassAudioPlaybackException actual = await Assert.ThrowsExceptionAsync<BassAudioPlaybackException>(
+                () => rejectedStart);
+
+            Assert.AreSame(expectedFailure, actual);
+            Assert.AreEqual(BassAudioPlaybackStage.SourceRelease, actual.Stage);
+            Assert.AreEqual(1, factoryCalls, "The next BMS parser/player factory must not run after old-source release fails.");
+            Assert.AreEqual(1, initializedSessions.Count, "A failed old-source release must not initialize the changed output request.");
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "native-initialize:1",
+                    "player-factory:1",
+                    "old-stop-joined",
+                    "old-source-release-complete",
+                    "session-release:1",
+                },
+                events);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        if (!oldStart.IsCompleted || !rejectedStart.IsCompleted)
+        {
+            CaptureCleanup(failures, player.CloseProcess);
+        }
+        await CaptureTaskCompletionAsync(oldStart, failures, exception => exception is OperationCanceledException);
+        await CaptureTaskCompletionAsync(rejectedStart, failures, exception => ReferenceEquals(exception, expectedFailure));
+        if (oldPlayer != null)
+        {
+            CaptureCleanup(failures, () => oldPlayer.FailNextRelease = false);
+            CaptureCleanup(failures, oldPlayer.Dispose);
+        }
+        CaptureCleanup(failures, player.CloseProcess);
+        CaptureCleanup(failures, () => Directory.Delete(directory, recursive: true));
+        ThrowFailures(failures);
+    }
+
+    [TestMethod]
+    public async Task InternalPlayer_DispatchesTheCapturedExitCallbackAfterTheNextSongStarts()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string oldPath = WritePlaybackChart(directory, "old.bms", bpm: 400, measure: 1);
+        string newPath = WritePlaybackChart(directory, "new.bms", bpm: 400, measure: 1);
+        var capturedExit = new TaskCompletionSource<(Action<object, EventArgs> Callback, object Sender)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var events = new List<string>();
+        var runtime = new RecordingAudioPlaybackRuntime(events)
+        {
+            InitializeResult = CreatePlaybackInitializationResult(),
+        };
+        var player = new InternalBMSAutoPlayerSoundOnly(
+            new SettingsPlayerSettingsGateway(() => testSettings),
+            runtime,
+            (callback, sender) => capturedExit.TrySetResult((callback, sender)));
+        int generation = 1;
+        int oldCallbackCount = 0;
+        int newCallbackCount = 0;
+        Action<object, EventArgs> oldCallback = (_, _) =>
+        {
+            if (generation == 1)
+            {
+                oldCallbackCount++;
+                player.CloseProcess();
+            }
+        };
+        Task oldStart = player.PlayStart(oldPath, oldCallback);
+        Task newStart = Task.CompletedTask;
+
+        var failures = new List<Exception>();
+        try
+        {
+            await oldStart;
+            (Action<object, EventArgs> callback, object sender) = await capturedExit.Task;
+            Assert.AreSame(oldCallback, callback);
+
+            generation = 2;
+            newStart = player.PlayStart(newPath, (_, _) => newCallbackCount++);
+            TimeSpan newDuration = player.Duration;
+            Assert.IsTrue(newDuration > TimeSpan.Zero);
+
+            callback(sender, EventArgs.Empty);
+
+            Assert.AreEqual(0, oldCallbackCount, "The application's existing generation guard must ignore the stale exit.");
+            Assert.AreEqual(0, newCallbackCount, "The captured old callback must not dispatch the new callback.");
+            Assert.AreEqual(newDuration, player.Duration, "A stale exit must not close the replacement song.");
+            await newStart;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        CaptureCleanup(failures, () => capturedExit.TrySetCanceled());
+        await CaptureTaskCompletionAsync(capturedExit.Task, failures, exception => exception is OperationCanceledException);
+        if (!oldStart.IsCompleted || !newStart.IsCompleted)
+        {
+            CaptureCleanup(failures, player.CloseProcess);
+        }
+        await CaptureTaskCompletionAsync(oldStart, failures, exception => exception is OperationCanceledException);
+        await CaptureTaskCompletionAsync(newStart, failures, exception => exception is OperationCanceledException);
+        CaptureCleanup(failures, player.CloseProcess);
+        CaptureCleanup(failures, () => Directory.Delete(directory, recursive: true));
+        ThrowFailures(failures);
+    }
+
+    [TestMethod]
     public void PlaybackInitializationResult_SeparatesRequestedAndNegotiatedValues()
     {
         var result = new AudioPlaybackInitializationResult(
@@ -728,11 +1009,144 @@ public sealed class AudioContractsTests
             sampleRateConversionQuality);
     }
 
+    private static BeMusicSeeker.Properties.Settings CreateAudiblePlaybackSettings(SampleRate sampleRate) => new()
+    {
+        PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+        PlayerDevice = "audio-contract-test-device",
+        PlayerDeviceName = "Audio contract test endpoint",
+        PlayerSampleRate = sampleRate,
+        PlayerFormat = SampleFormat.SAMPLE_FLOAT_32BIT,
+        PlayerBufferSize = 10,
+        PlayerWASAPIParam = false,
+        PlayerResamplingQuality = AudioResamplingQuality.Default,
+    };
+
+    private static BassAudioPlaybackRuntime CreateInjectedBassAudioPlaybackRuntime(
+        List<string> events,
+        List<BassAudioSession> initializedSessions)
+    {
+        return new BassAudioPlaybackRuntime(
+            (settings, captureSession) =>
+            {
+                BassAudioPlayer.DeviceDriver backend = BassAudioMapping.ToBassDriver(settings.PlayerDriver);
+                var device = new BassAudioPlayer.DeviceDescriptor(
+                    settings.PlayerDeviceName,
+                    settings.PlayerDevice);
+                var negotiation = new BassAudioBackendResult(
+                    new BassAudioNegotiationRequest(
+                        backend,
+                        device,
+                        settings.PlayerSampleRate,
+                        settings.PlayerFormat,
+                        settings.PlayerBufferSize),
+                    device,
+                    SampleRate.SAMPLE_RATE_48000Hz,
+                    SampleFormat.SAMPLE_FLOAT_32BIT,
+                    SampleFormat.SAMPLE_FLOAT_32BIT,
+                    10,
+                    1,
+                    [],
+                    null);
+                var session = new BassAudioSession(
+                    backend,
+                    device,
+                    settings.SampleRateConversionQuality,
+                    settings.AudioOutputRequest)
+                {
+                    ActualBackend = backend,
+                    ActualDevice = device,
+                    State = BassAudioSessionState.Active,
+                    NegotiationResult = negotiation,
+                };
+                initializedSessions.Add(session);
+                events.Add("native-initialize:" + initializedSessions.Count);
+                captureSession(session);
+            },
+            session =>
+            {
+                events.Add("session-release:" + (initializedSessions.IndexOf(session) + 1));
+                session.State = BassAudioSessionState.Released;
+                return true;
+            });
+    }
+
     private static void AssertPersistedEnumValue<TEnum>(TEnum value, int expected)
         where TEnum : struct, Enum
     {
         Assert.AreEqual(expected, Convert.ToInt32(value, CultureInfo.InvariantCulture), value.ToString());
     }
+
+    private static string WritePlaybackChart(string directory, string name, int bpm, int measure)
+    {
+        string path = Path.Combine(directory, name);
+        File.WriteAllText(
+            path,
+            $"#PLAYER 1\n#TITLE lifecycle\n#ARTIST test\n#BPM {bpm}\n#{measure:000}11:01\n",
+            System.Text.Encoding.ASCII);
+        return path;
+    }
+
+    private static async Task CaptureTaskCompletionAsync(
+        Task task,
+        List<Exception> failures,
+        Func<Exception, bool>? expectedException = null)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (expectedException?.Invoke(exception) == true)
+        {
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static void CaptureCleanup(List<Exception> failures, Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static void ThrowFailures(List<Exception> failures)
+    {
+        if (failures.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+        else if (failures.Count > 1)
+        {
+            throw new AggregateException("The test failure and cleanup failures are retained.", failures);
+        }
+    }
+
+    private static AudioPlaybackInitializationResult CreatePlaybackInitializationResult() => new(
+        AudioDriver.NullDevice,
+        string.Empty,
+        string.Empty,
+        SampleRate.AUTO,
+        SampleFormat.AUTO,
+        10,
+        false,
+        50,
+        AudioDriver.NullDevice,
+        string.Empty,
+        string.Empty,
+        SampleRate.SAMPLE_RATE_44100Hz,
+        SampleFormat.SAMPLE_FLOAT_32BIT,
+        SampleFormat.UNKNOWN,
+        2,
+        0,
+        string.Empty,
+        isSilentFallback: false);
 
     private sealed class RecordingAudioPlaybackRuntime : IAudioPlaybackRuntime
     {
@@ -752,6 +1166,9 @@ public sealed class AudioContractsTests
         /// </summary>
         internal Exception? InitializeException { get; init; }
 
+        /// <summary>初期化成功時に返す結果です。</summary>
+        internal AudioPlaybackInitializationResult? InitializeResult { get; init; }
+
         public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings)
         {
             events.Add("initialize");
@@ -759,7 +1176,8 @@ public sealed class AudioContractsTests
             {
                 throw InitializeException;
             }
-            throw new AssertFailedException("Playback initialization should not be called by this lifecycle test.");
+            return InitializeResult
+                ?? throw new AssertFailedException("Playback initialization should not be called by this lifecycle test.");
         }
 
         public void ClearMaxVoices()
@@ -775,6 +1193,42 @@ public sealed class AudioContractsTests
         public void Free()
         {
             events.Add("free");
+        }
+    }
+
+    private class ObservingBMSAutoPlayer(Ribbit.BMS.BMSFile bms, List<string> events)
+        : BMSAutoPlayer(bms)
+    {
+        public override void Stop()
+        {
+            base.Stop();
+            events.Add("old-stop-joined");
+        }
+
+        internal override void DisposeBeforeNextSong()
+        {
+            base.DisposeBeforeNextSong();
+            events.Add("old-source-release-complete");
+        }
+    }
+
+    private sealed class ThrowingReleaseBMSAutoPlayer(
+        Ribbit.BMS.BMSFile bms,
+        BassAudioPlaybackException failure,
+        List<string> events)
+        : ObservingBMSAutoPlayer(bms, events)
+    {
+        internal bool FailNextRelease { get; set; } = true;
+
+        internal override void DisposeBeforeNextSong()
+        {
+            if (FailNextRelease)
+            {
+                FailNextRelease = false;
+                base.DisposeBeforeNextSong();
+                throw failure;
+            }
+            base.DisposeBeforeNextSong();
         }
     }
 }

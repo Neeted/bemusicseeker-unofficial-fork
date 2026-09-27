@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -336,7 +337,7 @@ public sealed class BassAudioSessionTests
             IsStarted = true
         };
         session.TrackOutputHandle(101);
-        session.AdditionalStreamHandles.Add(202);
+        session.TrackAdditionalStreamHandle(202);
         var native = new RecordingNativeBoundary();
 
         Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
@@ -626,7 +627,7 @@ public sealed class BassAudioSessionTests
             OutputHandle = 42,
             IsStarted = true
         };
-        session.AdditionalStreamHandles.Add(43);
+        session.TrackAdditionalStreamHandle(43);
         session.TrackPlayerStream(44, new object(), _ => playerReleaseNotifications++);
         var native = new RecordingNativeBoundary
         {
@@ -644,7 +645,7 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
-    public void AliasedStreamHandle_IsFreedAndConfirmedExactlyOnce()
+    public void UnifiedStreamOwnership_RejectsDuplicateHandleAndReleasesOnce()
     {
         int playerReleaseNotifications = 0;
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
@@ -655,8 +656,9 @@ public sealed class BassAudioSessionTests
             MixerHandle = 51,
             OutputHandle = 51
         };
-        session.AdditionalStreamHandles.Add(51);
-        session.TrackPlayerStream(51, new object(), _ => playerReleaseNotifications++);
+        session.TrackAdditionalStreamHandle(51);
+        Assert.ThrowsException<InvalidOperationException>(
+            () => session.TrackPlayerStream(51, new object(), _ => playerReleaseNotifications++));
         var native = new RecordingNativeBoundary();
 
         Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
@@ -664,7 +666,7 @@ public sealed class BassAudioSessionTests
         Assert.IsTrue(session.IsReleased);
         Assert.AreEqual(1, native.Count("FreeStream"));
         Assert.AreEqual(1, native.Count("FreeCore"));
-        Assert.AreEqual(1, playerReleaseNotifications);
+        Assert.AreEqual(0, playerReleaseNotifications);
     }
 
     [TestMethod]
@@ -1071,6 +1073,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OperationGate_ShutdownAllowsNestedCallAndRejectsNewRootUntilDrain()
     {
+        // 操作leaseとruntime shutdown間の排他・受付遷移が成立しない場合を検出するため、ここでは短い期限を使う。
         var gate = new BassAudioOperationGate(initiallyOpen: true);
         using var rootEntered = new ManualResetEventSlim();
         using var allowNested = new ManualResetEventSlim();
@@ -1172,6 +1175,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OperationGate_SessionCleanupDrainsAllRootsAndRejectsSharedPromotion()
     {
+        // cleanup leaseが受理済みroot操作の解放を待つ排他動作を検査するため、遷移待ちに短い期限を使う。
         var gate = new BassAudioOperationGate(initiallyOpen: true);
         Assert.IsTrue(gate.TryEnterOperation(out BassAudioOperationLease ambient));
         using (ambient)
@@ -1236,6 +1240,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OperationGate_NoSessionCleanupRemainsExclusiveAgainstInitialization()
     {
+        // cleanup中の初期化を拒み、cleanup完了後に進める排他遷移の停止検出に短い期限を使う。
         var gate = new BassAudioOperationGate(initiallyOpen: true);
         using var cleanupEntered = new ManualResetEventSlim();
         using var releaseCleanup = new ManualResetEventSlim();
@@ -1371,6 +1376,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OperationGate_WaitingShutdownKeepsAdmissionClosedWhenRuntimeInitializationCompletes()
     {
+        // runtime初期化とshutdown leaseの排他遷移が停止した場合を検出するため、遷移待ちに短い期限を使う。
         var gate = new BassAudioOperationGate();
         using var initializationEntered = new ManualResetEventSlim();
         using var releaseInitialization = new ManualResetEventSlim();
@@ -1444,6 +1450,47 @@ public sealed class BassAudioSessionTests
     }
 
     [TestMethod]
+    public void PlayerStreamCleanup_RetainsNativeAudioInputUntilReleaseIsConfirmed()
+    {
+        string path = Path.GetTempFileName();
+        AudioInputFile? input = null;
+        try
+        {
+            File.WriteAllBytes(path, [1, 2, 3, 4]);
+            input = AudioInputFile.Read(path);
+            var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED)
+            {
+                ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                CoreInitialized = true,
+                CoreDeviceIndex = 2
+            };
+            session.TrackPlayerStream(93, input, input.ConfirmNativeRelease);
+            input.TransferToSession();
+            var native = new RecordingNativeBoundary
+            {
+                FreeStreamResult = false,
+                CoreError = Errors.Unknown
+            };
+
+            Assert.IsFalse(BassAudioSessionCleanup.Release(session, native));
+            using (Stream retained = input.OpenReadView())
+            {
+                Assert.AreEqual(4L, retained.Length);
+            }
+
+            native.FreeStreamResult = true;
+            Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
+            Assert.IsTrue(session.IsReleased);
+            Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
+        }
+        finally
+        {
+            input?.Dispose();
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
     public void PlayerStreamCleanupFallback_RetainsOnlyUnownedHandle()
     {
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
@@ -1468,6 +1515,55 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(1, notifications);
         Assert.AreEqual(0, session.GetPlayerStreams().Count);
         GC.KeepAlive(owner);
+    }
+
+    [TestMethod]
+    public async Task StreamReleaseCallbackRunsOutsideTheOwnershipRegistryLock()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
+        bool callbackCouldInspectFromAnotherThread = false;
+        Task<IReadOnlyList<BassAudioOwnedStream>>? snapshot = null;
+        session.TrackPlayerStream(94, new object(), _ =>
+        {
+            Task<IReadOnlyList<BassAudioOwnedStream>> inspection = Task.Run(session.GetOwnedStreams);
+            snapshot = inspection;
+            // callback中の別thread照会がregistry lockに塞がれる不具合を検出する期限。
+            Assert.IsTrue(inspection.Wait(TimeSpan.FromSeconds(5)),
+                "A release callback must not hold the stream registry lock while it calls its owner.");
+            callbackCouldInspectFromAnotherThread = inspection.Result.Count == 0;
+        });
+
+        var failures = new List<Exception>();
+        try
+        {
+            session.ConfirmPlayerStreamReleased(94);
+            Assert.IsTrue(callbackCouldInspectFromAnotherThread);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        if (snapshot != null)
+        {
+            try
+            {
+                await snapshot.ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        if (failures.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+        else if (failures.Count > 1)
+        {
+            throw new AggregateException("The test failure and task cleanup failure are retained.", failures);
+        }
     }
 
     [TestMethod]

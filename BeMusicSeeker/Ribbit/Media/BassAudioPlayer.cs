@@ -134,6 +134,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private bool disposedValue;
 
+    private Errors? unconfirmedSourceReleaseError;
+
     public static ReadOnlyCollection<float> EqualizerGains => equalizerGains.AsReadOnly();
 
     public static bool EQEnabled => equalizer != 0;
@@ -169,6 +171,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             }
         }
     }
+
+    /// <summary>受理済み音声operationのscopeが保持するsessionをlockなしで取得します。</summary>
+    internal static BassAudioSession? CurrentSessionForAdmittedOperation =>
+        SessionLifecycle.CurrentSessionForAdmittedOperation;
 
     /// <summary>Gets whether shutdown must be deferred until native cleanup succeeds.</summary>
     internal static bool HasUnconfirmedNativeCleanup
@@ -577,6 +583,18 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     }
 
     public string FileName { get; private set; }
+
+    /// <summary>native source streamの解放をsession側まで確認したか取得します。</summary>
+    internal bool NativeReleaseConfirmed
+    {
+        get
+        {
+            lock (disposeSync)
+            {
+                return disposedValue;
+            }
+        }
+    }
 
     public float PlaybackRate
     {
@@ -1284,9 +1302,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         session.MixerHandle = session.MixerHandle == 0 ? inputMixer : session.MixerHandle;
         session.OutputHandle = session.OutputHandle == 0 ? outputMixer : session.OutputHandle;
-        if (tempoChanger != 0 && !session.AdditionalStreamHandles.Contains(tempoChanger))
+        if (tempoChanger != 0 && !session.IsAdditionalStreamHandleTracked(tempoChanger))
         {
-            session.AdditionalStreamHandles.Add(tempoChanger);
+            session.TrackAdditionalStreamHandle(tempoChanger);
         }
     }
 
@@ -2116,31 +2134,52 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     /// <summary>対応する音声ファイルから再生音源を作成します。</summary>
     public BassAudioPlayer(string fileName)
-        : this(fileName, new AudioSourceCache(), new BassMixerSourceNativeBoundary())
+        : this(fileName, AudioSourceLoader.LoadWithSession(fileName), new BassMixerSourceNativeBoundary())
     {
     }
 
-    /// <summary>一回の曲ロードが所有するcacheを使って再生音源を作成します。</summary>
-    internal BassAudioPlayer(
+    private BassAudioPlayer(
         string fileName,
-        AudioSourceCache sourceCache)
-        : this(fileName, sourceCache, new BassMixerSourceNativeBoundary())
+        DecodedAudioSessionSource source,
+        IBassMixerSourceNativeBoundary mixerSourceNative)
+        : this(fileName, source.Audio, source.Session, mixerSourceNative)
     {
     }
 
-    /// <summary>差し替え可能なmixer source境界を使って再生音源を作成します。</summary>
+    /// <summary>既に復号した音源を、捕捉したactive sessionのnative sourceとして作成します。</summary>
     internal BassAudioPlayer(
         string fileName,
-        AudioSourceCache sourceCache,
+        DecodedAudio source,
+        BassAudioSession expectedSession)
+        : this(fileName, source, expectedSession, new BassMixerSourceNativeBoundary())
+    {
+    }
+
+    /// <summary>既に復号した音源を、指定したmixer source境界で作成します。</summary>
+    internal BassAudioPlayer(
+        string fileName,
+        DecodedAudio source,
+        IBassMixerSourceNativeBoundary mixerSourceNative)
+        : this(fileName, source, expectedSession: null, mixerSourceNative)
+    {
+    }
+
+    private BassAudioPlayer(
+        string fileName,
+        DecodedAudio source,
+        BassAudioSession? expectedSession,
         IBassMixerSourceNativeBoundary mixerSourceNative)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(mixerSourceNative);
         mixerSourceController = new BassMixerSourceController(
             mixerSourceNative,
             () => owningSession);
         using BassAudioOperationLease operation =
             Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
         owningSession = SessionLifecycle.CurrentSessionForAdmittedOperation;
-        if (owningSession?.State != BassAudioSessionState.Active)
+        if (owningSession?.State != BassAudioSessionState.Active
+            || (expectedSession != null && !ReferenceEquals(expectedSession, owningSession)))
         {
             throw CreatePlaybackException(
                 BassAudioPlaybackStage.SourceDeviceSelection,
@@ -2155,11 +2194,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         if (fileName == null)
         {
             throw new ArgumentNullException("fileName");
-        }
-        ArgumentNullException.ThrowIfNull(sourceCache);
-        if (!LongPathFileSystem.FileExists(fileName))
-        {
-            throw new FileNotFoundException(fileName);
         }
         FileName = fileName;
         int expectedMixerHandle = owningSession.MixerHandle;
@@ -2200,7 +2234,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         bool streamTracked = false;
         try
         {
-            DecodedAudio source = sourceCache.GetOrLoad(fileName);
             _floatWaveSource = new FloatWaveSource(source, fileName);
             _fileProcedures = new FileProcedures
             {
@@ -3066,13 +3099,17 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             TryLogPlayerCleanupFailure("BASS source stream stop failed", exception);
                         }
 
-                        bool released = Bass.StreamFree(ownedHandle);
+                        bool released = FreeNativePlayerStream(ownedHandle);
                         if (!released)
                         {
                             Errors error = Bass.LastError;
                             released = error == Errors.Init;
                             if (!released)
                             {
+                                lock (disposeSync)
+                                {
+                                    unconfirmedSourceReleaseError = error;
+                                }
                                 TryLogPlayerCleanupFailure(
                                     "BASS_StreamFree(" + ownedHandle + ") failed: "
                                     + BassNativeErrorFormatter.Format(error),
@@ -3090,6 +3127,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             owningSession.ConfirmPlayerStreamReleased(ownedHandle);
                         }
                         ConfirmNativeStreamReleased(ownedHandle);
+                        unconfirmedSourceReleaseError = null;
                     }
                     else
                     {
@@ -3124,6 +3162,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
             _handle = 0;
             owningSession = null;
+            unconfirmedSourceReleaseError = null;
             Interlocked.Exchange(ref pendingEndGeneration, 0);
             disposedValue = true;
         }
@@ -3133,10 +3172,40 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>所有sessionのsource streamをnative側で解放します。</summary>
+    /// <param name="handle">解放を確認するBASS source handleです。</param>
+    internal virtual bool FreeNativePlayerStream(int handle) => Bass.StreamFree(handle);
+
     private void ReleaseInputSource()
     {
         _floatWaveSource = null;
         _fileProcedures = default;
+    }
+
+    /// <summary>次曲を読む前にsourceを停止・解放し、未確認なら主失敗を作成します。</summary>
+    internal BassAudioPlaybackException CreateSourceReleaseFailure(Exception? innerException = null)
+    {
+        int sourceHandle;
+        BassAudioSession? session;
+        Errors? nativeError;
+        lock (disposeSync)
+        {
+            sourceHandle = _handle;
+            session = owningSession;
+            nativeError = unconfirmedSourceReleaseError;
+        }
+
+        return new BassAudioPlaybackException(
+            BassAudioPlaybackStage.SourceRelease,
+            FileName,
+            sourceHandle,
+            session?.MixerHandle ?? 0,
+            0,
+            "BASS_StreamFree",
+            nativeError,
+            BeMusicSeeker.Properties.Resources.AudioDeviceTestCleanupFailure,
+            session,
+            innerException);
     }
 
     private static BassAudioPlaybackException CreatePlaybackException(

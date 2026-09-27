@@ -5,7 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -216,16 +218,277 @@ public sealed class AudioSourceLoaderTests
     }
 
     [TestMethod]
-    public async Task AudioSourceCache_ConcurrentFirstLoadsShareOneDecodedSource()
+    public void AudioInputFile_ReadOnlyViewsShareOneNativeBufferAndUseIndependentPositions()
     {
         using var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.25f, -0.75f])));
-        var cache = new AudioSourceCache();
+        using var input = AudioInputFile.Read(wave.Path);
+        using Stream first = input.OpenReadView();
+        using Stream second = input.OpenReadView();
+        byte[] signature = new byte[12];
 
-        DecodedAudio[] sources = await Task.WhenAll(
-            Enumerable.Range(0, 16)
-                .Select(_ => Task.Run(() => cache.GetOrLoad(wave.Path))));
+        Assert.AreEqual(new FileInfo(wave.Path).Length, input.Length);
+        Assert.AreEqual(12, first.Read(signature));
+        Assert.AreEqual("RIFF", Encoding.ASCII.GetString(signature, 0, 4));
+        Assert.AreEqual(0L, second.Position);
+        Assert.AreEqual((int)'R', second.ReadByte());
+        Assert.AreEqual(12L, first.Position);
+        Assert.AreEqual(1L, second.Position);
+    }
 
-        Assert.IsTrue(sources.All(source => ReferenceEquals(sources[0], source)));
+    [TestMethod]
+    public void AudioInputFile_ReadOnlyViewRetainsNativeBufferAfterOwnerDispose()
+    {
+        using var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.5f])));
+        var input = AudioInputFile.Read(wave.Path);
+        Stream view = input.OpenReadView();
+        input.Dispose();
+
+        try
+        {
+            Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
+            Assert.AreEqual((int)'R', view.ReadByte(), "An existing SafeBuffer view must retain its allocation.");
+        }
+        finally
+        {
+            view.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public void AudioInputFile_ReportsReadFailureAtInspectStageAndChecksNativeLengthWithoutAllocation()
+    {
+        string missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".wav");
+
+        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+            () => AudioSourceLoader.Load(missing));
+
+        Assert.AreEqual(AudioSourceLoadStage.InspectContainer, failure.Stage);
+        Assert.IsInstanceOfType<IOException>(failure.InnerException);
+        Assert.ThrowsException<IOException>(() => AudioInputFile.GetNativeAllocationSize(-1));
+        if (IntPtr.Size == sizeof(int))
+        {
+            Assert.ThrowsException<IOException>(
+                () => AudioInputFile.GetNativeAllocationSize((long)int.MaxValue + 1));
+        }
+        else
+        {
+            Assert.AreEqual(long.MaxValue, AudioInputFile.GetNativeAllocationSize(long.MaxValue).ToInt64());
+        }
+    }
+
+    [TestMethod]
+    public void AudioInputFile_RejectsOversizedOggBeforeNativeAllocationAfterSplitSignatureRead()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "oversized.ogg");
+        long length = (long)Array.MaxLength + 1;
+        var stream = new LengthReportingSignatureStream(length, "OggS"u8.ToArray(), maxReadSize: 2);
+        int openCount = 0;
+        int allocationCount = 0;
+
+        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+            () => AudioInputFile.Read(
+                path,
+                _ =>
+                {
+                    openCount++;
+                    return stream;
+                },
+                requestedLength =>
+                {
+                    allocationCount++;
+                    if (requestedLength > 1024 * 1024)
+                    {
+                        throw new InvalidOperationException("The test prevents a large native allocation.");
+                    }
+                }));
+
+        Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
+        Assert.AreEqual(Path.GetFullPath(path), failure.Path);
+        Assert.AreEqual(1, openCount);
+        Assert.AreEqual(2, stream.ReadCount, "The split OggS signature should require only two short reads.");
+        Assert.AreEqual(4L, stream.BytesRead);
+        Assert.IsTrue(stream.WasDisposed);
+        Assert.AreEqual(0, allocationCount, "An oversized Ogg input must be rejected before native allocation.");
+    }
+
+    [TestMethod]
+    public void AudioInputFile_DoesNotApplyOggInputLimitToWaveSignature()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "oversized.wav");
+        long length = (long)Array.MaxLength + 1;
+        var stream = new LengthReportingSignatureStream(length, "RIFF"u8.ToArray(), maxReadSize: 2);
+        var allocationPrevented = new InvalidOperationException("The test prevents a large native allocation.");
+        int openCount = 0;
+        int allocationCount = 0;
+
+        InvalidOperationException actual = Assert.ThrowsException<InvalidOperationException>(
+            () => AudioInputFile.Read(
+                path,
+                _ =>
+                {
+                    openCount++;
+                    return stream;
+                },
+                requestedLength =>
+                {
+                    allocationCount++;
+                    Assert.AreEqual(length, requestedLength);
+                    throw allocationPrevented;
+                }));
+
+        Assert.AreSame(allocationPrevented, actual);
+        Assert.AreEqual(1, openCount);
+        Assert.AreEqual(2, stream.ReadCount);
+        Assert.AreEqual(4L, stream.BytesRead);
+        Assert.IsTrue(stream.WasDisposed);
+        Assert.AreEqual(1, allocationCount, "A non-Ogg input should reach native allocation without the Vorbis array limit.");
+    }
+
+    [TestMethod]
+    public void AudioInputFile_MidReadIoFailureKeepsInspectStageAndOriginalException()
+    {
+        using var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.5f, -0.25f])));
+        var originalFailure = new IOException("Injected failure during the second read.");
+
+        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+            () => AudioSourceLoader.LoadWithSession(wave.Path, _ => new FailingReadStream(
+                File.ReadAllBytes(wave.Path), originalFailure)));
+
+        Assert.AreEqual(AudioSourceLoadStage.InspectContainer, failure.Stage);
+        Assert.AreSame(originalFailure, failure.InnerException);
+    }
+
+    [TestMethod]
+    public void LoadWithSession_UsesOneOpenedInputAndRetainsItUntilTemporaryDecoderRelease()
+    {
+        using var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.5f, -0.25f])));
+        BassAudioSession session = BassAudioPlayer.ActiveSession
+            ?? throw new AssertFailedException("The test audio session was not initialized.");
+        int openCount = 0;
+        var injectedReleaseFailure = new InvalidOperationException("Injected native release failure.");
+
+        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+            () => AudioSourceLoader.LoadWithSession(
+                wave.Path,
+                _ =>
+                {
+                    openCount++;
+                    return File.OpenRead(wave.Path);
+                },
+                _ => throw injectedReleaseFailure));
+
+        Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, failure.Stage);
+        Assert.AreSame(injectedReleaseFailure, failure.InnerException);
+        Assert.AreEqual(1, openCount, "The signature, metadata, and decoder must share one file read.");
+        BassAudioOwnedStream owned = session.GetPlayerStreams().Single();
+        Assert.IsTrue(owned.TryGetOwner(out AudioInputFile input));
+        using (Stream view = input.OpenReadView())
+        {
+            Assert.AreEqual((int)'R', view.ReadByte(), "A failed native release must retain the input buffer.");
+        }
+
+        Bass.CurrentDevice = session.CoreDeviceIndex;
+        Assert.IsTrue(Bass.StreamFree(owned.Handle), "Explicit native cleanup should release the retained decoder.");
+        session.ConfirmPlayerStreamReleased(owned.Handle);
+        Assert.AreEqual(0, session.GetPlayerStreams().Count);
+        Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
+    }
+
+    [TestMethod]
+    public async Task LoadWithSession_SessionReplacementDuringReadCannotDecodeOnReplacementSession()
+    {
+        var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.5f, -0.25f])));
+        var readStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRead = new ManualResetEventSlim();
+        Task<DecodedAudioSessionSource> load = Task.Run(() => AudioSourceLoader.LoadWithSession(
+            wave.Path,
+            _ => new BlockingReadStream(File.ReadAllBytes(wave.Path), readStarted, allowRead)));
+        BassAudioSession? replacement = null;
+        var failures = new List<Exception>();
+
+        try
+        {
+            await WaitForSignalOrProducerAsync(
+                readStarted.Task,
+                load,
+                "The input stream did not reach its read gate.");
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.InitializeOwned(BassAudioPlayer.DeviceDriver.NULL_DEVICE, default, 0f, out replacement);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        CaptureCleanup(failures, allowRead.Set);
+        InvalidOperationException? loadFailure = null;
+        try
+        {
+            _ = await load;
+            failures.Add(new AssertFailedException("The load should reject the replaced audio session."));
+        }
+        catch (InvalidOperationException exception)
+        {
+            loadFailure = exception;
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        if (failures.Count == 0)
+        {
+            CaptureCleanup(failures, () => StringAssert.Contains(
+                (loadFailure ?? throw new AssertFailedException("The loader accepted the replaced audio session.")).Message,
+                "audio session changed"));
+            CaptureCleanup(failures, () => Assert.AreEqual(0, replacement?.GetPlayerStreams().Count));
+        }
+        CaptureCleanup(failures, BassAudioPlayer.Free);
+        CaptureCleanup(failures, BassAudioRuntime.Shutdown);
+        CaptureCleanup(failures, allowRead.Dispose);
+        CaptureCleanup(failures, wave.Dispose);
+        ThrowFailures(failures);
+    }
+
+    private static void CaptureCleanup(List<Exception> failures, Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+    }
+
+    private static async Task WaitForSignalOrProducerAsync(Task signal, Task producer, string missingSignalMessage)
+    {
+        if (!signal.IsCompleted)
+        {
+            await Task.WhenAny(signal, producer).ConfigureAwait(false);
+        }
+        if (signal.IsCompleted)
+        {
+            await signal.ConfigureAwait(false);
+            return;
+        }
+
+        await producer.ConfigureAwait(false);
+        throw new AssertFailedException(missingSignalMessage);
+    }
+
+    private static void ThrowFailures(List<Exception> failures)
+    {
+        if (failures.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+        else if (failures.Count > 1)
+        {
+            throw new AggregateException("The test failure and cleanup failures are retained.", failures);
+        }
     }
 
     [TestMethod]
@@ -449,6 +712,90 @@ public sealed class AudioSourceLoaderTests
         public void Dispose()
         {
             File.Delete(Path);
+        }
+    }
+
+    private sealed class FailingReadStream(byte[] content, IOException failure) : MemoryStream(content)
+    {
+        private int readCount;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (readCount++ != 0)
+            {
+                throw failure;
+            }
+            return base.Read(buffer, offset, Math.Min(count, 7));
+        }
+    }
+
+    private sealed class BlockingReadStream(
+        byte[] content,
+        TaskCompletionSource readStarted,
+        ManualResetEventSlim allowRead) : MemoryStream(content)
+    {
+        private int readCount;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (Interlocked.Increment(ref readCount) == 1)
+            {
+                readStarted.TrySetResult();
+                allowRead.Wait();
+            }
+            return base.Read(buffer, offset, count);
+        }
+    }
+
+    private sealed class LengthReportingSignatureStream(long length, byte[] signature, int maxReadSize) : Stream
+    {
+        private long position;
+
+        internal int ReadCount { get; private set; }
+
+        internal long BytesRead => position;
+
+        internal bool WasDisposed { get; private set; }
+
+        public override bool CanRead => !WasDisposed;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => length;
+
+        public override long Position
+        {
+            get => position;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            ObjectDisposedException.ThrowIf(WasDisposed, this);
+            ReadCount++;
+            int available = (int)System.Math.Max(0, signature.Length - position);
+            int read = System.Math.Min(System.Math.Min(count, maxReadSize), available);
+            signature.AsSpan(checked((int)position), read).CopyTo(buffer.AsSpan(offset, read));
+            position = checked(position + read);
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+            base.Dispose(disposing);
         }
     }
 }

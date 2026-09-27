@@ -38,7 +38,10 @@ internal enum BassAudioPlaybackStage
     MixerRemove,
 
     /// <summary>The source position could not be changed.</summary>
-    SetPosition
+    SetPosition,
+
+    /// <summary>旧再生sourceのnative解放を確認できなかった。</summary>
+    SourceRelease
 }
 
 /// <summary>
@@ -112,6 +115,7 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
         Backend = session?.ActualBackend;
         SessionState = session?.State;
         CoreDeviceIndex = session?.CoreDeviceIndex;
+        Session = session;
     }
 
     /// <summary>Gets the playback stage that failed.</summary>
@@ -143,6 +147,9 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
 
     /// <summary>Gets the BASS core device selected by the owning session.</summary>
     internal int? CoreDeviceIndex { get; }
+
+    /// <summary>失敗したhandleを所有していた音声sessionを保持します。</summary>
+    internal BassAudioSession Session { get; }
 }
 
 /// <summary>Provides the small ManagedBass surface needed by mixer-source lifecycle code.</summary>

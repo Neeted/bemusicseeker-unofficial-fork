@@ -62,9 +62,9 @@ public class BassAudioWriter : BassAudioPlayer
         Volume = 1f;
     }
 
-    /// <summary>同じ曲ロードが所有する音源cacheを使ってwriterを作成します。</summary>
-    internal BassAudioWriter(string fileName, AudioSourceCache sourceCache)
-        : base(fileName, sourceCache)
+    /// <summary>既に復号した音源から、指定session用のwriterを作成します。</summary>
+    internal BassAudioWriter(string fileName, DecodedAudio source, BassAudioSession expectedSession)
+        : base(fileName, source, expectedSession)
     {
         Volume = 1f;
     }

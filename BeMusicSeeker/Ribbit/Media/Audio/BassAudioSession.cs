@@ -59,7 +59,7 @@ internal sealed class AudioCallbackOutputFailureException : InvalidOperationExce
 internal sealed class BassAudioSession
 {
     private readonly object playerStreamSync = new();
-    private readonly List<BassAudioOwnedStream> playerStreams = [];
+    private readonly Dictionary<int, BassAudioOwnedStream> ownedStreams = [];
     private int callbackOutputHandle;
     private int callbackOutputFailureState;
     private AudioCallbackOutputFailure callbackOutputFailure;
@@ -131,8 +131,8 @@ internal sealed class BassAudioSession
     /// </summary>
     internal int CallbackOutputHandle => Volatile.Read(ref callbackOutputHandle);
 
-    /// <summary>Gets additional stream handles created after initialization.</summary>
-    internal IList<int> AdditionalStreamHandles { get; } = new List<int>();
+    /// <summary>追加stream所有の互換表示をsnapshotで取得します。</summary>
+    internal IReadOnlyList<int> AdditionalStreamHandles => GetAdditionalStreamHandles();
 
     /// <summary>Gets or sets whether the backend output was started.</summary>
     internal bool IsStarted { get; set; }
@@ -160,8 +160,7 @@ internal sealed class BassAudioSession
         || AsioInitialized
         || MixerHandle != 0
         || OutputHandle != 0
-        || AdditionalStreamHandles.Count != 0
-        || HasPlayerStreams
+        || HasOwnedStreams
         || IsStarted;
 
     /// <summary>Gets whether cleanup has been fully confirmed.</summary>
@@ -228,7 +227,7 @@ internal sealed class BassAudioSession
     {
         OutputHandle = handle;
         PublishCallbackOutputHandle(handle);
-        RemoveAdditionalHandle(handle);
+        RemoveAdditionalStreamHandle(handle);
     }
 
     /// <summary>
@@ -281,7 +280,34 @@ internal sealed class BassAudioSession
             OutputHandle = 0;
         }
         Interlocked.CompareExchange(ref callbackOutputHandle, 0, handle);
-        RemoveAdditionalHandle(handle);
+        BassAudioOwnedStream released = null;
+        lock (playerStreamSync)
+        {
+            if (ownedStreams.Remove(handle, out BassAudioOwnedStream owned))
+            {
+                released = owned;
+            }
+        }
+        released?.NotifyReleased();
+    }
+
+    /// <summary>session cleanup対象となる追加handleを一つだけ登録します。</summary>
+    internal void TrackAdditionalStreamHandle(int handle)
+    {
+        if (!TryTrackOwnedStream(handle, this, static _ => { }, isPlayerStream: false, out _))
+        {
+            throw new InvalidOperationException("The BASS stream handle is already owned by this session.");
+        }
+    }
+
+    /// <summary>追加handleが一意所有としてsessionに登録されているか確認します。</summary>
+    internal bool IsAdditionalStreamHandleTracked(int handle)
+    {
+        lock (playerStreamSync)
+        {
+            return ownedStreams.TryGetValue(handle, out BassAudioOwnedStream stream)
+                && !stream.IsPlayerStream;
+        }
     }
 
     /// <summary>
@@ -313,15 +339,32 @@ internal sealed class BassAudioSession
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(releaseConfirmed);
 
+        return TryTrackOwnedStream(handle, owner, releaseConfirmed, isPlayerStream: true, out alreadyOwned);
+    }
+
+    private bool TryTrackOwnedStream(
+        int handle,
+        object owner,
+        Action<int> releaseConfirmed,
+        bool isPlayerStream,
+        out bool alreadyOwned)
+    {
+        if (handle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(handle));
+        }
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(releaseConfirmed);
         lock (playerStreamSync)
         {
-            alreadyOwned = playerStreams.Any(stream => stream.Handle == handle);
+            alreadyOwned = ownedStreams.ContainsKey(handle);
             if (alreadyOwned)
             {
                 return false;
             }
-
-            playerStreams.Add(new BassAudioOwnedStream(handle, owner, releaseConfirmed));
+            ownedStreams.Add(
+                handle,
+                new BassAudioOwnedStream(handle, owner, releaseConfirmed, isPlayerStream));
             return true;
         }
     }
@@ -331,7 +374,27 @@ internal sealed class BassAudioSession
     {
         lock (playerStreamSync)
         {
-            return [.. playerStreams];
+            return ownedStreams.Values.Where(stream => stream.IsPlayerStream).ToArray();
+        }
+    }
+
+    /// <summary>sessionが所有するstreamを安定したsnapshotで列挙します。</summary>
+    internal IReadOnlyList<BassAudioOwnedStream> GetOwnedStreams()
+    {
+        lock (playerStreamSync)
+        {
+            return ownedStreams.Values.ToArray();
+        }
+    }
+
+    private IReadOnlyList<int> GetAdditionalStreamHandles()
+    {
+        lock (playerStreamSync)
+        {
+            return ownedStreams.Values
+                .Where(stream => !stream.IsPlayerStream)
+                .Select(stream => stream.Handle)
+                .ToArray();
         }
     }
 
@@ -344,12 +407,11 @@ internal sealed class BassAudioSession
     {
         lock (playerStreamSync)
         {
-            foreach (BassAudioOwnedStream stream in playerStreams)
+            if (ownedStreams.TryGetValue(handle, out BassAudioOwnedStream stream)
+                && stream.IsPlayerStream
+                && stream.TryGetOwner(out owner))
             {
-                if (stream.Handle == handle && stream.TryGetOwner(out owner))
-                {
-                    return true;
-                }
+                return true;
             }
         }
 
@@ -362,37 +424,28 @@ internal sealed class BassAudioSession
     /// </summary>
     internal void ConfirmPlayerStreamReleased(int handle)
     {
-        BassAudioOwnedStream[] released;
-        lock (playerStreamSync)
-        {
-            released = [.. playerStreams.Where(stream => stream.Handle == handle)];
-            playerStreams.RemoveAll(stream => stream.Handle == handle);
-        }
-
-        foreach (BassAudioOwnedStream stream in released)
-        {
-            stream.NotifyReleased();
-        }
+        ConfirmStreamReleased(handle);
     }
 
-    private bool HasPlayerStreams
+    private bool HasOwnedStreams
     {
         get
         {
             lock (playerStreamSync)
             {
-                return playerStreams.Count != 0;
+                return ownedStreams.Count != 0;
             }
         }
     }
 
-    private void RemoveAdditionalHandle(int handle)
+    private void RemoveAdditionalStreamHandle(int handle)
     {
-        for (int index = AdditionalStreamHandles.Count - 1; index >= 0; index--)
+        lock (playerStreamSync)
         {
-            if (AdditionalStreamHandles[index] == handle)
+            if (ownedStreams.TryGetValue(handle, out BassAudioOwnedStream stream)
+                && !stream.IsPlayerStream)
             {
-                AdditionalStreamHandles.RemoveAt(index);
+                ownedStreams.Remove(handle);
             }
         }
     }
@@ -407,15 +460,19 @@ internal sealed class BassAudioOwnedStream
     private readonly Action<int> releaseConfirmed;
 
     /// <summary>Creates retained ownership for one source stream.</summary>
-    internal BassAudioOwnedStream(int handle, object owner, Action<int> releaseConfirmed)
+    internal BassAudioOwnedStream(int handle, object owner, Action<int> releaseConfirmed, bool isPlayerStream)
     {
         Handle = handle;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.releaseConfirmed = releaseConfirmed ?? throw new ArgumentNullException(nameof(releaseConfirmed));
+        IsPlayerStream = isPlayerStream;
     }
 
     /// <summary>Gets the native stream handle.</summary>
     internal int Handle { get; }
+
+    /// <summary>source callback ownerを持つplayer streamか取得します。</summary>
+    internal bool IsPlayerStream { get; }
 
     /// <summary>Tries to expose the retained managed owner to a lifecycle-safe callback.</summary>
     internal bool TryGetOwner<T>(out T typedOwner)
@@ -1546,8 +1603,7 @@ internal static class BassAudioSessionCleanup
         if (!session.CoreInitialized
             && session.MixerHandle == 0
             && session.OutputHandle == 0
-            && session.AdditionalStreamHandles.Count == 0
-            && session.GetPlayerStreams().Count == 0)
+            && session.GetOwnedStreams().Count == 0)
         {
             return;
         }
@@ -1570,18 +1626,13 @@ internal static class BassAudioSessionCleanup
         }
 
         var handles = new HashSet<int>();
-        foreach (BassAudioOwnedStream stream in session.GetPlayerStreams())
+        foreach (BassAudioOwnedStream stream in session.GetOwnedStreams())
         {
             AddHandle(handles, stream.Handle);
         }
 
         AddHandle(handles, session.OutputHandle);
         AddHandle(handles, session.MixerHandle);
-        foreach (int handle in session.AdditionalStreamHandles)
-        {
-            AddHandle(handles, handle);
-        }
-
         foreach (int handle in handles)
         {
             if (TryReleaseCall(
@@ -1592,7 +1643,7 @@ internal static class BassAudioSessionCleanup
                 failures,
                 diagnostics))
             {
-                session.ConfirmPlayerStreamReleased(handle);
+                session.ConfirmStreamReleased(handle);
                 ClearHandle(session, handle);
             }
         }
@@ -1600,8 +1651,7 @@ internal static class BassAudioSessionCleanup
         if (session.CoreInitialized
             && session.MixerHandle == 0
             && session.OutputHandle == 0
-            && session.AdditionalStreamHandles.Count == 0
-            && session.GetPlayerStreams().Count == 0
+            && session.GetOwnedStreams().Count == 0
             && TryReleaseCall(
                 native.FreeCore,
                 "BASS_Free",
@@ -1654,13 +1704,9 @@ internal static class BassAudioSessionCleanup
 
     private static void ConfirmCoreAlreadyReleased(BassAudioSession session)
     {
-        foreach (BassAudioOwnedStream stream in session.GetPlayerStreams())
+        foreach (BassAudioOwnedStream stream in session.GetOwnedStreams())
         {
-            session.ConfirmPlayerStreamReleased(stream.Handle);
-        }
-        foreach (int handle in session.AdditionalStreamHandles.ToArray())
-        {
-            session.ConfirmStreamReleased(handle);
+            session.ConfirmStreamReleased(stream.Handle);
         }
         session.ConfirmStreamReleased(session.OutputHandle);
         session.ConfirmStreamReleased(session.MixerHandle);

@@ -99,6 +99,15 @@ public sealed class VorbisDecoderTests
         }
     }
 
+    [TestMethod]
+    public void DecodeOgg_PreservesEncodedInputArrayLimitWithoutAllocatingTheInput()
+    {
+        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+            () => VorbisDecoder.ValidateEncodedLength("oversized.ogg", (long)Array.MaxLength + 1));
+
+        Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
+    }
+
     [DataTestMethod]
     [DataRow("crc")]
     [DataRow("missing-page")]

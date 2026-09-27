@@ -15,6 +15,10 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
 
     private readonly IAudioPlaybackRuntime audioPlaybackRuntime;
 
+    private readonly Action<Action<object, EventArgs>, object> exitEventDispatcher;
+
+    private readonly Func<string, BMSAutoPlayer> autoPlayerFactory;
+
     private readonly Stopwatch _timer = Stopwatch.StartNew();
 
     private Task _infloopTask;
@@ -63,14 +67,24 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
 
     private TimeSpan _duration = TimeSpan.MinValue;
 
+    /// <summary>音声設定、再生runtime、終了callbackのdispatch境界を使って内部playerを作成します。</summary>
+    /// <param name="playerSettingsGateway">再生設定のsnapshotを取得するgatewayです。</param>
+    /// <param name="audioPlaybackRuntime">音声出力runtimeです。</param>
+    /// <param name="exitEventDispatcher">指定時は捕捉した終了callbackをdispatchします。未指定なら直接呼び出します。</param>
+    /// <param name="autoPlayerFactory">指定時は曲pathからplayerを作成します。未指定なら通常のBMS parserとplayerを使います。</param>
     internal InternalBMSAutoPlayerSoundOnly(
         IPlayerSettingsGateway playerSettingsGateway,
-        IAudioPlaybackRuntime audioPlaybackRuntime)
+        IAudioPlaybackRuntime audioPlaybackRuntime,
+        Action<Action<object, EventArgs>, object> exitEventDispatcher = null,
+        Func<string, BMSAutoPlayer> autoPlayerFactory = null)
     {
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.audioPlaybackRuntime = audioPlaybackRuntime
             ?? throw new ArgumentNullException(nameof(audioPlaybackRuntime));
+        this.exitEventDispatcher = exitEventDispatcher;
+        this.autoPlayerFactory = autoPlayerFactory
+            ?? new Func<string, BMSAutoPlayer>(path => new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path)));
         _playbackThreadAction = CreatePlaybackThreadAction();
     }
 
@@ -368,6 +382,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     {
         return delegate
         {
+            Action<object, EventArgs> onExitEvent = null;
             lock (_sharedObjectLock)
             {
                 _timer.Restart();
@@ -421,6 +436,8 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                     }
                     _timer.Reset();
                     _infloopTask = null;
+                    onExitEvent = _onExitEvent;
+                    _onExitEvent = null;
                 }
                 break;
             IL_01ff:
@@ -430,7 +447,17 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             {
                 Thread.Sleep(1);
             }
-            _onExitEvent?.Invoke(this, null);
+            if (onExitEvent != null)
+            {
+                if (exitEventDispatcher == null)
+                {
+                    onExitEvent(this, null);
+                }
+                else
+                {
+                    exitEventDispatcher(onExitEvent, this);
+                }
+            }
         };
     }
 
@@ -548,17 +575,27 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             try
             {
                 PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-                _ = audioPlaybackRuntime.Initialize(settings);
                 _fastForwarding = false;
                 _fastBackwarding = false;
                 Duration = TimeSpan.MinValue;
                 CurrentTime = TimeSpan.MinValue;
                 MusicDuration = TimeSpan.MinValue;
                 BmsDuration = TimeSpan.MinValue;
-                _player?.Stop();
-                bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
+                if (_player != null)
+                {
+                    BMSAutoPlayer previousPlayer = _player;
+                    try
+                    {
+                        previousPlayer.DisposeBeforeNextSong();
+                    }
+                    finally
+                    {
+                        _player = null;
+                    }
+                }
+                _ = audioPlaybackRuntime.Initialize(settings);
+                bMSAutoPlayer = autoPlayerFactory(bmsFilePath);
                 bMSAutoPlayer.LoadResources();
-                _player?.Dispose();
                 _player = bMSAutoPlayer;
                 Duration = bMSAutoPlayer.Duration;
                 CurrentTime = TimeSpan.Zero;
@@ -578,9 +615,6 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                 Notes = bMSAutoPlayer.Bms.TotalNoteCount;
                 Measure = bMSAutoPlayer.CurrentMeasure;
                 LastMeasure = bMSAutoPlayer.Bms.Measures.LastIndex;
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
                 if (Duration == TimeSpan.Zero)
                 {
                     throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);

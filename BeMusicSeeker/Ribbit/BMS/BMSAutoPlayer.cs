@@ -1,6 +1,5 @@
 #nullable enable annotations
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -24,7 +23,7 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
     : BMSPlayer<TBassAudioPlayer, NullImageLoader>(bms)
     where TBassAudioPlayer : BassAudioPlayer
 {
-    private static readonly ConstructorInfo CacheAwarePlayerConstructor = FindCacheAwareConstructor();
+    private static readonly ConstructorInfo DecodedSourcePlayerConstructor = FindDecodedSourceConstructor();
 
     /// <summary>再生速度を取得・設定し、再生ループの観測時に出力故障を伝えます。</summary>
     public override float PlaybackRate
@@ -45,54 +44,38 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
         }
     }
 
-    /// <summary>再生に使う音源を読み込み、この曲ロード内で復号済み入力を共有します。</summary>
+    /// <summary>再生に使う音源を事前に復号します。</summary>
     public override void LoadResources() => LoadResources(asParallel: true);
 
-    /// <summary>再生に使う音源を、指定に応じて並列に読み込みます。</summary>
-    public void LoadResources(bool asParallel)
+    /// <summary>再生に使う音源を、指定に応じた並列度で事前に復号します。</summary>
+    public void LoadResources(bool asParallel) => LoadResources(asParallel, observer: null);
+
+    internal void LoadResources(bool asParallel, AudioSourceLoadPipelineObserver? observer)
     {
         string basePath = Path.GetDirectoryName(base.Bms.Path) ?? string.Empty;
         int[] requiredIndices = GetRequiredAudioIndices(base.Bms).OrderBy(index => index).ToArray();
-        var audioPlayers = new TBassAudioPlayer[base.Bms.WavArray.Length];
-        var failures = new ConcurrentQueue<FailedAudioResource>();
-        var sourceCache = new AudioSourceCache();
-
-        void LoadOne(int index)
+        var requests = new List<AudioLoadRequest>(requiredIndices.Length);
+        foreach (int index in requiredIndices)
         {
             string resourceName = base.Bms.WavArray[index];
-            string? path = null;
-            try
+            string? path = FindAudioPath(basePath, resourceName);
+            if (path != null)
             {
-                path = FindAudioPath(basePath, resourceName);
-                if (path == null)
-                {
-                    return;
-                }
-
-                audioPlayers[index] = CreatePlayer(path, sourceCache);
-            }
-            catch (Exception exception)
-            {
-                failures.Enqueue(new FailedAudioResource(index, resourceName, path ?? resourceName, exception));
+                requests.Add(new AudioLoadRequest(index, resourceName, path));
             }
         }
 
-        if (asParallel)
-        {
-            requiredIndices.AsParallel().ForAll(LoadOne);
-        }
-        else
-        {
-            foreach (int index in requiredIndices)
-            {
-                LoadOne(index);
-            }
-        }
+        AudioSourceLoadResult<TBassAudioPlayer> result = AudioSourceLoadPipeline.Load(
+            base.Bms.WavArray.Length,
+            requests,
+            asParallel,
+            CreatePlayer,
+            observer);
 
-        if (!failures.IsEmpty)
+        if (result.Failures.Count != 0)
         {
-            FailedAudioResource failure = failures.OrderBy(item => item.Index).First();
-            DisposeLoadedPlayers(audioPlayers, failure);
+            AudioLoadFailure failure = result.Failures[0];
+            DisposeLoadedPlayers(result.Players, failure);
             string stage = GetFailureStage(failure.Exception);
             string nativeError = GetNativeError(failure.Exception);
             throw new InvalidDataException(
@@ -101,7 +84,7 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
                 failure.Exception);
         }
 
-        base.AudioPlayers = Array.AsReadOnly(audioPlayers);
+        base.AudioPlayers = Array.AsReadOnly(result.Players);
         durationProvider = () => base.MusicDuration;
         base.MusicDuration = base.Bms.Measures.SelectMany(measure =>
             new ReadOnlyCollection<Func<IList<BMSFile.Chart.Note>>>[5]
@@ -120,22 +103,71 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
         base.BgaDuration = TimeSpan.Zero;
     }
 
-    private static ConstructorInfo FindCacheAwareConstructor()
+    /// <summary>次曲の解析前に旧曲sourceを停止・解放し、未確認をSourceReleaseで通知します。</summary>
+    internal virtual void DisposeBeforeNextSong()
+    {
+        TBassAudioPlayer[] previousPlayers = base.AudioPlayers?.ToArray() ?? [];
+        // 再生taskのResetPlaybackStateも旧配列を参照するため、配列を置き換える前に停止・合流します。
+        Stop();
+        // base.Disposeは音源のDispose例外が一つ出ると残りを処理しません。
+        // sourceは個別に全件処理し、base側には画像だけを解放させます。
+        base.AudioPlayers = Array.AsReadOnly(Array.Empty<TBassAudioPlayer>());
+        Exception? disposalFailure = null;
+        try
+        {
+            base.Dispose();
+        }
+        catch (Exception exception)
+        {
+            disposalFailure = exception;
+        }
+
+        foreach (TBassAudioPlayer? player in previousPlayers)
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                disposalFailure = disposalFailure == null
+                    ? exception
+                    : new AggregateException(disposalFailure, exception);
+            }
+        }
+
+        BassAudioPlayer? unconfirmed = previousPlayers
+            .OfType<BassAudioPlayer>()
+            .FirstOrDefault(player => !player.NativeReleaseConfirmed);
+        if (unconfirmed != null)
+        {
+            throw unconfirmed.CreateSourceReleaseFailure(disposalFailure);
+        }
+        if (disposalFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(disposalFailure).Throw();
+        }
+    }
+
+    private static ConstructorInfo FindDecodedSourceConstructor()
     {
         return typeof(TBassAudioPlayer).GetConstructor(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
                 binder: null,
-                types: [typeof(string), typeof(AudioSourceCache)],
+                types: [typeof(string), typeof(DecodedAudio), typeof(BassAudioSession)],
                 modifiers: null)
             ?? throw new InvalidOperationException(
-                $"{typeof(TBassAudioPlayer).Name} must provide the song-scoped audio-source constructor.");
+                $"{typeof(TBassAudioPlayer).Name} must provide a decoded-source constructor.");
     }
 
-    private static TBassAudioPlayer CreatePlayer(string path, AudioSourceCache sourceCache)
+    private static TBassAudioPlayer CreatePlayer(
+        DecodedAudio source,
+        string path,
+        BassAudioSession session)
     {
         try
         {
-            return (TBassAudioPlayer)CacheAwarePlayerConstructor.Invoke([path, sourceCache]);
+            return (TBassAudioPlayer)DecodedSourcePlayerConstructor.Invoke([path, source, session]);
         }
         catch (TargetInvocationException exception) when (exception.InnerException != null)
         {
@@ -240,7 +272,7 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
         };
     }
 
-    private static void DisposeLoadedPlayers(TBassAudioPlayer[] players, FailedAudioResource primaryFailure)
+    private static void DisposeLoadedPlayers(TBassAudioPlayer[] players, AudioLoadFailure primaryFailure)
     {
         foreach (TBassAudioPlayer? player in players)
         {
@@ -269,5 +301,4 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
         }
     }
 
-    private sealed record FailedAudioResource(int Index, string ResourceName, string Path, Exception Exception);
 }

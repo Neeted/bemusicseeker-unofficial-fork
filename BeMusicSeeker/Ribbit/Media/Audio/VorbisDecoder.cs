@@ -1,8 +1,6 @@
 #nullable enable annotations
 using System;
-using System.IO;
 using System.Runtime.InteropServices;
-using BeMusicSeeker.Models.Utils;
 
 namespace Ribbit.Media.Audio;
 
@@ -21,51 +19,36 @@ internal static class VorbisDecoder
     internal static DecodedAudio Decode(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        using var input = AudioInputFile.Read(path);
+        return Decode(input);
+    }
+
+    /// <summary>一回読み込んだOgg入力を閉じるまで同じnative memoryから復号します。</summary>
+    internal static DecodedAudio Decode(AudioInputFile input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        string path = input.Path;
         using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-        byte[] encoded;
-        try
-        {
-            using FileStream input = LongPathFileSystem.OpenRead(path);
-            if (input.Length > Array.MaxLength)
-            {
-                throw new AudioSourceLoadException(
-                    AudioSourceLoadStage.DecodeVorbis,
-                    path,
-                    "The Ogg input exceeds the managed input-buffer size limit.");
-            }
-            encoded = new byte[checked((int)input.Length)];
-            input.ReadExactly(encoded);
-        }
-        catch (AudioSourceLoadException)
-        {
-            throw;
-        }
-        catch (Exception exception) when (exception is System.IO.IOException or UnauthorizedAccessException or OverflowException)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeVorbis,
-                path,
-                "The Ogg input could not be read completely.",
-                exception);
-        }
 
         NativeApi native = GetNativeApi();
-        GCHandle pinnedInput = default;
         IntPtr decoder = IntPtr.Zero;
         try
         {
-            if (encoded.Length == 0)
+            if (input.Length == 0)
             {
                 throw new AudioSourceLoadException(
                     AudioSourceLoadStage.DecodeVorbis,
                     path,
                     "The Ogg input is empty.");
             }
+            if (input.Length > Array.MaxLength)
+            {
+                ValidateEncodedLength(path, input.Length);
+            }
 
-            pinnedInput = GCHandle.Alloc(encoded, GCHandleType.Pinned);
             int openStatus = native.OpenMemory(
-                pinnedInput.AddrOfPinnedObject(),
-                checked((ulong)encoded.LongLength),
+                input.Memory,
+                checked((ulong)input.Length),
                 out decoder,
                 out int nativeError);
             if (openStatus != 0 || decoder == IntPtr.Zero)
@@ -234,10 +217,18 @@ internal static class VorbisDecoder
             {
                 native.Close(decoder);
             }
-            if (pinnedInput.IsAllocated)
-            {
-                pinnedInput.Free();
-            }
+        }
+    }
+
+    /// <summary>従来のVorbis入力buffer上限を実allocation前に検査します。</summary>
+    internal static void ValidateEncodedLength(string path, long length)
+    {
+        if (length < 0 || length > Array.MaxLength)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeVorbis,
+                path,
+                "The Ogg input exceeds the managed input-buffer size limit.");
         }
     }
 

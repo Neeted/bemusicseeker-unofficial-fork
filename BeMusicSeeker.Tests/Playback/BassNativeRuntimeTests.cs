@@ -1100,7 +1100,7 @@ public sealed class BassNativeRuntimeTests
             var native = new PlayerMixerSourceNativeBoundary(
                 () => session.MixerHandle,
                 initiallyAttached: true);
-            player = new BassAudioPlayer(wavePath, new AudioSourceCache(), native);
+            player = new BassAudioPlayer(wavePath, AudioSourceLoader.Load(wavePath), native);
 
             player.Play();
             Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
