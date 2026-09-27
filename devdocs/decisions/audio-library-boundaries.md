@@ -99,13 +99,13 @@ SRC自体は自作しません。`BassMixerSourceController`が品質設定と�
 
 ## 入力の接続層を持つ理由
 
-Vorbisは[libvorbisfileのfloat API](https://www.xiph.org/vorbis/doc/vorbisfile/ov_read_float.html)へ委ねます。[ネイティブ接続層](../../native/VorbisBridge/README.md)は不透明ハンドルと固定幅整数のC ABIを公開し、C#側へライブラリ内部構造体の配置を持ち込みません。liboggの解析結果を使って破損・欠落・多重化を拒否し、同一形式の連結ストリームだけを許可します。復号アルゴリズムやCRC計算そのものを再実装する判断ではありません。
+Vorbisは[libvorbisfileのfloat API](https://www.xiph.org/vorbis/doc/vorbisfile/ov_read_float.html)へ委ねます。[ネイティブ接続層](../../native/VorbisBridge/README.md)は不透明ハンドルと固定幅整数のC ABIを公開し、C#側へライブラリ内部構造体の配置を持ち込みません。libvorbisfileが実際に復号するPCMをEOFまで読み、`OV_HOLE` は同ライブラリの再同期として続行します。同一rate・channel形式の連結ストリームを許可し、読取り中に形式変更を検出した場合は入力全体を失敗とします。page・CRC・EOSを別途走査して復号より厳しい拒否条件を作りません。
 
 固定した復号器を直接呼ぶ参照PCMと比較できること、floatの微小値・±1超過・チャンネル順を同じ入力契約で扱えることを優先し、NVorbisとの二重経路や、失敗後に別の復号器へ切り替える経路は残しません。これはNVorbis全般の品質不足を実証したという意味ではありません。直接参照との一致は接続・並べ替えの検査であり、libvorbisの復号アルゴリズム自体の独立証明でもありません。
 
-WAVのメタデータ検査も、配置や有効ビット数を曖昧に受け入れないためのアプリ境界です。サンプルの復号はBASSへ任せます。[`FloatWaveSource`](../../BeMusicSeeker/Ribbit/Media/Audio/FloatWaveSource.cs)は小さいWAVEヘッダーと共有PCMを読取りコールバックで見せ、同じ音源の発音ごとに復号・PCM全体の複製を繰り返さず、読取り位置だけを分離します。曲ロードでは[`AudioInputFile`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioInputFile.cs)がファイル内容を一つのnative memory ownerへ一度だけ読み、署名検査・WAV metadata・decoderが同じ入力を使います。[`AudioSourceLoadPipeline`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoadPipeline.cs)は使用WAV indexをpath単位にまとめて復号し、各indexに独立sourceを作るため、別曲を保持するcacheやmanaged全体byte配列が不要です。汎用のWAV書出しライブラリを自作する目的ではありません。
+入力WAVに独自のヘッダー・chunk妥当性検査を重ねず、BASSが実際にデコードできる形式を受け入れます。配置は利用可能で有効なWAVE extensible speaker maskを優先し、それがない場合はBASS標準配置を使います。`FloatWaveSource`は復号済みPCMを共有して読取り位置だけを分離するための小さい仮想WAVE供給器であり、入力検査器ではありません。曲ロードでは[`AudioInputFile`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioInputFile.cs)がファイルを一つのnative memory ownerへ一度だけ読み、signatureとdecoderが同じ入力を使います。[`AudioSourceLoadPipeline`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoadPipeline.cs)は使用WAV indexをpath単位にまとめて復号し、各indexに独立sourceを作るため、別曲を保持するcacheやmanaged全体byte配列が不要です。汎用のWAV書出しライブラリを自作する目的ではありません。
 
-代償はネイティブ接続層のビルド・ABI・ライセンス管理、事前復号のメモリ、および途中まで復号できる破損入力も拒否する互換性変更です。既存の接続ライブラリへの置換は、同じ失敗分類・配置・連結ストリーム・所有をより小さい構成で維持できる場合に検討します。品質保証を理由に、曲を越えるキャッシュや任意形式の救済経路は追加しません。
+代償はネイティブ接続層のビルド・ABI・ライセンス管理と事前復号のメモリです。形式互換性はBASS/libvorbisfileの実際の復号結果に従い、独自のコンテナ検査がdecoderより先に対応形式を狭めないようにします。既存の接続ライブラリへの置換は、同じ失敗分類・配置・chain判定・所有をより小さい構成で維持できる場合に検討します。品質保証を理由に、曲を越えるcacheや任意形式の救済経路は追加しません。
 
 ## オフラインの供給順と成功判定を所有する理由
 

@@ -330,6 +330,8 @@
   "AudioResamplingQualityOptionFormat": "{0} ({1} points)",
   "AudioConversionOtherFailureFormat": "{0} : {1}",
   "AudioConversionOtherFailuresRemainingFormat": "Autres conversions en échec : {0}. Consultez le journal pour les {1} détails restants.",
+  "AudioConversionOmittedSourcesFormat": "{0} : {1} source(s) audio ignorée(s).",
+  "AudioConversionOmittedSourcesRemainingFormat": "Des sources audio ont été ignorées dans {0} charts. Consultez le journal pour les {1} charts restants.",
   "Msg_error_unexpected": "Une erreur inattendue s’est produite.",
   "Sampling_rate": "Fréquence d’échantillonnage",
   "Open_image": "Ouvrir le fichier image",

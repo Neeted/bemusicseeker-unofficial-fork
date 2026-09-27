@@ -62,6 +62,9 @@ internal sealed class FloatWaveSource
     /// <summary>仮想WAVE全体のバイト長を取得します。</summary>
     internal long TotalLength { get; }
 
+    /// <summary>復号されたPCMが0フレームかを取得します。</summary>
+    internal bool IsEmpty => audio.FrameCount == 0;
+
     /// <summary>BASS が読む WAVE 順に並べたチャンネル配置を取得します。</summary>
     internal AudioChannelLayout ChannelLayout { get; }
 

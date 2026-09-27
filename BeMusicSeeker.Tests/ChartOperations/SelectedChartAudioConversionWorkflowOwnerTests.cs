@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -74,7 +75,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             },
             lease);
 
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsException<AudioSourceFatalException>(
             () => executor.ReleaseConversionSession(session, primaryException: null));
         Assert.AreSame(session, lease.Session);
         CollectionAssert.AreEqual(new[] { "encoder" }, events);
@@ -277,25 +278,21 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 sessionLease);
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
 
-            SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest([
-                CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
-                CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
-            ]));
+            AudioSourceFatalException failure = await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(
+                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
+                    CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
+                    CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
+                ])));
 
             LogManager.Flush();
-            Assert.AreEqual(1, result.CompletedCount);
-            Assert.AreEqual(1, result.FailedCount);
-            Assert.AreEqual(1, result.UnprocessedCount);
-            Assert.AreEqual(1, result.FileResults.Count);
-            Assert.IsNotNull(result.FileResults[0].Error);
-            StringAssert.Contains(result.FileResults[0].Error.ToString(), firstPath);
-            Assert.AreEqual(1, dialogs.MessageCalls);
-            StringAssert.Contains(dialogs.LastMessage, Resources.Failure + ": 2");
-            StringAssert.Contains(dialogs.LastMessage, "first.bms");
-            Assert.IsFalse(dialogs.LastMessage.Contains("second.bms", StringComparison.Ordinal));
+            Assert.IsInstanceOfType<AggregateException>(failure.InnerException);
+            IReadOnlyList<Exception> causes = ((AggregateException)failure.InnerException).Flatten().InnerExceptions;
+            Assert.IsTrue(causes.Any(exception => exception.ToString().Contains(firstPath, StringComparison.Ordinal)));
+            Assert.IsTrue(causes.Any(exception => exception.Message.Contains("encoder cleanup failed", StringComparison.Ordinal)));
             Assert.AreEqual(3, encoderReleaseAttempts);
             Assert.AreEqual(0, sessionReleaseAttempts);
             Assert.IsNotNull(sessionLease.Session, "未確認のnative所有権をsession leaseに保持します。");
+            Assert.AreEqual(0, dialogs.MessageCalls, "A fatal native cleanup failure aborts the batch before completion notification.");
             string logs = string.Join(Environment.NewLine, audioConversionTarget.Logs);
             StringAssert.Contains(logs, firstPath);
             StringAssert.Contains(logs, "InvalidBmsFileException");
@@ -323,7 +320,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task RunAsync_ProductionExecutorSessionCleanupFailureRetainsFileFailuresAndNotifiesOnce()
+    public async Task RunAsync_ProductionExecutorSessionCleanupFailureRetainsPrimaryAndAborts()
     {
         string root = CreateRoot();
         string outputDirectory = Path.Combine(root, "output");
@@ -375,31 +372,144 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 sessionLease);
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
 
-            SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest([
-                CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
-                CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
-            ]));
+            AudioSourceFatalException failure = await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(
+                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
+                    CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
+                    CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
+                ])));
 
             LogManager.Flush();
-            Assert.AreEqual(2, result.CompletedCount);
-            Assert.AreEqual(2, result.FailedCount);
-            Assert.AreEqual(0, result.UnprocessedCount);
-            Assert.AreEqual(2, result.FileResults.Count);
-            StringAssert.Contains(result.FileResults[0].Error.ToString(), firstPath);
-            StringAssert.Contains(result.FileResults[1].Error.ToString(), secondPath);
-            Assert.AreEqual(1, dialogs.MessageCalls);
-            StringAssert.Contains(dialogs.LastMessage, Resources.Failure + ": 2");
-            StringAssert.Contains(dialogs.LastMessage, "first.bms");
-            StringAssert.Contains(dialogs.LastMessage, "second.bms");
+            Assert.IsInstanceOfType<AggregateException>(failure.InnerException);
+            IReadOnlyList<Exception> causes = ((AggregateException)failure.InnerException).Flatten().InnerExceptions;
+            Assert.IsTrue(causes.Any(exception => exception.ToString().Contains(firstPath, StringComparison.Ordinal)));
+            Assert.IsTrue(causes.Any(exception => exception.Message.Contains("completed without confirming", StringComparison.Ordinal)));
             Assert.AreEqual(4, encoderReleaseAttempts);
             Assert.AreEqual(1, sessionReleaseAttempts);
             Assert.IsNotNull(sessionLease.Session, "未確認のnative所有権をsession leaseに保持します。");
+            Assert.AreEqual(0, dialogs.MessageCalls, "A fatal native cleanup failure aborts the batch before completion notification.");
             string logs = string.Join(Environment.NewLine, audioConversionTarget.Logs);
             StringAssert.Contains(logs, "session cleanup failed");
             StringAssert.Contains(logs, "completed without confirming native cleanup");
             StringAssert.Contains(logs, firstPath);
             StringAssert.Contains(logs, secondPath);
             StringAssert.Contains(logs, "InvalidBmsFileException");
+        }
+        finally
+        {
+            try
+            {
+                BassAudioWriter.TryReleaseEncoder();
+                if (sessionLease.Session != null)
+                {
+                    sessionLease.TryRelease(BassAudioPlayer.Free);
+                }
+                BassAudioRuntime.Shutdown();
+            }
+            finally
+            {
+                LogManager.Flush();
+                LogManager.Configuration = originalLoggingConfiguration;
+                DeleteRoot(root);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ProductionExecutor_PreservesCurrentFatalAndSessionCleanupFailureAfterPriorFileFailure()
+    {
+        string root = CreateRoot();
+        string outputDirectory = Path.Combine(root, "output");
+        Directory.CreateDirectory(outputDirectory);
+        string firstPath = CreateChartFile(root, "first.bms");
+        string secondPath = Path.Combine(root, "second.bms");
+        string thirdPath = Path.Combine(root, "third.bms");
+        File.WriteAllBytes(Path.Combine(root, "tone.wav"), CreatePcmWave());
+        const string validChart = "#PLAYER 1\n#ARTIST Test\n#BPM 120\n#WAV01 tone.wav\n#00001:01\n";
+        File.WriteAllText(secondPath, "#TITLE Second\n" + validChart, Encoding.ASCII);
+        File.WriteAllText(thirdPath, "#TITLE Third\n" + validChart, Encoding.ASCII);
+        BassAudioRuntime.Shutdown();
+        _ = NLogWrapper.GetLogger(nameof(BassSelectedChartAudioConversionExecutor));
+        LoggingConfiguration? originalLoggingConfiguration = LogManager.Configuration;
+        var audioConversionTarget = new MemoryTarget { Layout = "${message}" };
+        var testLoggingConfiguration = new LoggingConfiguration();
+        testLoggingConfiguration.AddRule(
+            LogLevel.Warn,
+            LogLevel.Fatal,
+            audioConversionTarget,
+            nameof(BassSelectedChartAudioConversionExecutor));
+        LogManager.Configuration = testLoggingConfiguration;
+        int encoderReleaseAttempts = 0;
+        int sessionReleaseAttempts = 0;
+        var sessionLease = new BassAudioSessionLease();
+        var priorFileResults = new List<SelectedChartAudioConversionFileResult>();
+        var currentFatal = new OutOfMemoryException("Injected completion callback failure for second chart.");
+        try
+        {
+            var executor = new BassSelectedChartAudioConversionExecutor(
+                () =>
+                {
+                    encoderReleaseAttempts++;
+                    return BassAudioWriter.TryReleaseEncoder();
+                },
+                _ =>
+                {
+                    sessionReleaseAttempts++;
+                    return false;
+                },
+                sessionLease);
+            var settings = new SelectedChartAudioConversionSettingsSnapshot(
+                EncoderType.WAVE,
+                SampleRate.SAMPLE_RATE_44100Hz,
+                SampleFormat.SAMPLE_INT_16BIT,
+                AudioNormalization.None,
+                0f,
+                string.Empty,
+                1f,
+                "%FILE%",
+                "WAVE",
+                "44100Hz",
+                "16bit");
+
+            AudioSourceFatalException failure = Assert.ThrowsException<AudioSourceFatalException>(() => executor.Execute(
+                [
+                    new ModelBmsFile { path = firstPath },
+                    new ModelBmsFile { path = secondPath },
+                    new ModelBmsFile { path = thirdPath }
+                ],
+                outputDirectory,
+                settings,
+                CancellationToken.None,
+                _ => { },
+                fileResult =>
+                {
+                    priorFileResults.Add(fileResult);
+                    if (fileResult.FileName == secondPath)
+                    {
+                        throw currentFatal;
+                    }
+                }));
+
+            LogManager.Flush();
+            Assert.AreEqual(2, priorFileResults.Count, "The third chart must not be reached after the callback fatal.");
+            Assert.AreEqual(firstPath, priorFileResults[0].FileName);
+            Assert.IsInstanceOfType<Ribbit.BMS.BMSFile.InvalidBmsFileException>(priorFileResults[0].Error);
+            Assert.AreEqual(secondPath, priorFileResults[1].FileName);
+            Assert.IsTrue(priorFileResults[1].Succeeded);
+            Assert.IsInstanceOfType<AggregateException>(failure.InnerException);
+            IReadOnlyList<Exception> causes = ((AggregateException)failure.InnerException).Flatten().InnerExceptions;
+            Assert.IsTrue(causes.Any(exception => ReferenceEquals(currentFatal, exception)));
+            Assert.IsTrue(causes.Any(exception => exception.Message.Contains(
+                "completed without confirming native cleanup",
+                StringComparison.Ordinal)));
+            Assert.AreEqual(4, encoderReleaseAttempts);
+            Assert.AreEqual(1, sessionReleaseAttempts);
+            Assert.IsNotNull(sessionLease.Session, "未確認のnative所有権をsession leaseに保持します。");
+            Assert.IsTrue(File.Exists(Path.Combine(outputDirectory, "second.bms.wav")));
+            Assert.IsFalse(File.Exists(Path.Combine(outputDirectory, "third.bms.wav")));
+            string logs = string.Join(Environment.NewLine, audioConversionTarget.Logs);
+            StringAssert.Contains(logs, firstPath);
+            StringAssert.Contains(logs, nameof(Ribbit.BMS.BMSFile.InvalidBmsFileException));
+            StringAssert.Contains(logs, "session cleanup failed for " + secondPath);
         }
         finally
         {
@@ -430,6 +540,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         string[] chartPaths = Enumerable.Range(1, 5)
             .Select(index => CreateChartFile(root, "song" + index + ".bms"))
             .ToArray();
+        string warningChartPath = Path.Combine(root, "warning.bms");
+        File.WriteAllBytes(Path.Combine(root, "valid.wav"), CreatePcmWave());
+        File.WriteAllText(
+            warningChartPath,
+            "#PLAYER 1\n#TITLE Warning source\n#ARTIST Test\n#BPM 120\n"
+                + "#WAV01 valid.wav\n#WAV02 missing.wav\n#00001:0102\n",
+            Encoding.ASCII);
         BassAudioRuntime.Shutdown();
         _ = NLogWrapper.GetLogger(nameof(BassSelectedChartAudioConversionExecutor));
         LoggingConfiguration? originalLoggingConfiguration = LogManager.Configuration;
@@ -463,27 +580,57 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 }
             };
             var executor = new BassSelectedChartAudioConversionExecutor(
-                () => true,
+                BassAudioWriter.TryReleaseEncoder,
                 session =>
                 {
                     sessionReleaseAttempts++;
                     return BassAudioPlayer.Free(session);
                 },
                 sessionLease);
-            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+            SelectedChartAudioConversionWorkflowOwner owner = new(
+                () => new SelectedChartAudioConversionSettingsSnapshot(
+                    EncoderType.WAVE,
+                    SampleRate.SAMPLE_RATE_44100Hz,
+                    SampleFormat.SAMPLE_INT_16BIT,
+                    AudioNormalization.None,
+                    0f,
+                    string.Empty,
+                    1f,
+                    "%TITLE%",
+                    "WAVE",
+                    "44100Hz",
+                    "16bit"),
+                _ => { },
+                playback,
+                dialogs,
+                executor);
 
             SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest(
-                chartPaths.Select(path => CreateTarget(path, ChartOperationCapabilities.ConvertToAudio))));
+                chartPaths.Append(warningChartPath)
+                    .Select(path => CreateTarget(path, ChartOperationCapabilities.ConvertToAudio))));
 
             LogManager.Flush();
+            Assert.AreEqual(chartPaths.Length + 1, result.CompletedCount);
             Assert.AreEqual(chartPaths.Length, result.FailedCount);
+            Assert.AreEqual(1, result.SucceededCount);
             Assert.AreEqual(0, result.UnprocessedCount);
+            SelectedChartAudioConversionFileResult warningResult = result.FileResults.Single(
+                fileResult => fileResult.FileName == warningChartPath);
+            Assert.IsNull(warningResult.Error);
+            Assert.AreEqual(1, warningResult.OmittedAudioSourceCount);
             Assert.AreEqual(1, dialogs.MessageCalls);
             StringAssert.Contains(dialogs.LastMessage, string.Format(
                 System.Globalization.CultureInfo.CurrentCulture,
                 Resources.AudioConversionOtherFailuresRemainingFormat,
                 chartPaths.Length,
                 chartPaths.Length - 3));
+            StringAssert.Contains(dialogs.LastMessage, string.Format(
+                System.Globalization.CultureInfo.CurrentCulture,
+                Resources.AudioConversionOmittedSourcesFormat,
+                Path.GetFileName(warningChartPath),
+                1));
+            Assert.AreEqual(1, Directory.GetFiles(outputDirectory, "*.wav").Length,
+                "The valid source is converted while the missing source is omitted.");
             string logs = string.Join(Environment.NewLine, audioConversionTarget.Logs);
             foreach (string chartPath in chartPaths)
             {
@@ -519,7 +666,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         string root = CreateRoot();
         try
         {
-            string[] chartPaths = Enumerable.Range(1, 7)
+            string[] chartPaths = Enumerable.Range(1, 8)
                 .Select(index => CreateChartFile(root, "song" + index + ".bms"))
                 .ToArray();
             var events = new EventLog();
@@ -532,10 +679,14 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 ExecuteAction = (_, _, _, _, report) =>
                 {
+                    report(new SelectedChartAudioConversionFileResult("warning-success.bms", omittedAudioSourceCount: 2));
                     report(new SelectedChartAudioConversionFileResult("success.bms"));
                     report(new SelectedChartAudioConversionFileResult("range-lower.bms", new AudioOutputRangeException(1.2d)));
                     report(new SelectedChartAudioConversionFileResult("range-maximum.bms", new AudioOutputRangeException(1.349858d)));
-                    report(new SelectedChartAudioConversionFileResult("other1.bms", new IOException("read failed")));
+                    report(new SelectedChartAudioConversionFileResult(
+                        "other1.bms",
+                        new IOException("read failed"),
+                        omittedAudioSourceCount: 4));
                     report(new SelectedChartAudioConversionFileResult("other2.bms", new InvalidOperationException("encode failed")));
                     report(new SelectedChartAudioConversionFileResult("other3.bms", new InvalidOperationException("flush failed")));
                     report(new SelectedChartAudioConversionFileResult("other4.bms", new InvalidOperationException("close failed")));
@@ -550,9 +701,16 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             SelectedChartAudioConversionResult result = await owner.RunAsync(
                 new SelectedChartAudioConversionRequest(chartPaths.Select(path => CreateTarget(path, ChartOperationCapabilities.ConvertToAudio))));
 
-            Assert.AreEqual(1, result.SucceededCount);
+            Assert.AreEqual(8, result.CompletedCount);
+            Assert.AreEqual(2, result.SucceededCount);
             Assert.AreEqual(6, result.FailedCount);
+            Assert.AreEqual(0, result.UnprocessedCount);
             Assert.AreEqual(1, dialogs.MessageCalls);
+            StringAssert.Contains(dialogs.LastMessage, string.Format(
+                System.Globalization.CultureInfo.CurrentCulture,
+                Resources.AudioConversionOmittedSourcesFormat,
+                "warning-success.bms",
+                2));
             StringAssert.Contains(dialogs.LastMessage, Resources.AudioConversionRangeFailureFormat.Split('{')[0]);
             StringAssert.Contains(dialogs.LastMessage, Math.Round(
                     20d * Math.Log10(1.349858d),
@@ -567,6 +725,11 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 Resources.AudioConversionOtherFailureFormat,
                 "other1.bms",
                 "read failed"));
+            Assert.IsFalse(dialogs.LastMessage.Contains(string.Format(
+                System.Globalization.CultureInfo.CurrentCulture,
+                Resources.AudioConversionOmittedSourcesFormat,
+                "other1.bms",
+                4), StringComparison.Ordinal));
             StringAssert.Contains(dialogs.LastMessage, string.Format(
                 System.Globalization.CultureInfo.CurrentCulture,
                 Resources.AudioConversionOtherFailureFormat,
@@ -1306,6 +1469,35 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         string path = Path.Combine(root, fileName);
         File.WriteAllText(path, "#TITLE:Test;\n");
         return path;
+    }
+
+    private static byte[] CreatePcmWave()
+    {
+        const int sampleRate = 48000;
+        const int frameCount = 4800;
+        const int bytesPerFrame = sizeof(short);
+        int dataLength = frameCount * bytesPerFrame;
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(36 + dataLength);
+            writer.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+            writer.Write(16);
+            writer.Write((ushort)1);
+            writer.Write((ushort)1);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * bytesPerFrame);
+            writer.Write((ushort)bytesPerFrame);
+            writer.Write((ushort)(bytesPerFrame * 8));
+            writer.Write(Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataLength);
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                writer.Write((short)4096);
+            }
+        }
+        return stream.ToArray();
     }
 
     private static void DeleteRoot(string root)

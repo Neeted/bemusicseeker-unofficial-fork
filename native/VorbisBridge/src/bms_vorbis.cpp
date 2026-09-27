@@ -8,7 +8,6 @@
 #include <limits>
 #include <new>
 #include <string>
-#include <vector>
 
 #if defined(_WIN32)
 #define BMS_EXPORT extern "C" __declspec(dllexport)
@@ -23,11 +22,9 @@ namespace
     constexpr std::int32_t abi_version = 1;
     constexpr std::int32_t status_ok = 0;
     constexpr std::int32_t status_invalid_argument = 1;
-    constexpr std::int32_t status_invalid_ogg = 2;
     constexpr std::int32_t status_unsupported = 3;
     constexpr std::int32_t status_vorbis = 4;
     constexpr std::int32_t status_format_change = 5;
-    constexpr std::int32_t status_size = 6;
     constexpr std::int32_t status_out_of_memory = 7;
 
     struct memory_input
@@ -128,155 +125,6 @@ namespace
         return channels >= 1 && channels <= 8;
     }
 
-    std::int32_t validate_container(const unsigned char* bytes, std::size_t length)
-    {
-        if (bytes == nullptr || length == 0 || length > static_cast<std::size_t>(LONG_MAX))
-        {
-            return status_invalid_argument;
-        }
-
-        ogg_sync_state sync{};
-        if (ogg_sync_init(&sync) != 0)
-        {
-            return status_out_of_memory;
-        }
-
-        ogg_stream_state stream{};
-        bool stream_initialized = false;
-        bool have_stream = false;
-        bool stream_ended = false;
-        int current_serial = 0;
-        ogg_int32_t next_page_number = 0;
-        std::size_t next_input = 0;
-        std::int32_t stream_count = 0;
-        std::int32_t result = status_ok;
-
-        while (next_input < length || sync.returned < sync.fill)
-        {
-            if (next_input < length)
-            {
-                const std::size_t chunk_size = std::min<std::size_t>(8192, length - next_input);
-                char* destination = ogg_sync_buffer(&sync, static_cast<long>(chunk_size));
-                if (destination == nullptr)
-                {
-                    result = status_out_of_memory;
-                    break;
-                }
-                std::memcpy(destination, bytes + next_input, chunk_size);
-                if (ogg_sync_wrote(&sync, static_cast<long>(chunk_size)) != 0)
-                {
-                    result = status_invalid_ogg;
-                    break;
-                }
-                next_input += chunk_size;
-            }
-
-            ogg_page page{};
-            int page_result = 0;
-            while ((page_result = ogg_sync_pageout(&sync, &page)) != 0)
-            {
-                if (page_result < 0)
-                {
-                    result = status_invalid_ogg;
-                    break;
-                }
-
-                const int serial = ogg_page_serialno(&page);
-                const ogg_int32_t page_number = ogg_page_pageno(&page);
-                const bool begins_stream = ogg_page_bos(&page) != 0;
-                const bool ends_stream = ogg_page_eos(&page) != 0;
-                const bool begins_next_stream = !have_stream || stream_ended;
-
-                if (begins_next_stream)
-                {
-                    if (!begins_stream || page_number != 0)
-                    {
-                        result = status_invalid_ogg;
-                        break;
-                    }
-                    if (stream_initialized)
-                    {
-                        ogg_stream_clear(&stream);
-                        stream_initialized = false;
-                    }
-                    if (ogg_stream_init(&stream, serial) != 0)
-                    {
-                        result = status_out_of_memory;
-                        break;
-                    }
-                    stream_initialized = true;
-                    have_stream = true;
-                    stream_ended = false;
-                    current_serial = serial;
-                    next_page_number = 0;
-                    ++stream_count;
-                }
-                else if (begins_stream || serial != current_serial)
-                {
-                    result = status_invalid_ogg;
-                    break;
-                }
-
-                if (serial != current_serial || page_number != next_page_number)
-                {
-                    result = status_invalid_ogg;
-                    break;
-                }
-                if (ogg_stream_pagein(&stream, &page) != 0)
-                {
-                    result = status_invalid_ogg;
-                    break;
-                }
-
-                ogg_packet packet{};
-                int packet_result = 0;
-                while ((packet_result = ogg_stream_packetout(&stream, &packet)) != 0)
-                {
-                    if (packet_result < 0)
-                    {
-                        result = status_invalid_ogg;
-                        break;
-                    }
-                }
-                if (result != status_ok)
-                {
-                    break;
-                }
-
-                ++next_page_number;
-                stream_ended = ends_stream;
-            }
-
-            if (result != status_ok)
-            {
-                break;
-            }
-
-            if (next_input == length && page_result == 0)
-            {
-                // CRCが正しいOggでは、全バイトが完全なpageとして消費されます。
-                // 残りがあれば終端pageの欠落か末尾の不正データです。
-                if (sync.returned != sync.fill)
-                {
-                    result = status_invalid_ogg;
-                }
-                break;
-            }
-        }
-
-        if (result == status_ok && (!have_stream || !stream_ended || stream_count == 0))
-        {
-            result = status_invalid_ogg;
-        }
-
-        if (stream_initialized)
-        {
-            ogg_stream_clear(&stream);
-        }
-        ogg_sync_clear(&sync);
-        return result;
-    }
-
     std::int32_t get_link_format(OggVorbis_File* file, int link, std::int32_t* sample_rate, std::int32_t* channels)
     {
         vorbis_info* info = ov_info(file, link);
@@ -351,12 +199,6 @@ BMS_EXPORT std::int32_t BMS_CALL bms_vorbis_open_memory(
     *result_handle = nullptr;
     *native_error = 0;
     const auto input_length = static_cast<std::size_t>(length);
-    const std::int32_t container_status = validate_container(bytes, input_length);
-    if (container_status != status_ok)
-    {
-        return container_status;
-    }
-
     auto* value = new (std::nothrow) decoder{};
     if (value == nullptr)
     {
@@ -396,37 +238,18 @@ BMS_EXPORT std::int32_t BMS_CALL bms_vorbis_open_memory(
         return status_vorbis;
     }
 
-    std::int64_t total_frames = 0;
-    for (int link = 0; link < value->link_count; ++link)
+    std::int32_t sample_rate = 0;
+    std::int32_t channels = 0;
+    const std::int32_t format_status = get_link_format(&value->file, 0, &sample_rate, &channels);
+    if (format_status != status_ok)
     {
-        std::int32_t sample_rate = 0;
-        std::int32_t channels = 0;
-        const std::int32_t format_status = get_link_format(&value->file, link, &sample_rate, &channels);
-        if (format_status != status_ok)
-        {
-            release_decoder(value);
-            return format_status;
-        }
-        if (link == 0)
-        {
-            value->sample_rate = sample_rate;
-            value->channels = channels;
-        }
-        else if (sample_rate != value->sample_rate || channels != value->channels)
-        {
-            release_decoder(value);
-            return status_format_change;
-        }
-
-        const ogg_int64_t link_frames = ov_pcm_total(&value->file, link);
-        if (link_frames < 0 || link_frames > std::numeric_limits<std::int64_t>::max() - total_frames)
-        {
-            release_decoder(value);
-            return status_size;
-        }
-        total_frames += link_frames;
+        release_decoder(value);
+        return format_status;
     }
-    value->total_frames = total_frames;
+    value->sample_rate = sample_rate;
+    value->channels = channels;
+    const ogg_int64_t frame_hint = ov_pcm_total(&value->file, -1);
+    value->total_frames = frame_hint > 0 ? frame_hint : 0;
 
     *result_handle = value;
     return status_ok;
@@ -470,7 +293,11 @@ BMS_EXPORT std::int32_t BMS_CALL bms_vorbis_read_frames(
     *native_error = 0;
     float** planar = nullptr;
     int link = 0;
-    const long frame_count = ov_read_float(&value->file, &planar, capacity_frames, &link);
+    long frame_count{};
+    do
+    {
+        frame_count = ov_read_float(&value->file, &planar, capacity_frames, &link);
+    } while (frame_count == OV_HOLE);
     if (frame_count < 0)
     {
         *native_error = static_cast<std::int32_t>(frame_count);

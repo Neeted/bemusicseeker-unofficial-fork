@@ -18,6 +18,9 @@ internal readonly record struct AudioLoadRequest(int Index, string ResourceName,
 /// <summary>一つのWAV indexへ対応する読み込み失敗を保持します。</summary>
 internal sealed record AudioLoadFailure(int Index, string ResourceName, string Path, Exception Exception);
 
+/// <summary>音声入力失敗で譜面から省略した一意の音源pathを保持します。</summary>
+internal sealed record AudioSourceOmission(string ResourceName, string Path);
+
 /// <summary>音源pipelineの完了時に公開するplayerと対象別失敗です。</summary>
 internal sealed class AudioSourceLoadResult<TPlayer> where TPlayer : class
 {
@@ -89,24 +92,29 @@ internal static class AudioSourceLoadPipeline
         }
         BassAudioSession expectedSession = CaptureActiveSession();
 
+        Exception? fatalFailure = null;
         if (!asParallel)
         {
-            foreach (AudioSourceWork item in work)
+            try
             {
-                Process(item, expectedSession, players, failures, createPlayer, input: null, observer);
+                foreach (AudioSourceWork item in work)
+                {
+                    Process(item, expectedSession, players, failures, createPlayer, input: null, observer);
+                }
             }
-            return new AudioSourceLoadResult<TPlayer>(players, failures.OrderBy(item => item.Index).ToArray());
+            catch (Exception exception)
+            {
+                fatalFailure = exception;
+            }
+        }
+        else
+        {
+            fatalFailure = RunParallel(work, expectedSession, players, failures, createPlayer, observer);
         }
 
-        Exception? infrastructureFailure = RunParallel(work, expectedSession, players, failures, createPlayer, observer);
-        if (infrastructureFailure != null)
+        if (fatalFailure != null)
         {
-            AudioLoadRequest first = work[0].Requests[0];
-            failures.Enqueue(new AudioLoadFailure(
-                first.Index,
-                first.ResourceName,
-                first.Path,
-                new InvalidOperationException("The audio input pipeline could not complete its workers.", infrastructureFailure)));
+            ThrowFatalAfterPlayerCleanup(fatalFailure, players);
         }
         return new AudioSourceLoadResult<TPlayer>(players, failures.OrderBy(item => item.Index).ToArray());
     }
@@ -141,7 +149,15 @@ internal static class AudioSourceLoadPipeline
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                failures.Enqueue(new AudioLoadFailure(request.Index, request.ResourceName, request.Path, exception));
+                failures.Enqueue(new AudioLoadFailure(
+                    request.Index,
+                    request.ResourceName,
+                    request.Path,
+                    new AudioSourceLoadException(
+                        AudioSourceLoadStage.InspectContainer,
+                        request.Path,
+                        "The audio input path could not be resolved.",
+                        exception)));
             }
         }
 
@@ -170,23 +186,61 @@ internal static class AudioSourceLoadPipeline
         var infrastructureFailures = new ConcurrentQueue<Exception>();
         int nextIndex = -1;
 
-        Task[] readers = Enumerable.Range(0, readerCount)
-            .Select(_ => Task.Run(() => ReadWorker()))
-            .ToArray();
+        var readers = new List<Task>(readerCount);
+        var decoders = new List<Task>(decoderCount);
+        try
+        {
+            for (int index = 0; index < readerCount; index++)
+            {
+                readers.Add(Task.Run(ReadWorker));
+            }
+        }
+        catch (Exception exception)
+        {
+            infrastructureFailures.Enqueue(exception);
+            TryCancel(cancellation, infrastructureFailures);
+        }
+
         Task readersCompleted = Task.WhenAll(readers).ContinueWith(
             _ => readQueue.CompleteAdding(),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-        Task[] decoders = Enumerable.Range(0, decoderCount)
-            .Select(_ => Task.Run(() => DecodeWorker()))
-            .ToArray();
-        Task.WhenAll(decoders.Append(readersCompleted)).GetAwaiter().GetResult();
+        try
+        {
+            for (int index = 0; index < decoderCount; index++)
+            {
+                decoders.Add(Task.Run(DecodeWorker));
+            }
+        }
+        catch (Exception exception)
+        {
+            infrastructureFailures.Enqueue(exception);
+            TryCancel(cancellation, infrastructureFailures);
+        }
 
+        Exception? joinFailure = null;
+        try
+        {
+            Task.WhenAll(decoders.Append(readersCompleted)).GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            joinFailure = exception;
+        }
+
+        var cleanupFailures = new List<Exception>();
         while (readQueue.TryTake(out ReadResult? pending))
         {
-            pending.Input?.Dispose();
+            try
+            {
+                pending.Input?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
         }
 
         void ReadWorker()
@@ -203,27 +257,43 @@ internal static class AudioSourceLoadPipeline
 
                     AudioSourceWork item = work[index];
                     AudioInputFile? input = null;
-                    Exception? readFailure = null;
                     try
                     {
-                        input = AudioInputFile.Read(item.Path, observer?.OpenInput);
-                        observer?.InputReadCompleted?.Invoke(item.Path);
+                        Exception? readFailure = null;
+                        try
+                        {
+                            input = AudioInputFile.Read(item.Path, observer?.OpenInput);
+                        }
+                        catch (Exception exception)
+                        {
+                            readFailure = WrapReadFailure(item.Path, exception);
+                        }
+
+                        if (readFailure == null)
+                        {
+                            observer?.InputReadCompleted?.Invoke(item.Path);
+                        }
+
+                        readQueue.Add(new ReadResult(item, input, readFailure), cancellation.Token);
+                        input = null;
+                        observer?.QueueDepthChanged?.Invoke(readQueue.Count);
                     }
                     catch (Exception exception)
                     {
-                        input?.Dispose();
-                        input = null;
-                        readFailure = exception;
-                    }
-
-                    try
-                    {
-                        readQueue.Add(new ReadResult(item, input, readFailure), cancellation.Token);
-                        observer?.QueueDepthChanged?.Invoke(readQueue.Count);
-                    }
-                    catch
-                    {
-                        input?.Dispose();
+                        if (input != null)
+                        {
+                            try
+                            {
+                                input.Dispose();
+                            }
+                            catch (Exception cleanupFailure)
+                            {
+                                throw new AggregateException(
+                                    "A reader worker failed and its input buffer could not be disposed.",
+                                    exception,
+                                    cleanupFailure);
+                            }
+                        }
                         throw;
                     }
                 }
@@ -237,7 +307,7 @@ internal static class AudioSourceLoadPipeline
             catch (Exception exception)
             {
                 infrastructureFailures.Enqueue(exception);
-                cancellation.Cancel();
+                TryCancel(cancellation, infrastructureFailures);
             }
         }
 
@@ -257,13 +327,23 @@ internal static class AudioSourceLoadPipeline
             catch (Exception exception)
             {
                 infrastructureFailures.Enqueue(exception);
-                cancellation.Cancel();
+                TryCancel(cancellation, infrastructureFailures);
             }
         }
 
-        return infrastructureFailures
-            .OrderBy(exception => exception.GetType().FullName, StringComparer.Ordinal)
-            .FirstOrDefault();
+        var failuresToPreserve = infrastructureFailures.ToList();
+        if (joinFailure != null)
+        {
+            failuresToPreserve.Add(joinFailure);
+        }
+        failuresToPreserve.AddRange(cleanupFailures);
+        if (failuresToPreserve.Count == 0)
+        {
+            return null;
+        }
+        return failuresToPreserve.Count == 1
+            ? failuresToPreserve[0]
+            : new AggregateException("Audio source workers failed and were joined.", failuresToPreserve);
     }
 
     private static void Process<TPlayer>(
@@ -284,7 +364,7 @@ internal static class AudioSourceLoadPipeline
                 throw input.Failure;
             }
 
-            using AudioInputFile ownedInput = input?.Input ?? AudioInputFile.Read(work.Path, observer?.OpenInput);
+            using AudioInputFile ownedInput = input?.Input ?? ReadInput(work.Path, observer?.OpenInput);
             if (input == null)
             {
                 observer?.InputReadCompleted?.Invoke(work.Path);
@@ -306,27 +386,99 @@ internal static class AudioSourceLoadPipeline
             observer?.DecodeCompleted?.Invoke(work.Path);
             foreach (AudioLoadRequest request in work.Requests)
             {
-                try
-                {
-                    players[request.Index] = createPlayer(decoded, work.Path, expectedSession);
-                    observer?.PlayerCreated?.Invoke(work.Path, request.Index);
-                }
-                catch (Exception exception)
-                {
-                    failures.Enqueue(new AudioLoadFailure(
-                        request.Index,
-                        request.ResourceName,
-                        request.Path,
-                        exception));
-                    observer?.ResourceFailed?.Invoke(work.Path, exception);
-                }
+                players[request.Index] = createPlayer(decoded, work.Path, expectedSession);
+                observer?.PlayerCreated?.Invoke(work.Path, request.Index);
             }
         }
-        catch (Exception exception)
+        catch (Exception exception) when (IsInputFailure(exception))
         {
             failures.Enqueue(new AudioLoadFailure(first.Index, first.ResourceName, first.Path, exception));
             observer?.ResourceFailed?.Invoke(work.Path, exception);
         }
+    }
+
+    private static AudioInputFile ReadInput(string path, Func<string, Stream>? openInput)
+    {
+        try
+        {
+            return AudioInputFile.Read(path, openInput);
+        }
+        catch (Exception exception)
+        {
+            throw WrapReadFailure(path, exception);
+        }
+    }
+
+    private static Exception WrapReadFailure(string path, Exception exception)
+    {
+        if (exception is AudioSourceLoadException)
+        {
+            return exception;
+        }
+        return exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException
+            ? new AudioSourceLoadException(
+                AudioSourceLoadStage.InspectContainer,
+                path,
+                "The audio input could not be read.",
+                exception)
+            : exception;
+    }
+
+    private static bool IsInputFailure(Exception exception) =>
+        exception is AudioSourceLoadException { IsInputFailure: true };
+
+    private static void TryCancel(CancellationTokenSource cancellation, ConcurrentQueue<Exception> failures)
+    {
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (Exception exception)
+        {
+            failures.Enqueue(exception);
+        }
+    }
+
+    private static void ThrowFatalAfterPlayerCleanup<TPlayer>(Exception primaryFailure, TPlayer[] players)
+        where TPlayer : class
+    {
+        var cleanupFailures = new List<Exception>();
+        var disposedPlayers = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (TPlayer? player in players)
+        {
+            if (player == null || !disposedPlayers.Add(player))
+            {
+                continue;
+            }
+            if (player is IDisposable disposable)
+            {
+                try
+                {
+                    disposable.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
+            }
+            if (player is BassAudioPlayer bassPlayer && !bassPlayer.NativeReleaseConfirmed)
+            {
+                try
+                {
+                    cleanupFailures.Add(bassPlayer.CreateSourceReleaseFailure());
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
+            }
+        }
+
+        var causes = new List<Exception> { primaryFailure };
+        causes.AddRange(cleanupFailures);
+        throw new AudioSourceFatalException(
+            "The audio source pipeline failed outside an input decode failure.",
+            causes.Count == 1 ? primaryFailure : new AggregateException(causes));
     }
 
     private sealed class AudioSourceWork(string path)

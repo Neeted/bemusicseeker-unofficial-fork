@@ -235,6 +235,10 @@ public class Resources
 
     public static string AudioConversionOtherFailuresRemainingFormat => ResourceManager.GetString("AudioConversionOtherFailuresRemainingFormat", resourceCulture);
 
+    public static string AudioConversionOmittedSourcesFormat => ResourceManager.GetString("AudioConversionOmittedSourcesFormat", resourceCulture);
+
+    public static string AudioConversionOmittedSourcesRemainingFormat => ResourceManager.GetString("AudioConversionOmittedSourcesRemainingFormat", resourceCulture);
+
     public static string Diff_URL => ResourceManager.GetString("Diff_URL", resourceCulture);
 
     public static string Directory => ResourceManager.GetString("Directory", resourceCulture);

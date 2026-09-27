@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using ManagedBass;
+using ManagedBass.Mix;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -36,6 +38,47 @@ public sealed class AudioMixerSignalTests
             Assert.AreEqual(expectedBits, BitConverter.SingleToInt32Bits(actual[frame * 2]), $"left frame {frame}");
             Assert.AreEqual(expectedBits, BitConverter.SingleToInt32Bits(actual[frame * 2 + 1]), $"right frame {frame}");
         }
+    }
+
+    [TestMethod]
+    public void NativeMixer_EmptyWaveLoadsAsStoppedSeekableSourceWithoutMixerVoice()
+    {
+        using var wave = TemporaryFloatWave.Create(48000, 0, _ => 0f);
+        using var graph = NativeAudioGraph.Start(48000);
+        BassAudioSession session = BassAudioPlayer.ActiveSession
+            ?? throw new AssertFailedException("The null-device session was not active.");
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        int initialStreams = session.GetPlayerStreams().Count;
+        BassAudioPlayer player = graph.CreatePlayer(wave.Path);
+
+        Assert.AreEqual(TimeSpan.Zero, player.Duration);
+        Assert.AreEqual(TimeSpan.Zero, player.CurrentTime);
+        Assert.AreEqual(0L, player.GetOutputFrameCount(48000));
+        Assert.AreEqual(initialStreams + 1, session.GetPlayerStreams().Count,
+            "The empty decoder handle remains owned until ordinary player disposal.");
+
+        player.Play();
+        Assert.AreEqual(PlayState.Stopped, player.PlayState,
+            "Play must leave a zero-frame source stopped immediately.");
+        player.CurrentTime = TimeSpan.Zero;
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => player.CurrentTime = TimeSpan.FromTicks(1));
+        player.Stop();
+
+        Assert.AreEqual(PlayState.Stopped, player.PlayState);
+        Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+        BassAudioOwnedStream owned = session.GetPlayerStreams().Single(stream =>
+            stream.TryGetOwner<BassAudioPlayer>(out BassAudioPlayer owner) && ReferenceEquals(player, owner));
+        Assert.AreEqual(0, BassMix.ChannelGetMixer(owned.Handle), "An empty source is never registered with the mixer.");
+        foreach (float sample in graph.ReadFrames(32))
+        {
+            Assert.AreEqual(0f, sample);
+        }
+
+        graph.DisposePlayer(player);
+
+        Assert.IsTrue(player.NativeReleaseConfirmed);
+        Assert.AreEqual(initialStreams, session.GetPlayerStreams().Count);
+        Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
     }
 
     [TestMethod]

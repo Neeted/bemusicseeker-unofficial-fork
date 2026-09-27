@@ -340,6 +340,8 @@
   "AudioResamplingQualityOptionFormat": "{0}（{1}点）",
   "AudioConversionOtherFailureFormat": "{0}: {1}",
   "AudioConversionOtherFailuresRemainingFormat": "その他の変換失敗は{0}件です。残り{1}件の詳細はログを参照してください。",
+  "AudioConversionOmittedSourcesFormat": "{0}: 音源を{1}件省略しました。",
+  "AudioConversionOmittedSourcesRemainingFormat": "音源を省略した譜面は合計{0}件です。残り{1}件の詳細はログを参照してください。",
   "Msg_error_unexpected": "予期しないエラーが発生しました。",
   "Sampling_rate": "サンプルレート",
   "Open_image": "画像ファイルを開く",

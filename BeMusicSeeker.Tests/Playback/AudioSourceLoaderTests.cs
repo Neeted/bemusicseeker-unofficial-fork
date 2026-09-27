@@ -145,17 +145,10 @@ public sealed class AudioSourceLoaderTests
     }
 
     [TestMethod]
-    public void LoadWave_HandlesChunkOrderAndOddChunkPadding()
+    public void LoadWave_UsesTheBASSDecoderForPcm()
     {
         float[] expected = [0.125f, -0.375f];
-        using var wave = new TemporaryWave(BuildWave(
-            formatTag: 3,
-            channels: 1,
-            sampleRate: 32000,
-            containerBits: 32,
-            data: FloatBytes(expected),
-            dataBeforeFormat: true,
-            addOddJunkChunk: true));
+        using var wave = new TemporaryWave(BuildWave(3, 1, 32000, 32, FloatBytes(expected)));
 
         DecodedAudio actual = AudioSourceLoader.Load(wave.Path);
 
@@ -166,19 +159,9 @@ public sealed class AudioSourceLoaderTests
     }
 
     [TestMethod]
-    public void LoadWave_RejectsNonFiniteUnalignedAndUnknownLayoutInputs()
+    public void LoadWave_RejectsNonFiniteSamplesAndUnsupportedChannels()
     {
         using var nonFiniteWave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([float.NaN])));
-        using var unalignedWave = new TemporaryWave(BuildWave(1, 1, 44100, 16, [0x01]));
-        using var unknownLayoutWave = new TemporaryWave(BuildWave(
-            formatTag: 1,
-            channels: 3,
-            sampleRate: 44100,
-            containerBits: 16,
-            data: Pcm16Bytes(0, 0, 0),
-            extensible: true,
-            channelMask: 0,
-            validBits: 16));
         using var nineChannelWave = new TemporaryWave(BuildWave(
             formatTag: 1,
             channels: 9,
@@ -191,30 +174,11 @@ public sealed class AudioSourceLoaderTests
 
         AudioSourceLoadException nonFinite = Assert.ThrowsException<AudioSourceLoadException>(
             () => AudioSourceLoader.Load(nonFiniteWave.Path));
-        AudioSourceLoadException unaligned = Assert.ThrowsException<AudioSourceLoadException>(
-            () => AudioSourceLoader.Load(unalignedWave.Path));
-        AudioSourceLoadException unknownLayout = Assert.ThrowsException<AudioSourceLoadException>(
-            () => AudioSourceLoader.Load(unknownLayoutWave.Path));
         AudioSourceLoadException nineChannels = Assert.ThrowsException<AudioSourceLoadException>(
             () => AudioSourceLoader.Load(nineChannelWave.Path));
 
         Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, nonFinite.Stage);
-        Assert.AreEqual(AudioSourceLoadStage.ParseWaveFormat, unaligned.Stage);
-        Assert.AreEqual(AudioSourceLoadStage.ParseWaveFormat, unknownLayout.Stage);
-        Assert.AreEqual(AudioSourceLoadStage.ParseWaveFormat, nineChannels.Stage);
-    }
-
-    [TestMethod]
-    public void LoadWave_RejectsContainerSizeBeyondTheFile()
-    {
-        byte[] bytes = BuildWave(3, 1, 44100, 32, FloatBytes([0.5f]));
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), uint.MaxValue);
-        using var wave = new TemporaryWave(bytes);
-
-        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
-            () => AudioSourceLoader.Load(wave.Path));
-
-        Assert.AreEqual(AudioSourceLoadStage.ParseWaveFormat, failure.Stage);
+        Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, nineChannels.Stage);
     }
 
     [TestMethod]
@@ -359,7 +323,7 @@ public sealed class AudioSourceLoaderTests
     }
 
     [TestMethod]
-    public void LoadWithSession_UsesOneOpenedInputAndRetainsItUntilTemporaryDecoderRelease()
+    public void LoadWithSession_UsesOneOpenedInputAndRetainsItUntilFatalTemporaryDecoderReleaseFailure()
     {
         using var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.5f, -0.25f])));
         BassAudioSession session = BassAudioPlayer.ActiveSession
@@ -367,7 +331,7 @@ public sealed class AudioSourceLoaderTests
         int openCount = 0;
         var injectedReleaseFailure = new InvalidOperationException("Injected native release failure.");
 
-        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceFatalException failure = Assert.ThrowsException<AudioSourceFatalException>(
             () => AudioSourceLoader.LoadWithSession(
                 wave.Path,
                 _ =>
@@ -377,7 +341,6 @@ public sealed class AudioSourceLoaderTests
                 },
                 _ => throw injectedReleaseFailure));
 
-        Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, failure.Stage);
         Assert.AreSame(injectedReleaseFailure, failure.InnerException);
         Assert.AreEqual(1, openCount, "The signature, metadata, and decoder must share one file read.");
         BassAudioOwnedStream owned = session.GetPlayerStreams().Single();
@@ -570,9 +533,7 @@ public sealed class AudioSourceLoaderTests
         byte[] data,
         bool extensible = false,
         uint channelMask = 0,
-        ushort validBits = 0,
-        bool dataBeforeFormat = false,
-        bool addOddJunkChunk = false)
+        ushort validBits = 0)
     {
         int blockAlign = checked(channels * containerBits / 8);
         byte[] format = new byte[extensible ? 40 : 16];
@@ -596,19 +557,8 @@ public sealed class AudioSourceLoaderTests
         using var chunks = new MemoryStream();
         using (var writer = new BinaryWriter(chunks, Encoding.ASCII, leaveOpen: true))
         {
-            if (addOddJunkChunk)
-            {
-                WriteChunk(writer, "JUNK", [1, 2, 3]);
-            }
-            if (dataBeforeFormat)
-            {
-                WriteChunk(writer, "data", data);
-            }
             WriteChunk(writer, "fmt ", format);
-            if (!dataBeforeFormat)
-            {
-                WriteChunk(writer, "data", data);
-            }
+            WriteChunk(writer, "data", data);
         }
 
         byte[] body = chunks.ToArray();

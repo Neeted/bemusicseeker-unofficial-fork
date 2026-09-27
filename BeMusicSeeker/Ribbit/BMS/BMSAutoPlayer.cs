@@ -25,6 +25,11 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
 {
     private static readonly ConstructorInfo DecodedSourcePlayerConstructor = FindDecodedSourceConstructor();
 
+    private IReadOnlyList<AudioSourceOmission> omittedAudioSources = Array.Empty<AudioSourceOmission>();
+
+    /// <summary>今回の譜面読み込みで入力失敗により省略した音源を変更不能な一覧で取得します。</summary>
+    internal IReadOnlyList<AudioSourceOmission> OmittedAudioSources => omittedAudioSources;
+
     /// <summary>再生速度を取得・設定し、再生ループの観測時に出力故障を伝えます。</summary>
     public override float PlaybackRate
     {
@@ -72,18 +77,43 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
             CreatePlayer,
             observer);
 
-        if (result.Failures.Count != 0)
+        foreach (AudioLoadFailure failure in result.Failures)
         {
-            AudioLoadFailure failure = result.Failures[0];
-            DisposeLoadedPlayers(result.Players, failure);
+            if (failure.Exception is not AudioSourceLoadException { IsInputFailure: true })
+            {
+                throw new AudioSourceFatalException(
+                    "The audio source pipeline returned a failure that is not caused by an input file.",
+                    failure.Exception);
+            }
+        }
+
+        AudioSourceOmission[] omissions = result.Failures
+            .OrderBy(failure => failure.Index)
+            .GroupBy(failure => GetNormalizedPath(failure.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new AudioSourceOmission(group.First().ResourceName, group.Key))
+            .ToArray();
+        LogAudioOmissions(omissions, result.Failures);
+
+        int requestedPathCount = requests
+            .Select(request => GetNormalizedPath(request.Path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        if (requestedPathCount > 0 && omissions.Length == requestedPathCount)
+        {
+            AudioLoadFailure failure = result.Failures
+                .OrderBy(item => item.Index)
+                .First();
             string stage = GetFailureStage(failure.Exception);
             string nativeError = GetNativeError(failure.Exception);
-            throw new InvalidDataException(
+            var chartFailure = new InvalidDataException(
                 string.Format(BeMusicSeeker.Properties.Resources.AudioRequiredResourceLoadFailureFormat,
                     failure.ResourceName, failure.Path, stage, nativeError),
                 failure.Exception);
+            DisposeLoadedPlayers(result.Players, chartFailure);
+            throw chartFailure;
         }
 
+        omittedAudioSources = Array.AsReadOnly(omissions);
         base.AudioPlayers = Array.AsReadOnly(result.Players);
         durationProvider = () => base.MusicDuration;
         base.MusicDuration = base.Bms.Measures.SelectMany(measure =>
@@ -106,9 +136,19 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
     /// <summary>次曲の解析前に旧曲sourceを停止・解放し、未確認をSourceReleaseで通知します。</summary>
     internal virtual void DisposeBeforeNextSong()
     {
-        TBassAudioPlayer[] previousPlayers = base.AudioPlayers?.ToArray() ?? [];
         // 再生taskのResetPlaybackStateも旧配列を参照するため、配列を置き換える前に停止・合流します。
         Stop();
+        DisposeAudioSourcesAfterUse();
+    }
+
+    /// <summary>音声使用終了後に譜面資源を解放し、全sourceのnative解放を確認します。</summary>
+    /// <remarks>
+    /// 呼出し前に再生または変換が終了し、sourceを参照する処理がないことが必要です。
+    /// sourceをすべて解放試行し、native解放を確認できない場合はsessionが所有を維持したまま失敗します。
+    /// </remarks>
+    internal void DisposeAudioSourcesAfterUse()
+    {
+        TBassAudioPlayer[] previousPlayers = base.AudioPlayers?.ToArray() ?? [];
         // base.Disposeは音源のDispose例外が一つ出ると残りを処理しません。
         // sourceは個別に全件処理し、base側には画像だけを解放させます。
         base.AudioPlayers = Array.AsReadOnly(Array.Empty<TBassAudioPlayer>());
@@ -183,9 +223,11 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
             return null;
         }
 
+        string? firstCandidate = null;
         foreach (string item in Resources.NormalizeExtension(resourceName))
         {
             string path = Path.Combine(basePath, item);
+            firstCandidate ??= path;
             if (LongPathFileSystem.FileExists(path))
             {
                 return path;
@@ -198,6 +240,7 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
             foreach (string item in Resources.NormalizeExtension(fileName))
             {
                 string path = Path.Combine(basePath, item);
+                firstCandidate ??= path;
                 if (LongPathFileSystem.FileExists(path))
                 {
                     return path;
@@ -205,7 +248,56 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
             }
         }
 
-        return null;
+        // 明示された非空参照が見つからない場合も、最初に探索したpathをpipelineへ渡して
+        // 読取り失敗として警告・省略数・全件失敗判定へ一貫して反映します。
+        return firstCandidate;
+    }
+
+    private static string GetNormalizedPath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
+        {
+            return path;
+        }
+    }
+
+    private static void LogAudioOmissions(
+        IReadOnlyList<AudioSourceOmission> omissions,
+        IReadOnlyList<AudioLoadFailure> failures)
+    {
+        if (omissions.Count == 0)
+        {
+            return;
+        }
+
+        var failuresByPath = failures
+            .GroupBy(failure => GetNormalizedPath(failure.Path), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        foreach (AudioSourceOmission omission in omissions)
+        {
+            if (!failuresByPath.TryGetValue(omission.Path, out AudioLoadFailure? failure))
+            {
+                continue;
+            }
+            try
+            {
+                NLogWrapper.GetLogger(nameof(BMSAutoPlayer)).Warn(
+                    failure.Exception,
+                    "Skipped an audio source that BASS/Vorbis could not decode. resource="
+                    + omission.ResourceName
+                    + " path=" + omission.Path
+                    + " stage=" + GetFailureStage(failure.Exception)
+                    + " nativeError=" + GetNativeError(failure.Exception));
+            }
+            catch
+            {
+                // ログ障害で譜面の再生や変換結果を置き換えません。
+            }
+        }
     }
 
     private static HashSet<int> GetRequiredAudioIndices(BMSFile bms)
@@ -272,11 +364,13 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
         };
     }
 
-    private static void DisposeLoadedPlayers(TBassAudioPlayer[] players, AudioLoadFailure primaryFailure)
+    private static void DisposeLoadedPlayers(TBassAudioPlayer[] players, Exception primaryFailure)
     {
+        var cleanupFailures = new List<Exception>();
+        var disposedPlayers = new HashSet<object>(ReferenceEqualityComparer.Instance);
         foreach (TBassAudioPlayer? player in players)
         {
-            if (player == null)
+            if (player == null || !disposedPlayers.Add(player))
             {
                 continue;
             }
@@ -287,18 +381,41 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms)
             }
             catch (Exception exception)
             {
+                cleanupFailures.Add(exception);
+            }
+            if (!player.NativeReleaseConfirmed)
+            {
                 try
                 {
-                    NLogWrapper.GetLogger(nameof(BMSAutoPlayer)).Warn(
-                        "Audio source cleanup failed after load failure. primary=" + primaryFailure.ResourceName
-                        + " cleanup=" + exception.Message);
+                    cleanupFailures.Add(player.CreateSourceReleaseFailure());
                 }
-                catch
+                catch (Exception exception)
                 {
-                    // 後片付けのログで主たる読み込み失敗を置き換えません。
+                    cleanupFailures.Add(exception);
                 }
             }
         }
+
+        if (cleanupFailures.Count == 0)
+        {
+            return;
+        }
+        foreach (Exception cleanupFailure in cleanupFailures)
+        {
+            try
+            {
+                NLogWrapper.GetLogger(nameof(BMSAutoPlayer)).Warn(
+                    "Audio source cleanup failed after load failure. primary=" + primaryFailure.Message
+                    + " cleanup=" + cleanupFailure);
+            }
+            catch
+            {
+                // 後片付けのログで主たる読み込み失敗を置き換えません。
+            }
+        }
+        throw new AudioSourceFatalException(
+            "Failed audio loading could not confirm release of a created source.",
+            new AggregateException(new[] { primaryFailure }.Concat(cleanupFailures)));
     }
 
 }

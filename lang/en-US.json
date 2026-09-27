@@ -330,6 +330,8 @@
   "AudioResamplingQualityOptionFormat": "{0} ({1} points)",
   "AudioConversionOtherFailureFormat": "{0}: {1}",
   "AudioConversionOtherFailuresRemainingFormat": "Other conversion failures: {0}. See the log for the remaining {1} details.",
+  "AudioConversionOmittedSourcesFormat": "{0}: {1} audio source(s) were skipped.",
+  "AudioConversionOmittedSourcesRemainingFormat": "Audio sources were skipped in {0} charts. See the log for the remaining {1} charts.",
   "Msg_error_unexpected": "An unexpected error occurred.",
   "Sampling_rate": "Sample rate",
   "Open_image": "Open image file",

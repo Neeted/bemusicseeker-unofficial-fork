@@ -1040,6 +1040,12 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="AudioConversionOtherFailuresRemainingFormat" xml:space="preserve">
     <value>その他の変換失敗は{0}件です。残り{1}件の詳細はログを参照してください。</value>
   </data>
+  <data name="AudioConversionOmittedSourcesFormat" xml:space="preserve">
+    <value>{0}: 音源を{1}件省略しました。</value>
+  </data>
+  <data name="AudioConversionOmittedSourcesRemainingFormat" xml:space="preserve">
+    <value>音源を省略した譜面は合計{0}件です。残り{1}件の詳細はログを参照してください。</value>
+  </data>
   <data name="Playlist_output_root" xml:space="preserve">
     <value>ルートフォルダ出力先: </value>
   </data>

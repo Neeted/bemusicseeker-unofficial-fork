@@ -204,11 +204,21 @@ internal sealed class DecodedAudio
 {
     private readonly float[] samples;
 
-    /// <summary>入力 PCM の配列所有権を受け取り、フレーム配置全体を検証して作成します。</summary>
+    /// <summary>入力 PCM の配列所有権を受け取り、全配列を有効範囲として作成します。</summary>
     /// <param name="sampleRate">入力のサンプルレート。</param>
     /// <param name="channelLayout">PCM 配列の各チャンネルに対応する speaker 配置。</param>
     /// <param name="samples">インターリーブ PCM。所有権を移譲するため、呼び出し元は作成後に変更・再利用しません。</param>
     internal DecodedAudio(int sampleRate, AudioChannelLayout channelLayout, float[] samples)
+        : this(sampleRate, channelLayout, samples, samples?.Length ?? 0)
+    {
+    }
+
+    /// <summary>末尾に未使用容量を持つ入力 PCM の有効範囲を検証して作成します。</summary>
+    /// <param name="sampleRate">入力のサンプルレート。</param>
+    /// <param name="channelLayout">PCM 配列の各チャンネルに対応する speaker 配置。</param>
+    /// <param name="samples">復号PCMを含む配列。所有権を移譲します。</param>
+    /// <param name="sampleCount">有効なインターリーブサンプル数。</param>
+    internal DecodedAudio(int sampleRate, AudioChannelLayout channelLayout, float[] samples, int sampleCount)
     {
         ArgumentNullException.ThrowIfNull(channelLayout);
         ArgumentNullException.ThrowIfNull(samples);
@@ -216,12 +226,16 @@ internal sealed class DecodedAudio
         {
             throw new ArgumentOutOfRangeException(nameof(sampleRate), "The source sample rate must be positive.");
         }
-        if (samples.Length % channelLayout.ChannelCount != 0)
+        if (sampleCount < 0 || sampleCount > samples.Length)
         {
-            throw new ArgumentException("The interleaved PCM length must contain complete frames.", nameof(samples));
+            throw new ArgumentOutOfRangeException(nameof(sampleCount));
+        }
+        if (sampleCount % channelLayout.ChannelCount != 0)
+        {
+            throw new ArgumentException("The interleaved PCM length must contain complete frames.", nameof(sampleCount));
         }
 
-        for (int index = 0; index < samples.Length; index++)
+        for (int index = 0; index < sampleCount; index++)
         {
             if (!float.IsFinite(samples[index]))
             {
@@ -232,8 +246,11 @@ internal sealed class DecodedAudio
         SampleRate = sampleRate;
         ChannelLayout = channelLayout;
         this.samples = samples;
-        FrameCount = samples.Length / channelLayout.ChannelCount;
+        this.sampleCount = sampleCount;
+        FrameCount = sampleCount / channelLayout.ChannelCount;
     }
+
+    private readonly int sampleCount;
 
     /// <summary>元のサンプルレートをフレーム毎秒で取得します。</summary>
     internal int SampleRate { get; }
@@ -248,15 +265,17 @@ internal sealed class DecodedAudio
     internal long FrameCount { get; }
 
     /// <summary>checked演算で求めたPCMデータのバイト数を取得します。</summary>
-    internal long PcmByteCount => checked((long)samples.Length * sizeof(float));
+    internal long PcmByteCount => checked((long)sampleCount * sizeof(float));
 
     /// <summary>変更可能な配列を公開せずにインターリーブサンプルを1つ読み取ります。</summary>
-    internal float GetSample(int sampleIndex) => samples[sampleIndex];
+    internal float GetSample(int sampleIndex) => sampleIndex >= 0 && sampleIndex < sampleCount
+        ? samples[sampleIndex]
+        : throw new ArgumentOutOfRangeException(nameof(sampleIndex));
 
     /// <summary>フレーム境界に揃えたfloatサンプルを固定済みのnative領域へコピーします。</summary>
     internal void CopySamplesTo(IntPtr destination, int sourceSampleIndex, int sampleCount)
     {
-        if (sourceSampleIndex < 0 || sampleCount < 0 || sourceSampleIndex > samples.Length - sampleCount)
+        if (sourceSampleIndex < 0 || sampleCount < 0 || sourceSampleIndex > this.sampleCount - sampleCount)
         {
             throw new ArgumentOutOfRangeException(nameof(sourceSampleIndex));
         }

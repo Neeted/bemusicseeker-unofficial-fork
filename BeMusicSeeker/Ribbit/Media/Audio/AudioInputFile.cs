@@ -123,8 +123,7 @@ internal sealed class AudioInputFile : IDisposable
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException
             or ArgumentException
-            or OverflowException
-            or OutOfMemoryException)
+            or OverflowException)
         {
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.InspectContainer,

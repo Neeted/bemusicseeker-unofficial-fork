@@ -9,6 +9,7 @@ internal static class VorbisDecoder
 {
     private const int RequiredAbiVersion = 1;
     private const int NativeReadFrames = 8192;
+    private const int MaximumInitialSampleCapacity = 1024 * 1024;
     private static readonly object ApiSync = new();
     private static NativeApi? api;
 
@@ -32,6 +33,7 @@ internal static class VorbisDecoder
 
         NativeApi native = GetNativeApi();
         IntPtr decoder = IntPtr.Zero;
+        Exception? primaryFailure = null;
         try
         {
             if (input.Length == 0)
@@ -53,7 +55,7 @@ internal static class VorbisDecoder
                 out int nativeError);
             if (openStatus != 0 || decoder == IntPtr.Zero)
             {
-                throw CreateNativeFailure(path, openStatus, nativeError, "The Ogg container or Vorbis stream is invalid.");
+                throw CreateNativeFailure(path, openStatus, nativeError, "The Ogg container or Vorbis stream could not be opened.");
             }
 
             int infoStatus = native.GetInfo(
@@ -66,33 +68,12 @@ internal static class VorbisDecoder
             {
                 throw CreateNativeFailure(path, infoStatus, 0, "The Vorbis source format could not be read.");
             }
-            if (sampleRate <= 0 || channels is < 1 or > 8 || expectedFrames < 0 || links <= 0)
+            if (sampleRate <= 0 || channels is < 1 or > 8 || links <= 0)
             {
                 throw new AudioSourceLoadException(
                     AudioSourceLoadStage.DecodeVorbis,
                     path,
-                    "The Vorbis source format or frame count is invalid.");
-            }
-
-            long sampleCountLong;
-            try
-            {
-                sampleCountLong = checked(expectedFrames * channels);
-            }
-            catch (OverflowException exception)
-            {
-                throw new AudioSourceLoadException(
-                    AudioSourceLoadStage.DecodeVorbis,
-                    path,
-                    "The decoded Vorbis source exceeds the managed array size limit.",
-                    exception);
-            }
-            if (sampleCountLong > Array.MaxLength)
-            {
-                throw new AudioSourceLoadException(
-                    AudioSourceLoadStage.DecodeVorbis,
-                    path,
-                    "The decoded Vorbis source exceeds the managed array size limit.");
+                    "The Vorbis source format is invalid or unsupported.");
             }
 
             AudioChannelLayout layout;
@@ -109,98 +90,80 @@ internal static class VorbisDecoder
                     exception);
             }
 
-            float[] samples = new float[(int)sampleCountLong];
-            long framesRead = 0;
-            if (samples.Length > 0)
+            int maxSampleCount = Array.MaxLength - Array.MaxLength % channels;
+            int initialSampleCount = expectedFrames > 0
+                ? checked((int)System.Math.Min(expectedFrames, MaximumInitialSampleCapacity / channels) * channels)
+                : 0;
+            float[] samples = initialSampleCount == 0 ? [] : new float[initialSampleCount];
+            float[]? probeFrame = null;
+            int samplesWritten = 0;
+            while (true)
             {
-                var pinnedSamples = GCHandle.Alloc(samples, GCHandleType.Pinned);
-                try
+                if (samplesWritten == maxSampleCount)
                 {
-                    IntPtr baseAddress = pinnedSamples.AddrOfPinnedObject();
-                    while (framesRead < expectedFrames)
+                    probeFrame ??= new float[channels];
+                    if (ReadProbeFrame(native, decoder, probeFrame, path) > 0)
                     {
-                        int requestFrames = (int)System.Math.Min(NativeReadFrames, expectedFrames - framesRead);
-                        long sampleOffset = checked(framesRead * channels);
-                        long byteOffset = checked(sampleOffset * sizeof(float));
-                        IntPtr destination = new(checked(baseAddress.ToInt64() + byteOffset));
-                        int status = native.ReadFrames(
-                            decoder,
-                            destination,
-                            requestFrames,
-                            out long readFrames,
-                            out nativeError);
-                        if (status != 0)
-                        {
-                            throw CreateNativeFailure(path, status, nativeError, "Vorbis decoding failed before the end of the file.");
-                        }
-                        if (readFrames <= 0 || readFrames > requestFrames)
-                        {
-                            throw new AudioSourceLoadException(
-                                AudioSourceLoadStage.DecodeVorbis,
-                                path,
-                                "Vorbis ended before its declared frame count.");
-                        }
-                        framesRead = checked(framesRead + readFrames);
+                        throw new AudioSourceLoadException(
+                            AudioSourceLoadStage.DecodeVorbis,
+                            path,
+                            "The decoded Vorbis audio exceeds the managed array size limit.");
+                    }
+                    break;
+                }
+
+                if (samples.Length > 0 && samplesWritten == samples.Length)
+                {
+                    probeFrame ??= new float[channels];
+                    if (ReadProbeFrame(native, decoder, probeFrame, path) == 0)
+                    {
+                        break;
                     }
 
-                    float[] endProbe = new float[channels];
-                    var pinnedProbe = GCHandle.Alloc(endProbe, GCHandleType.Pinned);
-                    try
-                    {
-                        int status = native.ReadFrames(
-                            decoder,
-                            pinnedProbe.AddrOfPinnedObject(),
-                            1,
-                            out long trailingFrames,
-                            out nativeError);
-                        if (status != 0)
-                        {
-                            throw CreateNativeFailure(path, status, nativeError, "Vorbis failed while confirming end of file.");
-                        }
-                        if (trailingFrames != 0)
-                        {
-                            throw new AudioSourceLoadException(
-                                AudioSourceLoadStage.DecodeVorbis,
-                                path,
-                                "Vorbis decoded more frames than its declared source length.");
-                        }
-                    }
-                    finally
-                    {
-                        pinnedProbe.Free();
-                    }
+                    samples = GrowBuffer(samples, samplesWritten, maxSampleCount, channels, path);
+                    Array.Copy(probeFrame, 0, samples, samplesWritten, channels);
+                    samplesWritten += channels;
+                    continue;
                 }
-                finally
+
+                if (samples.Length - samplesWritten < channels)
                 {
-                    pinnedSamples.Free();
+                    samples = GrowBuffer(samples, samplesWritten, maxSampleCount, channels, path);
                 }
-            }
-            else
-            {
-                float[] endProbe = new float[channels];
-                var pinnedProbe = GCHandle.Alloc(endProbe, GCHandleType.Pinned);
-                try
+
+                int requestFrames = (int)System.Math.Min(
+                    NativeReadFrames,
+                    (samples.Length - samplesWritten) / channels);
+                int sampleOffset = samplesWritten;
+                int status = ReadFramesIntoBuffer(
+                    native,
+                    decoder,
+                    samples,
+                    sampleOffset,
+                    requestFrames,
+                    out long readFrames,
+                    out nativeError);
+                if (status != 0)
                 {
-                    int status = native.ReadFrames(
-                        decoder,
-                        pinnedProbe.AddrOfPinnedObject(),
-                        1,
-                        out long trailingFrames,
-                        out nativeError);
-                    if (status != 0 || trailingFrames != 0)
-                    {
-                        throw CreateNativeFailure(path, status, nativeError, "The empty Vorbis source did not end cleanly.");
-                    }
+                    throw CreateNativeFailure(path, status, nativeError, "Vorbis decoding failed before the end of the file.");
                 }
-                finally
+                if (readFrames == 0)
                 {
-                    pinnedProbe.Free();
+                    break;
                 }
+                if (readFrames < 0 || readFrames > requestFrames)
+                {
+                    throw new AudioSourceLoadException(
+                        AudioSourceLoadStage.DecodeVorbis,
+                        path,
+                        "Vorbis returned an invalid decoded frame count.");
+                }
+                samplesWritten = checked(samplesWritten + checked((int)readFrames * channels));
             }
 
             try
             {
-                return new DecodedAudio(sampleRate, layout, samples);
+                return new DecodedAudio(sampleRate, layout, samples, samplesWritten);
             }
             catch (ArgumentException exception)
             {
@@ -211,13 +174,117 @@ internal static class VorbisDecoder
                     exception);
             }
         }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
+        }
         finally
         {
             if (decoder != IntPtr.Zero)
             {
-                native.Close(decoder);
+                try
+                {
+                    native.Close(decoder);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AudioSourceFatalException(
+                        "The native Vorbis decoder could not be closed.",
+                        primaryFailure == null
+                            ? cleanupFailure
+                            : new AggregateException(primaryFailure, cleanupFailure));
+                }
             }
         }
+    }
+
+    private static int ReadFramesIntoBuffer(
+        NativeApi native,
+        IntPtr decoder,
+        float[] samples,
+        int sampleOffset,
+        int requestFrames,
+        out long readFrames,
+        out int nativeError)
+    {
+        var pinnedSamples = GCHandle.Alloc(samples, GCHandleType.Pinned);
+        try
+        {
+            long byteOffset = checked((long)sampleOffset * sizeof(float));
+            IntPtr destination = new(checked(pinnedSamples.AddrOfPinnedObject().ToInt64() + byteOffset));
+            return native.ReadFrames(
+                decoder,
+                destination,
+                requestFrames,
+                out readFrames,
+                out nativeError);
+        }
+        finally
+        {
+            pinnedSamples.Free();
+        }
+    }
+
+    private static float[] GrowBuffer(
+        float[] samples,
+        int samplesWritten,
+        int maxSampleCount,
+        int channelCount,
+        string path)
+    {
+        int currentCapacity = samples.Length;
+        if (currentCapacity >= maxSampleCount)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeVorbis,
+                path,
+                "The decoded Vorbis audio exceeds the managed array size limit.");
+        }
+
+        long proposedCapacity = currentCapacity == 0
+            ? System.Math.Min((long)NativeReadFrames * channelCount, maxSampleCount)
+            : System.Math.Min(System.Math.Max((long)currentCapacity * 2, currentCapacity + channelCount), maxSampleCount);
+        int nextCapacity = checked((int)proposedCapacity);
+        nextCapacity -= nextCapacity % channelCount;
+        if (nextCapacity <= samplesWritten)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeVorbis,
+                path,
+                "The decoded Vorbis audio exceeds the managed array size limit.");
+        }
+
+        Array.Resize(ref samples, nextCapacity);
+        return samples;
+    }
+
+    private static long ReadProbeFrame(
+        NativeApi native,
+        IntPtr decoder,
+        float[] probeFrame,
+        string path)
+    {
+        int status = ReadFramesIntoBuffer(
+            native,
+            decoder,
+            probeFrame,
+            sampleOffset: 0,
+            requestFrames: 1,
+            out long readFrames,
+            out int nativeError);
+        if (status != 0)
+        {
+            throw CreateNativeFailure(path, status, nativeError, "Vorbis failed while confirming end of file.");
+        }
+        if (readFrames is >= 0 and <= 1)
+        {
+            return readFrames;
+        }
+        throw new AudioSourceLoadException(
+            AudioSourceLoadStage.DecodeVorbis,
+            path,
+            "Vorbis returned an invalid decoded frame count while confirming end of file.");
     }
 
     /// <summary>従来のVorbis入力buffer上限を実allocation前に検査します。</summary>
@@ -255,7 +322,7 @@ internal static class VorbisDecoder
         }
     }
 
-    private static AudioSourceLoadException CreateNativeFailure(
+    private static Exception CreateNativeFailure(
         string path,
         int status,
         int nativeError,
@@ -263,14 +330,22 @@ internal static class VorbisDecoder
     {
         string detail = status switch
         {
-            2 => "Invalid Ogg page, CRC, sequence, or end marker.",
+            2 => "The native Ogg decoder rejected the container.",
             3 => "Unsupported Ogg codec or channel layout.",
             4 => "libvorbis rejected or failed to decode the stream.",
             5 => "A chained Vorbis stream changed its sample rate or channel layout.",
-            6 => "The Vorbis source exceeds a supported size.",
-            7 => "The native Vorbis bridge ran out of memory.",
             _ => "The native Vorbis bridge reported an unknown error."
         };
+        if (status == 7)
+        {
+            return new OutOfMemoryException(message + " The native Vorbis bridge ran out of memory.");
+        }
+        if (status == 1 || status < 1 || status > 7)
+        {
+            return new AudioSourceFatalException(
+                message + " " + detail,
+                new InvalidOperationException("Native Vorbis bridge status=" + status + ", error=" + nativeError));
+        }
         return new AudioSourceLoadException(
             AudioSourceLoadStage.DecodeVorbis,
             path,

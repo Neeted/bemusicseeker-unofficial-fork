@@ -330,6 +330,8 @@
   "AudioResamplingQualityOptionFormat": "{0}({1}포인트)",
   "AudioConversionOtherFailureFormat": "{0}: {1}",
   "AudioConversionOtherFailuresRemainingFormat": "그 밖의 변환 실패: {0}개. 나머지 {1}개의 자세한 내용은 로그를 확인하세요.",
+  "AudioConversionOmittedSourcesFormat": "{0}: 오디오 소스 {1}개를 제외했습니다.",
+  "AudioConversionOmittedSourcesRemainingFormat": "오디오 소스를 제외한 채보가 {0}개입니다. 나머지 {1}개 채보의 자세한 내용은 로그를 확인하세요.",
   "Msg_error_unexpected": "예기치 않은 오류가 발생했습니다.",
   "Sampling_rate": "샘플 레이트",
   "Open_image": "이미지 파일 열기",

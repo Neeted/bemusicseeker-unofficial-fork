@@ -330,6 +330,8 @@
   "AudioResamplingQualityOptionFormat": "{0}（{1} 點）",
   "AudioConversionOtherFailureFormat": "{0}：{1}",
   "AudioConversionOtherFailuresRemainingFormat": "其他轉換失敗：{0} 個。其餘 {1} 個的詳細資訊請查看記錄。",
+  "AudioConversionOmittedSourcesFormat": "{0}：已省略 {1} 個音源。",
+  "AudioConversionOmittedSourcesRemainingFormat": "共有 {0} 個譜面省略了音源。其餘 {1} 個譜面的詳細資訊請查看記錄。",
   "Msg_error_unexpected": "發生了未預期的錯誤。",
   "Sampling_rate": "取樣率",
   "Open_image": "開啟圖片檔案",

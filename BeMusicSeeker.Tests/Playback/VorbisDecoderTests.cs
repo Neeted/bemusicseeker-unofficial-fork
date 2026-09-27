@@ -108,36 +108,6 @@ public sealed class VorbisDecoderTests
         Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
     }
 
-    [DataTestMethod]
-    [DataRow("crc")]
-    [DataRow("missing-page")]
-    [DataRow("truncated")]
-    [DataRow("missing-eos")]
-    public void DecodeOgg_RejectsBrokenFiniteContainer(string defect)
-    {
-        byte[] input = File.ReadAllBytes(GetAudioPath("nvorbis-3test.ogg"));
-        byte[] damaged = defect switch
-        {
-            "crc" => CorruptChecksum(input),
-            "missing-page" => RemovePage(input, 1),
-            "truncated" => input[..^1],
-            "missing-eos" => RemoveFinalEos(input),
-            _ => throw new ArgumentOutOfRangeException(nameof(defect))
-        };
-        string damagedPath = WriteTemporaryOgg(damaged);
-        try
-        {
-            AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
-                () => VorbisDecoder.Decode(damagedPath));
-            Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
-            Assert.AreEqual(2, failure.NativeErrorCode);
-        }
-        finally
-        {
-            File.Delete(damagedPath);
-        }
-    }
-
     [TestMethod]
     public void NativeBridge_ReportsThePinnedAbiAndBuild()
     {
@@ -170,29 +140,6 @@ public sealed class VorbisDecoderTests
             }
         }
         return result.ToArray();
-    }
-
-    private static byte[] CorruptChecksum(byte[] input)
-    {
-        List<byte[]> pages = SplitPages(input);
-        pages[^1][22] ^= 0x01;
-        return JoinPages(pages);
-    }
-
-    private static byte[] RemovePage(byte[] input, int index)
-    {
-        List<byte[]> pages = SplitPages(input);
-        Assert.IsTrue(pages.Count > index + 1, "The fixture needs a later page after the removed page.");
-        pages.RemoveAt(index);
-        return JoinPages(pages);
-    }
-
-    private static byte[] RemoveFinalEos(byte[] input)
-    {
-        List<byte[]> pages = SplitPages(input);
-        pages[^1][5] &= 0xFB;
-        WriteChecksum(pages[^1]);
-        return JoinPages(pages);
     }
 
     private static List<byte[]> SplitPages(byte[] input)
@@ -228,16 +175,6 @@ public sealed class VorbisDecoderTests
             offset += pageLength;
         }
         return pages;
-    }
-
-    private static byte[] JoinPages(IEnumerable<byte[]> pages)
-    {
-        using var stream = new MemoryStream();
-        foreach (byte[] page in pages)
-        {
-            stream.Write(page);
-        }
-        return stream.ToArray();
     }
 
     private static void WriteChecksum(byte[] page)

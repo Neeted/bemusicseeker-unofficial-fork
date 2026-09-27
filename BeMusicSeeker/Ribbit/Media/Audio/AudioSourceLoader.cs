@@ -1,6 +1,5 @@
 #nullable enable annotations
 using System;
-using System.Buffers.Binary;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
@@ -14,7 +13,6 @@ internal enum AudioSourceLoadStage
 {
     InspectContainer,
     DecodeVorbis,
-    ParseWaveFormat,
     DecodeWithBass,
     CreateBassSource,
     ValidateBassSource
@@ -45,12 +43,29 @@ internal sealed class AudioSourceLoadException : IOException
 
     /// <summary>native decoderから返された場合に、そのエラーを取得します。</summary>
     internal int? NativeErrorCode { get; }
+
+    /// <summary>入力の読取り・復号・入力由来容量制限として省略できる失敗かを取得します。</summary>
+    internal bool IsInputFailure => Stage is AudioSourceLoadStage.InspectContainer
+        or AudioSourceLoadStage.DecodeVorbis
+        or AudioSourceLoadStage.DecodeWithBass
+        or AudioSourceLoadStage.CreateBassSource;
+}
+
+/// <summary>音声環境・worker・native所有の失敗を入力省略へ変換せず通知します。</summary>
+internal sealed class AudioSourceFatalException : Exception
+{
+    /// <summary>fatalな音声処理失敗と、その原因を初期化します。</summary>
+    internal AudioSourceFatalException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
 }
 
 /// <summary>対応する音声コンテナーを共通の有限float32音源形式へ読み込みます。</summary>
 internal static class AudioSourceLoader
 {
     private const int MaxBassReadFrames = 16384;
+    private const int MaxBassInitialSampleCapacity = 1024 * 1024;
 
     /// <summary>サンプルレート、レベル、チャンネル順を変えずにファイルを復号します。</summary>
     internal static DecodedAudio Load(string path)
@@ -109,53 +124,25 @@ internal static class AudioSourceLoader
         }
 
         using Stream signatureInput = input.OpenReadView();
-        try
+        Span<byte> signature = stackalloc byte[12];
+        int signatureLength = 0;
+        while (signatureLength < signature.Length)
         {
-            Span<byte> signature = stackalloc byte[12];
-            int signatureLength = 0;
-            while (signatureLength < signature.Length)
+            int bytesRead = signatureInput.Read(signature[signatureLength..]);
+            if (bytesRead == 0)
             {
-                int bytesRead = signatureInput.Read(signature[signatureLength..]);
-                if (bytesRead == 0)
-                {
-                    break;
-                }
-                signatureLength += bytesRead;
+                break;
             }
-            bool isOgg = signatureLength >= 4 && signature[..4].SequenceEqual("OggS"u8);
-            bool hasWaveSignature = signatureLength >= 12
-                && signature[..4].SequenceEqual("RIFF"u8)
-                && signature[8..12].SequenceEqual("WAVE"u8);
-            if (isOgg)
-            {
-                return VorbisDecoder.Decode(input);
-            }
-
-            WaveFormat? waveFormat = null;
-            if (hasWaveSignature)
-            {
-                using Stream waveInput = input.OpenReadView();
-                waveFormat = WaveFormat.Read(waveInput, input.Path);
-            }
-            return DecodeWithBass(input, waveFormat, session, freeTemporaryDecoder);
+            signatureLength += bytesRead;
         }
-        catch (AudioSourceLoadException)
-        {
-            throw;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.InspectContainer,
-                input.Path,
-                "The audio input could not be inspected.",
-                exception);
-        }
+        bool isOgg = signatureLength >= 4 && signature[..4].SequenceEqual("OggS"u8);
+        return isOgg
+            ? VorbisDecoder.Decode(input)
+            : DecodeWithBass(input, session, freeTemporaryDecoder);
     }
 
     private static DecodedAudio DecodeWithBass(
         AudioInputFile input,
-        WaveFormat? waveFormat,
         BassAudioSession session,
         Func<int, bool>? freeTemporaryDecoder)
     {
@@ -167,6 +154,11 @@ internal static class AudioSourceLoader
         if (handle == 0)
         {
             Errors error = Bass.LastError;
+            if (IsFatalBassError(error))
+            {
+                throw new AudioSourceFatalException(
+                    "BASS could not create the temporary input decoder: " + BassNativeErrorFormatter.Format(error));
+            }
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.DecodeWithBass,
                 input.Path,
@@ -180,10 +172,11 @@ internal static class AudioSourceLoader
             session.TrackPlayerStream(handle, input, input.ConfirmNativeRelease);
             input.TransferToSession();
         }
-        catch
+        catch (Exception trackingException)
         {
             bool alreadyOwned = false;
             bool tracked = false;
+            Exception? trackingRecoveryFailure = null;
             try
             {
                 tracked = session.TryTrackPlayerStreamForCleanup(
@@ -196,26 +189,48 @@ internal static class AudioSourceLoader
                     input.TransferToSession();
                 }
             }
-            catch
+            catch (Exception exception)
             {
-                // Preserve the source-tracking failure while making a best-effort native release.
+                trackingRecoveryFailure = exception;
             }
 
             if (tracked)
             {
-                TryReleaseTemporaryDecoder(handle, session, freeNativeStream: freeTemporaryDecoder);
+                // fallback tracking succeeded; ownership and its release callback are established.
             }
             else if (!alreadyOwned)
             {
-                TryReleaseTemporaryDecoder(handle, session: null, freeNativeStream: freeTemporaryDecoder);
+                bool trackingReleaseSucceeded = TryReleaseTemporaryDecoder(
+                    handle,
+                    session: null,
+                    out Exception? trackingReleaseFailure,
+                    freeTemporaryDecoder);
+                if (trackingReleaseSucceeded)
+                {
+                    input.ConfirmNativeRelease(handle);
+                }
+                if (trackingReleaseFailure != null)
+                {
+                    trackingRecoveryFailure = trackingRecoveryFailure == null
+                        ? trackingReleaseFailure
+                        : new AggregateException(trackingRecoveryFailure, trackingReleaseFailure);
+                }
             }
-            throw;
+            bool fatalTrackingFailure = IsFatalRuntimeException(trackingException);
+            if (trackingRecoveryFailure != null || !tracked || fatalTrackingFailure)
+            {
+                throw new AudioSourceFatalException(
+                    "BASS input decoder ownership could not be confirmed after source tracking failed.",
+                    trackingRecoveryFailure == null
+                        ? trackingException
+                        : new AggregateException(trackingException, trackingRecoveryFailure));
+            }
         }
         DecodedAudio? result = null;
         Exception? primaryFailure = null;
         try
         {
-            result = DecodeBassStream(handle, input.Path, waveFormat);
+            result = DecodeBassStream(handle, input.Path);
         }
         catch (Exception exception)
         {
@@ -232,17 +247,17 @@ internal static class AudioSourceLoader
         {
             if (releaseFailure != null)
             {
-                primaryFailure.Data["AudioSourceCleanupFailure"] = releaseFailure;
                 TryLogCleanupFailure(input.Path, releaseFailure);
+                throw new AudioSourceFatalException(
+                    "The BASS input decoder failed and its native release could not be confirmed.",
+                    new AggregateException(primaryFailure, releaseFailure));
             }
             ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
         if (!released)
         {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                input.Path,
-                "BASS could not release the temporary input decoder.",
+            throw new AudioSourceFatalException(
+                "BASS could not confirm release of the temporary input decoder.",
                 releaseFailure);
         }
 
@@ -293,134 +308,113 @@ internal static class AudioSourceLoader
         return released;
     }
 
-    private static DecodedAudio DecodeBassStream(int handle, string path, WaveFormat? waveFormat)
+    private static DecodedAudio DecodeBassStream(int handle, string path)
     {
-        ChannelInfo info;
-        try
-        {
-            info = Bass.ChannelGetInfo(handle);
-        }
-        catch (Exception exception)
+        ChannelInfo info = Bass.ChannelGetInfo(handle);
+        if (info.Frequency <= 0 || info.Channels is < 1 or > 8 || (info.Flags & BassFlags.Float) == 0)
         {
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.DecodeWithBass,
                 path,
-                "BASS could not report the decoded source format.",
-                exception,
-                (int)Bass.LastError);
+                "BASS returned an unsupported decoded source format.");
         }
 
-        if (info.Frequency <= 0 || info.Channels <= 0 || (info.Flags & BassFlags.Float) == 0)
+        AudioChannelLayout layout = GetBassChannelLayout(handle, info.Channels, path);
+        int frameBytes = checked(layout.ChannelCount * sizeof(float));
+        int maxSampleCount = Array.MaxLength - Array.MaxLength % layout.ChannelCount;
+        long lengthHint = Bass.ChannelGetLength(handle, PositionFlags.Bytes);
+        int initialSampleCount = 0;
+        if (lengthHint >= 0)
         {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "BASS did not expose a valid float32 source format.");
+            initialSampleCount = checked((int)System.Math.Min(
+                lengthHint / sizeof(float),
+                MaxBassInitialSampleCapacity));
+            initialSampleCount -= initialSampleCount % layout.ChannelCount;
         }
 
-        AudioChannelLayout layout = waveFormat?.ChannelLayout
-            ?? CreateNonWaveLayout(info.Channels, path);
-        if (layout.ChannelCount != info.Channels)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "The declared WAVE layout does not match the format returned by BASS.");
-        }
-        if (waveFormat != null && waveFormat.SampleRate != info.Frequency)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "The WAVE metadata does not match the decoded sample rate.");
-        }
-
-        long decodedLengthBytes = Bass.ChannelGetLength(handle, PositionFlags.Bytes);
-        if (decodedLengthBytes < 0
-            || decodedLengthBytes % sizeof(float) != 0
-            || decodedLengthBytes % checked(layout.ChannelCount * sizeof(float)) != 0)
-        {
-            Errors error = Bass.LastError;
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "BASS returned an invalid or unaligned decoded length.",
-                nativeErrorCode: (int)error);
-        }
-
-        long sampleCountLong = decodedLengthBytes / sizeof(float);
-        if (sampleCountLong > Array.MaxLength)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "The decoded audio exceeds the managed array size limit.");
-        }
-        long frameCount = sampleCountLong / layout.ChannelCount;
-        if (waveFormat != null && frameCount != waveFormat.FrameCount)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "The decoded WAVE frame count does not match its data chunk.");
-        }
-
-        float[] samples = new float[(int)sampleCountLong];
+        float[] samples = initialSampleCount == 0 ? [] : new float[initialSampleCount];
+        float[]? probeFrame = null;
         int samplesWritten = 0;
-        GCHandle pinnedSamples = default;
-        try
+        while (true)
         {
-            if (samples.Length > 0)
+            if (samplesWritten == maxSampleCount)
             {
-                pinnedSamples = GCHandle.Alloc(samples, GCHandleType.Pinned);
-                IntPtr baseAddress = pinnedSamples.AddrOfPinnedObject();
-                while (samplesWritten < samples.Length)
+                probeFrame ??= new float[layout.ChannelCount];
+                if (TryReadBassProbeFrame(handle, path, probeFrame, frameBytes))
                 {
-                    int remainingSamples = samples.Length - samplesWritten;
-                    int requestFrames = System.Math.Min(MaxBassReadFrames, remainingSamples / layout.ChannelCount);
-                    int requestBytes = checked(requestFrames * layout.ChannelCount * sizeof(float));
-                    long byteOffset = checked((long)samplesWritten * sizeof(float));
-                    IntPtr destination = new(checked(baseAddress.ToInt64() + byteOffset));
-                    int readBytes = Bass.ChannelGetData(handle, destination, requestBytes);
-                    if (readBytes <= 0)
-                    {
-                        Errors error = Bass.LastError;
-                        throw new AudioSourceLoadException(
-                            AudioSourceLoadStage.DecodeWithBass,
-                            path,
-                            "BASS reached the end of the input before its declared frame count.",
-                            nativeErrorCode: (int)error);
-                    }
-                    if (readBytes % checked(layout.ChannelCount * sizeof(float)) != 0
-                        || readBytes > requestBytes)
-                    {
-                        throw new AudioSourceLoadException(
-                            AudioSourceLoadStage.DecodeWithBass,
-                            path,
-                            "BASS returned a partial or invalid float32 frame.");
-                    }
-                    samplesWritten = checked(samplesWritten + readBytes / sizeof(float));
+                    throw CreateBassPcmCapacityFailure(path);
+                }
+                break;
+            }
+
+            if (samples.Length > 0 && samplesWritten == samples.Length)
+            {
+                probeFrame ??= new float[layout.ChannelCount];
+                if (!TryReadBassProbeFrame(handle, path, probeFrame, frameBytes))
+                {
+                    break;
                 }
 
-                ConfirmBassEndOfInput(handle, path, layout.ChannelCount);
+                samples = GrowBassBuffer(samples, samplesWritten, maxSampleCount, layout.ChannelCount, path);
+                Array.Copy(probeFrame, 0, samples, samplesWritten, layout.ChannelCount);
+                samplesWritten += layout.ChannelCount;
+                continue;
             }
-        }
-        finally
-        {
-            if (pinnedSamples.IsAllocated)
+
+            if (samples.Length - samplesWritten < layout.ChannelCount)
+            {
+                samples = GrowBassBuffer(samples, samplesWritten, maxSampleCount, layout.ChannelCount, path);
+            }
+
+            int requestFrames = System.Math.Min(
+                MaxBassReadFrames,
+                (samples.Length - samplesWritten) / layout.ChannelCount);
+            int requestBytes = checked(requestFrames * frameBytes);
+            int readBytes;
+            var pinnedSamples = GCHandle.Alloc(samples, GCHandleType.Pinned);
+            try
+            {
+                long byteOffset = checked((long)samplesWritten * sizeof(float));
+                IntPtr destination = new(checked(pinnedSamples.AddrOfPinnedObject().ToInt64() + byteOffset));
+                readBytes = Bass.ChannelGetData(handle, destination, requestBytes);
+            }
+            finally
             {
                 pinnedSamples.Free();
             }
-        }
 
-        if (samples.Length == 0)
-        {
-            ConfirmBassEndOfInput(handle, path, layout.ChannelCount);
+            Errors error = Bass.LastError;
+            if (readBytes <= 0)
+            {
+                if (error == Errors.Ended)
+                {
+                    break;
+                }
+                if (IsFatalBassError(error))
+                {
+                    throw new AudioSourceFatalException(
+                        "BASS failed while reading decoded input PCM: " + BassNativeErrorFormatter.Format(error));
+                }
+                throw new AudioSourceLoadException(
+                    AudioSourceLoadStage.DecodeWithBass,
+                    path,
+                    "BASS could not decode the input PCM to its end.",
+                    nativeErrorCode: (int)error);
+            }
+            if (readBytes > requestBytes || readBytes % frameBytes != 0)
+            {
+                throw new AudioSourceLoadException(
+                    AudioSourceLoadStage.DecodeWithBass,
+                    path,
+                    "BASS returned an incomplete or invalid float32 frame.");
+            }
+
+            samplesWritten = checked(samplesWritten + readBytes / sizeof(float));
         }
 
         try
         {
-            return new DecodedAudio(info.Frequency, layout, samples);
+            return new DecodedAudio(info.Frequency, layout, samples, samplesWritten);
         }
         catch (ArgumentException exception)
         {
@@ -432,56 +426,139 @@ internal static class AudioSourceLoader
         }
     }
 
-    private static void ConfirmBassEndOfInput(int handle, string path, int channelCount)
+    private static AudioChannelLayout GetBassChannelLayout(int handle, int channels, string path)
     {
-        float[] endProbe = new float[channelCount];
-        var pinnedProbe = GCHandle.Alloc(endProbe, GCHandleType.Pinned);
+        AudioChannelLayout standard;
         try
         {
-            int endBytes = Bass.ChannelGetData(
-                handle,
-                pinnedProbe.AddrOfPinnedObject(),
-                checked(channelCount * sizeof(float)));
-            Errors error = Bass.LastError;
-            if (endBytes > 0)
-            {
-                throw new AudioSourceLoadException(
-                    AudioSourceLoadStage.DecodeWithBass,
-                    path,
-                    "BASS decoded more frames than the source length reported.");
-            }
-            if ((endBytes == 0 || endBytes == -1) && error == Errors.Ended)
-            {
-                return;
-            }
-
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.DecodeWithBass,
-                path,
-                "BASS did not confirm the end of input after its declared frame count.",
-                nativeErrorCode: (int)error);
-        }
-        finally
-        {
-            pinnedProbe.Free();
-        }
-    }
-
-    private static AudioChannelLayout CreateNonWaveLayout(int channels, string path)
-    {
-        try
-        {
-            return AudioChannelLayout.CreateStandard(channels);
+            standard = AudioChannelLayout.CreateBassOutput(channels);
         }
         catch (ArgumentOutOfRangeException exception)
         {
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.DecodeWithBass,
                 path,
-                "The input channel count has no explicit speaker layout.",
+                "BASS returned a channel count without a supported output layout.",
                 exception);
         }
+
+        IntPtr formatPointer = Bass.ChannelGetTags(handle, TagType.WaveFormat);
+        if (formatPointer == IntPtr.Zero
+            || (WaveFormatTag)unchecked((ushort)Marshal.ReadInt16(formatPointer)) != WaveFormatTag.Extensible
+            || unchecked((ushort)Marshal.ReadInt16(formatPointer, 16)) < 22)
+        {
+            return standard;
+        }
+
+        uint speakerMask = unchecked((uint)Marshal.ReadInt32(formatPointer, 20));
+        try
+        {
+            var explicitLayout = AudioChannelLayout.CreateWaveMask(speakerMask, channels);
+            _ = AudioChannelMatrix.Create(explicitLayout, AudioChannelLayout.CreateBassOutput(channels));
+            return explicitLayout;
+        }
+        catch (ArgumentException)
+        {
+            return standard;
+        }
     }
+
+    private static float[] GrowBassBuffer(
+        float[] samples,
+        int samplesWritten,
+        int maxSampleCount,
+        int channelCount,
+        string path)
+    {
+        int currentCapacity = samples.Length;
+        if (currentCapacity >= maxSampleCount)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeWithBass,
+                path,
+                "The decoded audio exceeds the managed array size limit.");
+        }
+
+        long proposedCapacity = currentCapacity == 0
+            ? System.Math.Min((long)MaxBassReadFrames * channelCount, maxSampleCount)
+            : System.Math.Min(System.Math.Max((long)currentCapacity * 2, currentCapacity + channelCount), maxSampleCount);
+        int nextCapacity = checked((int)proposedCapacity);
+        nextCapacity -= nextCapacity % channelCount;
+        if (nextCapacity <= samplesWritten)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeWithBass,
+                path,
+                "The decoded audio exceeds the managed array size limit.");
+        }
+
+        Array.Resize(ref samples, nextCapacity);
+        return samples;
+    }
+
+    private static bool TryReadBassProbeFrame(int handle, string path, float[] probeFrame, int frameBytes)
+    {
+        var pinnedProbe = GCHandle.Alloc(probeFrame, GCHandleType.Pinned);
+        int readBytes;
+        try
+        {
+            readBytes = Bass.ChannelGetData(handle, pinnedProbe.AddrOfPinnedObject(), frameBytes);
+        }
+        finally
+        {
+            pinnedProbe.Free();
+        }
+
+        Errors error = Bass.LastError;
+        if (readBytes <= 0 && error == Errors.Ended)
+        {
+            return false;
+        }
+        if (readBytes <= 0)
+        {
+            if (IsFatalBassError(error))
+            {
+                throw new AudioSourceFatalException(
+                    "BASS failed while confirming decoded input EOF: " + BassNativeErrorFormatter.Format(error));
+            }
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeWithBass,
+                path,
+                "BASS could not confirm decoded input EOF.",
+                nativeErrorCode: (int)error);
+        }
+        if (readBytes != frameBytes)
+        {
+            throw new AudioSourceLoadException(
+                AudioSourceLoadStage.DecodeWithBass,
+                path,
+                "BASS returned an incomplete or invalid float32 frame.",
+                nativeErrorCode: (int)error);
+        }
+        return true;
+    }
+
+    private static AudioSourceLoadException CreateBassPcmCapacityFailure(string path) =>
+        new(
+            AudioSourceLoadStage.DecodeWithBass,
+            path,
+            "The decoded audio exceeds the managed array size limit.");
+
+    private static bool IsFatalRuntimeException(Exception exception) => exception is OutOfMemoryException
+        or DllNotFoundException
+        or BadImageFormatException
+        or EntryPointNotFoundException
+        or TypeLoadException;
+
+    private static bool IsFatalBassError(Errors error) => error is Errors.Memory
+        or Errors.Driver
+        or Errors.Handle
+        or Errors.Init
+        or Errors.Type
+        or Errors.Device
+        or Errors.Create
+        or Errors.Version
+        or Errors.Wasapi;
 
     private static void TryLogCleanupFailure(string path, Exception exception)
     {
@@ -494,180 +571,6 @@ internal static class AudioSourceLoader
         catch
         {
             // 後片付けの診断で主たる復号失敗を置き換えません。
-        }
-    }
-
-    private sealed class WaveFormat
-    {
-        private static readonly byte[] PcmSubFormat =
-        [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71];
-
-        private static readonly byte[] FloatSubFormat =
-        [0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71];
-
-        private WaveFormat(int sampleRate, long frameCount, AudioChannelLayout channelLayout)
-        {
-            SampleRate = sampleRate;
-            FrameCount = frameCount;
-            ChannelLayout = channelLayout;
-        }
-
-        internal int SampleRate { get; }
-
-        internal long FrameCount { get; }
-
-        internal AudioChannelLayout ChannelLayout { get; }
-
-        internal static WaveFormat Read(Stream stream, string path)
-        {
-            try
-            {
-                using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-                if (stream.Length < 12)
-                {
-                    throw new InvalidDataException("The RIFF header is truncated.");
-                }
-
-                stream.Position = 4;
-                uint riffSize = reader.ReadUInt32();
-                long riffEnd = checked((long)riffSize + 8);
-                if (riffSize < 4 || riffEnd > stream.Length)
-                {
-                    throw new InvalidDataException("The RIFF length exceeds the file boundary.");
-                }
-
-                byte[] format = [];
-                long? dataLength = null;
-                long cursor = 12;
-                while (cursor < riffEnd)
-                {
-                    if (riffEnd - cursor < 8)
-                    {
-                        throw new InvalidDataException("The RIFF chunk header is truncated.");
-                    }
-                    stream.Position = cursor;
-                    string chunkId = System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4));
-                    uint chunkSize = reader.ReadUInt32();
-                    long chunkDataStart = checked(cursor + 8);
-                    long chunkEnd = checked(chunkDataStart + chunkSize);
-                    long paddedChunkEnd = checked(chunkEnd + (chunkSize & 1));
-                    if (paddedChunkEnd > riffEnd)
-                    {
-                        throw new InvalidDataException("A RIFF chunk extends beyond the declared container.");
-                    }
-
-                    if (chunkId == "fmt ")
-                    {
-                        if (format.Length != 0 || chunkSize < 16 || chunkSize > 4096)
-                        {
-                            throw new InvalidDataException("The WAVE format chunk has an unsupported size or duplicate.");
-                        }
-                        format = reader.ReadBytes(checked((int)chunkSize));
-                        if (format.Length != chunkSize)
-                        {
-                            throw new InvalidDataException("The WAVE format chunk is truncated.");
-                        }
-                    }
-                    else if (chunkId == "data")
-                    {
-                        if (dataLength.HasValue)
-                        {
-                            throw new InvalidDataException("Multiple WAVE data chunks are not supported.");
-                        }
-                        dataLength = chunkSize;
-                    }
-
-                    cursor = paddedChunkEnd;
-                }
-
-                if (format.Length == 0 || !dataLength.HasValue)
-                {
-                    throw new InvalidDataException("The WAVE container must contain one format and one data chunk.");
-                }
-
-                ushort formatTag = BinaryPrimitives.ReadUInt16LittleEndian(format);
-                int channels = BinaryPrimitives.ReadUInt16LittleEndian(format.AsSpan(2));
-                uint sampleRateValue = BinaryPrimitives.ReadUInt32LittleEndian(format.AsSpan(4));
-                uint averageBytesPerSecond = BinaryPrimitives.ReadUInt32LittleEndian(format.AsSpan(8));
-                ushort blockAlign = BinaryPrimitives.ReadUInt16LittleEndian(format.AsSpan(12));
-                ushort containerBits = BinaryPrimitives.ReadUInt16LittleEndian(format.AsSpan(14));
-                ushort validBits = containerBits;
-                uint channelMask = 0;
-                bool isFloat = formatTag == 3;
-
-                if (formatTag == 0xFFFE)
-                {
-                    if (format.Length < 40 || BinaryPrimitives.ReadUInt16LittleEndian(format.AsSpan(16)) < 22)
-                    {
-                        throw new InvalidDataException("The WAVE extensible format chunk is incomplete.");
-                    }
-                    validBits = BinaryPrimitives.ReadUInt16LittleEndian(format.AsSpan(18));
-                    channelMask = BinaryPrimitives.ReadUInt32LittleEndian(format.AsSpan(20));
-                    ReadOnlySpan<byte> subFormat = format.AsSpan(24, 16);
-                    isFloat = subFormat.SequenceEqual(FloatSubFormat);
-                    bool isPcm = subFormat.SequenceEqual(PcmSubFormat);
-                    if (!isFloat && !isPcm)
-                    {
-                        throw new InvalidDataException("The WAVE extensible subformat is not PCM or IEEE float.");
-                    }
-                }
-                else if (formatTag != 1 && formatTag != 3)
-                {
-                    throw new InvalidDataException("The WAVE format is not uncompressed PCM or IEEE float.");
-                }
-
-                if (channels <= 0 || sampleRateValue == 0 || sampleRateValue > int.MaxValue)
-                {
-                    throw new InvalidDataException("The WAVE sample rate or channel count is invalid.");
-                }
-                if (validBits == 0 || validBits > containerBits
-                    || (validBits != containerBits && !(containerBits == 32 && validBits == 24)))
-                {
-                    throw new InvalidDataException("The WAVE valid-bit count is unsupported.");
-                }
-                if (isFloat && (containerBits is not (32 or 64) || validBits != containerBits))
-                {
-                    throw new InvalidDataException("IEEE float WAVE input must use 32-bit or 64-bit samples.");
-                }
-                if (!isFloat && containerBits is not (8 or 16 or 24 or 32))
-                {
-                    throw new InvalidDataException("PCM WAVE input must use 8-, 16-, 24-, or 32-bit samples.");
-                }
-
-                long expectedBlockAlign = checked((long)channels * containerBits / 8);
-                long expectedAverageBytes = checked((long)sampleRateValue * expectedBlockAlign);
-                if (expectedBlockAlign != blockAlign || expectedAverageBytes != averageBytesPerSecond
-                    || dataLength.Value % blockAlign != 0)
-                {
-                    throw new InvalidDataException("The WAVE byte rate, block alignment, or data length is inconsistent.");
-                }
-
-                AudioChannelLayout layout;
-                try
-                {
-                    layout = formatTag == 0xFFFE
-                        ? AudioChannelLayout.CreateWaveMask(channelMask, channels)
-                        : AudioChannelLayout.CreateStandard(channels);
-                }
-                catch (ArgumentException exception)
-                {
-                    throw new InvalidDataException("The WAVE channel layout is unknown or inconsistent.", exception);
-                }
-
-                return new WaveFormat((int)sampleRateValue, dataLength.Value / blockAlign, layout);
-            }
-            catch (AudioSourceLoadException)
-            {
-                throw;
-            }
-            catch (Exception exception) when (exception is InvalidDataException or IOException or OverflowException or ArgumentException)
-            {
-                throw new AudioSourceLoadException(
-                    AudioSourceLoadStage.ParseWaveFormat,
-                    path,
-                    "The WAVE input has invalid or unsupported format metadata.",
-                    exception);
-            }
         }
     }
 }

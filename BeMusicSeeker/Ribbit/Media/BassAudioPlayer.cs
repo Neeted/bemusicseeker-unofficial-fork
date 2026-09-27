@@ -126,6 +126,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private bool sourceMatrixConfigured;
 
+    private bool isEmptySource;
+
     private int pendingEndGeneration;
 
     private int playbackGeneration;
@@ -476,6 +478,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             using BassAudioOperationLease operation =
                 Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
             CheckOutputHealth();
+            if (isEmptySource)
+            {
+                return TimeSpan.Zero;
+            }
             long pos = Bass.ChannelGetPosition(_handle, PositionFlags.Bytes);
             return TimeSpan.FromSeconds(Bass.ChannelBytes2Seconds(_handle, pos));
         }
@@ -483,6 +489,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             using BassAudioOperationLease operation =
                 Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
+            if (isEmptySource)
+            {
+                if (value == TimeSpan.Zero)
+                {
+                    return;
+                }
+                throw new ArgumentOutOfRangeException(nameof(value), "An empty audio source only supports seeking to zero.");
+            }
             long pos = Bass.ChannelSeconds2Bytes(_handle, value.TotalSeconds);
             if (pos < 0)
             {
@@ -2235,6 +2249,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         try
         {
             _floatWaveSource = new FloatWaveSource(source, fileName);
+            isEmptySource = _floatWaveSource.IsEmpty;
             _fileProcedures = new FileProcedures
             {
                 Close = FileProcClose,
@@ -2283,10 +2298,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             ChannelInfo sourceInfo = Bass.ChannelGetInfo(_handle);
             long sourceLength = Bass.ChannelGetLength(_handle, PositionFlags.Bytes);
             long expectedLength = checked(source.FrameCount * source.ChannelCount * sizeof(float));
+            bool unavailableEmptyLength = isEmptySource && sourceLength == -1;
             if ((sourceInfo.Flags & (BassFlags.Float | BassFlags.Decode)) != (BassFlags.Float | BassFlags.Decode)
                 || sourceInfo.Frequency != source.SampleRate
                 || sourceInfo.Channels != source.ChannelCount
-                || sourceLength != expectedLength)
+                || (sourceLength != expectedLength && !unavailableEmptyLength))
             {
                 throw CreatePlaybackException(
                     BassAudioPlaybackStage.SourceCreate,
@@ -2483,6 +2499,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         lock (mixerSourceSync)
         {
             ProcessPendingEndCleanup();
+            if (isEmptySource)
+            {
+                playState = PlayState.Stopped;
+                return;
+            }
             BassAudioSession session = GetOwningSessionForOperation();
             IsMuted = flagPlayWith.HasFlag(PlayWith.MUTE);
             BassMixerSourceAttachment attachment;
@@ -2594,6 +2615,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         lock (mixerSourceSync)
         {
             ProcessPendingEndCleanup();
+            if (isEmptySource)
+            {
+                playState = PlayState.Stopped;
+                return;
+            }
             if (_handle == 0)
             {
                 return;
@@ -2656,6 +2682,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private void SetPositionCore(TimeSpan position, BassAudioSession session)
     {
+        if (isEmptySource)
+        {
+            if (position != TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(position));
+            }
+            return;
+        }
         long nativePosition = Bass.ChannelSeconds2Bytes(_handle, position.TotalSeconds);
         if (nativePosition < 0)
         {

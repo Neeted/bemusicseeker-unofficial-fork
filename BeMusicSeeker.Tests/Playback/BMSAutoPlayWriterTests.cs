@@ -243,10 +243,19 @@ public sealed class BMSAutoPlayWriterTests
             _ => throw new ArgumentOutOfRangeException(nameof(eventKind))
         };
         string resourceLines = "#WAV01 short.wav\n#WAV02 missing.wav\n#00002:0.015\n";
-        AudioTestWaveFile wave = WriteOutputChart(
-            directory,
-            "preserved-silence-" + eventKind,
-            resourceLines + longEndOrMissingEvent + "\n");
+        string chartName = "preserved-silence-" + eventKind;
+        string chartPath = directory.File(chartName + ".bms");
+        File.WriteAllText(
+            chartPath,
+            "#PLAYER 1\n#TITLE " + chartName + "\n#ARTIST test\n#BPM 120\n"
+                + resourceLines + longEndOrMissingEvent + "\n",
+            Encoding.ASCII);
+        string outputPath = directory.File(chartName + "-output");
+        using var writer = new BMSAutoPlayWriter(new BMSFile(chartPath));
+        writer.LoadResources();
+        Assert.AreEqual(eventKind == "missing-bgm" ? 1 : 0, writer.OmittedAudioSources.Count);
+        writer.Write(EncoderType.WAVE, 0.4f, outputPath, BMSAutoPlayWriter.Normalization.NONE);
+        AudioTestWaveFile wave = AudioTestWaveFileReader.Read(File.ReadAllBytes(outputPath + ".wav"));
 
         Assert.AreEqual(expectedFrames, wave.DataLength / (wave.Channels * sizeof(float)));
         Assert.AreNotEqual(0f, ReadFloatSample(wave, 0, 0));

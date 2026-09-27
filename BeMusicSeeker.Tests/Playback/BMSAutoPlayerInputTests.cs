@@ -7,7 +7,11 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
 using Ribbit.BMS;
+using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -35,25 +39,137 @@ public sealed class BMSAutoPlayerInputTests
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public void LoadResources_LoadsUsedAudioOnlyAndKeepsMissingFilesOptional(bool asParallel)
+    public void LoadResources_WarnsOncePerMissingOrCorruptPathWhileContinuing(bool asParallel)
     {
         using var directory = new TemporaryDirectory();
         File.WriteAllBytes(directory.File("unused-broken.wav"), [0x01, 0x02, 0x03]);
         File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("broken.wav"), [0x04, 0x05, 0x06]);
         WriteChart(directory.File("chart.bms"),
             "#WAV01 unused-broken.wav\n"
             + "#WAV02 used.wav\n"
             + "#WAV03 missing.wav\n"
+            + "#WAV04 broken.wav\n"
+            + "#WAV05 ./BROKEN.WAV\n"
+            + "#00111:02030405\n");
+        var player = new TestBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
+        int readCount = 0;
+        var observer = new AudioSourceLoadPipelineObserver
+        {
+            OpenInput = path =>
+            {
+                Interlocked.Increment(ref readCount);
+                return File.OpenRead(path);
+            }
+        };
+        _ = NLogWrapper.GetLogger(nameof(BMSAutoPlayer));
+        LoggingConfiguration? originalConfiguration = LogManager.Configuration;
+        var warningTarget = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
+        var testConfiguration = new LoggingConfiguration();
+        testConfiguration.AddRule(LogLevel.Warn, LogLevel.Warn, warningTarget, nameof(BMSAutoPlayer));
+        LogManager.Configuration = testConfiguration;
+
+        try
+        {
+            player.LoadResources(asParallel, observer);
+
+            Assert.IsNull(player.GetAudioPlayer(1), "An unused malformed definition must not be decoded.");
+            Assert.IsNotNull(player.GetAudioPlayer(2), "The used audio file must be loaded.");
+            Assert.IsNull(player.GetAudioPlayer(3), "A missing explicit source is omitted after its read failure.");
+            Assert.IsNull(player.GetAudioPlayer(4));
+            Assert.IsNull(player.GetAudioPlayer(5));
+            Assert.AreEqual(3, readCount, "Each unique explicit path is attempted once; unused files are not opened.");
+            Assert.AreEqual(2, player.OmittedAudioSources.Count);
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    Path.GetFullPath(directory.File("missing.wav")),
+                    Path.GetFullPath(directory.File("broken.wav"))
+                },
+                player.OmittedAudioSources.Select(omission => omission.Path).ToArray());
+            Assert.AreEqual(2, warningTarget.Logs.Count, "The missing source and broken aliases each produce one warning.");
+            string warnings = string.Join(Environment.NewLine, warningTarget.Logs);
+            StringAssert.Contains(warnings, "missing.wav");
+            StringAssert.Contains(warnings, "broken.wav");
+            StringAssert.Contains(warnings, nameof(AudioSourceLoadException));
+            StringAssert.Contains(warnings, nameof(FileNotFoundException));
+        }
+        finally
+        {
+            try
+            {
+                player.DisposeLoadedAudio();
+            }
+            finally
+            {
+                try
+                {
+                    LogManager.Flush();
+                }
+                finally
+                {
+                    LogManager.Configuration = originalConfiguration;
+                }
+            }
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void LoadResources_AbortsWhenEveryExplicitMissingAudioFails(bool asParallel)
+    {
+        using var directory = new TemporaryDirectory();
+        WriteChart(directory.File("chart.bms"),
+            "#WAV02 missing.wav\n"
+            + "#WAV03 also-missing.wav\n"
             + "#00111:0203\n");
         var player = new TestBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
 
         try
         {
-            player.LoadResources(asParallel);
+            InvalidDataException failure = Assert.ThrowsException<InvalidDataException>(
+                () => player.LoadResources(asParallel));
 
-            Assert.IsNull(player.GetAudioPlayer(1), "An unused malformed definition must not be decoded.");
-            Assert.IsNotNull(player.GetAudioPlayer(2), "The used audio file must be loaded.");
-            Assert.IsNull(player.GetAudioPlayer(3), "A missing used file keeps its legacy optional behavior.");
+            StringAssert.Contains(failure.Message, "missing.wav");
+            StringAssert.Contains(failure.Message, nameof(AudioSourceLoadStage.InspectContainer));
+            Assert.IsInstanceOfType<AudioSourceLoadException>(failure.InnerException);
+            Assert.AreEqual(AudioSourceLoadStage.InspectContainer,
+                ((AudioSourceLoadException)failure.InnerException).Stage);
+            Assert.IsNull(player.GetAudioPlayer(2));
+            Assert.IsNull(player.GetAudioPlayer(3));
+            Assert.AreEqual(0, player.OmittedAudioSources.Count, "An all-failed chart does not publish partial omission state.");
+        }
+        finally
+        {
+            player.DisposeLoadedAudio();
+        }
+    }
+
+    [TestMethod]
+    public void LoadResources_UndefinedAndEmptyWavDefinitionsDoNotRequestFiles()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteChart(directory.File("chart.bms"), "#WAV02 \n#00111:0203\n");
+        var player = new TestBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
+        int openCount = 0;
+        var observer = new AudioSourceLoadPipelineObserver
+        {
+            OpenInput = _ =>
+            {
+                Interlocked.Increment(ref openCount);
+                throw new AssertFailedException("An undefined or empty WAV reference must not open a file.");
+            }
+        };
+
+        try
+        {
+            player.LoadResources(asParallel: false, observer);
+
+            Assert.AreEqual(0, openCount);
+            Assert.AreEqual(0, player.OmittedAudioSources.Count);
+            Assert.IsNull(player.GetAudioPlayer(2));
+            Assert.IsNull(player.GetAudioPlayer(3));
         }
         finally
         {
@@ -64,27 +180,64 @@ public sealed class BMSAutoPlayerInputTests
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public void LoadResources_ReportsFailureForAnExistingUsedAudioFile(bool asParallel)
+    public void LoadResources_LoadsUsedZeroFrameWaveWithoutOmissions(bool asParallel)
     {
         using var directory = new TemporaryDirectory();
-        File.WriteAllBytes(directory.File("broken.wav"), [0x01, 0x02, 0x03]);
-        WriteChart(directory.File("chart.bms"),
-            "#WAV02 broken.wav\n"
-            + "#00111:02\n");
+        using var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+            48000,
+            0,
+            _ => 0f);
+        File.Copy(wave.Path, directory.File("empty.wav"));
+        WriteChart(
+            directory.File("chart.bms"),
+            "#WAV02 empty.wav\n#00111:02\n");
         var player = new TestBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
 
         try
         {
-            InvalidDataException failure = Assert.ThrowsException<InvalidDataException>(
-                () => player.LoadResources(asParallel));
+            player.LoadResources(asParallel);
 
-            StringAssert.Contains(failure.Message, "broken.wav");
-            StringAssert.Contains(failure.Message, nameof(AudioSourceLoadStage.DecodeWithBass));
-            Assert.IsInstanceOfType<AudioSourceLoadException>(failure.InnerException);
+            BassAudioPlayer loaded = player.GetAudioPlayer(2)
+                ?? throw new AssertFailedException("The explicitly used zero-frame WAVE did not create a player.");
+            Assert.AreEqual(TimeSpan.Zero, loaded.Duration);
+            Assert.AreEqual(0, player.OmittedAudioSources.Count);
         }
         finally
         {
             player.DisposeLoadedAudio();
+        }
+    }
+
+    [TestMethod]
+    public async Task LoadResources_ReaderOutOfMemoryIsFatalAndJoinsBeforeCleanup()
+    {
+        var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
+        WriteChart(directory.File("chart.bms"), "#WAV02 used.wav\n#00111:02\n");
+        var player = new TestBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
+        var injectedOutOfMemory = new OutOfMemoryException("Injected read worker allocation failure.");
+        var observer = new AudioSourceLoadPipelineObserver
+        {
+            InputReadCompleted = _ => throw injectedOutOfMemory
+        };
+
+        try
+        {
+            AudioSourceFatalException failure = await Task.Run(() => Assert.ThrowsException<AudioSourceFatalException>(
+                () => player.LoadResources(asParallel: true, observer)));
+
+            Assert.AreSame(injectedOutOfMemory, failure.InnerException);
+            BassAudioSession activeSession = BassAudioPlayer.ActiveSession
+                ?? throw new AssertFailedException("The null-device session was not active.");
+            Assert.AreEqual(0, activeSession.GetPlayerStreams().Count,
+                "Fatal reader failure must release all temporary native owners after workers join.");
+            Assert.AreEqual(0, player.OmittedAudioSources.Count,
+                "A runtime allocation failure must not be published as an omitted source.");
+        }
+        finally
+        {
+            player.DisposeLoadedAudio();
+            directory.Dispose();
         }
     }
 
@@ -121,33 +274,60 @@ public sealed class BMSAutoPlayerInputTests
     [TestMethod]
     public void DisposeBeforeNextSong_UnconfirmedBassReleaseReturnsSourceReleaseAndKeepsSessionOwner()
     {
+        AssertUnconfirmedSourceReleaseKeepsSessionOwnerAndReleasesOtherSources(
+            disposeBeforeNextSong: true);
+    }
+
+    [TestMethod]
+    public void DisposeAudioSourcesAfterUse_UnconfirmedBassReleaseKeepsSessionOwnerAndReleasesOtherSources()
+    {
+        AssertUnconfirmedSourceReleaseKeepsSessionOwnerAndReleasesOtherSources(
+            disposeBeforeNextSong: false);
+    }
+
+    private static void AssertUnconfirmedSourceReleaseKeepsSessionOwnerAndReleasesOtherSources(
+        bool disposeBeforeNextSong)
+    {
         using var directory = new TemporaryDirectory();
-        File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("first.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("second.wav"), BuildPcmWave());
         WriteChart(directory.File("chart.bms"),
-            "#WAV02 used.wav\n#00111:02\n");
+            "#WAV02 first.wav\n#WAV03 second.wav\n#00111:0203\n");
         var player = new DisposeFailureBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
         player.LoadResources(asParallel: false);
         DisposeFailureAudioPlayer source = player.GetAudioPlayer(2)
-            ?? throw new AssertFailedException("The BMS audio source was not created.");
+            ?? throw new AssertFailedException("The first BMS audio source was not created.");
+        DisposeFailureAudioPlayer releasedSource = player.GetAudioPlayer(3)
+            ?? throw new AssertFailedException("The second BMS audio source was not created.");
+        releasedSource.FailNextStreamFree = false;
         BassAudioSession session = BassAudioPlayer.ActiveSession
             ?? throw new AssertFailedException("The test audio session was not initialized.");
         BassAudioOwnedStream sourceStream = session.GetPlayerStreams().Single(stream =>
             stream.TryGetOwner<BassAudioPlayer>(out BassAudioPlayer owner)
             && ReferenceEquals(source, owner));
         int sourceHandle = sourceStream.Handle;
+        BassAudioOwnedStream releasedStream = session.GetPlayerStreams().Single(stream =>
+            stream.TryGetOwner<BassAudioPlayer>(out BassAudioPlayer owner)
+            && ReferenceEquals(releasedSource, owner));
+        int releasedHandle = releasedStream.Handle;
 
         try
         {
             BassAudioPlaybackException failure = Assert.ThrowsException<BassAudioPlaybackException>(
-                player.DisposeBeforeNextSong);
+                disposeBeforeNextSong
+                    ? player.DisposeBeforeNextSong
+                    : player.DisposeAudioSourcesAfterUse);
 
             Assert.AreEqual(BassAudioPlaybackStage.SourceRelease, failure.Stage);
             Assert.AreEqual(sourceHandle, failure.SourceHandle);
             Assert.AreSame(session, failure.Session);
             Assert.IsFalse(source.NativeReleaseConfirmed);
+            Assert.IsTrue(releasedSource.NativeReleaseConfirmed,
+                "A failed release must not stop cleanup of later sources.");
             BassAudioOwnedStream owned = session.GetPlayerStreams().Single(stream => stream.Handle == sourceHandle);
             Assert.IsTrue(owned.TryGetOwner(out BassAudioPlayer owner));
             Assert.AreSame(source, owner);
+            Assert.IsFalse(session.GetPlayerStreams().Any(stream => stream.Handle == releasedHandle));
 
             source.FailNextStreamFree = false;
             source.Dispose();
@@ -158,6 +338,8 @@ public sealed class BMSAutoPlayerInputTests
         {
             source.FailNextStreamFree = false;
             source.Dispose();
+            releasedSource.FailNextStreamFree = false;
+            releasedSource.Dispose();
         }
     }
 
@@ -344,7 +526,7 @@ public sealed class BMSAutoPlayerInputTests
                 }
             }
         };
-        Task<InvalidDataException> load = Task.Run(() => Assert.ThrowsException<InvalidDataException>(
+        Task<AudioSourceFatalException> load = Task.Run(() => Assert.ThrowsException<AudioSourceFatalException>(
             () => player.LoadResources(asParallel: true, observer)));
 
         var failures = new List<Exception>();
@@ -360,7 +542,7 @@ public sealed class BMSAutoPlayerInputTests
         }
 
         CaptureCleanup(failures, releaseWorkers.Set);
-        InvalidDataException? loadFailure = null;
+        AudioSourceFatalException? loadFailure = null;
         try
         {
             loadFailure = await load;
@@ -388,7 +570,7 @@ public sealed class BMSAutoPlayerInputTests
     }
 
     [TestMethod]
-    public async Task LoadResources_ReportsLowestIndexFailureAfterAllWorkersFinishAndKeepsPlayersPrivate()
+    public async Task LoadResources_ReportsLowIndexFailureAsWarningAfterAllWorkersFinish()
     {
         var directory = new TemporaryDirectory();
         File.WriteAllBytes(directory.File("good.wav"), BuildPcmWave());
@@ -430,8 +612,7 @@ public sealed class BMSAutoPlayerInputTests
                 }
             }
         };
-        Task<InvalidDataException> load = Task.Run(() => Assert.ThrowsException<InvalidDataException>(
-            () => player.LoadResources(asParallel: true, observer)));
+        var load = Task.Run(() => player.LoadResources(asParallel: true, observer));
 
         var failures = new List<Exception>();
         try
@@ -439,6 +620,7 @@ public sealed class BMSAutoPlayerInputTests
             await WaitForSignalOrProducerAsync(slowReadStarted.Task, load, "The slow input did not reach its read gate.");
             await WaitForSignalOrProducerAsync(fastFailureObserved.Task, load, "The fast failure was not reported.");
             await WaitForSignalOrProducerAsync(goodPlayerCreated.Task, load, "The successful player was not created.");
+            Assert.IsFalse(load.IsCompleted, "Loading must wait for the delayed lower-index input before publishing results.");
             Assert.IsNull(player.GetAudioPlayer(2), "Partially constructed players must remain private.");
         }
         catch (Exception exception)
@@ -447,28 +629,19 @@ public sealed class BMSAutoPlayerInputTests
         }
 
         CaptureCleanup(failures, allowSlowRead.Set);
-        InvalidDataException? loadFailure = null;
-        try
-        {
-            loadFailure = await load;
-        }
-        catch (Exception exception)
-        {
-            failures.Add(exception);
-        }
+        await CaptureTaskCompletionAsync(load, failures);
         if (failures.Count == 0)
         {
-            CaptureCleanup(failures, () => StringAssert.Contains(
-                (loadFailure ?? throw new AssertFailedException("The pipeline did not report a resource failure.")).Message,
-                "slow-broken.wav"));
-            CaptureCleanup(failures, () => Assert.IsInstanceOfType<AudioSourceLoadException>(
-                (loadFailure ?? throw new AssertFailedException("The pipeline did not report a resource failure.")).InnerException));
+            CaptureCleanup(failures, () => Assert.IsNotNull(player.GetAudioPlayer(2)));
+            CaptureCleanup(failures, () => Assert.IsNull(player.GetAudioPlayer(3)));
+            CaptureCleanup(failures, () => Assert.IsNull(player.GetAudioPlayer(4)));
+            CaptureCleanup(failures, () => Assert.AreEqual(2, player.OmittedAudioSources.Count));
             CaptureCleanup(failures, () =>
             {
                 BassAudioSession activeSession = BassAudioPlayer.ActiveSession
                     ?? throw new AssertFailedException("The null-device session was not active.");
-                Assert.AreEqual(0, activeSession.GetPlayerStreams().Count,
-                    "Successful players created before a resource failure must be released.");
+                Assert.AreEqual(1, activeSession.GetPlayerStreams().Count,
+                    "The successful player is published after all workers complete; failed sources have no native ownership.");
             });
         }
         CaptureCleanup(failures, player.DisposeLoadedAudio);
@@ -495,7 +668,7 @@ public sealed class BMSAutoPlayerInputTests
                 allowDecode.Wait();
             }
         };
-        Task<InvalidDataException> load = Task.Run(() => Assert.ThrowsException<InvalidDataException>(
+        Task<AudioSourceFatalException> load = Task.Run(() => Assert.ThrowsException<AudioSourceFatalException>(
             () => player.LoadResources(asParallel: true, observer)));
         BassAudioSession? replacement = null;
 
@@ -513,7 +686,7 @@ public sealed class BMSAutoPlayerInputTests
         }
 
         CaptureCleanup(failures, allowDecode.Set);
-        InvalidDataException? loadFailure = null;
+        AudioSourceFatalException? loadFailure = null;
         try
         {
             loadFailure = await load;

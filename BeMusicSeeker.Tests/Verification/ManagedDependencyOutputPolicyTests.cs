@@ -525,7 +525,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         string vorbisBridgePath = Path.Combine(repositoryRoot, "vendor", "native", "x64", "bms_vorbis.dll");
         Assert.IsTrue(File.Exists(vorbisBridgePath), vorbisBridgePath);
         Assert.AreEqual(
-            "C4AD0A911F75AE73815770EAFD67CB4EFEC853B8402CB28C02DE64CB03A4140A",
+            "403287F5E79580C4987F5018AF7FFE5B180F63819B10D09EA744AF5465D360C9",
             GetFileHash(vorbisBridgePath));
         using (FileStream stream = File.OpenRead(vorbisBridgePath))
         using (var peReader = new PEReader(stream))
