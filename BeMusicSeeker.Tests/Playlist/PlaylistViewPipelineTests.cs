@@ -589,6 +589,203 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailOwnedRow_TracksPlaybackStatusAndNotifiesVisibleTable()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            TestableBmsFile? ownedFile = null;
+            PlaylistDetailVirtualView? view = null;
+            CustomTableRowChangeTracker? tracker = null;
+            PlaylistDetailRow? ownedRow = null;
+            PlaylistDetailRow? missingRow = null;
+            PropertyChangedEventHandler? ownedRowChanged = null;
+            PropertyChangedEventHandler? missingRowChanged = null;
+            int trackerChangedCount = 0;
+            int ownedStatusNotificationCount = 0;
+            int missingStatusNotificationCount = 0;
+
+            try
+            {
+                PlaylistDetailSourceRow ownedSource = CreateOwnedBmsSourceRow(
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Owned",
+                    7,
+                    out ownedFile);
+                var missingEntry = new TestablePlaylistEntry();
+                missingEntry.SetTitle("Missing");
+                missingEntry.SetMd5("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                var missingScore = new BMSScore
+                {
+                    hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    perfect = 10,
+                    totalnotes = 100,
+                    IsLr2IrScoreUnsent = true
+                };
+                var missingSource = new PlaylistDetailSourceRow(
+                    missingEntry,
+                    resolvedChart: null,
+                    scoreSnapshot: missingScore);
+                var sortParameters = new ChartListSortParameters
+                {
+                    ColumnsName = nameof(BMSFile.Title),
+                    Direction = ListSortDirection.Ascending
+                };
+                view = PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
+                    [ownedSource, missingSource],
+                    keywordFilter: null,
+                    modeFilter: ChartModeFilter.All,
+                    sortParameters: sortParameters,
+                    out string _,
+                    out int _,
+                    out int _,
+                    out long _,
+                    out long _,
+                    out long _,
+                    out long _);
+
+                PlaylistDetailRow[] visibleRows = [(PlaylistDetailRow)view[0], (PlaylistDetailRow)view[1]];
+                ownedRow = visibleRows.Single(row => row.IsOwned);
+                missingRow = visibleRows.Single(row => !row.IsOwned);
+                int ownedIndex = Array.IndexOf(visibleRows, ownedRow);
+                Assert.AreEqual(212, ownedRow.score);
+                Assert.IsTrue(ownedRow.status.HasFlag(ChartFileStatus.SCORE_UNSENT));
+                Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, missingRow.status);
+
+                ownedRow.comment = "edited comment";
+                ownedRow.memo = "edited memo";
+                ownedRowChanged = (_, e) =>
+                {
+                    if (string.IsNullOrEmpty(e.PropertyName)
+                        || e.PropertyName == nameof(PlaylistDetailRow.status))
+                    {
+                        ownedStatusNotificationCount++;
+                    }
+                };
+                missingRowChanged = (_, e) =>
+                {
+                    if (string.IsNullOrEmpty(e.PropertyName)
+                        || e.PropertyName == nameof(PlaylistDetailRow.status))
+                    {
+                        missingStatusNotificationCount++;
+                    }
+                };
+                ownedRow.PropertyChanged += ownedRowChanged;
+                missingRow.PropertyChanged += missingRowChanged;
+                tracker = new CustomTableRowChangeTracker((_, e) =>
+                {
+                    if (string.IsNullOrEmpty(e.PropertyName)
+                        || e.PropertyName == nameof(PlaylistDetailRow.status))
+                    {
+                        trackerChangedCount++;
+                    }
+                });
+                tracker.ReplaceVisibleRows(visibleRows, 0, visibleRows.Length);
+
+                int previousOwnedStatusNotificationCount = ownedStatusNotificationCount;
+                int previousTrackerChangedCount = trackerChangedCount;
+                ownedFile.status = BMSFile.BMSFileStatus.PLAY;
+                Assert.AreEqual(ChartFileStatus.PLAY | ChartFileStatus.SCORE_UNSENT, ownedRow.status);
+                Assert.IsTrue(ownedStatusNotificationCount > previousOwnedStatusNotificationCount);
+                Assert.IsTrue(trackerChangedCount > previousTrackerChangedCount);
+                Assert.AreSame(ownedRow, view[ownedIndex]);
+
+                previousOwnedStatusNotificationCount = ownedStatusNotificationCount;
+                previousTrackerChangedCount = trackerChangedCount;
+                ownedFile.status = BMSFile.BMSFileStatus.PAUSE;
+                Assert.AreEqual(ChartFileStatus.PAUSE | ChartFileStatus.SCORE_UNSENT, ownedRow.status);
+                Assert.IsTrue(ownedStatusNotificationCount > previousOwnedStatusNotificationCount);
+                Assert.IsTrue(trackerChangedCount > previousTrackerChangedCount);
+                Assert.AreSame(ownedRow, view[ownedIndex]);
+
+                previousOwnedStatusNotificationCount = ownedStatusNotificationCount;
+                previousTrackerChangedCount = trackerChangedCount;
+                ownedFile.status = BMSFile.BMSFileStatus.NONE;
+                Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, ownedRow.status);
+                Assert.IsTrue(ownedStatusNotificationCount > previousOwnedStatusNotificationCount);
+                Assert.IsTrue(trackerChangedCount > previousTrackerChangedCount);
+                Assert.AreSame(ownedRow, view[ownedIndex]);
+                Assert.AreEqual(0, missingStatusNotificationCount);
+                missingRow.Level = "9";
+                Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, missingRow.status);
+                Assert.AreEqual("9", missingRow.Level);
+                Assert.AreEqual(212, ownedRow.score);
+                Assert.AreEqual("edited comment", ownedRow.comment);
+                Assert.AreEqual("edited memo", ownedRow.memo);
+            }
+            finally
+            {
+                if (ownedRow != null && ownedRowChanged != null)
+                {
+                    ownedRow.PropertyChanged -= ownedRowChanged;
+                }
+                if (missingRow != null && missingRowChanged != null)
+                {
+                    missingRow.PropertyChanged -= missingRowChanged;
+                }
+                tracker?.DetachAllRows();
+                view?.DisposeRealizedRows();
+                if (ownedFile?.bmsScore != null)
+                {
+                    ownedFile.bmsScore = null;
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistDetailVirtualView_UnrealizedRowUsesLatestPlaybackStatusWhenCreated()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            TestableBmsFile? ownedFile = null;
+            PlaylistDetailVirtualView? view = null;
+            try
+            {
+                PlaylistDetailSourceRow sourceRow = CreateOwnedBmsSourceRow(
+                    "cccccccccccccccccccccccccccccccc",
+                    "Unrealized",
+                    7,
+                    out ownedFile);
+                var sortParameters = new ChartListSortParameters
+                {
+                    ColumnsName = nameof(BMSFile.Title),
+                    Direction = ListSortDirection.Ascending
+                };
+                view = PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
+                    [sourceRow],
+                    keywordFilter: null,
+                    modeFilter: ChartModeFilter.All,
+                    sortParameters: sortParameters,
+                    out string _,
+                    out int _,
+                    out int _,
+                    out long _,
+                    out long _,
+                    out long _,
+                    out long _);
+
+                Assert.AreEqual(0, view.RealizedRowCount);
+                ownedFile.status = BMSFile.BMSFileStatus.PAUSE;
+                Assert.AreEqual(0, view.RealizedRowCount);
+
+                var row = (PlaylistDetailRow)view[0];
+
+                Assert.AreEqual(1, view.RealizedRowCount);
+                Assert.AreEqual(ChartFileStatus.PAUSE | ChartFileStatus.SCORE_UNSENT, row.status);
+                Assert.AreEqual(212, row.score);
+            }
+            finally
+            {
+                view?.DisposeRealizedRows();
+                if (ownedFile?.bmsScore != null)
+                {
+                    ownedFile.bmsScore = null;
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void PlaylistDetailPresentationService_KeywordFilterMatchesPlaylistMemoAndComment()
     {
         PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
@@ -4569,6 +4766,27 @@ public sealed class PlaylistViewPipelineTests
             entry.SetSha256(sha256);
         }
         return new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
+    }
+
+    private static PlaylistDetailSourceRow CreateOwnedBmsSourceRow(
+        string hash,
+        string title,
+        int? mode,
+        out TestableBmsFile file)
+    {
+        file = new TestableBmsFile();
+        file.ApplySnapshot(hash, title, mode);
+        file.bmsScore = new BMSScore
+        {
+            hash = hash,
+            perfect = 100,
+            great = 12,
+            totalnotes = 200,
+            IsLr2IrScoreUnsent = true
+        };
+        return new PlaylistDetailSourceRow(
+            new TestablePlaylistEntry(file),
+            ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true));
     }
 
     private static void AssertPlaylistRowFileDeletePolicy(PlaylistDetailRow row, bool expectedRemoveFromLibrary)

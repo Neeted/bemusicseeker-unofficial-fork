@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
@@ -10,7 +11,8 @@ namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
 /// プレイリスト詳細表示の一覧行です。
-/// 表示値は source snapshot から複製し、playlist 編集に必要な一部プロパティだけを更新可能にします。
+/// 表示値は source snapshot から複製し、所持 BMS の再生状態は保存主体の現在値を反映します。
+/// playlist 編集に必要な一部プロパティだけを更新可能にします。
 /// </summary>
 internal sealed class PlaylistDetailRow : NotificationObject
 {
@@ -25,6 +27,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
     private string commentValue;
 
     private string memoValue;
+
+    private readonly ChartFileStatus projectedStatus;
 
     /// <summary>
     /// 元の playlist エントリです。
@@ -116,7 +120,13 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public double? scoreDifficulty { get; }
 
-    public ChartFileStatus status { get; }
+    /// <summary>
+    /// 譜面の現在状態です。所持 BMS の再生状態は保存主体から読み、投影由来の状態を保ちます。
+    /// </summary>
+    public ChartFileStatus status => BmsStorageOwner == null
+        ? projectedStatus
+        : ChartFileStatusMapper.FromBmsFileStatus(BmsStorageOwner.status)
+            | (projectedStatus & ~ChartFileStatus.PLAYALL);
 
     public string lr2_bmsid { get; }
 
@@ -229,7 +239,15 @@ internal sealed class PlaylistDetailRow : NotificationObject
         Entry = source.Entry;
         IsOwned = source.IsOwned;
         BmsStorageOwner = source.BmsPlayerFile;
+        if (BmsStorageOwner is INotifyPropertyChanged propertyChangedSource)
+        {
+            PropertyChangedEventManager.AddHandler(
+                propertyChangedSource,
+                OnBmsStorageOwnerPropertyChanged,
+                nameof(BMSFile.status));
+        }
         Chart = source.Chart;
+        projectedStatus = Chart?.Status ?? ChartFileStatus.NONE;
         EntryLevelSortKey = source.EntryLevelSortKey;
         level = source.Level;
         url = source.Url;
@@ -270,7 +288,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
         rankingLastupdate = source.rankingLastupdate;
         stddevVal = source.stddevVal;
         scoreDifficulty = source.scoreDifficulty;
-        status = source.status;
         lr2_bmsid = source.lr2_bmsid;
         name_diff = source.name_diff;
         ChartLevelText = source.ChartLevelText;
@@ -366,6 +383,15 @@ internal sealed class PlaylistDetailRow : NotificationObject
             Entry?.level,
             mode,
             Chart?.ChartInfo);
+    }
+
+    private void OnBmsStorageOwnerPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(e.PropertyName)
+            || e.PropertyName == nameof(BMSFile.status))
+        {
+            RaisePropertyChanged(nameof(status));
+        }
     }
 
     public Uri Url

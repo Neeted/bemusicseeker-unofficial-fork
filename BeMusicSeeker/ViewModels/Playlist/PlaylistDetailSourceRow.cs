@@ -125,8 +125,6 @@ internal sealed class PlaylistDetailSourceRow
 
     internal double? scoreDifficulty { get; private set; }
 
-    internal ChartFileStatus status { get; private set; }
-
     internal string lr2_bmsid { get; }
 
     internal double? EntryLevelSortKey { get; private set; }
@@ -286,7 +284,6 @@ internal sealed class PlaylistDetailSourceRow
         rankingLastupdate = effectiveScoreSnapshot.RankingLastUpdate;
         stddevVal = effectiveScoreSnapshot.StdDevVal;
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
-        status = Chart?.Status ?? ChartFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
         Level = BuildLevelText(entry, Chart);
@@ -323,7 +320,6 @@ internal sealed class PlaylistDetailSourceRow
         rankingLastupdate = effectiveScoreSnapshot.RankingLastUpdate;
         stddevVal = effectiveScoreSnapshot.StdDevVal;
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
-        status = Chart?.Status ?? ChartFileStatus.NONE;
     }
 
     internal PlaylistDetailSourceRow WithEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
