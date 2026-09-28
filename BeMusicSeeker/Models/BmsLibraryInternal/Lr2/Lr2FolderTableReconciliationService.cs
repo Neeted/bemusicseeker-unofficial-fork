@@ -138,8 +138,9 @@ internal static class Lr2FolderTableReconciliationService
     private static readonly IEqualityComparer<string> PathComparer = StringComparer.OrdinalIgnoreCase;
 
     /// <summary>
-    /// Creates the complete folder projection without opening or mutating the
-    /// database.  This is the preflight boundary for the full sync route.
+    /// DBを開いたり変更したりせず、folder表の投影を作ります。
+    /// LR2で表現できないパスの行は除外します。探索未完了、.lr2folderまたはfolderinfoの読込み失敗、必要なディレクトリメタデータ不足は既存の事前検査どおり失敗として返します。
+    /// 全体同期ルートの事前検証境界です。
     /// </summary>
     internal static Lr2FolderTableProjection BuildProjection(Lr2SongDbSyncRequest request)
     {
@@ -248,8 +249,8 @@ internal static class Lr2FolderTableReconciliationService
                 DirectoryMetadataResolver = metadata.Resolve,
                 GeneratedAtUtc = request.StartedAtUtc
             });
-        if (normalGeneration.SkippedUnsupportedPathCount > 0
-            || normalGeneration.SkippedMissingMetadataCount > 0)
+        // LR2で表現できないパスの行は生成器が除外する。必要な更新時刻を得られない場合だけ、入力不完全として扱う。
+        if (normalGeneration.SkippedMissingMetadataCount > 0)
         {
             throw new Lr2FolderTableProjectionIncompleteException(
                 "Full folder preflight skipped a normal directory projection.");
@@ -288,8 +289,8 @@ internal static class Lr2FolderTableReconciliationService
                     },
                     out LR2SongDB.folder row))
             {
-                throw new Lr2FolderTableProjectionIncompleteException(
-                    "Full folder preflight could not project .lr2folder: " + (item.FilePath ?? "<unknown>"));
+                // このパスをLR2のfolder行に変換できなくても、他の候補の投影は続ける。
+                continue;
             }
 
             Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(
@@ -315,8 +316,8 @@ internal static class Lr2FolderTableReconciliationService
         {
             if (!TryCreateParentRow(target, metadata, request, out LR2SongDB.folder row))
             {
-                throw new Lr2FolderTableProjectionIncompleteException(
-                    "Full folder preflight could not project parent directory: " + target.PhysicalDirectory);
+                // LR2で表現できない親行だけを省き、他のfolder行の投影は続ける。
+                continue;
             }
 
             candidates.Add(new ProjectionCandidate(
