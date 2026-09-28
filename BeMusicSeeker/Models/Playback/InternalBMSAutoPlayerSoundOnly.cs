@@ -369,12 +369,24 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                 if (!(_player.CurrentTime == value))
                 {
                     _player.CurrentTime = value;
-                    RaisePropertyChanged("CurrentTime");
+                    RaisePropertyChanged(nameof(CurrentTime));
                 }
             }
             catch
             {
             }
+        }
+    }
+
+    private void NotifyCurrentTimeChanged()
+    {
+        try
+        {
+            RaisePropertyChanged(nameof(CurrentTime));
+        }
+        catch
+        {
+            // 表示通知の例外は、CurrentTime setterと同じく再生制御へ伝えません。
         }
     }
 
@@ -575,15 +587,14 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             try
             {
                 PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
+                BMSAutoPlayer previousPlayer = _player;
                 _fastForwarding = false;
                 _fastBackwarding = false;
                 Duration = TimeSpan.MinValue;
-                CurrentTime = TimeSpan.MinValue;
                 MusicDuration = TimeSpan.MinValue;
                 BmsDuration = TimeSpan.MinValue;
-                if (_player != null)
+                if (previousPlayer != null)
                 {
-                    BMSAutoPlayer previousPlayer = _player;
                     try
                     {
                         previousPlayer.DisposeBeforeNextSong();
@@ -593,6 +604,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                         _player = null;
                     }
                 }
+                NotifyCurrentTimeChanged();
                 _ = audioPlaybackRuntime.Initialize(settings);
                 bMSAutoPlayer = autoPlayerFactory(bmsFilePath);
                 bMSAutoPlayer.LoadResources();

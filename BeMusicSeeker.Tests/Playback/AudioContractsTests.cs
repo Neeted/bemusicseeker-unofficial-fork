@@ -494,11 +494,23 @@ public sealed class AudioContractsTests
         try
         {
             Assert.AreEqual(1, initializedSessions.Count);
+            ObservingBMSAutoPlayer observedOldPlayer = oldPlayer
+                ?? throw new AssertFailedException("The first BMS player was not created.");
+            var userSeekTime = TimeSpan.FromMilliseconds(250);
+            int moveCountBeforeUserSeek = observedOldPlayer.MoveToCount;
+            player.CurrentTime = userSeekTime;
+            Assert.AreEqual(moveCountBeforeUserSeek + 1, observedOldPlayer.MoveToCount,
+                "公開CurrentTime setterは再生中の譜面へseekを届けます。");
+            Assert.AreEqual(userSeekTime, observedOldPlayer.LastMoveToTime);
+            int oldMoveCountBeforeReplacement = observedOldPlayer.MoveToCount;
+
             AudioOutputRequest firstRequest = initializedSessions[0].OutputRequest;
             settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_48000Hz;
 
             newStart = player.PlayStart(newPath);
 
+            Assert.AreEqual(oldMoveCountBeforeReplacement, observedOldPlayer.MoveToCount,
+                "次曲切替時の表示リセットは旧曲へのseekを発生させません。");
             Assert.AreEqual(2, initializedSessions.Count);
             Assert.IsFalse(firstRequest.Equals(initializedSessions[1].OutputRequest));
             CollectionAssert.AreEqual(
@@ -1216,6 +1228,20 @@ public sealed class AudioContractsTests
     private class ObservingBMSAutoPlayer(Ribbit.BMS.BMSFile bms, List<string> events)
         : LifecycleBMSAutoPlayer(bms)
     {
+        private int moveToCount;
+        private long lastMoveToTicks;
+
+        internal int MoveToCount => System.Threading.Volatile.Read(ref moveToCount);
+
+        internal TimeSpan LastMoveToTime => TimeSpan.FromTicks(System.Threading.Interlocked.Read(ref lastMoveToTicks));
+
+        protected override void MoveTo(TimeSpan time)
+        {
+            System.Threading.Interlocked.Exchange(ref lastMoveToTicks, time.Ticks);
+            System.Threading.Interlocked.Increment(ref moveToCount);
+            base.MoveTo(time);
+        }
+
         public override void Stop()
         {
             base.Stop();
