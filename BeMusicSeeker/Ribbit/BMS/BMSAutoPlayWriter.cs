@@ -12,14 +12,18 @@ using Ribbit.Util.Extensions;
 
 namespace Ribbit.BMS;
 
-public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms)
+public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer(bms)
 {
+    private const int PullBlockFrames = 4096;
     public enum Normalization
     {
         NONE,
         PEAK_LEVEL,
         RMS_VALUE
     }
+
+    /// <inheritdoc />
+    protected override float ResourceSourceGain => 1f;
 
     public override void Pause()
     {
@@ -109,35 +113,32 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
                 ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))
                 : string.Empty));
 
-        long renderedFrames = 0;
-        foreach (TimeSpan eventTime in GetRenderTimes())
+        using (var scheduledMixer = new BmsScheduledAudioMixer(
+                   base.AudioSchedule,
+                   base.AudioResourcesByIndex,
+                   base.ResourceSession,
+                   new BassMixerSourceNativeBoundary()))
         {
-            long eventFrame = AudioPcmRenderer.TimeToFrame(eventTime, renderer.SampleRate);
-            if (eventFrame < renderedFrames || eventFrame > totalFrames)
+            long renderedFrames = 0;
+            while (renderedFrames < totalFrames)
             {
-                throw new InvalidOperationException("BMS event frames must stay within the ordered render interval.");
-            }
-
-            int intervalFrames = checked((int)(eventFrame - renderedFrames));
-            if (intervalFrames > 0)
-            {
+                int intervalFrames = checked((int)System.Math.Min(
+                    PullBlockFrames,
+                    totalFrames - renderedFrames));
+                long nextRenderFrame = checked(renderedFrames + intervalFrames);
+                scheduledMixer.ReserveBeforeFrame(
+                    nextRenderFrame,
+                    renderedFrames,
+                    audioEvent => audioEvent.AbsoluteTime <= base.Duration);
                 renderer.ReadFramesExactly(
                     renderedPcm,
                     checked((int)renderedFrames),
                     intervalFrames);
+                renderedFrames = nextRenderFrame;
+                scheduledMixer.AdvanceAndRetire();
             }
 
-            ForwardTo(eventTime);
-            renderedFrames = eventFrame;
-        }
-
-        if (renderedFrames < totalFrames)
-        {
-            int finalIntervalFrames = checked((int)(totalFrames - renderedFrames));
-            renderer.ReadFramesExactly(
-                renderedPcm,
-                checked((int)renderedFrames),
-                finalIntervalFrames);
+            scheduledMixer.AdvanceAndRetire();
         }
 
         AudioPcmLevels levels = AudioPcmRenderer.Measure(renderedPcm, renderer.ChannelCount);
@@ -177,69 +178,28 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         ResetPlaybackState();
     }
 
-    private TimeSpan[] GetRenderTimes()
-    {
-        return [.. GetRenderableAudioNotes()
-            .Select(note => note.AbsoluteTime)
-            .Where(time => time <= base.Duration)
-            .OrderBy(time => time)
-            .Select(time => time < TimeSpan.Zero ? TimeSpan.Zero : time)
-            .SequentialDistinct()];
-    }
-
     private long GetRenderFrameCount(int outputSampleRate)
     {
-        long totalFrames = AudioPcmRenderer.TimeToFrame(base.Duration, outputSampleRate);
-        foreach (BMSFile.Chart.Note note in GetRenderableAudioNotes())
+        long totalFrames = AudioFrameMath.TimeToFrame(base.Duration, outputSampleRate);
+        foreach (BmsAudioFrameEvent audioEvent in base.AudioSchedule.Events)
         {
-            if (note.AbsoluteTime > base.Duration)
+            if (audioEvent.AbsoluteTime > base.Duration)
             {
                 continue;
             }
 
-            BassAudioWriter source = base.AudioPlayers[note.Index];
+            BmsAudioResource source = base.AudioResourcesByIndex[audioEvent.WavIndex];
             if (source == null)
             {
                 continue;
             }
 
-            TimeSpan eventTime = note.AbsoluteTime < TimeSpan.Zero ? TimeSpan.Zero : note.AbsoluteTime;
-            long eventStartFrame = AudioPcmRenderer.TimeToFrame(eventTime, outputSampleRate);
-            long eventEndFrame = checked(eventStartFrame + source.GetOutputFrameCount(outputSampleRate));
+            long eventEndFrame = checked(
+                audioEvent.StartFrame + source.GetOutputFrameCount(outputSampleRate));
             totalFrames = System.Math.Max(totalFrames, eventEndFrame);
         }
 
         return totalFrames;
-    }
-
-    private IEnumerable<BMSFile.Chart.Note> GetRenderableAudioNotes()
-    {
-        foreach (BMSFile.Chart.Note note in BgmNotesQueue)
-        {
-            yield return note;
-        }
-        foreach (BMSFile.Chart.Note note in VisibleNotes1PQueue.SelectMany(queue => queue))
-        {
-            yield return note;
-        }
-        foreach (BMSFile.Chart.Note note in VisibleNotes2PQueue.SelectMany(queue => queue))
-        {
-            yield return note;
-        }
-        foreach (BMSFile.Chart.Note note in LongNotes1PQueue.SelectMany(queue => queue))
-        {
-            if (((uint)note.Type & 0xFFFFFFF0u) == 80)
-            {
-                yield return note;
-            }
-        }
-        foreach (BMSFile.Chart.Note note in LongNotes2PQueue.SelectMany(queue => queue))
-        {
-            if (((uint)note.Type & 0xFFFFFFF0u) == 96)
-            {
-                yield return note;
-            }
-        }
     }
 
     private static double GetNormalizationGain(

@@ -1320,6 +1320,8 @@ public sealed class BassNativeRuntimeTests
             return true;
         }
 
+        public bool FreeStream(int sourceHandle) => Bass.StreamFree(sourceHandle);
+
         public bool SetPosition(int sourceHandle, long position, ManagedBass.PositionFlags mode) => true;
 
         public ManagedBass.Errors GetError() => ManagedBass.Errors.Handle;

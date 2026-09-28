@@ -13,10 +13,10 @@ public class BassAudioWriter : BassAudioPlayer
     /// <summary>完成PCMの形式を確認して変換用レンダラーを作ります。</summary>
     internal static AudioPcmRenderer CreatePcmRenderer()
     {
-        int outputHandle = outputMixer;
+        int outputHandle = InputMixerHandle;
         if (outputHandle == 0)
         {
-            throw new InvalidOperationException("The audio output mixer is not initialized.");
+            throw new InvalidOperationException("The BMS input mixer is not initialized.");
         }
 
         ChannelInfo channelInfo = Bass.ChannelGetInfo(outputHandle);

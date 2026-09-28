@@ -28,6 +28,8 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.CallbackFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
+        Assert.AreEqual(10d, result.LatencyMilliseconds,
+            "48 kHzで480 sampleは出力latency 10 msです。");
         Assert.AreEqual(AsioSampleFormat.Float, native.SetFormats.Single());
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Decode));
@@ -600,9 +602,11 @@ public sealed class BassAsioNegotiationTests
             Callback);
 
         Assert.AreEqual(native.MixerHandle, session.CallbackOutputHandle);
-        Assert.AreEqual(native.MixerHandle, session.CallbackPcmRenderer.Channel);
-        Assert.AreEqual(48000, session.CallbackPcmRenderer.SampleRate);
-        Assert.AreEqual(2, session.CallbackPcmRenderer.ChannelCount);
+        AudioPcmRenderer callbackRenderer = session.CallbackPcmRenderer
+            ?? throw new AssertFailedException("ASIO initialization did not create its callback renderer.");
+        Assert.AreEqual(native.MixerHandle, callbackRenderer.Channel);
+        Assert.AreEqual(48000, callbackRenderer.SampleRate);
+        Assert.AreEqual(2, callbackRenderer.ChannelCount);
         Assert.IsTrue(session.IsStarted);
     }
 

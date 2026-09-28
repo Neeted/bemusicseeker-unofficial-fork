@@ -315,7 +315,7 @@
   "Warning_Lr2ResourcePathTooLong": "This chart contains resource paths that may exceed LR2's path length limit. Shorten the resource name or folder path.",
   "Msg_conversion_stopped": "Conversion stopped.",
   "Pending": "Pending",
-  "Msg_failed_play": "Failed to run the BMS player.",
+  "Msg_failed_play": "Playback failed.",
   "Mark_fixed": "Mark as fixed",
   "PlaylistProp_headeruri": "Header URI: ",
   "Details_show_diag_chartview": "Show confirmation message on registering to the chart viewer",

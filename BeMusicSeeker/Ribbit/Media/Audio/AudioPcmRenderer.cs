@@ -53,7 +53,8 @@ internal enum AudioPcmRenderStage
     UnalignedFrame,
     Stalled,
     NonFiniteSample,
-    UnexpectedEnd
+    UnexpectedEnd,
+    ScheduledPlayback
 }
 
 /// <summary>interleaved PCM全体のpeakとRMSを保持します。</summary>
@@ -94,8 +95,6 @@ internal sealed class ManagedBassAudioPcmNative : IAudioPcmNative
 internal sealed class AudioPcmRenderer
 {
     private const int PullBufferSamples = 32768;
-    private const long TicksPerSecond = TimeSpan.TicksPerSecond;
-
     private readonly int channel;
     private readonly int sampleRate;
     private readonly int channelCount;
@@ -327,29 +326,6 @@ internal sealed class AudioPcmRenderer
                 expectedFrames: requestedFrames,
                 actualFrames: result.FramesRead);
         }
-    }
-
-    /// <summary>絶対ticksを最近傍output frameへ変換し、ちょうど中間なら偶数へ丸めます。</summary>
-    internal static long TimeToFrame(TimeSpan time, int sampleRate)
-    {
-        if (sampleRate <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(sampleRate));
-        }
-
-        Int128 numerator = (Int128)time.Ticks * sampleRate;
-        Int128 quotient = numerator / TicksPerSecond;
-        Int128 remainder = numerator % TicksPerSecond;
-        Int128 absoluteRemainder = remainder < 0 ? -remainder : remainder;
-        Int128 doubledRemainder = absoluteRemainder * 2;
-        bool roundAwayFromZero = doubledRemainder > TicksPerSecond
-            || (doubledRemainder == TicksPerSecond && quotient % 2 != 0);
-        if (roundAwayFromZero)
-        {
-            quotient += numerator < 0 ? -1 : 1;
-        }
-
-        return checked((long)quotient);
     }
 
     /// <summary>PCMを消費・複製せず、peakとbuffer全体のRMSを測定します。</summary>

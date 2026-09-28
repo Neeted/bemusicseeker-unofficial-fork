@@ -315,7 +315,7 @@
   "Warning_Lr2ResourcePathTooLong": "譜面包含可能超過 LR2 路徑長度限制的資源路徑。請縮短資源名稱或資料夾路徑。",
   "Msg_conversion_stopped": "轉換已中止",
   "Pending": "已保留",
-  "Msg_failed_play": "啟動 BMS 播放器失敗。",
+  "Msg_failed_play": "播放失敗。",
   "Mark_fixed": "標記為已修復",
   "PlaylistProp_headeruri": "Header URI：",
   "Details_show_diag_chartview": "向譜面檢視器註冊時顯示確認訊息",

@@ -73,14 +73,10 @@ internal sealed class FloatWaveSource
     /// <returns>区間 [0, FrameCount / SampleRate) に含まれる出力格子のフレーム数。</returns>
     internal long GetOutputFrameCount(int outputSampleRate)
     {
-        if (outputSampleRate <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(outputSampleRate));
-        }
-
-        long scaledFrameCount = checked(audio.FrameCount * outputSampleRate);
-        long wholeFrames = scaledFrameCount / audio.SampleRate;
-        return scaledFrameCount % audio.SampleRate == 0 ? wholeFrames : checked(wholeFrames + 1);
+        return AudioFrameMath.CeilingOutputFrameCount(
+            audio.FrameCount,
+            audio.SampleRate,
+            outputSampleRate);
     }
 
     /// <summary>現在位置からWAVEヘッダーとインターリーブPCMをまたいで読み取ります。</summary>

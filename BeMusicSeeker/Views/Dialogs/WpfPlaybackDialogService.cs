@@ -48,7 +48,7 @@ internal sealed class WpfPlaybackDialogService : IPlaybackDialogService
 
         UiDialogResult result = dialogs
             .ShowMessageAsync(new UiMessageRequest(
-                Resources.Msg_failed_play + Environment.NewLine + exception.Message,
+                Resources.Msg_failed_play,
                 Resources.Error,
                 MessageBoxButton.OK,
                 MessageBoxImage.Hand,

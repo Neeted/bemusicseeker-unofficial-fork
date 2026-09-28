@@ -178,6 +178,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     internal static BassAudioSession? CurrentSessionForAdmittedOperation =>
         SessionLifecycle.CurrentSessionForAdmittedOperation;
 
+    /// <summary>BMS schedulerが位置を基準にするinput mixer handleを取得します。</summary>
+    internal static int InputMixerHandle => inputMixer;
+
+    /// <summary>現在のtempo処理後出力handleを取得します。</summary>
+    internal static int OutputMixerHandle => outputMixer;
+
     /// <summary>Gets whether shutdown must be deferred until native cleanup succeeds.</summary>
     internal static bool HasUnconfirmedNativeCleanup
     {
@@ -530,6 +536,108 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         (_floatWaveSource
             ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The finite float source is no longer available."))
         .GetOutputFrameCount(outputSampleRate);
+
+    /// <summary>schedulerがcommit・回収するnative source handleを取得します。</summary>
+    internal int NativeHandleForScheduledVoice => _handle;
+
+    /// <summary>一度nativeへ予約したpaused sourceのSRC・matrix設定を確認します。</summary>
+    internal void ConfigureScheduledVoice(int expectedMixerHandle, float[,] preparedMatrix)
+    {
+        ArgumentNullException.ThrowIfNull(preparedMatrix);
+        BassAudioSession session = GetOwningSessionForOperation();
+        if (session.MixerHandle != expectedMixerHandle)
+        {
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.MixerMembership,
+                FileName,
+                _handle,
+                expectedMixerHandle,
+                session.MixerHandle,
+                "BassAudioSession.MixerHandle",
+                null,
+                "The scheduled source does not belong to the expected session mixer.");
+        }
+
+        FloatWaveSource sourceAdapter = _floatWaveSource
+            ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The scheduled source has been released.");
+        mixerSourceController.ConfigurePausedSource(
+            expectedMixerHandle,
+            _handle,
+            sourceAdapter.ChannelLayout,
+            FileName,
+            session.SampleRateConversionQuality,
+            preparedMatrix);
+        sourceMatrixConfigured = true;
+    }
+
+    /// <summary>native commit前にsource配置とmixer channel数からspeaker matrixを作成します。</summary>
+    internal float[,] CreateScheduledMatrix(int mixerChannelCount)
+    {
+        FloatWaveSource sourceAdapter = _floatWaveSource
+            ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The scheduled source has been released.");
+        try
+        {
+            return AudioChannelMatrix.Create(
+                sourceAdapter.ChannelLayout,
+                AudioChannelLayout.CreateBassOutput(mixerChannelCount));
+        }
+        catch (ArgumentException exception)
+        {
+            BassAudioSession? session = owningSession;
+            throw CreatePlaybackException(
+                BassAudioPlaybackStage.MixerMatrix,
+                FileName,
+                _handle,
+                session?.MixerHandle ?? 0,
+                session?.MixerHandle ?? 0,
+                "AudioChannelMatrix.Create",
+                null,
+                "The source or output speaker layout has no defined routing matrix.",
+                exception,
+                session);
+        }
+    }
+
+    /// <summary>voice間でspeaker matrixを共有するため、固定PCM配置のmaskを取得します。</summary>
+    internal uint ScheduledSourceSpeakerMask =>
+        (_floatWaveSource
+            ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The scheduled source has been released."))
+        .ChannelLayout.SpeakerMask;
+
+    /// <summary>再生区間復元時にsource sample格子で位置を移動します。</summary>
+    internal void SetScheduledSourceFrame(long sourceFrame)
+    {
+        FloatWaveSource sourceAdapter = _floatWaveSource
+            ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The scheduled source has been released.");
+        long bytePosition = AudioFrameMath.Float32FrameToBytePosition(
+            sourceFrame,
+            sourceAdapter.ChannelLayout.ChannelCount);
+        BassAudioSession session = GetOwningSessionForOperation();
+        mixerSourceController.SetPosition(_handle, bytePosition, FileName, session.MixerHandle);
+    }
+
+    /// <summary>schedulerが有限区間を終えたsourceをmixerから外します。</summary>
+    internal void RemoveScheduledVoiceFromMixer()
+    {
+        BassAudioSession session = GetOwningSessionForOperation();
+        mixerSourceController.RemoveFromExpectedMixer(session.MixerHandle, _handle, FileName);
+        sourceMatrixConfigured = false;
+    }
+
+    /// <summary>UIの現行voice数を予約区間に合わせて更新します。</summary>
+    internal void UpdateScheduledVoiceState(bool active)
+    {
+        if (active)
+        {
+            MarkVoiceAttachedOnce();
+            playState = PlayState.Playing;
+        }
+        else
+        {
+            MarkVoiceDetachedOnce();
+            playState = PlayState.Stopped;
+        }
+    }
 
     public PlayState PlayState
     {
@@ -1548,12 +1656,31 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             using (SessionLifecycle.Enter())
             {
-                SetTempoChangeCore(speed, changeFreq);
+                SetTempoChangeCore(speed, changeFreq, preserveTempoAtUnity: false);
             }
         }
     }
 
-    private static void SetTempoChangeCore(float speed, bool changeFreq)
+    /// <summary>BMS再生graphのtempo streamを速度1でも維持して属性を更新します。</summary>
+    internal static void SetBmsTempoChange(float speed)
+    {
+        if ((double)speed < 0.05 || speed > 50f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(speed));
+        }
+
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
+        using (SessionLifecycle.Enter())
+        {
+            if (!SessionLifecycle.IsActive)
+            {
+                throw new InvalidOperationException("An active BASS session is required to change BMS playback speed.");
+            }
+            SetTempoChangeCore(speed, changeFreq: false, preserveTempoAtUnity: true);
+        }
+    }
+
+    private static void SetTempoChangeCore(float speed, bool changeFreq, bool preserveTempoAtUnity)
     {
         if (!SessionLifecycle.IsActive)
         {
@@ -1563,7 +1690,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             throw new ArgumentOutOfRangeException("speed");
         }
-        if (speed == 1f)
+        if (speed == 1f && !preserveTempoAtUnity)
         {
             ResetTempoChangeCore();
             return;
@@ -1588,20 +1715,35 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 default:
                     throw new ArgumentOutOfRangeException();
             }
-            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.TempoSequenceMilliseconds, 33f);
-            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.TempoSeekWindowMilliseconds, 10f);
+            SetTempoAttribute(tempoChanger, ChannelAttribute.TempoSequenceMilliseconds, 33f);
+            SetTempoAttribute(tempoChanger, ChannelAttribute.TempoSeekWindowMilliseconds, 10f);
         }
         if (changeFreq)
         {
             float value;
-            Bass.ChannelGetAttribute(inputMixer, ChannelAttribute.Frequency, out value);
-            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.TempoFrequency, speed * value);
+            if (!Bass.ChannelGetAttribute(inputMixer, ChannelAttribute.Frequency, out value))
+            {
+                Errors error = Bass.LastError;
+                throw new InvalidOperationException(
+                    "BASS_ChannelGetAttribute(Frequency) failed: " + BassNativeErrorFormatter.Format(error));
+            }
+            SetTempoAttribute(tempoChanger, ChannelAttribute.TempoFrequency, speed * value);
         }
         else
         {
-            Bass.ChannelSetAttribute(tempoChanger, ChannelAttribute.Tempo, 100f * (speed - 1f));
+            SetTempoAttribute(tempoChanger, ChannelAttribute.Tempo, 100f * (speed - 1f));
         }
         playbackRate = speed;
+    }
+
+    private static void SetTempoAttribute(int handle, ChannelAttribute attribute, float value)
+    {
+        if (!Bass.ChannelSetAttribute(handle, attribute, value))
+        {
+            Errors error = Bass.LastError;
+            throw new InvalidOperationException(
+                "BASS_ChannelSetAttribute(" + attribute + ") failed: " + BassNativeErrorFormatter.Format(error));
+        }
     }
 
     /// <summary>Restores the active output graph to its original tempo.</summary>
@@ -2024,52 +2166,85 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             session?.TryRecordCallbackOutputFailure(AudioPcmRenderStage.InvalidReadLength);
             return 0;
         }
-        Span<byte> bytes = new((void*)buffer, length);
-        bytes.Clear();
-        if (session == null || session.CallbackOutputHandle == 0)
+        new Span<byte>((void*)buffer, length).Clear();
+        if (session == null)
         {
             return 0;
         }
-        if (session.HasCallbackOutputFailure)
+
+        return session.WithCallbackOutputPull(paused =>
         {
-            return length;
-        }
-        try
-        {
-            AudioPcmRenderer renderer = session.CallbackPcmRenderer;
-            AudioOutputProcessor processor = session.OutputProcessor;
-            if (renderer == null || processor == null || length % (sizeof(float) * renderer.ChannelCount) != 0)
-            {
-                session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.UnalignedFrame);
-                return length;
-            }
-            Span<float> pcm = new((void*)buffer, length / sizeof(float));
-            if (!renderer.TryReadFrames(session.CallbackOutputHandle, pcm, pcm.Length / renderer.ChannelCount,
-                    out _, out AudioPcmRenderStage stage, out Errors? nativeError))
-            {
-                session.TryRecordCallbackOutputFailure(stage, nativeError);
-                bytes.Clear();
-                return length;
-            }
-            if (!processor.TryProcess(pcm, renderer.ChannelCount,
-                    out AudioOutputProcessResult processed, out AudioOutputProcessFailure failure))
-            {
-                session.TryRecordCallbackOutputFailure(failure);
-                bytes.Clear();
-                return length;
-            }
-            if (processed.ExceededFullScale)
-            {
-                session.TryMarkOutputOverLevelPending();
-            }
-            return length;
-        }
-        catch
-        {
-            session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.NativeRead);
+            Span<byte> bytes = new((void*)buffer, length);
             bytes.Clear();
-            return length;
-        }
+            if (session.CallbackOutputHandle == 0)
+            {
+                return 0;
+            }
+            try
+            {
+                AudioPcmRenderer? renderer = session.CallbackPcmRenderer;
+                AudioOutputProcessor? processor = session.OutputProcessor;
+                if (renderer == null || processor == null || length % (sizeof(float) * renderer.ChannelCount) != 0)
+                {
+                    session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.UnalignedFrame);
+                    return length;
+                }
+                Span<float> pcm = new((void*)buffer, length / sizeof(float));
+                int requestedFrames = pcm.Length / renderer.ChannelCount;
+                session.ObserveCallbackPullSize(requestedFrames);
+                if (paused || session.HasCallbackOutputFailure)
+                {
+                    return length;
+                }
+
+                int reservedCallbackFrames = session.RealtimeReservedCallbackFrames;
+                if (reservedCallbackFrames > 0 && requestedFrames > reservedCallbackFrames)
+                {
+                    session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.ScheduledPlayback);
+                    return length;
+                }
+
+                if (!renderer.TryReadFrames(session.CallbackOutputHandle, pcm, requestedFrames,
+                        out AudioPcmReadResult readResult, out AudioPcmRenderStage stage, out Errors? nativeError))
+                {
+                    session.TryRecordCallbackOutputFailure(stage, nativeError);
+                    bytes.Clear();
+                    return length;
+                }
+
+                // 予約の巻戻しがcallbackのpull中に故障を公開する場合がある。
+                // 一部だけ巻き戻されたcommitが生成したPCMは公開しない。
+                if (session.HasCallbackOutputFailure)
+                {
+                    bytes.Clear();
+                    return length;
+                }
+                if (!processor.TryProcess(pcm, renderer.ChannelCount,
+                        out AudioOutputProcessResult processed, out AudioOutputProcessFailure failure))
+                {
+                    session.TryRecordCallbackOutputFailure(failure);
+                    bytes.Clear();
+                    return length;
+                }
+                if (session.HasCallbackOutputFailure)
+                {
+                    bytes.Clear();
+                    return length;
+                }
+                if (processed.ExceededFullScale)
+                {
+                    session.TryMarkOutputOverLevelPending();
+                }
+                session.RecordCallbackOutput(requestedFrames, readResult.ReachedEnd);
+                return length;
+            }
+            catch
+            {
+                session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.NativeRead);
+                bytes.Clear();
+                return length;
+            }
+        });
     }
 
     private static int ReadCallbackOutput(IntPtr buffer, int length)
@@ -2178,7 +2353,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
     }
 
-    private BassAudioPlayer(
+    internal BassAudioPlayer(
         string fileName,
         DecodedAudio source,
         BassAudioSession? expectedSession,
@@ -3136,7 +3311,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         bool released = FreeNativePlayerStream(ownedHandle);
                         if (!released)
                         {
-                            Errors error = Bass.LastError;
+                            Errors error = mixerSourceController.GetError();
                             released = error == Errors.Init;
                             if (!released)
                             {
@@ -3208,7 +3383,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     /// <summary>所有sessionのsource streamをnative側で解放します。</summary>
     /// <param name="handle">解放を確認するBASS source handleです。</param>
-    internal virtual bool FreeNativePlayerStream(int handle) => Bass.StreamFree(handle);
+    internal virtual bool FreeNativePlayerStream(int handle) => mixerSourceController.FreeStream(handle);
 
     private void ReleaseInputSource()
     {

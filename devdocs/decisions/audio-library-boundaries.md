@@ -97,13 +97,21 @@ SRC自体は自作しません。`BassMixerSourceController`が品質設定と�
 
 見直しでは、既定行列が現在のスピーカー別の意味を満たすかを信号で確認します。BASSmix更新時には振幅・エイリアスだけでなく、有限入力の出力フレーム数、短い取得単位、再発音、終端後の無音も検査します。終了通知の意味が変わる場合に限り、接続寿命の方針を再評価します。
 
+## BMS発音のframe配置をアプリが所有する理由
+
+BASSmixはsourceのSRC、matrix、加算、有限長、絶対位置への接続を処理します。一方、どのBMS noteが音声イベントか、`AbsoluteTime`を実効mixer rateのframeへどう丸めるか、同indexの再発音でどの区間を切るかは譜面と既存互換性の契約です。この選択・量子化をWriterとRealtimeで別実装にすると、同じ譜面でも発音位置がずれるため、アプリが一つの `BmsAudioFrameSchedule` と `BmsScheduledAudioMixer` を所有し、両経路から使います。
+
+Realtimeの開始精度はwall-clockの起床や即時 `Play` に依存させません。アプリ側でnative source、gain、matrix値をlock外で準備し、実効mixer位置の検査から `BASS_Mixer_StreamAddChannelEx` の絶対frame予約、必要なnative設定、有効化までを一つの短いnative直列化境界でcommitします。SRCの設定・読戻しとmatrix適用は予約sourceをpauseしたままcommit内で行い、source生成やmatrix計算はそこで行いません。過去frameへの遅れは即時再生へ置き換えず、再生Taskへ失敗を返します。先読み幅は報告output latency、pause中も含む実測callback block、tempo先読み、速度、control/voice準備に要した時間から動的に求めます。tempo先読みは4,096 input frameと33ms×速度の大きい方を使います。BASS_FX 2.4.12.6の48kHz本番tempo graphで速度0.05/1/2/50、小さい初回pullと大blockの両方を測り、余分なinput消費の最大はそれぞれ4,089/2,048/3,840/55,040 frameでした。callback要求が予約に含めた最大blockを超えた場合はtempo pull前に故障・無音を返し、未予約eventを欠落したまま継続しません。tempo streamは速度1でも保持し、速度変更のたびに必要なevent範囲を先に予約してから属性を変えることで、後段graphの切替による予約PCMの欠落を避けます。
+
+Pauseはinput mixerとtempoを含むpull全体を止め、source cursor・SRC・予約を同じ格子のまま保持します。Seekは操作境界で旧予約と旧tempo outputを破棄し、半開区間に含まれるvoiceだけをsource側sample gridから再構成します。自然終了ではinput側の `MixerNonStop` を外してnative EOFへ進め、callbackから実際のEOFを受けてから出力backendの排出を確認します。WASAPIでは `BASS_DATA_AVAILABLE` のFloat32 byte数をcallback frame幅へ換算して保留queue量を測り、その最大観測値と最大callback block相当の進行を待ちます。native資料ではこの値にdevice/driverの追加遅延が含まれて `BufferLength` より大きくなり得るため、初期化時の共有buffer長だけを終端証明にしません（[BASS_WASAPI_GetData](https://www.un4seen.com/doc/basswasapi/BASS_WASAPI_GetData.html)）。ASIOでは開始後に取得したoutput latencyと最大callback block相当の進行を待ちます（[BASS_ASIO_GetLatency](https://www.un4seen.com/doc/bassasio/BASS_ASIO_GetLatency.html)）。queue量・latencyの取得失敗は再生Taskへ返し、固定待ち時間へ置き換えません。ここで確認するのはnative graphの排出であり、DACが物理的に音を出し終えた時刻ではありません。
+
 ## 入力の接続層を持つ理由
 
 Vorbisは[libvorbisfileのfloat API](https://www.xiph.org/vorbis/doc/vorbisfile/ov_read_float.html)へ委ねます。[ネイティブ接続層](../../native/VorbisBridge/README.md)は不透明ハンドルと固定幅整数のC ABIを公開し、C#側へライブラリ内部構造体の配置を持ち込みません。libvorbisfileが実際に復号するPCMをEOFまで読み、`OV_HOLE` は同ライブラリの再同期として続行します。同一rate・channel形式の連結ストリームを許可し、読取り中に形式変更を検出した場合は入力全体を失敗とします。page・CRC・EOSを別途走査して復号より厳しい拒否条件を作りません。
 
 固定した復号器を直接呼ぶ参照PCMと比較できること、floatの微小値・±1超過・チャンネル順を同じ入力契約で扱えることを優先し、NVorbisとの二重経路や、失敗後に別の復号器へ切り替える経路は残しません。これはNVorbis全般の品質不足を実証したという意味ではありません。直接参照との一致は接続・並べ替えの検査であり、libvorbisの復号アルゴリズム自体の独立証明でもありません。
 
-入力WAVに独自のヘッダー・chunk妥当性検査を重ねず、BASSが実際にデコードできる形式を受け入れます。配置は利用可能で有効なWAVE extensible speaker maskを優先し、それがない場合はBASS標準配置を使います。`FloatWaveSource`は復号済みPCMを共有して読取り位置だけを分離するための小さい仮想WAVE供給器であり、入力検査器ではありません。曲ロードでは[`AudioInputFile`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioInputFile.cs)がファイルを一つのnative memory ownerへ一度だけ読み、signatureとdecoderが同じ入力を使います。[`AudioSourceLoadPipeline`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoadPipeline.cs)は使用WAV indexをpath単位にまとめて復号し、各indexに独立sourceを作るため、別曲を保持するcacheやmanaged全体byte配列が不要です。汎用のWAV書出しライブラリを自作する目的ではありません。
+入力WAVに独自のヘッダー・chunk妥当性検査を重ねず、BASSが実際にデコードできる形式を受け入れます。配置は利用可能で有効なWAVE extensible speaker maskを優先し、それがない場合はBASS標準配置を使います。`FloatWaveSource`は復号済みPCMを共有して読取り位置だけを分離するための小さい仮想WAVE供給器であり、入力検査器ではありません。曲ロードでは[`AudioInputFile`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioInputFile.cs)がファイルを一つのnative memory ownerへ一度だけ読み、signatureとdecoderが同じ入力を使います。[`AudioSourceLoadPipeline`](../../BeMusicSeeker/Ribbit/Media/Audio/AudioSourceLoadPipeline.cs)は使用WAV indexをpath単位にまとめて一度だけ復号し、各indexから参照されるdecoded PCMを共有します。独立cursorを持つ`FloatWaveSource`は発音voiceごとに作るため、WAV index単位のnative player配列や別曲を保持するcache、managed全体byte配列が不要です。汎用のWAV書出しライブラリを自作する目的ではありません。
 
 代償はネイティブ接続層のビルド・ABI・ライセンス管理と事前復号のメモリです。形式互換性はBASS/libvorbisfileの実際の復号結果に従い、独自のコンテナ検査がdecoderより先に対応形式を狭めないようにします。既存の接続ライブラリへの置換は、同じ失敗分類・配置・chain判定・所有をより小さい構成で維持できる場合に検討します。品質保証を理由に、曲を越えるcacheや任意形式の救済経路は追加しません。
 

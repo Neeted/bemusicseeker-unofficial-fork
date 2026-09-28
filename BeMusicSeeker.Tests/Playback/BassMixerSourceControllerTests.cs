@@ -752,6 +752,8 @@ public sealed class BassMixerSourceControllerTests
             return true;
         }
 
+        public bool FreeStream(int sourceHandle) => true;
+
         public bool SetPosition(int sourceHandle, long position, PositionFlags mode)
         {
             LastPosition = position;

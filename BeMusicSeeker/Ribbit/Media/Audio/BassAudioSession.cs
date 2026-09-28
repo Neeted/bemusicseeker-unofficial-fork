@@ -1,3 +1,4 @@
+#nullable enable annotations
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -58,12 +59,19 @@ internal sealed class AudioCallbackOutputFailureException : InvalidOperationExce
 /// </summary>
 internal sealed class BassAudioSession
 {
+    private readonly object callbackPullSync = new();
     private readonly object playerStreamSync = new();
     private readonly Dictionary<int, BassAudioOwnedStream> ownedStreams = [];
+    private SyncProcedure? realtimeTerminalSyncProcedure;
     private int callbackOutputHandle;
     private int callbackOutputFailureState;
     private AudioCallbackOutputFailure callbackOutputFailure;
     private int outputOverLevelNotificationState;
+    private int callbackOutputPaused;
+    private int realtimeReservedCallbackFrames = -1;
+    private long callbackOutputFrames;
+    private long callbackEndFrame = -1;
+    private int maximumCallbackFrames;
 
     /// <summary>要求backend、endpoint、SRC品質を捕捉した初期化中sessionを作成します。</summary>
     internal BassAudioSession(
@@ -134,17 +142,147 @@ internal sealed class BassAudioSession
     /// <summary>追加stream所有の互換表示をsnapshotで取得します。</summary>
     internal IReadOnlyList<int> AdditionalStreamHandles => GetAdditionalStreamHandles();
 
+    /// <summary>sessionが所有辞書で追跡する追加streamとplayer sourceの件数を取得します。</summary>
+    internal int OwnedStreamCount
+    {
+        get
+        {
+            lock (playerStreamSync)
+            {
+                return ownedStreams.Count;
+            }
+        }
+    }
+
     /// <summary>Gets or sets whether the backend output was started.</summary>
     internal bool IsStarted { get; set; }
 
     /// <summary>Gets or sets the values accepted by the initialized native backend.</summary>
     internal BassAudioBackendResult NegotiationResult { get; set; }
 
-    /// <summary>output sessionがDSP後のFloat32 gainに使うprocessorを取得または設定します。</summary>
-    internal AudioOutputProcessor OutputProcessor { get; set; }
+    /// <summary>callback backendがDSP後のFloat32 gainに使うprocessorを取得または設定します。</summary>
+    internal AudioOutputProcessor? OutputProcessor { get; set; }
 
-    /// <summary>callbackが再利用するFloat32 PCM pull rendererを取得または設定します。</summary>
-    internal AudioPcmRenderer CallbackPcmRenderer { get; set; }
+    /// <summary>callback backendが再利用するFloat32 PCM pull rendererを取得または設定します。</summary>
+    internal AudioPcmRenderer? CallbackPcmRenderer { get; set; }
+
+    /// <summary>再生callbackが一回に要求した最大frame数を取得します。</summary>
+    internal int MaximumCallbackFrames => Volatile.Read(ref maximumCallbackFrames);
+
+    /// <summary>終了sync解除が未確認の間、そのnative callback ownerをsessionで保持しているか取得します。</summary>
+    internal bool HasRetainedRealtimeTerminalSyncProcedure =>
+        Volatile.Read(ref realtimeTerminalSyncProcedure) != null;
+
+    /// <summary>現在のschedulerが登録する終了sync delegateをnative解除確認までsessionへ預けます。</summary>
+    internal void RetainRealtimeTerminalSyncProcedure(SyncProcedure procedure)
+    {
+        ArgumentNullException.ThrowIfNull(procedure);
+        if (Interlocked.CompareExchange(ref realtimeTerminalSyncProcedure, procedure, null) != null)
+        {
+            throw new InvalidOperationException("The audio session already retains a BMS terminal sync callback.");
+        }
+    }
+
+    /// <summary>native解除を確認した終了sync delegateだけをsessionの保持対象から外します。</summary>
+    internal void ReleaseRealtimeTerminalSyncProcedure(SyncProcedure procedure)
+    {
+        ArgumentNullException.ThrowIfNull(procedure);
+        _ = Interlocked.CompareExchange(ref realtimeTerminalSyncProcedure, null, procedure);
+    }
+
+    /// <summary>callback出力がnative pullとの合流境界でpause中か取得します。</summary>
+    internal bool IsCallbackOutputPaused => Volatile.Read(ref callbackOutputPaused) != 0;
+
+    /// <summary>Realtime予約が先読みへ含めたcallback frame数を取得します。</summary>
+    internal int RealtimeReservedCallbackFrames => Volatile.Read(ref realtimeReservedCallbackFrames);
+
+    /// <summary>曲終端を初めて含んだcallbackより後に返したframe数を取得します。</summary>
+    internal long CallbackFramesAfterEnd
+    {
+        get
+        {
+            long endFrame = Interlocked.Read(ref callbackEndFrame);
+            return endFrame < 0 ? 0 : System.Math.Max(0, Interlocked.Read(ref callbackOutputFrames) - endFrame);
+        }
+    }
+
+    /// <summary>callbackがnative出力へ返す曲データの終端を観測済みか取得します。</summary>
+    internal bool CallbackOutputReachedEnd => Interlocked.Read(ref callbackEndFrame) >= 0;
+
+    /// <summary>callbackが実際に最後の曲PCMを返してからの出力frameを記録します。</summary>
+    internal void RecordCallbackOutput(int requestedFrames, bool reachedEnd)
+    {
+        if (requestedFrames <= 0)
+        {
+            return;
+        }
+
+        ObserveCallbackPullSize(requestedFrames);
+        long total = Interlocked.Add(ref callbackOutputFrames, requestedFrames);
+        if (reachedEnd)
+        {
+            Interlocked.CompareExchange(ref callbackEndFrame, total, -1);
+        }
+    }
+
+    /// <summary>callback入力の実測block上限を先行予約と出力排出へ反映します。</summary>
+    internal void ObserveCallbackPullSize(int requestedFrames)
+    {
+        if (requestedFrames <= 0)
+        {
+            return;
+        }
+
+        int observedMaximum = Volatile.Read(ref maximumCallbackFrames);
+        while (requestedFrames > observedMaximum)
+        {
+            int prior = Interlocked.CompareExchange(ref maximumCallbackFrames, requestedFrames, observedMaximum);
+            if (prior == observedMaximum)
+            {
+                break;
+            }
+            observedMaximum = prior;
+        }
+    }
+
+    /// <summary>予約が先読みへ含めたcallback block上限を公開します。</summary>
+    internal void PublishRealtimeReservedCallbackFrames(int requestedFrames)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedFrames);
+        Volatile.Write(ref realtimeReservedCallbackFrames, requestedFrames);
+    }
+
+    /// <summary>Realtime予約の解放後にcallback blockの予約上限を無効化します。</summary>
+    internal void ClearRealtimeReservedCallbackFrames() => Volatile.Write(ref realtimeReservedCallbackFrames, -1);
+
+    /// <summary>callback pullと直列化して譜面・tempoを含む出力graphを凍結または再開します。</summary>
+    internal void SetCallbackOutputPaused(bool paused)
+    {
+        lock (callbackPullSync)
+        {
+            Volatile.Write(ref callbackOutputPaused, paused ? 1 : 0);
+        }
+    }
+
+    /// <summary>native出力開始前、callback EOF／drain観測を新しい区間用に戻します。</summary>
+    internal void ResetCallbackOutputProgress()
+    {
+        lock (callbackPullSync)
+        {
+            Interlocked.Exchange(ref callbackOutputFrames, 0);
+            Interlocked.Exchange(ref callbackEndFrame, -1);
+        }
+    }
+
+    /// <summary>出力callbackがpause gateを保持している間にPCM取得と公開を実行します。</summary>
+    internal T WithCallbackOutputPull<T>(Func<bool, T> pull)
+    {
+        ArgumentNullException.ThrowIfNull(pull);
+        lock (callbackPullSync)
+        {
+            return pull(Volatile.Read(ref callbackOutputPaused) != 0);
+        }
+    }
 
     /// <summary>Gets the current ownership phase.</summary>
     internal BassAudioSessionState State { get; set; }
@@ -161,6 +299,7 @@ internal sealed class BassAudioSession
         || MixerHandle != 0
         || OutputHandle != 0
         || HasOwnedStreams
+        || HasRetainedRealtimeTerminalSyncProcedure
         || IsStarted;
 
     /// <summary>Gets whether cleanup has been fully confirmed.</summary>
@@ -191,6 +330,25 @@ internal sealed class BassAudioSession
 
         failure = callbackOutputFailure;
         return true;
+    }
+
+    /// <summary>callback出力故障が既に回収済みでも、故障sessionの再利用を拒否します。</summary>
+    internal void ThrowIfCallbackOutputFailed()
+    {
+        int state = Volatile.Read(ref callbackOutputFailureState);
+        if (state == 0)
+        {
+            return;
+        }
+
+        var spin = new SpinWait();
+        while (state == 1)
+        {
+            spin.SpinOnce();
+            state = Volatile.Read(ref callbackOutputFailureState);
+        }
+
+        throw new AudioCallbackOutputFailureException(callbackOutputFailure);
     }
 
     /// <summary>保留故障があれば管理側の既存例外経路へ投げます。</summary>
@@ -274,6 +432,7 @@ internal sealed class BassAudioSession
         if (MixerHandle == handle)
         {
             MixerHandle = 0;
+            Interlocked.Exchange(ref realtimeTerminalSyncProcedure, null);
         }
         if (OutputHandle == handle)
         {

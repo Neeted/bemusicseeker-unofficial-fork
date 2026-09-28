@@ -185,13 +185,6 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(0d, empty.Rms);
     }
 
-    [TestMethod]
-    public void AbsoluteFrameConversionUsesTiesToEven()
-    {
-        Assert.AreEqual(220L, AudioPcmRenderer.TimeToFrame(TimeSpan.FromTicks(50000), 44100));
-        Assert.AreEqual(662L, AudioPcmRenderer.TimeToFrame(TimeSpan.FromTicks(150000), 44100));
-    }
-
     private sealed class FakeNative : IAudioPcmNative
     {
         internal Queue<ReadResult> Results { get; } = new();

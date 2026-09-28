@@ -325,7 +325,7 @@
   "Warning_Lr2ResourcePathTooLong": "LR2 のパス長制限を超える可能性があるリソースパスが含まれています。リソース名または配置パスを短くしてください。",
   "Msg_conversion_stopped": "変換を中断しました",
   "Pending": "保留",
-  "Msg_failed_play": "プレイヤーの起動に失敗しました。",
+  "Msg_failed_play": "再生に失敗しました。",
   "Mark_fixed": "修正済みとしてマーク",
   "PlaylistProp_headeruri": "ヘッダーURI: ",
   "Details_show_diag_chartview": "譜面ビューアへの登録時に確認メッセージを表示する",

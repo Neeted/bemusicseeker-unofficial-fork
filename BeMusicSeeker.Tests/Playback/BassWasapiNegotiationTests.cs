@@ -394,10 +394,14 @@ public sealed class BassWasapiNegotiationTests
             native.GraphCalls);
         Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
         Assert.AreEqual(123, session.CallbackOutputHandle);
-        Assert.AreEqual(0.35d, session.OutputProcessor.CurrentGain, 0.000001d);
-        Assert.AreEqual(123, session.CallbackPcmRenderer.Channel);
-        Assert.AreEqual(48000, session.CallbackPcmRenderer.SampleRate);
-        Assert.AreEqual(2, session.CallbackPcmRenderer.ChannelCount);
+        AudioOutputProcessor outputProcessor = session.OutputProcessor
+            ?? throw new AssertFailedException("WASAPI initialization did not create its output processor.");
+        AudioPcmRenderer callbackRenderer = session.CallbackPcmRenderer
+            ?? throw new AssertFailedException("WASAPI initialization did not create its callback renderer.");
+        Assert.AreEqual(0.35d, outputProcessor.CurrentGain, 0.000001d);
+        Assert.AreEqual(123, callbackRenderer.Channel);
+        Assert.AreEqual(48000, callbackRenderer.SampleRate);
+        Assert.AreEqual(2, callbackRenderer.ChannelCount);
     }
 
     [DataTestMethod]
@@ -468,7 +472,9 @@ public sealed class BassWasapiNegotiationTests
             eventModeRequested: false);
 
         Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
-        Assert.AreEqual(0.2d, session.OutputProcessor.CurrentGain, 0.000001d);
+        AudioOutputProcessor outputProcessor = session.OutputProcessor
+            ?? throw new AssertFailedException("WASAPI initialization did not create its output processor.");
+        Assert.AreEqual(0.2d, outputProcessor.CurrentGain, 0.000001d);
         Assert.IsTrue(native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.Dither));
     }
 
@@ -583,7 +589,9 @@ public sealed class BassWasapiNegotiationTests
             && !call.Flags.HasFlag(WasapiInitFlags.AutoFormat)));
         Assert.IsTrue(native.InitializationCalls.All(call =>
             call.BufferSeconds == 0f && call.PeriodSeconds == 0f));
-        Assert.AreEqual(0.35d, session.OutputProcessor.CurrentGain, 0.000001d);
+        AudioOutputProcessor outputProcessor = session.OutputProcessor
+            ?? throw new AssertFailedException("WASAPI fallback did not create its output processor.");
+        Assert.AreEqual(0.35d, outputProcessor.CurrentGain, 0.000001d);
         StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_BUSY");
         StringAssert.Contains(result.FallbackReason, "shared non-event native default");
     }

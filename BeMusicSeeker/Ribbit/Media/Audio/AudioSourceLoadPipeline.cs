@@ -21,16 +21,16 @@ internal sealed record AudioLoadFailure(int Index, string ResourceName, string P
 /// <summary>音声入力失敗で譜面から省略した一意の音源pathを保持します。</summary>
 internal sealed record AudioSourceOmission(string ResourceName, string Path);
 
-/// <summary>音源pipelineの完了時に公開するplayerと対象別失敗です。</summary>
-internal sealed class AudioSourceLoadResult<TPlayer> where TPlayer : class
+/// <summary>音源pipelineの完了時に公開するresourceと対象別失敗です。</summary>
+internal sealed class AudioSourceLoadResult<TResource> where TResource : class
 {
-    internal AudioSourceLoadResult(TPlayer[] players, IReadOnlyList<AudioLoadFailure> failures)
+    internal AudioSourceLoadResult(TResource[] resourcesByIndex, IReadOnlyList<AudioLoadFailure> failures)
     {
-        Players = players;
+        ResourcesByIndex = resourcesByIndex;
         Failures = failures;
     }
 
-    internal TPlayer[] Players { get; }
+    internal TResource[] ResourcesByIndex { get; }
 
     internal IReadOnlyList<AudioLoadFailure> Failures { get; }
 }
@@ -53,8 +53,8 @@ internal sealed class AudioSourceLoadPipelineObserver
     /// <summary>一つの入力の復号が成功したときに呼びます。</summary>
     internal Action<string>? DecodeCompleted { get; init; }
 
-    /// <summary>一つのWAV index用playerの生成が成功したときに呼びます。</summary>
-    internal Action<string, int>? PlayerCreated { get; init; }
+    /// <summary>一つのWAV indexへ共有resourceを割り当てたときに呼びます。</summary>
+    internal Action<string, int>? ResourceAssigned { get; init; }
 
     /// <summary>decoder workerの処理loopへ入る直前に呼びます。</summary>
     internal Action? DecoderWorkerStarting { get; init; }
@@ -69,25 +69,25 @@ internal static class AudioSourceLoadPipeline
     private const int ReadQueueCapacity = 4;
 
     /// <summary>WAV indexをpath単位へ集約し、成功したときだけ結果を返します。</summary>
-    internal static AudioSourceLoadResult<TPlayer> Load<TPlayer>(
+    internal static AudioSourceLoadResult<TResource> Load<TResource>(
         int playerCount,
         IReadOnlyList<AudioLoadRequest> requests,
         bool asParallel,
-        Func<DecodedAudio, string, BassAudioSession, TPlayer> createPlayer,
+        Func<DecodedAudio, string, BassAudioSession, TResource> createResource,
         AudioSourceLoadPipelineObserver? observer = null)
-        where TPlayer : class
+        where TResource : class
     {
         ArgumentOutOfRangeException.ThrowIfNegative(playerCount);
         ArgumentNullException.ThrowIfNull(requests);
-        ArgumentNullException.ThrowIfNull(createPlayer);
+        ArgumentNullException.ThrowIfNull(createResource);
 
-        var players = new TPlayer[playerCount];
+        var resourcesByIndex = new TResource[playerCount];
         var failures = new ConcurrentQueue<AudioLoadFailure>();
         List<AudioSourceWork> work = GroupByPath(requests, failures);
         if (work.Count == 0)
         {
-            return new AudioSourceLoadResult<TPlayer>(
-                players,
+            return new AudioSourceLoadResult<TResource>(
+                resourcesByIndex,
                 failures.OrderBy(item => item.Index).ToArray());
         }
         BassAudioSession expectedSession = CaptureActiveSession();
@@ -99,7 +99,7 @@ internal static class AudioSourceLoadPipeline
             {
                 foreach (AudioSourceWork item in work)
                 {
-                    Process(item, expectedSession, players, failures, createPlayer, input: null, observer);
+                    Process(item, expectedSession, resourcesByIndex, failures, createResource, input: null, observer);
                 }
             }
             catch (Exception exception)
@@ -109,14 +109,14 @@ internal static class AudioSourceLoadPipeline
         }
         else
         {
-            fatalFailure = RunParallel(work, expectedSession, players, failures, createPlayer, observer);
+            fatalFailure = RunParallel(work, expectedSession, resourcesByIndex, failures, createResource, observer);
         }
 
         if (fatalFailure != null)
         {
-            ThrowFatalAfterPlayerCleanup(fatalFailure, players);
+            ThrowFatalAfterResourceCleanup(fatalFailure, resourcesByIndex);
         }
-        return new AudioSourceLoadResult<TPlayer>(players, failures.OrderBy(item => item.Index).ToArray());
+        return new AudioSourceLoadResult<TResource>(resourcesByIndex, failures.OrderBy(item => item.Index).ToArray());
     }
 
     private static BassAudioSession CaptureActiveSession()
@@ -168,14 +168,14 @@ internal static class AudioSourceLoadPipeline
         return work;
     }
 
-    private static Exception? RunParallel<TPlayer>(
+    private static Exception? RunParallel<TResource>(
         IReadOnlyList<AudioSourceWork> work,
         BassAudioSession expectedSession,
-        TPlayer[] players,
+        TResource[] resourcesByIndex,
         ConcurrentQueue<AudioLoadFailure> failures,
-        Func<DecodedAudio, string, BassAudioSession, TPlayer> createPlayer,
+        Func<DecodedAudio, string, BassAudioSession, TResource> createResource,
         AudioSourceLoadPipelineObserver? observer)
-        where TPlayer : class
+        where TResource : class
     {
         int readerCount = System.Math.Min(2, work.Count);
         int decoderCount = System.Math.Min(
@@ -318,7 +318,7 @@ internal static class AudioSourceLoadPipeline
                 observer?.DecoderWorkerStarting?.Invoke();
                 foreach (ReadResult item in readQueue.GetConsumingEnumerable(cancellation.Token))
                 {
-                    Process(item.Work, expectedSession, players, failures, createPlayer, item, observer);
+                    Process(item.Work, expectedSession, resourcesByIndex, failures, createResource, item, observer);
                 }
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -346,15 +346,15 @@ internal static class AudioSourceLoadPipeline
             : new AggregateException("Audio source workers failed and were joined.", failuresToPreserve);
     }
 
-    private static void Process<TPlayer>(
+    private static void Process<TResource>(
         AudioSourceWork work,
         BassAudioSession expectedSession,
-        TPlayer[] players,
+        TResource[] resourcesByIndex,
         ConcurrentQueue<AudioLoadFailure> failures,
-        Func<DecodedAudio, string, BassAudioSession, TPlayer> createPlayer,
+        Func<DecodedAudio, string, BassAudioSession, TResource> createResource,
         ReadResult? input,
         AudioSourceLoadPipelineObserver? observer)
-        where TPlayer : class
+        where TResource : class
     {
         AudioLoadRequest first = work.Requests[0];
         try
@@ -384,10 +384,11 @@ internal static class AudioSourceLoadPipeline
             observer?.DecodeStarted?.Invoke(work.Path);
             DecodedAudio decoded = AudioSourceLoader.Decode(ownedInput, expectedSession);
             observer?.DecodeCompleted?.Invoke(work.Path);
+            TResource resource = createResource(decoded, work.Path, expectedSession);
             foreach (AudioLoadRequest request in work.Requests)
             {
-                players[request.Index] = createPlayer(decoded, work.Path, expectedSession);
-                observer?.PlayerCreated?.Invoke(work.Path, request.Index);
+                resourcesByIndex[request.Index] = resource;
+                observer?.ResourceAssigned?.Invoke(work.Path, request.Index);
             }
         }
         catch (Exception exception) when (IsInputFailure(exception))
@@ -439,33 +440,22 @@ internal static class AudioSourceLoadPipeline
         }
     }
 
-    private static void ThrowFatalAfterPlayerCleanup<TPlayer>(Exception primaryFailure, TPlayer[] players)
-        where TPlayer : class
+    private static void ThrowFatalAfterResourceCleanup<TResource>(Exception primaryFailure, TResource[] resourcesByIndex)
+        where TResource : class
     {
         var cleanupFailures = new List<Exception>();
         var disposedPlayers = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        foreach (TPlayer? player in players)
+        foreach (TResource? resource in resourcesByIndex)
         {
-            if (player == null || !disposedPlayers.Add(player))
+            if (resource == null || !disposedPlayers.Add(resource))
             {
                 continue;
             }
-            if (player is IDisposable disposable)
+            if (resource is IDisposable disposable)
             {
                 try
                 {
                     disposable.Dispose();
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailures.Add(exception);
-                }
-            }
-            if (player is BassAudioPlayer bassPlayer && !bassPlayer.NativeReleaseConfirmed)
-            {
-                try
-                {
-                    cleanupFailures.Add(bassPlayer.CreateSourceReleaseFailure());
                 }
                 catch (Exception exception)
                 {

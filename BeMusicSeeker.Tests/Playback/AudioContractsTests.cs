@@ -422,7 +422,8 @@ public sealed class AudioContractsTests
         };
         var player = new InternalBMSAutoPlayerSoundOnly(
             new SettingsPlayerSettingsGateway(() => testSettings),
-            runtime);
+            runtime,
+            autoPlayerFactory: path => new LifecycleBMSAutoPlayer(new Ribbit.BMS.BMSFile(path)));
         int oldCallbackCount = 0;
         int newCallbackCount = 0;
         Task oldStart = player.PlayStart(oldPath, (_, _) => oldCallbackCount++);
@@ -484,7 +485,7 @@ public sealed class AudioContractsTests
                     oldPlayer = new ObservingBMSAutoPlayer(new Ribbit.BMS.BMSFile(path), events);
                     return oldPlayer;
                 }
-                return new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path));
+                return new LifecycleBMSAutoPlayer(new Ribbit.BMS.BMSFile(path));
             });
         Task oldStart = player.PlayStart(oldPath);
         Task newStart = Task.CompletedTask;
@@ -564,7 +565,7 @@ public sealed class AudioContractsTests
                 events.Add("player-factory:" + factoryCalls);
                 if (oldPlayer != null)
                 {
-                    return new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path));
+                    return new LifecycleBMSAutoPlayer(new Ribbit.BMS.BMSFile(path));
                 }
                 oldPlayer = new ThrowingReleaseBMSAutoPlayer(
                     new Ribbit.BMS.BMSFile(path), expectedFailure, events);
@@ -637,7 +638,8 @@ public sealed class AudioContractsTests
         var player = new InternalBMSAutoPlayerSoundOnly(
             new SettingsPlayerSettingsGateway(() => testSettings),
             runtime,
-            (callback, sender) => capturedExit.TrySetResult((callback, sender)));
+            (callback, sender) => capturedExit.TrySetResult((callback, sender)),
+            path => new LifecycleBMSAutoPlayer(new Ribbit.BMS.BMSFile(path)));
         int generation = 1;
         int oldCallbackCount = 0;
         int newCallbackCount = 0;
@@ -1196,8 +1198,23 @@ public sealed class AudioContractsTests
         }
     }
 
-    private class ObservingBMSAutoPlayer(Ribbit.BMS.BMSFile bms, List<string> events)
+    private class LifecycleBMSAutoPlayer(Ribbit.BMS.BMSFile bms)
         : BMSAutoPlayer(bms)
+    {
+        public override void LoadResources()
+        {
+            // InternalBMSAutoPlayerSoundOnlyの寿命だけを検査するため、再生時間は
+            // 音声deviceの初期化や存在しないWAV fixtureに依存させない。
+            MusicDuration = TimeSpan.FromMilliseconds(500);
+        }
+
+        protected override void OnPlaybackStarting()
+        {
+        }
+    }
+
+    private class ObservingBMSAutoPlayer(Ribbit.BMS.BMSFile bms, List<string> events)
+        : LifecycleBMSAutoPlayer(bms)
     {
         public override void Stop()
         {

@@ -41,7 +41,10 @@ internal enum BassAudioPlaybackStage
     SetPosition,
 
     /// <summary>旧再生sourceのnative解放を確認できなかった。</summary>
-    SourceRelease
+    SourceRelease,
+
+    /// <summary>BMS sourceの絶対位置予約または締切確認が失敗した。</summary>
+    ScheduledPlayback
 }
 
 /// <summary>
@@ -179,6 +182,9 @@ internal interface IBassMixerSourceNativeBoundary
     /// <summary>Removes a source from its mixer.</summary>
     bool RemoveChannel(int sourceHandle);
 
+    /// <summary>解放を試みたsource streamをnative ownerから外します。</summary>
+    bool FreeStream(int sourceHandle);
+
     /// <summary>Sets a source position using the supplied native position mode.</summary>
     bool SetPosition(int sourceHandle, long position, PositionFlags mode);
 
@@ -186,8 +192,30 @@ internal interface IBassMixerSourceNativeBoundary
     Errors GetError();
 }
 
+/// <summary>既存のsource境界へ絶対位置予約とmixer生成直列化を追加します。</summary>
+internal interface IBassScheduledMixerNativeBoundary : IBassMixerSourceNativeBoundary
+{
+    /// <summary>絶対mixer位置と有限出力長を指定してpaused sourceを予約します。</summary>
+    bool AddChannelAt(int mixerHandle, int sourceHandle, BassFlags flags, long startBytes, long lengthBytes);
+
+    /// <summary>他threadのmixer生成を同じthreadのcommit中だけ停止します。</summary>
+    bool LockChannel(int mixerHandle, bool locked);
+
+    /// <summary>mixerの実効出力byte位置を取得します。</summary>
+    long GetPosition(int mixerHandle, PositionFlags mode);
+
+    /// <summary>input mixerの指定byte位置でrender中に一度だけ呼ぶ同期を登録します。</summary>
+    int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure);
+
+    /// <summary>input mixerへ登録した同期を解除します。</summary>
+    bool RemoveSync(int mixerHandle, int syncHandle);
+
+    /// <summary>input mixer streamの終端flagを更新します。</summary>
+    BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask);
+}
+
 /// <summary>Calls ManagedBass mixer-source APIs without hiding their failure contracts.</summary>
-internal sealed class BassMixerSourceNativeBoundary : IBassMixerSourceNativeBoundary
+internal sealed class BassMixerSourceNativeBoundary : IBassScheduledMixerNativeBoundary
 {
     /// <inheritdoc />
     public int GetMixer(int sourceHandle) => BassMix.ChannelGetMixer(sourceHandle);
@@ -195,6 +223,32 @@ internal sealed class BassMixerSourceNativeBoundary : IBassMixerSourceNativeBoun
     /// <inheritdoc />
     public bool AddChannel(int mixerHandle, int sourceHandle, BassFlags flags)
         => BassMix.MixerAddChannel(mixerHandle, sourceHandle, flags);
+
+    /// <inheritdoc />
+    public bool AddChannelAt(int mixerHandle, int sourceHandle, BassFlags flags, long startBytes, long lengthBytes)
+        => BassMix.MixerAddChannel(mixerHandle, sourceHandle, flags, startBytes, lengthBytes);
+
+    /// <inheritdoc />
+    public bool LockChannel(int mixerHandle, bool locked) => Bass.ChannelLock(mixerHandle, locked);
+
+    /// <inheritdoc />
+    public long GetPosition(int mixerHandle, PositionFlags mode) => Bass.ChannelGetPosition(mixerHandle, mode);
+
+    /// <inheritdoc />
+    public int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure) =>
+        Bass.ChannelSetSync(
+            mixerHandle,
+            SyncFlags.Position | SyncFlags.Mixtime | SyncFlags.Onetime,
+            positionBytes,
+            procedure,
+            IntPtr.Zero);
+
+    /// <inheritdoc />
+    public bool RemoveSync(int mixerHandle, int syncHandle) => Bass.ChannelRemoveSync(mixerHandle, syncHandle);
+
+    /// <inheritdoc />
+    public BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask) =>
+        Bass.ChannelFlags(mixerHandle, flags, mask);
 
     /// <inheritdoc />
     public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
@@ -221,6 +275,9 @@ internal sealed class BassMixerSourceNativeBoundary : IBassMixerSourceNativeBoun
 
     /// <inheritdoc />
     public bool RemoveChannel(int sourceHandle) => BassMix.MixerRemoveChannel(sourceHandle);
+
+    /// <inheritdoc />
+    public bool FreeStream(int sourceHandle) => Bass.StreamFree(sourceHandle);
 
     /// <inheritdoc />
     public bool SetPosition(int sourceHandle, long position, PositionFlags mode)
@@ -299,6 +356,12 @@ internal sealed class BassMixerSourceController
         this.native = native ?? throw new ArgumentNullException(nameof(native));
         this.sessionProvider = sessionProvider;
     }
+
+    /// <summary>source境界を通じてnative streamの解放を試みます。</summary>
+    internal bool FreeStream(int sourceHandle) => native.FreeStream(sourceHandle);
+
+    /// <summary>直前のsource境界操作のnative errorを取得します。</summary>
+    internal Errors GetError() => native.GetError();
 
     /// <summary>
     /// Ensures a source is attached to the expected mixer in paused mode and verifies the
@@ -425,7 +488,8 @@ internal sealed class BassMixerSourceController
         int sourceHandle,
         AudioChannelLayout sourceLayout,
         string fileName,
-        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        float[,] preparedMatrix = null)
     {
         ArgumentNullException.ThrowIfNull(sourceLayout);
         AudioResamplingQuality.Validate(sampleRateConversionQuality, nameof(sampleRateConversionQuality));
@@ -485,24 +549,44 @@ internal sealed class BassMixerSourceController
 
         // pause中のmatrix設定はnative仕様上rampされず、開始時はNORAMPINで抑制します。
         float[,] matrix;
-        try
+        if (preparedMatrix != null)
         {
-            matrix = AudioChannelMatrix.Create(
-                sourceLayout,
-                AudioChannelLayout.CreateBassOutput(mixerInfo.Channels));
+            if (preparedMatrix.GetLength(0) != mixerInfo.Channels
+                || preparedMatrix.GetLength(1) != sourceLayout.ChannelCount)
+            {
+                throw Failure(
+                    BassAudioPlaybackStage.MixerMatrix,
+                    fileName,
+                    sourceHandle,
+                    expectedMixerHandle,
+                    expectedMixerHandle,
+                    "prepared matrix dimensions",
+                    null,
+                    "The prepared matrix does not match the source and mixer channel counts.");
+            }
+            matrix = preparedMatrix;
         }
-        catch (ArgumentException exception)
+        else
         {
-            throw Failure(
-                BassAudioPlaybackStage.MixerMatrix,
-                fileName,
-                sourceHandle,
-                expectedMixerHandle,
-                expectedMixerHandle,
-                "AudioChannelMatrix.Create",
-                null,
-                "The source or output speaker layout has no defined routing matrix.",
-                exception);
+            try
+            {
+                matrix = AudioChannelMatrix.Create(
+                    sourceLayout,
+                    AudioChannelLayout.CreateBassOutput(mixerInfo.Channels));
+            }
+            catch (ArgumentException exception)
+            {
+                throw Failure(
+                    BassAudioPlaybackStage.MixerMatrix,
+                    fileName,
+                    sourceHandle,
+                    expectedMixerHandle,
+                    expectedMixerHandle,
+                    "AudioChannelMatrix.Create",
+                    null,
+                    "The source or output speaker layout has no defined routing matrix.",
+                    exception);
+            }
         }
 
         bool succeeded;

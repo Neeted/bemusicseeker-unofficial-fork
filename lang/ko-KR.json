@@ -315,7 +315,7 @@
   "Warning_Lr2ResourcePathTooLong": "LR2의 경로 길이 제한을 초과할 수 있는 리소스 경로가 포함되어 있습니다. 리소스 이름 또는 폴더 경로를 줄이세요.",
   "Msg_conversion_stopped": "변환이 중단되었습니다",
   "Pending": "보류",
-  "Msg_failed_play": "BMS 플레이어를 실행하지 못했습니다.",
+  "Msg_failed_play": "재생하지 못했습니다.",
   "Mark_fixed": "수정 완료로 표시",
   "PlaylistProp_headeruri": "헤더 URI: ",
   "Details_show_diag_chartview": "채보 뷰어 등록 시 확인 메시지 표시",

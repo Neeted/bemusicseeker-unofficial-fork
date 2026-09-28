@@ -666,7 +666,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>保留</value>
   </data>
   <data name="Msg_failed_play" xml:space="preserve">
-    <value>プレイヤーの起動に失敗しました。</value>
+    <value>再生に失敗しました。</value>
   </data>
   <data name="Mark_fixed" xml:space="preserve">
     <value>修正済みとしてマーク</value>

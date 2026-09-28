@@ -1,11 +1,12 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BmsAudioFrameEvent = Ribbit.BMS.BmsAudioFrameEvent;
+using BmsScheduledAudioException = Ribbit.BMS.BmsScheduledAudioException;
 
 namespace BeMusicSeeker.Tests;
 
@@ -58,7 +59,18 @@ public sealed class PlaybackDialogServiceTests
     [TestMethod]
     public void NotifyPlaybackFailure_PreservesRequestAndResultContract()
     {
-        var playbackFailure = new IOException("bad chart");
+        var playbackFailure = new BmsScheduledAudioException(
+            "schedule",
+            new BmsAudioFrameEvent(3, TimeSpan.FromSeconds(1), 48000, null, 0),
+            segmentStartSongFrame: 0,
+            segmentStartMixerFrame: 128,
+            originMixerFrame: 128,
+            expectedMixerFrame: 48128,
+            currentMixerFrame: 48128,
+            sampleRate: 48000,
+            channelCount: 2,
+            generation: 1);
+        StringAssert.Contains(playbackFailure.Message, "stage=schedule");
         var dialogs = new FakeUiDialogService
         {
             MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
@@ -68,7 +80,9 @@ public sealed class PlaybackDialogServiceTests
         service.NotifyPlaybackFailure(playbackFailure);
 
         UiMessageRequest request = dialogs.MessageRequest ?? throw new AssertFailedException("Message request was not captured.");
-        Assert.AreEqual(Resources.Msg_failed_play + Environment.NewLine + playbackFailure.Message, request.MessageBoxText);
+        Assert.AreEqual(Resources.Msg_failed_play, request.MessageBoxText);
+        Assert.IsFalse(request.MessageBoxText.Contains("stage=schedule", StringComparison.Ordinal));
+        StringAssert.Contains(playbackFailure.Message, "stage=schedule");
         Assert.AreEqual(Resources.Error, request.Caption);
         Assert.AreEqual(MessageBoxButton.OK, request.Button);
         Assert.AreEqual(MessageBoxImage.Hand, request.Icon);
