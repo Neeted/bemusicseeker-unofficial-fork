@@ -37,6 +37,14 @@
 </FrameworkContentElement.Resources>
 <List>
 <ListItem>
+<Paragraph FontWeight="Bold">3.0.1.0:</Paragraph>
+<List MarkerStyle="Box">
+<ListItem>
+<Paragraph>LR2 で扱えない文字を含むフォルダーや .lr2folder があると、LR2 song.db 同期全体が失敗する問題を修正しました。生成できないフォルダー行をスキップし、譜面の登録と既存の LR2 互換性警告を維持します。</Paragraph>
+</ListItem>
+</List>
+</ListItem>
+<ListItem>
 <Paragraph FontWeight="Bold">3.0.0.0:</Paragraph>
 <List MarkerStyle="Box">
 <ListItem>
