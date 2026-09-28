@@ -6170,6 +6170,192 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void QueueLr2SongDbSync_CompletesWhenChartDirectoryPathIsUnsupported()
+    {
+        using var scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string normalDirectory = Path.Combine(rootDirectory, "Normal");
+            string unsupportedDirectory = Path.Combine(rootDirectory, "Unsupported_ê");
+            string normalChartPath = Path.Combine(normalDirectory, "normal.bms");
+            string unsupportedChartPath = Path.Combine(unsupportedDirectory, "unsupported.bms");
+            TestableBmsFile normalFile = CreateReadableSyncChart(normalChartPath, "normal sibling");
+            TestableBmsFile unsupportedFile = CreateReadableSyncChart(unsupportedChartPath, "unsupported path");
+            Assert.IsTrue(Lr2CompatibilityEvaluator.EvaluateChartPath(unsupportedChartPath).WarningFlags
+                .HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
+
+            TestBmsLibrary library = CreateFolderProjectionSyncLibrary(
+                scope,
+                rootDirectory,
+                [normalFile, unsupportedFile],
+                [],
+                [rootDirectory, normalDirectory, unsupportedDirectory]);
+            const int normalFolderAddDate = 654321;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = ToFolderPath(normalDirectory),
+                    type = 1,
+                    adddate = normalFolderAddDate
+                }, typeof(LR2SongDB.folder));
+            }
+
+            long parseFailureCountBefore;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                parseFailureCountBefore = setup.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;");
+            }
+
+            library.QueueLr2SongDbSync("unsupported_chart_directory");
+
+            using (var verify = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(
+                    Lr2SongDbSyncStatusService.DefaultStatusName);
+                Assert.IsNotNull(status);
+                Assert.AreEqual("Completed", status.status);
+
+                LR2SongDB.folder[] folders = [.. verify.Table<LR2SongDB.folder>()];
+                Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
+                Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(normalDirectory)));
+                Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(unsupportedDirectory)));
+                Assert.AreEqual(normalFolderAddDate, folders.Single(folder => folder.path == ToFolderPath(normalDirectory)).adddate);
+
+                LR2SongDB.song song = verify.Query<LR2SongDB.song>(
+                    "SELECT * FROM song WHERE path = ?;",
+                    unsupportedChartPath).Single();
+                Assert.AreEqual(unsupportedChartPath, song.path);
+                Assert.IsNull(song.folder);
+                Assert.IsNull(song.parent);
+                Assert.AreEqual(7, song.favorite);
+                Assert.AreEqual("keep-unsupported-tag", song.tag);
+                Assert.AreEqual(123456, song.adddate);
+                Assert.AreEqual(parseFailureCountBefore, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+            }
+
+            Assert.IsTrue(unsupportedFile.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+
+            library.QueueLr2SongDbSync("unsupported_chart_directory_force", force: true);
+
+            using var forcedVerify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_song_db_sync_status forcedStatus = forcedVerify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(
+                Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(forcedStatus);
+            Assert.AreEqual("Completed", forcedStatus.status);
+            LR2SongDB.song forcedSong = forcedVerify.Query<LR2SongDB.song>(
+                "SELECT * FROM song WHERE path = ?;",
+                unsupportedChartPath).Single();
+            Assert.AreEqual(7, forcedSong.favorite);
+            Assert.AreEqual("keep-unsupported-tag", forcedSong.tag);
+            Assert.AreEqual(123456, forcedSong.adddate);
+            Assert.IsNull(forcedSong.folder);
+            Assert.IsNull(forcedSong.parent);
+            Assert.AreEqual(normalFolderAddDate, forcedVerify.Table<LR2SongDB.folder>()
+                .Single(folder => folder.path == ToFolderPath(normalDirectory)).adddate);
+            Assert.AreEqual(parseFailureCountBefore, forcedVerify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2SongDbSync_SkipsUnsupportedLr2FolderFileNameAndContinues()
+    {
+        using var scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string normalDirectory = Path.Combine(rootDirectory, "Normal");
+            Directory.CreateDirectory(normalDirectory);
+            string normalFolderFilePath = Path.Combine(normalDirectory, "normal.lr2folder");
+            string unsupportedFolderFilePath = Path.Combine(normalDirectory, "custom_ê.lr2folder");
+            File.WriteAllText(normalFolderFilePath, "#TITLE Normal", Encoding.ASCII);
+            File.WriteAllText(unsupportedFolderFilePath, "#TITLE Unsupported filename", Encoding.ASCII);
+            Assert.IsTrue(Lr2CompatibilityEvaluator.EvaluateChartPath(unsupportedFolderFilePath).WarningFlags
+                .HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
+
+            TestBmsLibrary library = CreateFolderProjectionSyncLibrary(
+                scope,
+                rootDirectory,
+                [],
+                [normalFolderFilePath, unsupportedFolderFilePath],
+                [rootDirectory, normalDirectory]);
+
+            library.QueueLr2SongDbSync("unsupported_lr2folder_filename");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(
+                Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+            LR2SongDB.folder[] folders = [.. verify.Table<LR2SongDB.folder>()];
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(normalDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == normalFolderFilePath));
+            Assert.IsFalse(folders.Any(folder => folder.path == unsupportedFolderFilePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2SongDbSync_SkipsUnsupportedLr2FolderParentAndContinues()
+    {
+        using var scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string normalDirectory = Path.Combine(rootDirectory, "Normal");
+            string unsupportedDirectory = Path.Combine(rootDirectory, "Unsupported_ê");
+            Directory.CreateDirectory(normalDirectory);
+            Directory.CreateDirectory(unsupportedDirectory);
+            string normalFolderFilePath = Path.Combine(normalDirectory, "normal.lr2folder");
+            string unsupportedFolderFilePath = Path.Combine(unsupportedDirectory, "custom.lr2folder");
+            File.WriteAllText(normalFolderFilePath, "#TITLE Normal", Encoding.ASCII);
+            File.WriteAllText(unsupportedFolderFilePath, "#TITLE Unsupported parent", Encoding.ASCII);
+            Assert.IsTrue(Lr2CompatibilityEvaluator.EvaluateChartPath(unsupportedFolderFilePath).WarningFlags
+                .HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
+
+            TestBmsLibrary library = CreateFolderProjectionSyncLibrary(
+                scope,
+                rootDirectory,
+                [],
+                [normalFolderFilePath, unsupportedFolderFilePath],
+                [rootDirectory, normalDirectory, unsupportedDirectory]);
+
+            library.QueueLr2SongDbSync("unsupported_lr2folder_parent");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(
+                Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+            LR2SongDB.folder[] folders = [.. verify.Table<LR2SongDB.folder>()];
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(normalDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == normalFolderFilePath));
+            Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(unsupportedDirectory)));
+            Assert.IsFalse(folders.Any(folder => folder.path == unsupportedFolderFilePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2SongDbSync_SyncsCapturedLr2FolderWithoutCharts()
     {
         using var scope = TestDatabaseScope.Create();
@@ -7093,6 +7279,90 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         library.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
         library.QueueLr2SongDbSync("test_request_version", force: true);
         Assert.IsTrue(library.Lr2SongDbSyncRunning);
+    }
+
+    private static TestableBmsFile CreateReadableSyncChart(string chartPath, string title)
+    {
+        string chartDirectory = Path.GetDirectoryName(chartPath)
+            ?? throw new ArgumentException("譜面パスには親ディレクトリが必要です。", nameof(chartPath));
+        Directory.CreateDirectory(chartDirectory);
+        File.WriteAllText(
+            chartPath,
+            "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST tester\r\n#BPM 150\r\n#PLAYLEVEL 12\r\n#RANK 3\r\n#WAV01 kick.wav\r\n#00111:01\r\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
+        file.title = title;
+        file.folder = "stale-folder";
+        file.parent = "stale-parent";
+        file.favorite = 7;
+        file.tag = "keep-unsupported-tag";
+        file.adddate = 123456;
+        return file;
+    }
+
+    private static TestBmsLibrary CreateFolderProjectionSyncLibrary(
+        TestDatabaseScope scope,
+        string rootDirectory,
+        IReadOnlyList<TestableBmsFile> chartFiles,
+        IReadOnlyList<string> lr2FolderFilePaths,
+        IReadOnlyList<string> directoryPaths)
+    {
+        Directory.CreateDirectory(rootDirectory);
+        foreach (string directoryPath in directoryPaths)
+        {
+            Directory.CreateDirectory(directoryPath);
+        }
+
+        var library = new TestBmsLibrary(
+            scope.SongDbPath,
+            getLR2Config: null,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
+            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge)
+        {
+            SearchTargets = [rootDirectory],
+            BMSFiles = [.. chartFiles]
+        };
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(
+            scope.SongDbPath,
+            setup =>
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                foreach (TestableBmsFile chartFile in chartFiles)
+                {
+                    setup.InsertOrReplace(chartFile, typeof(LR2SongDB.song));
+                }
+            });
+
+        string[] capturedDirectories = [.. directoryPaths];
+        string[] capturedFolderFiles = [.. lr2FolderFilePaths];
+        InvokeCaptureLr2SongDbSyncScanSurface(
+            library,
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
+            [rootDirectory],
+            new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = capturedDirectories,
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(capturedDirectories),
+                Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(capturedDirectories),
+                Lr2ScanFolderInfoFilePaths = [],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = capturedFolderFiles,
+                Lr2ScanLr2FolderFileEntries = CreateFileEntryMap(capturedFolderFiles),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+        library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+        {
+            work().GetAwaiter().GetResult();
+            return true;
+        };
+        return library;
     }
 
     private static Lr2SongDbSyncInput InvokeCreateLr2SongDbSyncInput(BMSLibrary library)
