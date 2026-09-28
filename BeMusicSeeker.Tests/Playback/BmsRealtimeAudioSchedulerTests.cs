@@ -119,6 +119,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         var mixer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
         int totalFrames = writerWave.DataLength / (writerWave.Channels * sizeof(float));
         float[] realtimeSamples = new float[checked(totalFrames * writerWave.Channels)];
+        int channelCount = Bass.ChannelGetInfo(session.MixerHandle).Channels;
+        long mixerFrameAtStart = GetMixerFrame(session, channelCount);
 
         using (var scheduler = new BmsRealtimeAudioScheduler(
                    writer.AudioSchedule,
@@ -130,23 +132,11 @@ public sealed class BmsRealtimeAudioSchedulerTests
                    playbackRate: 1f,
                    generation: 7))
         {
-            int channelCount = Bass.ChannelGetInfo(session.MixerHandle).Channels;
-            long currentMixerFrame = GetMixerFrame(session, channelCount);
-            long prerollFrames = scheduler.OriginMixerFrame - currentMixerFrame;
-            Assert.IsTrue(prerollFrames > session.MaximumCallbackFrames);
+            Assert.AreEqual(mixerFrameAtStart, scheduler.OriginMixerFrame,
+                "開始時のsong frame 0は、停止中のinput mixer位置へ対応します。");
 
             int[] pullPattern = [127, 1009, 73, 2048, 399, 1531];
-            float[] discard = new float[checked(pullPattern.Max() * channelCount)];
             int patternIndex = 0;
-            long remainingPreroll = prerollFrames;
-            while (remainingPreroll > 0)
-            {
-                scheduler.TickWithoutNullOutputAdvance();
-                int frames = checked((int)Math.Min(pullPattern[patternIndex++ % pullPattern.Length], remainingPreroll));
-                _ = mixer.ReadFrames(discard.AsSpan(0, checked(frames * channelCount)), frames);
-                remainingPreroll -= frames;
-            }
-            Assert.AreEqual(scheduler.OriginMixerFrame, GetMixerFrame(session, channelCount));
 
             long renderedFrames = 0;
             while (renderedFrames < totalFrames)
@@ -195,14 +185,28 @@ public sealed class BmsRealtimeAudioSchedulerTests
     public void TempoOutputPullLookAhead_IsMeasuredAtSupportedRatesAndObservedBlockSizes()
     {
         const int callbackFrames = 4096;
+        const int sampleRate = 48000;
+        const int tempoBpm = 480;
+        const int eventSubdivisions = 32;
+        const int bytesPerFrame = 2 * sizeof(float);
+        long framesPerMeasure = sampleRate * 60L * 4 / tempoBpm;
+        long[] expectedEventSongFrames = Enumerable.Range(0, eventSubdivisions)
+            .Select(subdivision => framesPerMeasure * subdivision / eventSubdivisions)
+            .ToArray();
         using var directory = new TemporaryDirectory();
         using var source = AudioMixerSignalTests.TemporaryFloatWave.Create(
-            48000,
-            48000L * 12,
+            sampleRate,
+            sampleRate * 12L,
             _ => 0.125f);
         File.Copy(source.Path, directory.File("long.wav"));
         string chartPath = directory.File("tempo-lookahead.bms");
-        WriteChart(chartPath, "#WAV01 long.wav\n#00011:01\n");
+        File.WriteAllText(
+            chartPath,
+            "#PLAYER 1\n#TITLE tempo look-ahead\n#ARTIST test\n#BPM 480\n"
+                + "#WAV01 long.wav\n#00011:"
+                + string.Concat(Enumerable.Repeat("01", eventSubdivisions))
+                + "\n",
+            Encoding.ASCII);
 
         var player = new BMSAutoPlayer(new BMSFile(chartPath));
         player.LoadResources(asParallel: false);
@@ -222,22 +226,48 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 foreach (int[] pulls in pullScenarios)
                 {
                     BassAudioPlayer.SetBmsTempoChange(rate);
+                    long mixerFrameAtStart = GetMixerFrame(session, 2);
+                    var native = new RecordingScheduledNativeBoundary();
                     using (var scheduler = new BmsRealtimeAudioScheduler(
                                player.AudioSchedule,
                                player.AudioResourcesByIndex,
                                session,
-                               new BassMixerSourceNativeBoundary(),
+                               native,
                                player.Duration,
                                segmentStartSongFrame: 0,
                                playbackRate: rate,
                                generation: generation++))
                     {
-                        long mixerFrameBeforeReservation = GetMixerFrame(session, 2);
-                        long reservedLeadFrames = scheduler.OriginMixerFrame - mixerFrameBeforeReservation;
+                        Assert.AreEqual(mixerFrameAtStart, scheduler.OriginMixerFrame,
+                            "予約余裕をsong frame 0の原点へ加えません。");
+                        int preReservedVoiceCount = scheduler.ScheduledMixerDiagnostics.ReservedVoiceCount;
                         long maximumExtraInputFrames = 0;
                         long maximumInputFramesConsumed = 0;
                         var renderer = new AudioPcmRenderer(BassAudioPlayer.OutputMixerHandle, 48000, 2);
                         float[] pcm = new float[callbackFrames * 2];
+
+                        ScheduledVoiceReservation[] reservationsBeforeFirstPull = native.SnapshotReservations();
+                        long tempoInputReadAheadFrames = Math.Max(
+                            4096,
+                            checked((long)Math.Ceiling(33d * rate * sampleRate / 1000d)));
+                        long requiredReservationFrames = checked(
+                            (long)Math.Ceiling(callbackFrames * (double)rate) + tempoInputReadAheadFrames);
+                        long[] requiredEventSongFrames = expectedEventSongFrames
+                            .Where(eventFrame => eventFrame < requiredReservationFrames)
+                            .ToArray();
+                        Assert.IsTrue(requiredEventSongFrames.Length > 0);
+                        foreach (long songFrame in requiredEventSongFrames)
+                        {
+                            long expectedStartBytes = checked(
+                                (scheduler.OriginMixerFrame + songFrame) * bytesPerFrame);
+                            Assert.IsTrue(
+                                reservationsBeforeFirstPull.Any(reservation =>
+                                    reservation.StartBytes == expectedStartBytes && reservation.Resumed),
+                                $"Before the first pull, the event at absolute input byte {expectedStartBytes} "
+                                    + $"must be successfully reserved and resumed (rate={rate:G}); observed "
+                                    + string.Join(",", reservationsBeforeFirstPull.Select(reservation =>
+                                        $"{reservation.StartBytes}:{reservation.Resumed}")));
+                        }
 
                         for (int pullIndex = 0; pullIndex < pulls.Length; pullIndex++)
                         {
@@ -256,6 +286,23 @@ public sealed class BmsRealtimeAudioSchedulerTests
                             Assert.IsFalse(read.ReachedEnd);
 
                             long inputFramesConsumed = mixerFrameAfterPull - mixerFrameBeforePull;
+                            if (pullIndex == 0)
+                            {
+                                foreach (long songFrame in expectedEventSongFrames)
+                                {
+                                    long eventMixerFrame = checked(scheduler.OriginMixerFrame + songFrame);
+                                    if (eventMixerFrame >= mixerFrameBeforePull && eventMixerFrame < mixerFrameAfterPull)
+                                    {
+                                        long expectedStartBytes = checked(eventMixerFrame * bytesPerFrame);
+                                        Assert.IsTrue(
+                                            reservationsBeforeFirstPull.Any(reservation =>
+                                                reservation.StartBytes == expectedStartBytes && reservation.Resumed),
+                                            $"The event consumed by the first input pull at absolute byte "
+                                                + $"{expectedStartBytes} was not reserved and resumed before the pull "
+                                                + $"(rate={rate:G}, inputFrames={mixerFrameBeforePull}..{mixerFrameAfterPull}).");
+                                    }
+                                }
+                            }
                             long expectedRateScaledFrames = checked((long)Math.Ceiling(requestedFrames * (double)rate));
                             long extraInputFrames = Math.Max(0, inputFramesConsumed - expectedRateScaledFrames);
                             maximumInputFramesConsumed = Math.Max(maximumInputFramesConsumed, inputFramesConsumed);
@@ -266,17 +313,14 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
                         long configuredTempoLookAheadFrames = Math.Max(
                             4096,
-                            checked((long)Math.Ceiling(33d * rate * 48000d / 1000d)));
+                            checked((long)Math.Ceiling(33d * rate * sampleRate / 1000d)));
                         Assert.IsTrue(
                             maximumExtraInputFrames <= configuredTempoLookAheadFrames,
                             $"Measured tempo input look-ahead {maximumExtraInputFrames} frames exceeded the configured "
                             + $"allowance {configuredTempoLookAheadFrames} at rate {rate:G}.");
-                        Assert.IsTrue(
-                            reservedLeadFrames >= checked((long)Math.Ceiling(callbackFrames * (double)rate) + maximumExtraInputFrames),
-                            $"Reserved lead {reservedLeadFrames} frames did not cover a {callbackFrames}-frame tempo pull "
-                            + $"and measured extra input {maximumExtraInputFrames} at rate {rate:G}.");
                         TestContext.WriteLine(
-                            $"tempoRateSummary: rate={rate:G}, pullPattern={string.Join('+', pulls)}, reservedLeadFrames={reservedLeadFrames}, callbackFrames={callbackFrames}, "
+                            $"tempoRateSummary: rate={rate:G}, pullPattern={string.Join('+', pulls)}, preReservedVoiceCount={preReservedVoiceCount}, callbackFrames={callbackFrames}, "
+                            + $"requiredReservationFrames={requiredReservationFrames}, requiredEventCount={requiredEventSongFrames.Length}, "
                             + $"maximumInputFramesConsumed={maximumInputFramesConsumed}, maximumExtraInputFrames={maximumExtraInputFrames}, tempoInputReadAheadFrames={configuredTempoLookAheadFrames}");
                     }
                     BassAudioPlayer.ResetTempoChange();
@@ -452,6 +496,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         session.ObserveCallbackPullSize(2048);
         var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
         float[] realtimeSamples = new float[checked(totalFrames * 2)];
+        long mixerFrameAtStart = GetMixerFrame(session, channelCount: 2);
         using (var scheduler = new BmsRealtimeAudioScheduler(
                    writer.AudioSchedule,
                    writer.AudioResourcesByIndex,
@@ -462,21 +507,10 @@ public sealed class BmsRealtimeAudioSchedulerTests
                    playbackRate: 1f,
                    generation: 11))
         {
-            long currentMixerFrame = GetMixerFrame(session, channelCount: 2);
-            long prerollFrames = scheduler.OriginMixerFrame - currentMixerFrame;
-            Assert.IsTrue(prerollFrames > 0);
+            Assert.AreEqual(mixerFrameAtStart, scheduler.OriginMixerFrame,
+                "開始時のsong frame 0は、停止中のinput mixer位置へ対応します。");
             int[] pullPattern = [31, 509, 97, 1703, 251, 2048];
-            float[] discard = new float[2048 * 2];
             int patternIndex = 0;
-            while (prerollFrames > 0)
-            {
-                scheduler.TickWithoutNullOutputAdvance();
-                int frames = checked((int)Math.Min(
-                    pullPattern[patternIndex++ % pullPattern.Length],
-                    prerollFrames));
-                _ = renderer.ReadFrames(discard.AsSpan(0, frames * 2), frames);
-                prerollFrames -= frames;
-            }
 
             long renderedFrames = 0;
             while (renderedFrames < totalFrames)
@@ -1266,7 +1300,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             activeTickGate = player.BlockNextTickBeforeStateApplication();
             Task<PlaybackStateSnapshot> firstState = player.ArmNextStateApplication();
             playback = player.Start();
-            Assert.AreEqual(TimeSpan.Zero, await activeTickGate.Entered);
+            TimeSpan firstTickTime = await activeTickGate.Entered;
 
             callbackTask = Task.Run(() =>
                 BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
@@ -1293,7 +1327,9 @@ public sealed class BmsRealtimeAudioSchedulerTests
             long pauseSequence = await pauseObservation.Completed;
             await pause;
             Assert.IsTrue(initialState.Sequence < pauseSequence);
-            Assert.AreEqual(TimeSpan.Zero, initialState.CurrentTime);
+            Assert.AreEqual(firstTickTime, initialState.TickTime);
+            Assert.AreEqual(initialState.TickTime, initialState.CurrentTime,
+                "再生時刻の読み取りと譜面への反映は同じtick値を使います。");
             Assert.AreEqual(240d, initialState.CurrentBpm);
             Assert.AreEqual(1, initialState.Combo);
             Assert.IsTrue(initialState.NoteDensity > 0d);
@@ -1303,7 +1339,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             activeTickGate = player.BlockNextTickBeforeStateApplication();
             Task<PlaybackStateSnapshot> seekState = player.ArmNextStateApplication();
             player.Pause();
-            _ = await activeTickGate.Entered;
+            TimeSpan seekTickTime = await activeTickGate.Entered;
             ControlOperationObservation seekObservation = player.ArmSeekOperation();
             var seekTime = TimeSpan.FromMilliseconds(1500);
             Task seek = Task.Run(() => player.CurrentTime = seekTime);
@@ -1316,8 +1352,12 @@ public sealed class BmsRealtimeAudioSchedulerTests
             long seekSequence = await seekObservation.Completed;
             await seek;
             Assert.IsTrue(seekTick.Sequence < seekSequence);
+            Assert.AreEqual(seekTickTime, seekTick.TickTime);
+            Assert.AreEqual(seekTick.TickTime, seekTick.CurrentTime,
+                "seek操作との競合中も譜面状態反映は観測済みのtick時刻を使います。");
             Assert.AreEqual(PlayState.Playing, player.PlayState);
-            Assert.AreEqual(seekTime, player.CurrentTime);
+            Assert.IsTrue(player.CurrentTime >= seekTime,
+                "再開済みoutput pullが進めたinput mixer位置は、seek先より先へ進み得ます。");
             Assert.AreEqual(240d, player.CurrentBpm);
             Assert.IsTrue(seekTick.Combo < player.Combo);
             Assert.IsTrue(seekTick.NoteDensity < player.NoteDensity);
@@ -1327,7 +1367,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             activeTickGate = player.BlockNextTickBeforeStateApplication();
             Task<PlaybackStateSnapshot> rateState = player.ArmNextStateApplication();
             player.Pause();
-            _ = await activeTickGate.Entered;
+            TimeSpan rateTickTime = await activeTickGate.Entered;
             ControlOperationObservation rateObservation = player.ArmPlaybackRateOperation();
             Task rate = Task.Run(() => player.PlaybackRate = 2f);
             operationTasks.Add(rate);
@@ -1339,11 +1379,14 @@ public sealed class BmsRealtimeAudioSchedulerTests
             long rateSequence = await rateObservation.Completed;
             await rate;
             Assert.IsTrue(rateTick.Sequence < rateSequence);
+            Assert.AreEqual(rateTickTime, rateTick.TickTime);
+            Assert.AreEqual(rateTick.TickTime, rateTick.CurrentTime,
+                "速度変更との競合中も譜面状態反映は観測済みのtick時刻を使います。");
             Assert.AreEqual(2f, player.PlaybackRate);
-            Assert.AreEqual(seekTime, player.CurrentTime);
+            Assert.IsTrue(player.CurrentTime >= seekTime,
+                "速度変更後もinput mixer時計はseek先以降へ進みます。");
             Assert.AreEqual(240d, player.CurrentBpm);
             Assert.AreEqual(3, player.Combo);
-            Assert.IsTrue(rateTick.NoteDensity > seekTick.NoteDensity);
 
             Assert.IsTrue(callbackEnteredNativePull);
             Assert.IsTrue(callbackCompletedWhileTickHeld);
@@ -1547,6 +1590,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(seekSongFrame, startsAtSeek.StartFrame);
         const long expectedSourceFrame = 8820;
         Assert.AreEqual(expectedSourceFrame, AudioFrameMath.SourceFrameFromMixerFrames(seekSongFrame, 44100, 48000));
+        long mixerFrameAtSeek = GetMixerFrame(session, channelCount: 2);
 
         using (var scheduler = new BmsRealtimeAudioScheduler(
                    schedule,
@@ -1559,21 +1603,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
                    generation: 3))
         {
             var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
-            float[] discard = new float[2048 * 2];
-            long currentMixerFrame = GetMixerFrame(session, channelCount: 2);
-            long prerollFrames = scheduler.OriginMixerFrame + seekSongFrame - currentMixerFrame;
-            int[] pullPattern = [127, 733, 241, 991];
-            int patternIndex = 0;
-            while (prerollFrames > 0)
-            {
-                scheduler.TickWithoutNullOutputAdvance();
-                int frames = checked((int)Math.Min(pullPattern[patternIndex++ % pullPattern.Length], prerollFrames));
-                _ = renderer.ReadFrames(discard.AsSpan(0, frames * 2), frames);
-                prerollFrames -= frames;
-            }
-
-            Assert.AreEqual(scheduler.OriginMixerFrame + seekSongFrame, GetMixerFrame(session, channelCount: 2));
-            scheduler.TickWithoutNullOutputAdvance();
+            Assert.AreEqual(mixerFrameAtSeek, scheduler.OriginMixerFrame + seekSongFrame,
+                "seek先のsong frameは、停止中の現在input mixer位置へ対応します。");
             float[] atSeek = new float[200 * 2];
             AudioPcmReadResult firstPull = renderer.ReadFrames(atSeek.AsSpan(0, 100 * 2), 100);
             Assert.AreEqual(100, firstPull.FramesRead);
@@ -1595,6 +1626,77 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
 
         player.DisposeAudioSourcesAfterUse();
+    }
+
+    [TestMethod]
+    public async Task InternalPlayerRestart_RebasesAtCurrentMixerFrameWithoutArtificialSilence()
+    {
+        using var directory = new TemporaryDirectory();
+        float[] sourceSamples = BuildTimingPatternSamples(48000 * 2);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, sourceSamples));
+        string chartPath = directory.File("restart-chart.bms");
+        WriteChart(chartPath, "#WAV01 audio.wav\n#00011:01\n");
+
+        TickObservedBmsAutoPlayer? activePlayer = null;
+        var wrapper = new InternalBMSAutoPlayerSoundOnly(
+            new RealtimeTestPlayerSettingsGateway(),
+            new RealtimeTestPlaybackRuntime(),
+            autoPlayerFactory: path => activePlayer = new TickObservedBmsAutoPlayer(new BMSFile(path)));
+        Task? start = null;
+
+        try
+        {
+            start = wrapper.PlayStart(chartPath);
+            TickObservedBmsAutoPlayer player = activePlayer
+                ?? throw new AssertFailedException("UI playback did not create its BMS player.");
+            Task<PlaybackStateSnapshot> firstState = player.ArmNextStateApplication();
+            _ = await AwaitTickOrPlaybackCompletion(firstState, start);
+            wrapper.PausePlayingBMSfileToggle();
+
+            BassAudioSession session = player.ResourceSession;
+            Assert.AreEqual(PlayState.Paused, player.PlayState);
+            Assert.IsTrue(session.IsCallbackOutputPaused);
+            wrapper.CurrentTime = TimeSpan.FromMilliseconds(250);
+            Assert.AreEqual(
+                AudioFrameMath.FrameToTime(12000, 48000),
+                player.RealtimeScheduler!.CurrentTime);
+
+            wrapper.RestartPlayingBMSfile();
+
+            Assert.AreEqual(PlayState.Paused, player.PlayState);
+            Assert.IsTrue(session.IsCallbackOutputPaused);
+            Assert.AreEqual(TimeSpan.Zero, player.RealtimeScheduler!.CurrentTime);
+            long currentMixerFrame = GetMixerFrame(session, channelCount: 2);
+            Assert.AreEqual(currentMixerFrame, player.RealtimeScheduler.OriginMixerFrame,
+                "Restart入口は停止中のinput mixer位置をsong frame 0へ対応させます。");
+
+            var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
+            float[] firstFrames = new float[64 * 2];
+            AudioPcmReadResult result = renderer.ReadFrames(firstFrames, 64);
+            Assert.AreEqual(64, result.FramesRead);
+            Assert.IsFalse(result.ReachedEnd);
+            for (int frame = 0; frame < result.FramesRead; frame++)
+            {
+                Assert.AreEqual(sourceSamples[frame * 2], firstFrames[frame * 2], 1e-7f,
+                    $"Restart input PCM has artificial silence at frame {frame}, left channel.");
+                Assert.AreEqual(sourceSamples[frame * 2 + 1], firstFrames[frame * 2 + 1], 1e-7f,
+                    $"Restart input PCM has artificial silence at frame {frame}, right channel.");
+            }
+        }
+        finally
+        {
+            wrapper.CloseProcess();
+            if (start != null)
+            {
+                try
+                {
+                    await start;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+        }
     }
 
     [TestMethod]
@@ -2623,6 +2725,92 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         public Errors LastError => inner.LastError;
     }
+
+    private sealed class RecordingScheduledNativeBoundary : IBassScheduledMixerNativeBoundary
+    {
+        private readonly object sync = new();
+        private readonly BassMixerSourceNativeBoundary inner = new();
+        private readonly Dictionary<int, (long StartBytes, bool Resumed)> reservations = new();
+
+        internal ScheduledVoiceReservation[] SnapshotReservations()
+        {
+            lock (sync)
+            {
+                return reservations.Values
+                    .Select(reservation => new ScheduledVoiceReservation(reservation.StartBytes, reservation.Resumed))
+                    .ToArray();
+            }
+        }
+
+        public int GetMixer(int sourceHandle) => inner.GetMixer(sourceHandle);
+
+        public bool AddChannel(int mixerHandle, int sourceHandle, BassFlags flags) =>
+            inner.AddChannel(mixerHandle, sourceHandle, flags);
+
+        public bool AddChannelAt(int mixerHandle, int sourceHandle, BassFlags flags, long startBytes, long lengthBytes)
+        {
+            bool added = inner.AddChannelAt(mixerHandle, sourceHandle, flags, startBytes, lengthBytes);
+            if (added)
+            {
+                lock (sync)
+                {
+                    reservations[sourceHandle] = (startBytes, false);
+                }
+            }
+            return added;
+        }
+
+        public bool LockChannel(int mixerHandle, bool locked) => inner.LockChannel(mixerHandle, locked);
+
+        public long GetPosition(int mixerHandle, PositionFlags mode) => inner.GetPosition(mixerHandle, mode);
+
+        public int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure) =>
+            inner.SetPositionSync(mixerHandle, positionBytes, procedure);
+
+        public bool RemoveSync(int mixerHandle, int syncHandle) => inner.RemoveSync(mixerHandle, syncHandle);
+
+        public BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask) =>
+            inner.SetMixerStreamFlags(mixerHandle, flags, mask);
+
+        public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
+        {
+            BassFlags result = inner.SetMixerChannelFlags(sourceHandle, flags, mask);
+            if (result != unchecked((BassFlags)(-1))
+                && flags == BassFlags.Default
+                && mask == BassFlags.MixerChanPause)
+            {
+                lock (sync)
+                {
+                    if (reservations.TryGetValue(sourceHandle, out (long StartBytes, bool Resumed) reservation))
+                    {
+                        reservations[sourceHandle] = (reservation.StartBytes, true);
+                    }
+                }
+            }
+            return result;
+        }
+
+        public BassMixerChannelInfo GetChannelInfo(int channelHandle) => inner.GetChannelInfo(channelHandle);
+
+        public bool SetSampleRateConversion(int sourceHandle, float quality) =>
+            inner.SetSampleRateConversion(sourceHandle, quality);
+
+        public bool GetSampleRateConversion(int sourceHandle, out float quality) =>
+            inner.GetSampleRateConversion(sourceHandle, out quality);
+
+        public bool SetMatrix(int sourceHandle, float[,] matrix) => inner.SetMatrix(sourceHandle, matrix);
+
+        public bool RemoveChannel(int sourceHandle) => inner.RemoveChannel(sourceHandle);
+
+        public bool FreeStream(int sourceHandle) => inner.FreeStream(sourceHandle);
+
+        public bool SetPosition(int sourceHandle, long position, PositionFlags mode) =>
+            inner.SetPosition(sourceHandle, position, mode);
+
+        public Errors GetError() => inner.GetError();
+    }
+
+    private readonly record struct ScheduledVoiceReservation(long StartBytes, bool Resumed);
 
     private sealed class GatedStoppingBmsAutoPlayer(
         Ribbit.BMS.BMSFile bms,

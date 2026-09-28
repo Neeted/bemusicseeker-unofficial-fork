@@ -147,7 +147,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         }
     }
 
-    /// <summary>予約原点のinput mixer frameを取得します。</summary>
+    /// <summary>song frame 0に対応するinput mixer frameを取得します。</summary>
     internal long OriginMixerFrame
     {
         get
@@ -379,8 +379,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         long currentMixerFrame = GetCurrentMixerFrame(session, schedule.SampleRate, native);
         int reservedCallbackFrames = session.MaximumCallbackFrames;
         long leadFrames = GetLeadFrames(playbackRate, reservedCallbackFrames);
-        long startMixerFrame = checked(currentMixerFrame + leadFrames);
-        originMixerFrame = checked(startMixerFrame - songStartFrame);
+        originMixerFrame = checked(currentMixerFrame - songStartFrame);
         scheduledMixer = new BmsScheduledAudioMixer(
             schedule,
             resourcesByIndex,
