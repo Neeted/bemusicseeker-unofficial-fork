@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "version": "3.0.0.0",
-  "releaseTag": "v3.0.0.0",
-  "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.0.0.0",
+  "version": "3.0.1.0",
+  "releaseTag": "v3.0.1.0",
+  "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.0.1.0",
   "packageFormatVersion": 1,
-  "publishedAt": "2026-09-23T10:40:07Z",
+  "publishedAt": "2026-09-28T15:03:01Z",
   "minimumUpdaterVersion": "1",
   "assets": [
     {
       "kind": "app",
       "label": "App only",
-      "fileName": "bemusicseeker-unofficial-fork-v3.0.0.0.zip",
-      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.0.0.0/bemusicseeker-unofficial-fork-v3.0.0.0.zip",
-      "sha256": "59474415629e3bf1466845f54cae104d3b061437c99a963fe9f0f089b6df7db2",
-      "sizeBytes": 91522628,
+      "fileName": "bemusicseeker-unofficial-fork-v3.0.1.0.zip",
+      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.0.1.0/bemusicseeker-unofficial-fork-v3.0.1.0.zip",
+      "sha256": "761c2866aff30298611e7ea8abb9aad66b0d12204b6760cd0fa4ff61ca2dcbe8",
+      "sizeBytes": 91522558,
       "includesChartInfoMetadata": false
     },
     {
       "kind": "app-with-metadata",
       "label": "App with metadata bundle",
-      "fileName": "bemusicseeker-unofficial-fork-v3.0.0.0-with-metadata.zip",
-      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.0.0.0/bemusicseeker-unofficial-fork-v3.0.0.0-with-metadata.zip",
-      "sha256": "5f835d4067662e53b8374fd8bcee6b1de0de2d3392fbe2db5b0b07415191a98e",
-      "sizeBytes": 168466064,
+      "fileName": "bemusicseeker-unofficial-fork-v3.0.1.0-with-metadata.zip",
+      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.0.1.0/bemusicseeker-unofficial-fork-v3.0.1.0-with-metadata.zip",
+      "sha256": "8a9fa22416972ca7d04b8e3642bc1b0c456dd4199c4360ad13f74d7cf3d44146",
+      "sizeBytes": 168465994,
       "includesChartInfoMetadata": true
     }
   ]
