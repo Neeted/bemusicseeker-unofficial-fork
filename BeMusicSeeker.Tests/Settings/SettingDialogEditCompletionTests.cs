@@ -945,13 +945,14 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
-    public async Task ApplySettingsAsync_InternalPlayerResamplingChangeReplacesPlaybackRuntime()
+    public async Task ApplySettingsAsync_AudioProcessingChangesDoNotReplaceCurrentPlaybackRuntime()
     {
         string root = CreateTemporaryRoot();
         try
         {
             Settings values = CreateValidStandaloneSettings(root);
             values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 1;
             var settingsSession = new CountingSettingsEditSession(values);
             var sequence = new List<string>();
             settingsSession.SaveObserved = () => sequence.Add("save");
@@ -967,15 +968,53 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.PlayerResamplingQuality = 2;
+            dialog.PlayerMixerThreadCount = 4;
 
             await dialog.ApplySettingsAsync();
 
             CollectionAssert.AreEqual(
-                new[] { "save", "factory-configured", "apply", "notify", "close" },
+                new[] { "save", "close" },
                 sequence);
             Assert.AreEqual(2, values.PlayerResamplingQuality);
+            Assert.AreEqual(4, values.PlayerMixerThreadCount);
             Assert.AreEqual(1, settingsSession.SaveCount);
-            Assert.IsNotNull(runtime.LastReplacementPlayer);
+            Assert.IsNull(runtime.LastReplacementPlayer);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_PlayerMixerThreadOnlyChangeIsSaved()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerMixerThreadCount = 1;
+            var settingsSession = new CountingSettingsEditSession(values);
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.PlayerMixerThreadCount = 3;
+
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(new[] { "save", "close" }, sequence);
+            Assert.AreEqual(3, values.PlayerMixerThreadCount);
+            Assert.AreEqual(2, values.PlayerResamplingQuality);
+            Assert.IsNull(runtime.LastReplacementPlayer);
         }
         finally
         {
@@ -1306,6 +1345,8 @@ public sealed class SettingDialogEditCompletionTests
         {
             Settings settings = CreateValidStandaloneSettings(root);
             ConfigureExplicitAudioSettings(settings);
+            int originalResamplingQuality = settings.PlayerResamplingQuality;
+            int originalMixerThreadCount = settings.PlayerMixerThreadCount;
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             var audioGateway = new TestAudioSettingsGateway
@@ -1315,25 +1356,37 @@ public sealed class SettingDialogEditCompletionTests
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
+            AudioDeviceTestRequest? capturedRequest = null;
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(request =>
-                    AudioDeviceTestResultFactory.CreateSuccessful(
-                        request,
-                        actualRate: SampleRate.SAMPLE_RATE_48000Hz,
-                        engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
-                        endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
-                        actualDeviceName: "Changed name",
-                        latency: 21,
-                        streamProgressSucceeded: false)));
+                {
+                    capturedRequest = request;
+                    return AudioDeviceTestResultFactory.CreateSuccessful(
+                            request,
+                            actualRate: SampleRate.SAMPLE_RATE_48000Hz,
+                            engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                            endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                            actualDeviceName: "Changed name",
+                            latency: 21,
+                            streamProgressSucceeded: false);
+                }));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
                 audioGateway);
+            dialog.PlayerResamplingQuality = 3;
+            dialog.PlayerMixerThreadCount = 4;
 
             await dialog.RunAudioDeviceTestAsync();
 
+            Assert.AreEqual(3, capturedRequest?.SampleRateConversionQuality);
+            Assert.AreEqual(4, capturedRequest?.PlayerMixerThreadCount);
+            Assert.AreEqual(3, capturedRequest?.AudioOutputRequest.SampleRateConversionQuality);
+            Assert.AreEqual(4, capturedRequest?.AudioOutputRequest.PlayerMixerThreadCount);
+            Assert.AreEqual(originalResamplingQuality, settings.PlayerResamplingQuality);
+            Assert.AreEqual(originalMixerThreadCount, settings.PlayerMixerThreadCount);
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
             string status = dialog.AudioDeviceTestStatusMessage;
             StringAssert.Contains(status, Resources.AudioDeviceTestStreamProgressFailureReason);
@@ -3579,7 +3632,10 @@ public sealed class SettingDialogEditCompletionTests
         string root = CreateTemporaryRoot();
         try
         {
-            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root))
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 2;
+            var settingsSession = new CountingSettingsEditSession(values)
             {
                 BlockSave = true
             };
@@ -3854,7 +3910,10 @@ public sealed class SettingDialogEditCompletionTests
         try
         {
             var failure = new IOException("settings save failure");
-            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root))
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 2;
+            var settingsSession = new CountingSettingsEditSession(values)
             {
                 SaveFailure = failure
             };
@@ -3876,7 +3935,8 @@ public sealed class SettingDialogEditCompletionTests
             dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             bool editedValue = dialog.ShowRecommUpdatedMsg;
-            dialog.PlayerResamplingQuality = 2;
+            dialog.PlayerResamplingQuality = 3;
+            dialog.PlayerMixerThreadCount = 4;
 
             await dialog.ApplySettingsAsync();
 
@@ -3886,7 +3946,10 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(0, initializeCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(editedValue, dialog.ShowRecommUpdatedMsg);
-            Assert.AreEqual(2, dialog.PlayerResamplingQuality);
+            Assert.AreEqual(3, dialog.PlayerResamplingQuality);
+            Assert.AreEqual(4, dialog.PlayerMixerThreadCount);
+            Assert.AreEqual(4, values.PlayerResamplingQuality);
+            Assert.AreEqual(2, values.PlayerMixerThreadCount);
             Assert.IsTrue(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.IsEditCancellationEnabled);
         }
@@ -3897,7 +3960,7 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
-    public void CancelSettings_RestoresResamplingQualityWithoutSaving()
+    public void CancelSettings_RestoresResamplingQualityAndMixerThreadDraftsWithoutSaving()
     {
         string root = CreateTemporaryRoot();
         SettingsDialogViewModel? dialog = null;
@@ -3905,16 +3968,20 @@ public sealed class SettingDialogEditCompletionTests
         {
             Settings values = CreateValidStandaloneSettings(root);
             values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 3;
             var settingsSession = new CountingSettingsEditSession(values);
             dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
 
             dialog.PlayerResamplingQuality = 2;
+            dialog.PlayerMixerThreadCount = 4;
             Assert.IsTrue(dialog.HasPendingSettingChanges());
 
             dialog.CancelCommand.Execute();
 
             Assert.AreEqual(4, dialog.PlayerResamplingQuality);
             Assert.AreEqual(4, values.PlayerResamplingQuality);
+            Assert.AreEqual(3, dialog.PlayerMixerThreadCount);
+            Assert.AreEqual(3, values.PlayerMixerThreadCount);
             Assert.AreEqual(0, settingsSession.SaveCount);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
         }
@@ -3941,6 +4008,31 @@ public sealed class SettingDialogEditCompletionTests
 
             Assert.IsFalse(dialog.CheckValidation(out string error));
             StringAssert.Contains(error, Resources.Error_InvalidAudioResamplingQuality);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(5)]
+    public void CheckValidation_RejectsUnsupportedPlayerMixerThreadCount(int threadCount)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerMixerThreadCount = threadCount;
+            var settingsSession = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
+
+            Assert.IsFalse(dialog.CheckValidation(out string error));
+            StringAssert.Contains(error, Resources.Error_InvalidAudioMixerThreadCount);
             Assert.AreEqual(0, settingsSession.SaveCount);
         }
         finally

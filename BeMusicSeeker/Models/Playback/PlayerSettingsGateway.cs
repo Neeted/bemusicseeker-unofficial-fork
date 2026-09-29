@@ -19,7 +19,8 @@ internal enum AudioOutputPurpose
 /// <summary>一回の音声出力開始に使う、変更不能な出力条件です。</summary>
 internal sealed class AudioOutputRequest : IEquatable<AudioOutputRequest>
 {
-    /// <summary>方式が適用する出力条件だけを捕捉します。共有のmix条件とASIOのnative形式は保存値から制約しません。</summary>
+    /// <summary>開始時の出力方式・SRC品質・再生ミキサー並列度を捕捉します。方式固有の非適用値は要求へ含めません。</summary>
+    /// <param name="playerMixerThreadCount">再生要求で使う1～4のnativeミキサーthread数です。</param>
     internal AudioOutputRequest(
         AudioDriver backend,
         string deviceIdentity,
@@ -29,7 +30,8 @@ internal sealed class AudioOutputRequest : IEquatable<AudioOutputRequest>
         float bufferSize,
         bool eventMode,
         int sampleRateConversionQuality,
-        AudioOutputPurpose purpose)
+        AudioOutputPurpose purpose,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount)
     {
         AudioOutputSelection selection = AudioDriverPolicy.NormalizePersistedSelection(
             new AudioOutputSelection(backend, deviceIdentity, deviceName));
@@ -41,6 +43,7 @@ internal sealed class AudioOutputRequest : IEquatable<AudioOutputRequest>
         BufferSize = Backend == AudioDriver.WasapiShared ? 0 : bufferSize;
         EventMode = Backend is AudioDriver.WasapiShared or AudioDriver.WasapiExclusive && eventMode;
         SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        PlayerMixerThreadCount = BassMixerThreadConfigurator.ValidateRealtimeThreadCount(playerMixerThreadCount);
         Purpose = purpose;
     }
 
@@ -68,6 +71,9 @@ internal sealed class AudioOutputRequest : IEquatable<AudioOutputRequest>
     /// <summary>この出力sessionで使う標本化周波数変換品質を取得します。</summary>
     internal int SampleRateConversionQuality { get; }
 
+    /// <summary>この再生要求で使うnativeミキサーthread数を取得します。</summary>
+    internal int PlayerMixerThreadCount { get; }
+
     /// <summary>この要求を処理する用途を取得します。</summary>
     internal AudioOutputPurpose Purpose { get; }
 
@@ -82,6 +88,7 @@ internal sealed class AudioOutputRequest : IEquatable<AudioOutputRequest>
         && BufferSize.Equals(other.BufferSize)
         && EventMode == other.EventMode
         && SampleRateConversionQuality == other.SampleRateConversionQuality
+        && PlayerMixerThreadCount == other.PlayerMixerThreadCount
         && Purpose == other.Purpose;
 
     /// <inheritdoc />
@@ -96,7 +103,7 @@ internal sealed class AudioOutputRequest : IEquatable<AudioOutputRequest>
         Format,
         BufferSize,
         EventMode,
-        HashCode.Combine(SampleRateConversionQuality, Purpose));
+        HashCode.Combine(SampleRateConversionQuality, PlayerMixerThreadCount, Purpose));
 }
 
 public readonly struct PlayerResolution(double width, double height) : IEquatable<PlayerResolution>
@@ -144,11 +151,12 @@ internal static class PlayerResolutionSettingsAdapter
     }
 }
 
-/// <summary>
-/// Immutable player configuration captured for one playback operation.
-/// </summary>
+/// <summary>一回の再生開始で使う利用者設定と変更不能な音声出力要求です。</summary>
 internal sealed class PlayerSettingsSnapshot
 {
+    /// <summary>通常再生開始時の設定を捕捉し、変更不能な出力要求を作成します。</summary>
+    /// <param name="sampleRateConversionQuality">捕捉するSRC品質です。</param>
+    /// <param name="playerMixerThreadCount">捕捉する1～4のnativeミキサーthread数です。</param>
     internal PlayerSettingsSnapshot(
         AudioDriver playerDriver,
         string playerDevice,
@@ -161,7 +169,8 @@ internal sealed class PlayerSettingsSnapshot
         PlayerResolution lr2bodyResolution,
         bool isSaveLr2bodyWindowPosition,
         WindowPlacement lr2bodyWindowPlacement,
-        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount)
     {
         AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
             new AudioOutputSelection(playerDriver, playerDevice, playerDeviceName));
@@ -174,6 +183,7 @@ internal sealed class PlayerSettingsSnapshot
         PlayerWASAPIParam = playerWasapiParam;
         PlayerVolume = playerVolume;
         SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        PlayerMixerThreadCount = BassMixerThreadConfigurator.ValidateRealtimeThreadCount(playerMixerThreadCount);
         AudioOutputRequest = new AudioOutputRequest(
             PlayerDriver,
             PlayerDevice,
@@ -183,7 +193,8 @@ internal sealed class PlayerSettingsSnapshot
             PlayerBufferSize,
             PlayerWASAPIParam,
             SampleRateConversionQuality,
-            AudioOutputPurpose.Playback);
+            AudioOutputPurpose.Playback,
+            PlayerMixerThreadCount);
         LR2bodyResolution = lr2bodyResolution;
         IsSaveLR2bodyWindowPosition = isSaveLr2bodyWindowPosition;
         LR2bodyWindowPlacement = lr2bodyWindowPlacement;
@@ -207,6 +218,9 @@ internal sealed class PlayerSettingsSnapshot
 
     /// <summary>再生session用に捕捉したサンプルレート変換品質を取得します。</summary>
     internal int SampleRateConversionQuality { get; }
+
+    /// <summary>通常再生開始時に捕捉したnativeミキサーthread数を取得します。</summary>
+    internal int PlayerMixerThreadCount { get; }
 
     /// <summary>通常再生へ渡す一回分の音声出力条件を取得します。</summary>
     internal AudioOutputRequest AudioOutputRequest { get; }
@@ -263,7 +277,8 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
             PlayerResolutionSettingsAdapter.FromSettings(values),
             values.IsSaveLR2bodyWindowPosition,
             Win32WindowPlacementAdapter.FromNative(values.LR2bodyWindowPlacement),
-            values.PlayerResamplingQuality);
+            values.PlayerResamplingQuality,
+            values.PlayerMixerThreadCount);
     }
 
     /// <summary>Updates runtime placement without requesting persistence during player cleanup.</summary>

@@ -6,12 +6,11 @@ using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 
-/// <summary>
-/// Describes the caller's requested values for one backend negotiation attempt.
-/// </summary>
+/// <summary>一回の音声backend交渉へ渡す変更不能な要求です。</summary>
 internal sealed class BassAudioNegotiationRequest
 {
-    /// <summary>Creates an immutable backend negotiation request.</summary>
+    /// <summary>backend交渉へ渡す出力条件、SRC品質、再生ミキサーthread数を捕捉します。</summary>
+    /// <param name="playerMixerThreadCount">通常再生またはデバイステストで使う1～4のnativeミキサーthread数です。</param>
     internal BassAudioNegotiationRequest(
         BassAudioPlayer.DeviceDriver backend,
         BassAudioPlayer.DeviceDescriptor device,
@@ -20,7 +19,8 @@ internal sealed class BassAudioNegotiationRequest
         float latencyMilliseconds,
         bool eventModeRequested = false,
         int sampleRateConversionQuality = AudioResamplingQuality.Default,
-        AudioOutputPurpose purpose = AudioOutputPurpose.Playback)
+        AudioOutputPurpose purpose = AudioOutputPurpose.Playback,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount)
     {
         Backend = backend;
         Device = device;
@@ -29,6 +29,7 @@ internal sealed class BassAudioNegotiationRequest
         LatencyMilliseconds = latencyMilliseconds;
         EventModeRequested = eventModeRequested;
         SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        PlayerMixerThreadCount = BassMixerThreadConfigurator.ValidateRealtimeThreadCount(playerMixerThreadCount);
         Purpose = purpose;
     }
 
@@ -52,6 +53,9 @@ internal sealed class BassAudioNegotiationRequest
 
     /// <summary>開始時に捕捉した標本化周波数変換品質を取得します。</summary>
     internal int SampleRateConversionQuality { get; }
+
+    /// <summary>通常再生または設定テストで指定されたnativeミキサーthread数を取得します。</summary>
+    internal int PlayerMixerThreadCount { get; }
 
     /// <summary>通常再生または選択条件テストの用途を取得します。</summary>
     internal AudioOutputPurpose Purpose { get; }

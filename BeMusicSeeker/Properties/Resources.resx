@@ -690,10 +690,19 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>サンプルレート変換品質:</value>
   </data>
   <data name="Device_setting_resampling_quality_desc" xml:space="preserve">
-    <value>音声のサンプリングレートを変換するときの品質です。高いほど変換誤差を抑えられますが、CPU負荷が増えます。音が途切れる場合は、低い設定を試してください。内蔵プレイヤーと音声ファイルへの変換に適用されます。既定値は4です。</value>
+    <value>音声のサンプリングレートを変換するときの品質です。高いほど変換誤差を抑えられますが、CPU負荷が増えます。内蔵プレイヤーでは次回再生、音声ファイルへの変換では次回の変換開始から適用されます。既定値は2です。</value>
+  </data>
+  <data name="Device_setting_resampling_parallelism" xml:space="preserve">
+    <value>再生時SRC並列度:</value>
+  </data>
+  <data name="Device_setting_resampling_parallelism_desc" xml:space="preserve">
+    <value>内蔵プレイヤーの再生ミキサーで使う並列数です。既定は1です。2～4は処理が速くなる場合がありますが、BASSmixには複数スレッド使用時に有限音源の末尾がごく短く欠ける既知の問題があります。音声ファイルへの変換は1スレッド固定です。次回の再生開始から適用され、現在の再生は切り替わりません。</value>
   </data>
   <data name="Error_InvalidAudioResamplingQuality" xml:space="preserve">
     <value>サンプルレート変換品質は2～6で指定してください。</value>
+  </data>
+  <data name="Error_InvalidAudioMixerThreadCount" xml:space="preserve">
+    <value>再生時SRC並列度は1～4で指定してください。</value>
   </data>
   <data name="Msg_error_unexpected" xml:space="preserve">
     <value>予期しないエラーが発生しました。</value>
@@ -1114,6 +1123,12 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Device_setting_lowlatency" xml:space="preserve">
     <value>イベント駆動で再生</value>
+  </data>
+  <data name="Device_setting_lowlatency_desc" xml:space="preserve">
+    <value>Windowsから音声データが必要という合図が来たときに音声を送ります。チェックを外すと一定間隔で音声を送ります。再生が途切れる場合は、チェックを外して切替を試してください。</value>
+  </data>
+  <data name="AudioMixerThreadCountDefaultOptionFormat" xml:space="preserve">
+    <value>{0}（既定）</value>
   </data>
   <data name="Search_duplicates" xml:space="preserve">
     <value>重複ファイルチェック</value>

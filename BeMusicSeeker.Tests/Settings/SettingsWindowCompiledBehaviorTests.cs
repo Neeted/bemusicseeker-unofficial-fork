@@ -160,7 +160,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            var settings = new Settings
             {
                 OperationModeLR2DB = false,
                 BMSRootPath = Path.GetTempPath(),
@@ -173,7 +173,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 UsePlayeruBMplay = false,
                 UsePlayerLR2body = false,
                 UsePlayerBMIIDXView = false
-            });
+            };
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -190,8 +191,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 var audioPage = (AudioSettingsPage)content.Content;
                 var testButton = (Button)audioPage.FindName("buttonPlayerTest");
+                var eventCheck = (CheckBox)audioPage.FindName("checkBoxWasapiLowLatency");
+                var eventDescription = (TextBlock)audioPage.FindName("textWasapiLowLatencyDescription");
                 var playerSampleRate = (ComboBox)audioPage.FindName("comboBoxPlayerSampleRate");
                 var playerFormat = (ComboBox)audioPage.FindName("comboBoxPlayerFormat");
+                var playerResamplingQuality = (ComboBox)audioPage.FindName("comboBoxPlayerResamplingQuality");
+                var playerMixerThreadCount = (ComboBox)audioPage.FindName("comboBoxPlayerMixerThreadCount");
+                var qualityDescription = (TextBlock)audioPage.FindName("textPlayerResamplingQualityDescription");
+                var mixerThreadDescription = (TextBlock)audioPage.FindName("textPlayerMixerThreadCountDescription");
                 var endpointFormat = (TextBlock)audioPage.FindName("textPlayerCapabilityFormat");
                 var sharedRate = (TextBlock)audioPage.FindName("textPlayerCapabilityRate");
 
@@ -205,6 +212,37 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     sharedRate.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path.Path);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.SelectedPlayerSampleRate),
                     playerSampleRate.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerResamplingQualityNames),
+                    playerResamplingQuality.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerResamplingQuality),
+                    playerResamplingQuality.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerMixerThreadCountNames),
+                    playerMixerThreadCount.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerMixerThreadCount),
+                    playerMixerThreadCount.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerWASAPIParam),
+                    eventCheck.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual("Resources.Device_setting_lowlatency_desc",
+                    eventDescription.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual("Resources.Device_setting_resampling_quality_desc",
+                    qualityDescription.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual("Resources.Device_setting_resampling_parallelism_desc",
+                    mixerThreadDescription.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path.Path);
+                Assert.AreEqual(Resources.Device_setting_lowlatency_desc, eventDescription.Text);
+                Assert.AreEqual(Resources.Device_setting_resampling_quality_desc, qualityDescription.Text);
+                Assert.AreEqual(Resources.Device_setting_resampling_parallelism_desc, mixerThreadDescription.Text);
+                Assert.AreEqual(Visibility.Visible, eventCheck.Visibility);
+                Assert.AreEqual(Visibility.Visible, eventDescription.Visibility);
+                Assert.AreEqual(TextWrapping.Wrap, eventDescription.TextWrapping);
+                Assert.AreEqual(TextWrapping.Wrap, qualityDescription.TextWrapping);
+                Assert.AreEqual(TextWrapping.Wrap, mixerThreadDescription.TextWrapping);
+                Assert.AreEqual(2, playerResamplingQuality.SelectedValue);
+                Assert.AreEqual(1, playerMixerThreadCount.SelectedValue);
+                playerMixerThreadCount.SelectedValue = 3;
+                Materialize(window);
+                Assert.AreEqual(3, owner.SettingDialog.PlayerMixerThreadCount);
+                Assert.AreEqual(1, settings.PlayerMixerThreadCount,
+                    "Editing the next-playback value must not change the value captured by a new player start before save.");
                 Assert.AreEqual(Resources.AudioDeviceTestStartButton, testButton.Content);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.AudioDeviceTestButtonContent),
                     testButton.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path.Path);
@@ -220,6 +258,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 driverSelector.SelectedIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
                 Materialize(window);
+                Assert.AreEqual(Visibility.Visible, eventCheck.Visibility);
+                Assert.AreEqual(Visibility.Visible, eventDescription.Visibility);
                 Assert.AreEqual(SampleRate.AUTO, owner.SettingDialog.PlayerSampleRate);
                 Assert.AreEqual(SampleFormat.AUTO, owner.SettingDialog.PlayerFormat);
                 Assert.AreEqual(Visibility.Visible, playerSampleRate.Visibility);
@@ -257,6 +297,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(Visibility.Visible, playerSampleRate.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, playerFormat.Visibility);
                 Assert.AreEqual(Visibility.Visible, endpointFormat.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, eventCheck.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, eventDescription.Visibility);
                 Assert.AreEqual(Resources.AudioDeviceCapabilityNotQueried, endpointFormat.Text);
                 owner.SettingDialog.PlayerDriverIndex = savedDriverIndex;
                 Materialize(window);

@@ -48,6 +48,10 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     private AudioOutputSelection audioOutputSelectionDraft;
 
+    private int playerResamplingQualityDraft;
+
+    private int playerMixerThreadCountDraft;
+
     private List<AudioDeviceInfo> playerDeviceNames;
 
     private Func<Settings> getSettings;
@@ -61,8 +65,25 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     {
         this.getSettings = getSettings;
         audioDeviceCatalog = catalog;
+        RefreshPlaybackSettingDrafts();
         OperationReleased += AudioWorkflowOperationReleased;
         Ribbit.Media.BassAudioPlayer.AudioSessionReleased += AudioOutputSessionReleased;
+    }
+
+    /// <summary>保存後または取消時の音声設定を、設定画面で編集するdraftへ反映します。</summary>
+    internal void RefreshPlaybackSettingDrafts()
+    {
+        playerResamplingQualityDraft = ApplicationSettings.PlayerResamplingQuality;
+        playerMixerThreadCountDraft = ApplicationSettings.PlayerMixerThreadCount;
+        RaisePropertyChanged(nameof(PlayerResamplingQuality));
+        RaisePropertyChanged(nameof(PlayerMixerThreadCount));
+    }
+
+    /// <summary>保存直前に品質と並列度のdraftを永続設定の候補へ反映します。</summary>
+    internal void ApplyPlaybackSettingDraftsToSettings()
+    {
+        ApplicationSettings.PlayerResamplingQuality = playerResamplingQualityDraft;
+        ApplicationSettings.PlayerMixerThreadCount = playerMixerThreadCountDraft;
     }
 
     /// <summary>保存・取消後に受け渡す現在の出力先です。</summary>
@@ -639,12 +660,12 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// <summary>音声のサンプルレート変換品質を取得または設定します。</summary>
     public int PlayerResamplingQuality
     {
-        get => ApplicationSettings.PlayerResamplingQuality;
+        get => playerResamplingQualityDraft;
         set
         {
-            if (ApplicationSettings.PlayerResamplingQuality != value)
+            if (playerResamplingQualityDraft != value)
             {
-                ApplicationSettings.PlayerResamplingQuality = value;
+                playerResamplingQualityDraft = value;
                 RaisePropertyChanged(nameof(PlayerResamplingQuality));
                 InvalidateAudioDeviceTestResult();
             }
@@ -668,6 +689,35 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             Resources.AudioResamplingQualityOptionFormat,
             quality,
             AudioResamplingQuality.GetSincPointCount(quality));
+
+    /// <summary>通常再生用SRCミキサーのnative thread数を取得または設定します。</summary>
+    public int PlayerMixerThreadCount
+    {
+        get => playerMixerThreadCountDraft;
+        set
+        {
+            if (playerMixerThreadCountDraft != value)
+            {
+                playerMixerThreadCountDraft = value;
+                RaisePropertyChanged(nameof(PlayerMixerThreadCount));
+                InvalidateAudioDeviceTestResult();
+            }
+        }
+    }
+
+    /// <summary>通常再生で選択できるnativeミキサーthread数です。</summary>
+    public ReadOnlyDictionary<int, string> PlayerMixerThreadCountNames { get; } =
+        new(new Dictionary<int, string>
+        {
+            [1] = FormatMixerThreadCountOption(1),
+            [2] = FormatMixerThreadCountOption(2),
+            [3] = FormatMixerThreadCountOption(3),
+            [4] = FormatMixerThreadCountOption(4)
+        });
+
+    private static string FormatMixerThreadCountOption(int threadCount) => threadCount == BassMixerThreadConfigurator.RealtimeDefaultThreadCount
+        ? string.Format(CultureInfo.CurrentCulture, Resources.AudioMixerThreadCountDefaultOptionFormat, threadCount)
+        : threadCount.ToString(CultureInfo.CurrentCulture);
 
     public bool PlayerWASAPIParam
     {
@@ -705,7 +755,8 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             ApplicationSettings.PlayerWASAPIParam,
             ApplicationSettings.uBMplayVolume,
             playSound: true,
-            ApplicationSettings.PlayerResamplingQuality);
+            PlayerResamplingQuality,
+            PlayerMixerThreadCount);
         AudioDeviceTestStatusMessage = null;
         AudioDeviceTestDiagnosticMessage = null;
         audioDeviceTestCompletionTask = RunAudioDeviceTestCoreAsync(request);

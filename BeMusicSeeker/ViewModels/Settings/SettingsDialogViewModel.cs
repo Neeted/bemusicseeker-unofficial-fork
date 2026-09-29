@@ -770,6 +770,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private int tempPlayerResamplingQuality;
 
+    private int tempPlayerMixerThreadCount;
+
     private bool tempPlayerWASAPIParam;
 
     private bool operationModeLR2DB;
@@ -3940,6 +3942,12 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>音声設定担当が所有するPlayerResamplingQualityNamesを画面へ接続します。</summary>
     public ReadOnlyDictionary<int, string> PlayerResamplingQualityNames => audioDeviceTestWorkflow.PlayerResamplingQualityNames;
 
+    /// <summary>音声設定担当が所有するPlayerMixerThreadCountを画面へ接続します。</summary>
+    public int PlayerMixerThreadCount { get => audioDeviceTestWorkflow.PlayerMixerThreadCount; set => audioDeviceTestWorkflow.PlayerMixerThreadCount = value; }
+
+    /// <summary>音声設定担当が所有するPlayerMixerThreadCountNamesを画面へ接続します。</summary>
+    public ReadOnlyDictionary<int, string> PlayerMixerThreadCountNames => audioDeviceTestWorkflow.PlayerMixerThreadCountNames;
+
     /// <summary>音声設定担当が所有するPlayerWASAPIParamを画面へ接続します。</summary>
     public bool PlayerWASAPIParam { get => audioDeviceTestWorkflow.PlayerWASAPIParam; set => audioDeviceTestWorkflow.PlayerWASAPIParam = value; }
 
@@ -6049,6 +6057,8 @@ public partial class SettingsDialogViewModel : ViewModel
         tempPlayerFormat = ApplicationSettings.PlayerFormat;
         tempPlayerBufferSize = ApplicationSettings.PlayerBufferSize;
         tempPlayerResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
+        tempPlayerMixerThreadCount = ApplicationSettings.PlayerMixerThreadCount;
+        audioDeviceTestWorkflow.RefreshPlaybackSettingDrafts();
         tempPlayerWASAPIParam = ApplicationSettings.PlayerWASAPIParam;
         tempLanguage = ApplicationSettings.Lang;
         tempLanguageDisplayName = ApplicationSettings.LangDisplayName;
@@ -6177,7 +6187,8 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempPlayerSampleRate != ApplicationSettings.PlayerSampleRate
             || tempPlayerFormat != ApplicationSettings.PlayerFormat
             || tempPlayerBufferSize != ApplicationSettings.PlayerBufferSize
-            || tempPlayerResamplingQuality != ApplicationSettings.PlayerResamplingQuality
+            || tempPlayerResamplingQuality != audioDeviceTestWorkflow.PlayerResamplingQuality
+            || tempPlayerMixerThreadCount != audioDeviceTestWorkflow.PlayerMixerThreadCount
             || tempPlayerWASAPIParam != ApplicationSettings.PlayerWASAPIParam
             || !string.Equals(tempLanguage, ApplicationSettings.Lang, StringComparison.Ordinal)
             || !string.Equals(tempLanguageDisplayName, ApplicationSettings.LangDisplayName, StringComparison.Ordinal);
@@ -6260,15 +6271,9 @@ public partial class SettingsDialogViewModel : ViewModel
         bool forceInternalPlayerForStandaloneModeChange =
             !ApplicationSettings.OperationModeLR2DB
             && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-        bool internalPlayerResamplingQualityChanged =
-            !ApplicationSettings.UsePlayeruBMplay
-            && !ApplicationSettings.UsePlayerLR2body
-            && !ApplicationSettings.UsePlayerBMIIDXView
-            && tempPlayerResamplingQuality != ApplicationSettings.PlayerResamplingQuality;
         if (playerSelectionChanged
             || playerRuntimePathChanged
-            || forceInternalPlayerForStandaloneModeChange
-            || internalPlayerResamplingQualityChanged)
+            || forceInternalPlayerForStandaloneModeChange)
         {
             impact |= SettingsPostSaveImpact.PlayerRuntime;
         }
@@ -6786,7 +6791,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool HasValidationRelevantSettingChanges()
     {
-        return !AudioResamplingQuality.IsValid(ApplicationSettings.PlayerResamplingQuality)
+        return !AudioResamplingQuality.IsValid(audioDeviceTestWorkflow.PlayerResamplingQuality)
+            || !BassMixerThreadConfigurator.IsValidRealtimeThreadCount(audioDeviceTestWorkflow.PlayerMixerThreadCount)
             || rightClickActionSettingsEditor.IsDirty
             || tempOperationModeLR2DB != operationModeLR2DB
             || HasSearchRootSettingsChanged()
@@ -6833,11 +6839,18 @@ public partial class SettingsDialogViewModel : ViewModel
             errMsg += rightClickError + Environment.NewLine;
             result = false;
         }
-        if (!AudioResamplingQuality.IsValid(ApplicationSettings.PlayerResamplingQuality))
+        if (!AudioResamplingQuality.IsValid(audioDeviceTestWorkflow.PlayerResamplingQuality))
         {
             errMsg += FormatSettingValidationMessage(
                 BeMusicSeeker.Properties.Resources.Device_setting,
                 BeMusicSeeker.Properties.Resources.Error_InvalidAudioResamplingQuality) + Environment.NewLine;
+            result = false;
+        }
+        if (!BassMixerThreadConfigurator.IsValidRealtimeThreadCount(audioDeviceTestWorkflow.PlayerMixerThreadCount))
+        {
+            errMsg += FormatSettingValidationMessage(
+                BeMusicSeeker.Properties.Resources.Device_setting,
+                BeMusicSeeker.Properties.Resources.Error_InvalidAudioMixerThreadCount) + Environment.NewLine;
             result = false;
         }
         if (OperationModeLR2DB)
@@ -7095,15 +7108,20 @@ public partial class SettingsDialogViewModel : ViewModel
                 var userConfigStopwatch = Stopwatch.StartNew();
                 AudioOutputSelection previousOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
                     audioSettingsGateway.CaptureOutputSelection());
-                audioSettingsGateway.ApplyOutputSelection(
-                    AudioDriverPolicy.NormalizePersistedSelection(audioDeviceTestWorkflow.OutputSelection));
+                int previousResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
+                int previousMixerThreadCount = ApplicationSettings.PlayerMixerThreadCount;
+                audioDeviceTestWorkflow.ApplyPlaybackSettingDraftsToSettings();
                 try
                 {
+                    audioSettingsGateway.ApplyOutputSelection(
+                        AudioDriverPolicy.NormalizePersistedSelection(audioDeviceTestWorkflow.OutputSelection));
                     settingsEditSession.Save();
                 }
                 catch
                 {
                     audioSettingsGateway.ApplyOutputSelection(previousOutputSelection);
+                    ApplicationSettings.PlayerResamplingQuality = previousResamplingQuality;
+                    ApplicationSettings.PlayerMixerThreadCount = previousMixerThreadCount;
                     throw;
                 }
                 userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
@@ -7290,6 +7308,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.PlayerFormat = tempPlayerFormat;
         ApplicationSettings.PlayerBufferSize = tempPlayerBufferSize;
         ApplicationSettings.PlayerResamplingQuality = tempPlayerResamplingQuality;
+        ApplicationSettings.PlayerMixerThreadCount = tempPlayerMixerThreadCount;
         ApplicationSettings.PlayerWASAPIParam = tempPlayerWASAPIParam;
         ApplicationSettings.Lang = tempLanguage;
         ApplicationSettings.LangDisplayName = tempLanguageDisplayName;
@@ -7393,6 +7412,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
         RaisePropertyChanged(nameof(PlayerBufferSize));
         RaisePropertyChanged(nameof(PlayerResamplingQuality));
+        RaisePropertyChanged(nameof(PlayerMixerThreadCount));
         RaisePropertyChanged(nameof(PlayerWASAPIParam));
         RaisePropertyChanged(nameof(Languages));
         RaisePropertyChanged(nameof(IsOperationModeChanged));

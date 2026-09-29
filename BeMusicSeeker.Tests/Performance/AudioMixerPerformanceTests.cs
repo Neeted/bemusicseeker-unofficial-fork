@@ -272,7 +272,7 @@ public sealed class AudioMixerPerformanceTests
                 }
             }
 
-            int realtimeMixerThreadCount = BassMixerThreadConfigurator.RealtimeThreadCount;
+            const int realtimeMixerThreadCount = 1;
             float actualScheduledMixerThreadCount;
             var mixerThreadNative = new BassMixerThreadNativeBoundary();
             using (BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation())
@@ -591,7 +591,7 @@ public sealed class AudioMixerPerformanceTests
             }
         }
 
-        Assert.AreEqual(35, conditionCount, "Every SRC4 frequency condition must produce a diagnostic record.");
+        Assert.AreEqual(35, conditionCount, "Every SRC2 frequency condition must produce a diagnostic record.");
     }
 
     private void RecordDefaultSrcFrequencyResponse(

@@ -8,6 +8,8 @@ using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using ManagedBass;
 using ManagedBass.Enc;
 using ManagedBass.Mix;
@@ -959,18 +961,20 @@ public sealed class BassNativeRuntimeTests
     public void BassNullDeviceInitializesMixerThreadsAndAppliesCapturedSourceQuality()
     {
         string wavePath = CreateNativeSmokeWaveFile();
+        var playbackSettings = new Settings
+        {
+            PlayerResamplingQuality = 2,
+            PlayerMixerThreadCount = 4
+        };
+        PlayerSettingsSnapshot playbackSnapshot = new SettingsPlayerSettingsGateway(() => playbackSettings).CaptureSnapshot();
         BassAudioSession? session = null;
         BassAudioPlayer? player = null;
         try
         {
             BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
             BassAudioPlayer.Format = SampleFormat.AUTO;
-            BassAudioPlayer.InitializeOwned(
-                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
-                default,
-                0f,
-                out session,
-                sampleRateConversionQuality: 2);
+            Assert.AreEqual(4, playbackSnapshot.AudioOutputRequest.PlayerMixerThreadCount);
+            BassAudioWriter.InitializeOwnedSession(out session, playbackSnapshot.SampleRateConversionQuality);
 
             Assert.AreEqual(2, session.SampleRateConversionQuality);
             Assert.IsTrue(Bass.ChannelGetAttribute(

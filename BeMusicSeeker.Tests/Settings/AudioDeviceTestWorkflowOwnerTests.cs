@@ -184,7 +184,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             37,
             playerWASAPIParam: true,
             playerVolume: 50,
-            playSound: false);
+            playSound: false,
+            playerMixerThreadCount: 3);
         var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => { }),
             new RecordingAudioDeviceTestRuntime(() => AudioDeviceTestResultFactory.CreateSuccessful(request)));
@@ -214,6 +215,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, request.PlayerFormat);
         Assert.AreEqual(37f, request.PlayerBufferSize);
         Assert.IsTrue(request.PlayerWASAPIParam);
+        Assert.AreEqual(3, request.PlayerMixerThreadCount);
+        Assert.AreEqual(3, request.AudioOutputRequest.PlayerMixerThreadCount);
     }
 
     [TestMethod]

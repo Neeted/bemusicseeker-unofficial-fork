@@ -1029,7 +1029,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             lParam,
                             requestedEventMode,
                             sampleRateConversionQuality,
-                            purpose);
+                            purpose,
+                            outputRequest?.PlayerMixerThreadCount
+                                ?? BassMixerThreadConfigurator.RealtimeDefaultThreadCount);
                         DeviceDescriptor actualDescriptor = backend switch
                         {
                             DeviceDriver.ASIO => InitializeAsio(negotiationRequest),

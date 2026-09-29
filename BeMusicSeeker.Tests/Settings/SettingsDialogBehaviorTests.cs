@@ -46,6 +46,8 @@ public sealed class SettingsDialogBehaviorTests
         settings.StandaloneBmsRootPaths = directory.Path;
         settings.BMSInstallDir = directory.Path;
         settings.ScanBmsFilesOnStartup = false;
+        settings.PlayerResamplingQuality = 4;
+        settings.PlayerMixerThreadCount = 3;
         settings.Save();
         byte[] original = File.ReadAllBytes(path);
         var session = new RecordingSettingsEditSession(settings, persistence: new SettingsEditSession(settings));
@@ -59,6 +61,7 @@ public sealed class SettingsDialogBehaviorTests
         session.ClearCalls();
         harness.Dialog.ScanBmsFilesOnStartup = true;
         harness.Dialog.PlayerResamplingQuality = 2;
+        harness.Dialog.PlayerMixerThreadCount = 4;
         var capture = new WindowPlacement(0, 1, 0, 0, 0, 0, 77, 88, 877, 688);
         new SettingsPlayerSettingsGateway(() => settings).UpdateWindowPlacement(capture);
         if (cancel)
@@ -77,6 +80,7 @@ public sealed class SettingsDialogBehaviorTests
         CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
         Assert.IsTrue(harness.Dialog.ScanBmsFilesOnStartup);
         Assert.AreEqual(2, harness.Dialog.PlayerResamplingQuality);
+        Assert.AreEqual(4, harness.Dialog.PlayerMixerThreadCount);
         Assert.IsTrue(harness.Dialog.HasPendingSettingChanges());
         Assert.AreEqual(originalAudio, audio.OutputSelection);
         Assert.AreEqual(0, harness.SearchRoots.ApplyCount);
@@ -87,6 +91,7 @@ public sealed class SettingsDialogBehaviorTests
             harness.Dialog.CancelCommand.Execute();
             Assert.IsFalse(harness.Dialog.ScanBmsFilesOnStartup);
             Assert.AreEqual(4, harness.Dialog.PlayerResamplingQuality);
+            Assert.AreEqual(3, harness.Dialog.PlayerMixerThreadCount);
             Assert.AreEqual(1, session.SaveCount);
             Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), settings.LR2bodyWindowPlacement);
             CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
@@ -99,6 +104,7 @@ public sealed class SettingsDialogBehaviorTests
             Settings loaded = PortableSettingsPersistenceTests.OpenSettings(path);
             Assert.IsTrue(loaded.ScanBmsFilesOnStartup);
             Assert.AreEqual(2, loaded.PlayerResamplingQuality);
+            Assert.AreEqual(4, loaded.PlayerMixerThreadCount);
             Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), loaded.LR2bodyWindowPlacement);
         }
         CollectionAssert.Contains(presentation.Requests, "close");

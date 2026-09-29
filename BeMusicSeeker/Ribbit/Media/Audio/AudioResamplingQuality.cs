@@ -6,7 +6,7 @@ namespace Ribbit.Media.Audio;
 internal static class AudioResamplingQuality
 {
     /// <summary>設定が存在しない場合に使う品質値です。</summary>
-    internal const int Default = 4;
+    internal const int Default = 2;
 
     /// <summary>利用できる最小の品質値です。</summary>
     internal const int Minimum = 2;

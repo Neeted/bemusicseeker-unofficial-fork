@@ -18,12 +18,16 @@ public sealed class BassAsioNegotiationTests
     private static readonly AsioProcedure Callback =
         (input, channel, buffer, length, user) => length;
 
-    [TestMethod]
-    public void Float32Available_UsesFloatMixerAndCallbackFormat()
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    [DataRow(4)]
+    public void Float32Available_UsesSelectedMixerThreadCountAndCallbackFormat(int playerMixerThreadCount)
     {
         var native = new RecordingAsioBoundary();
 
-        BassAudioBackendResult result = Initialize(native, SampleRate.AUTO, SampleFormat.AUTO);
+        BassAudioBackendResult result = Initialize(native, SampleRate.AUTO, SampleFormat.AUTO, playerMixerThreadCount);
 
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.CallbackFormat);
@@ -34,7 +38,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Decode));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
-        Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
+        Assert.AreEqual(playerMixerThreadCount, native.MixerThreadCount);
         CollectionAssert.AreEqual(
             new[] { "set", "get" },
             native.MixerThreadCalls);
@@ -59,7 +63,7 @@ public sealed class BassAsioNegotiationTests
         }
         else
         {
-            native.ReportedMixerThreadCount = Math.Min(4, Environment.ProcessorCount) + 1;
+            native.ReportedMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount + 1;
         }
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -774,10 +778,11 @@ public sealed class BassAsioNegotiationTests
     private static BassAudioBackendResult Initialize(
         RecordingAsioBoundary native,
         SampleRate requestedRate,
-        SampleFormat requestedFormat)
+        SampleFormat requestedFormat,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount)
     {
         return new BassAsioNegotiator(native).Initialize(
-            CreateRequest(requestedRate, requestedFormat),
+            CreateRequest(requestedRate, requestedFormat, playerMixerThreadCount: playerMixerThreadCount),
             CreateSession(),
             Callback);
     }
@@ -785,14 +790,16 @@ public sealed class BassAsioNegotiationTests
     private static BassAudioNegotiationRequest CreateRequest(
         SampleRate requestedRate,
         SampleFormat requestedFormat,
-        AudioOutputPurpose purpose = AudioOutputPurpose.Playback) =>
+        AudioOutputPurpose purpose = AudioOutputPurpose.Playback,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount) =>
         new(
             BassAudioPlayer.DeviceDriver.ASIO,
             default,
             requestedRate,
             requestedFormat,
             10f,
-            purpose: purpose);
+            purpose: purpose,
+            playerMixerThreadCount: playerMixerThreadCount);
 
     private static BassAudioSession CreateSession() =>
         new(BassAudioPlayer.DeviceDriver.ASIO)

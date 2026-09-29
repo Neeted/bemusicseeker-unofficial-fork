@@ -62,7 +62,7 @@ public sealed class BassWasapiNegotiationTests
         BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE);
 
         BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
-            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE, playerMixerThreadCount: 3),
             session,
             WasapiCallback,
             initialGain: 0.4f,
@@ -86,6 +86,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "native default");
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
+        Assert.AreEqual(3, native.MixerThreadCount);
         Assert.IsTrue(session.WasapiInitialized);
     }
 
@@ -374,8 +375,12 @@ public sealed class BassWasapiNegotiationTests
             capability.Format == SampleFormat.SAMPLE_INT_16BIT && capability.IsSupported));
     }
 
-    [TestMethod]
-    public void WasapiShared_PublishesFloatMixerAndInitialGainBeforeStart()
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    [DataRow(4)]
+    public void WasapiShared_PublishesSelectedThreadCountFloatMixerAndInitialGainBeforeStart(int playerMixerThreadCount)
     {
         var native = new RecordingWasapiBoundary();
         BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
@@ -383,7 +388,9 @@ public sealed class BassWasapiNegotiationTests
         native.StartObserver = () => Assert.AreEqual(123, session.CallbackOutputHandle);
 
         new BassWasapiNegotiator(native).Initialize(
-            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            CreateWasapiRequest(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                playerMixerThreadCount: playerMixerThreadCount),
             session,
             WasapiCallback,
             initialGain: 0.35f,
@@ -392,7 +399,7 @@ public sealed class BassWasapiNegotiationTests
         CollectionAssert.AreEqual(
             new[] { "CreateMixer", "SetMixerThreadCount", "GetMixerThreadCount", "StartWasapi" },
             native.GraphCalls);
-        Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
+        Assert.AreEqual(playerMixerThreadCount, native.MixerThreadCount);
         Assert.AreEqual(123, session.CallbackOutputHandle);
         AudioOutputProcessor outputProcessor = session.OutputProcessor
             ?? throw new AssertFailedException("WASAPI initialization did not create its output processor.");
@@ -423,7 +430,7 @@ public sealed class BassWasapiNegotiationTests
         }
         else
         {
-            native.ReportedMixerThreadCount = Math.Min(4, Environment.ProcessorCount) + 1;
+            native.ReportedMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount + 1;
         }
 
         AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
@@ -457,21 +464,27 @@ public sealed class BassWasapiNegotiationTests
             BassAudioPlayer.GetEffectiveDeviceVolumeForInitialization(0.35f, isMuted: true));
     }
 
-    [TestMethod]
-    public void WasapiExclusive_DoesNotApplySharedMixerGain()
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    [DataRow(4)]
+    public void WasapiExclusive_UsesSelectedMixerThreadCountAndDoesNotApplySharedMixerGain(int playerMixerThreadCount)
     {
         var native = new RecordingWasapiBoundary();
         BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE);
         native.InitializationResults.Enqueue(true);
 
         new BassWasapiNegotiator(native).Initialize(
-            CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
+            CreateWasapiRequest(
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                playerMixerThreadCount: playerMixerThreadCount),
             session,
             WasapiCallback,
             initialGain: 0.2f,
             eventModeRequested: false);
 
-        Assert.AreEqual(Math.Min(4, Environment.ProcessorCount), native.MixerThreadCount);
+        Assert.AreEqual(playerMixerThreadCount, native.MixerThreadCount);
         AudioOutputProcessor outputProcessor = session.OutputProcessor
             ?? throw new AssertFailedException("WASAPI initialization did not create its output processor.");
         Assert.AreEqual(0.2d, outputProcessor.CurrentGain, 0.000001d);
@@ -979,7 +992,8 @@ public sealed class BassWasapiNegotiationTests
         BassAudioPlayer.DeviceDescriptor device = default,
         SampleFormat format = SampleFormat.AUTO,
         bool eventModeRequested = false,
-        AudioOutputPurpose purpose = AudioOutputPurpose.Playback) =>
+        AudioOutputPurpose purpose = AudioOutputPurpose.Playback,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount) =>
         new(
             backend,
             device,
@@ -987,7 +1001,8 @@ public sealed class BassWasapiNegotiationTests
             format,
             20f,
             eventModeRequested,
-            purpose: purpose);
+            purpose: purpose,
+            playerMixerThreadCount: playerMixerThreadCount);
 
     private static BassAudioSession CreateWasapiSession(BassAudioPlayer.DeviceDriver backend) =>
         new(backend) { ActualBackend = backend };

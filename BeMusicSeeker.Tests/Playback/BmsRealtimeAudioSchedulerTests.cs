@@ -646,6 +646,11 @@ public sealed class BmsRealtimeAudioSchedulerTests
         var player = new TickObservedBmsAutoPlayer(new BMSFile(chartPath));
         player.LoadResources();
         BassAudioSession session = player.ResourceSession;
+        int capturedResamplingQuality = session.SampleRateConversionQuality;
+        Assert.IsTrue(Bass.ChannelGetAttribute(
+            session.MixerHandle,
+            (ChannelAttribute)0x15001,
+            out float capturedMixerThreadCount));
         int originalCallbackOutputHandle = session.CallbackOutputHandle;
         AudioPcmRenderer? originalCallbackRenderer = session.CallbackPcmRenderer;
         AudioOutputProcessor? originalOutputProcessor = session.OutputProcessor;
@@ -653,6 +658,16 @@ public sealed class BmsRealtimeAudioSchedulerTests
         session.OutputProcessor = new AudioOutputProcessor(48000, 1d);
         session.PublishCallbackOutputHandle(BassAudioPlayer.OutputMixerHandle);
         long[] eventFramesBefore = player.AudioSchedule.Events.Select(item => item.StartFrame).ToArray();
+
+        void AssertCapturedAudioSettingsRemain()
+        {
+            Assert.AreEqual(capturedResamplingQuality, session.SampleRateConversionQuality);
+            Assert.IsTrue(Bass.ChannelGetAttribute(
+                session.MixerHandle,
+                (ChannelAttribute)0x15001,
+                out float currentMixerThreadCount));
+            Assert.AreEqual(capturedMixerThreadCount, currentMixerThreadCount);
+        }
 
         try
         {
@@ -662,6 +677,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
             player.Pause();
             Assert.AreEqual(PlayState.Paused, player.PlayState);
+            AssertCapturedAudioSettingsRemain();
             Assert.IsTrue(session.WithCallbackOutputPull(paused => paused));
             long mixerFrameBeforePausedPull = GetMixerFrame(session, channelCount: 2);
             const int callbackFrames = 32;
@@ -694,10 +710,12 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 Assert.IsTrue(session.WithCallbackOutputPull(paused => paused));
             }
             CollectionAssert.AreEqual(eventFramesBefore, player.AudioSchedule.Events.Select(item => item.StartFrame).ToArray());
+            AssertCapturedAudioSettingsRemain();
 
             var firstSeek = TimeSpan.FromMilliseconds(1500);
             player.CurrentTime = firstSeek;
             Assert.AreEqual(PlayState.Paused, player.PlayState);
+            AssertCapturedAudioSettingsRemain();
             Assert.IsTrue(session.WithCallbackOutputPull(paused => paused));
             long firstSeekFrame = 72000;
             Assert.AreEqual(firstSeekFrame, player.RealtimeScheduler!.CurrentSongFrame);
@@ -707,6 +725,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             player.Pause();
             long resumedMixerFrame = (await AwaitTickOrPlaybackCompletion(resumedTick, playback)).SongFrame;
             Assert.AreEqual(PlayState.Playing, player.PlayState);
+            AssertCapturedAudioSettingsRemain();
             Assert.IsFalse(session.WithCallbackOutputPull(paused => paused));
             while (resumedMixerFrame <= firstSeekFrame)
             {
@@ -719,6 +738,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Assert.AreEqual(PlayState.Paused, player.PlayState);
             var finalSeek = TimeSpan.FromMilliseconds(3500);
             player.CurrentTime = finalSeek;
+            AssertCapturedAudioSettingsRemain();
             Assert.IsTrue(session.WithCallbackOutputPull(paused => paused));
             Assert.AreEqual(168000L, player.RealtimeScheduler!.CurrentSongFrame);
 
@@ -727,6 +747,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             _ = await AwaitTickOrPlaybackCompletion(finalTick, playback);
             await playback;
             Assert.AreEqual(PlayState.Stopped, player.PlayState);
+            AssertCapturedAudioSettingsRemain();
             Assert.IsFalse(session.HasCallbackOutputFailure);
         }
         finally

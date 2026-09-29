@@ -19,6 +19,7 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class AudioDeviceTestRequest
 {
     /// <summary>デバイステストに使う音声設定を変更不能な値として初期化します。</summary>
+    /// <param name="playerMixerThreadCount">テスト開始時に捕捉する1～4のnativeミキサーthread数です。</param>
     internal AudioDeviceTestRequest(
         AudioDriver playerDriver,
         string playerDevice,
@@ -29,7 +30,8 @@ internal sealed class AudioDeviceTestRequest
         bool playerWASAPIParam,
         int playerVolume,
         bool playSound,
-        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount)
     {
         AudioOutputSelection normalized = AudioDriverPolicy.NormalizePersistedSelection(
             new AudioOutputSelection(playerDriver, playerDevice, playerDeviceName));
@@ -42,6 +44,7 @@ internal sealed class AudioDeviceTestRequest
         PlayerWASAPIParam = playerWASAPIParam;
         PlayerVolume = playerVolume;
         SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        PlayerMixerThreadCount = BassMixerThreadConfigurator.ValidateRealtimeThreadCount(playerMixerThreadCount);
         AudioOutputRequest = new AudioOutputRequest(
             PlayerDriver,
             PlayerDevice,
@@ -51,7 +54,8 @@ internal sealed class AudioDeviceTestRequest
             PlayerBufferSize,
             PlayerWASAPIParam,
             SampleRateConversionQuality,
-            AudioOutputPurpose.DeviceTest);
+            AudioOutputPurpose.DeviceTest,
+            PlayerMixerThreadCount);
         PlaySound = playSound;
     }
 
@@ -73,6 +77,9 @@ internal sealed class AudioDeviceTestRequest
 
     /// <summary>このテスト開始時に捕捉したサンプルレート変換品質です。</summary>
     internal int SampleRateConversionQuality { get; }
+
+    /// <summary>このテスト開始時に捕捉したnativeミキサーthread数です。</summary>
+    internal int PlayerMixerThreadCount { get; }
 
     /// <summary>選択条件のテストへ渡す一回分の音声出力要求を取得します。</summary>
     internal AudioOutputRequest AudioOutputRequest { get; }

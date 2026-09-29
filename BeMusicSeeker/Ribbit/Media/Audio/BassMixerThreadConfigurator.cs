@@ -36,11 +36,35 @@ internal sealed class BassMixerThreadNativeBoundary : IBassMixerThreadNativeBoun
 /// <summary>ミキサーのthread数を要求値へ設定・検証します。</summary>
 internal static class BassMixerThreadConfigurator
 {
-    /// <summary>リアルタイム再生ミキサーに設定するnative thread数です。</summary>
-    internal static int RealtimeThreadCount => System.Math.Min(4, Environment.ProcessorCount);
+    /// <summary>リアルタイム再生ミキサーの保存値がない場合に使うnative thread数です。</summary>
+    internal const int RealtimeDefaultThreadCount = 1;
+
+    /// <summary>リアルタイム再生で選択できる最小のnative thread数です。</summary>
+    internal const int RealtimeMinimumThreadCount = 1;
+
+    /// <summary>リアルタイム再生で選択できる最大のnative thread数です。</summary>
+    internal const int RealtimeMaximumThreadCount = 4;
 
     /// <summary>オフライン変換ミキサーに設定するnative thread数です。</summary>
     internal const int OfflineThreadCount = 1;
+
+    /// <summary>リアルタイム再生のthread数を補正せずに検証します。</summary>
+    internal static int ValidateRealtimeThreadCount(int threadCount, string parameterName = "threadCount")
+    {
+        if (threadCount is < RealtimeMinimumThreadCount or > RealtimeMaximumThreadCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                threadCount,
+                $"Realtime mixer thread count must be between {RealtimeMinimumThreadCount} and {RealtimeMaximumThreadCount}.");
+        }
+
+        return threadCount;
+    }
+
+    /// <summary>リアルタイム再生のthread数が選択範囲内か判定します。</summary>
+    internal static bool IsValidRealtimeThreadCount(int threadCount) =>
+        threadCount is >= RealtimeMinimumThreadCount and <= RealtimeMaximumThreadCount;
 
     /// <summary>指定したミキサーでthread数を設定し、要求値と同じ値が読み戻せることを確認します。</summary>
     /// <param name="mixerHandle">設定対象のBASS mixer handle。</param>

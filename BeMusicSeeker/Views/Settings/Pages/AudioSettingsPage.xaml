@@ -53,14 +53,19 @@
     <settings:SettingsSection x:Name="audioAdvancedSettings" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_audio_advanced, Mode=OneWay}">
       <StackPanel>
         <CheckBox Visibility="{Binding IsPlayerWasapiDriver, Converter={StaticResource BooleanToVisibilityConverter}}" x:Name="checkBoxWasapiLowLatency" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" IsChecked="{Binding PlayerWASAPIParam, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency, Mode=OneWay}" />
+        <TextBlock x:Name="textWasapiLowLatencyDescription" Visibility="{Binding IsPlayerWasapiDriver, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_lowlatency_desc, Mode=OneWay}" TextWrapping="Wrap" />
         <settings:SettingsField Visibility="{Binding IsPlayerBufferControlEnabled, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,12,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_buffersize, Mode=OneWay}">
           <Grid IsEnabled="{Binding IsPlayerBufferControlEnabled}"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlayerBufferSize, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlayerBufferSize, StringFormat={}{0:F0} ms}" /></Grid>
         </settings:SettingsField>
         <TextBlock Visibility="{Binding IsPlayerBufferControlEnabled, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc1, Mode=OneWay}" TextWrapping="Wrap" />
         <settings:SettingsField Margin="0,12,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_quality, Mode=OneWay}">
-          <ComboBox IsEnabled="{Binding IsAudioOutputSelectionEnabled}" SelectedValuePath="Key" DisplayMemberPath="Value" IsReadOnly="True" ItemsSource="{Binding PlayerResamplingQualityNames}" SelectedValue="{Binding PlayerResamplingQuality, Mode=TwoWay}" />
+          <ComboBox x:Name="comboBoxPlayerResamplingQuality" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" SelectedValuePath="Key" DisplayMemberPath="Value" IsReadOnly="True" ItemsSource="{Binding PlayerResamplingQualityNames}" SelectedValue="{Binding PlayerResamplingQuality, Mode=TwoWay}" />
         </settings:SettingsField>
-        <TextBlock Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_quality_desc, Mode=OneWay}" TextWrapping="Wrap" />
+        <TextBlock x:Name="textPlayerResamplingQualityDescription" Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_quality_desc, Mode=OneWay}" TextWrapping="Wrap" />
+        <settings:SettingsField Margin="0,12,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_parallelism, Mode=OneWay}">
+          <ComboBox x:Name="comboBoxPlayerMixerThreadCount" IsEnabled="{Binding IsAudioOutputSelectionEnabled}" SelectedValuePath="Key" DisplayMemberPath="Value" IsReadOnly="True" ItemsSource="{Binding PlayerMixerThreadCountNames}" SelectedValue="{Binding PlayerMixerThreadCount, Mode=TwoWay}" />
+        </settings:SettingsField>
+        <TextBlock x:Name="textPlayerMixerThreadCountDescription" Margin="0,6,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_resampling_parallelism_desc, Mode=OneWay}" TextWrapping="Wrap" />
       </StackPanel>
     </settings:SettingsSection>
   </StackPanel>

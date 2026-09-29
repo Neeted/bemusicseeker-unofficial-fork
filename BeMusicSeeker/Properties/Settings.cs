@@ -1425,7 +1425,7 @@ internal sealed class Settings : ApplicationSettingsBase
     /// <summary>音声サンプルレート変換の品質を取得または設定します。</summary>
     [UserScopedSetting]
     [DebuggerNonUserCode]
-    [DefaultSettingValue("4")]
+    [DefaultSettingValue("2")]
     public int PlayerResamplingQuality
     {
         get
@@ -1435,6 +1435,22 @@ internal sealed class Settings : ApplicationSettingsBase
         set
         {
             this["PlayerResamplingQuality"] = value;
+        }
+    }
+
+    /// <summary>通常再生とデバイステストで使うSRCミキサーthread数を取得または設定します。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("1")]
+    public int PlayerMixerThreadCount
+    {
+        get
+        {
+            return (int)this["PlayerMixerThreadCount"];
+        }
+        set
+        {
+            this["PlayerMixerThreadCount"] = value;
         }
     }
 
