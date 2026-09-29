@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
-using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -204,18 +203,6 @@ internal static class BmsAudioResourceLoader
         try
         {
             using AudioInputFile input = ReadInput(work.Path);
-            using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-            BassAudioSession? currentSession = BassAudioPlayer.CurrentSessionForAdmittedOperation;
-            if (!ReferenceEquals(expectedSession, currentSession)
-                || currentSession?.State != BassAudioSessionState.Active)
-            {
-                throw new InvalidOperationException("The audio session changed while BMS resources were loading.");
-            }
-
-            if (expectedSession.CoreDeviceIndex >= 0)
-            {
-                Bass.CurrentDevice = expectedSession.CoreDeviceIndex;
-            }
             DecodedAudio decoded = AudioSourceLoader.Decode(input, expectedSession);
             var resource = new BmsAudioResource(work.Path, decoded, sourceGain);
             foreach (BmsAudioPathRequest request in work.Requests)

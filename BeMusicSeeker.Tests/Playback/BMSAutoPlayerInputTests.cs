@@ -183,6 +183,71 @@ public sealed class BMSAutoPlayerInputTests
     }
 
     [TestMethod]
+    public void LoadResources_SharesPcmWithinSongAndReloadsChangedWaveForNextPlayer()
+    {
+        var failures = new List<Exception>();
+        var directory = new TemporaryDirectory();
+        TestBMSAutoPlayer? firstPlayer = null;
+        TestBMSAutoPlayer? nextPlayer = null;
+        try
+        {
+            string audioPath = directory.File("shared.wav");
+            string chartPath = directory.File("chart.bms");
+            WriteChart(
+                chartPath,
+                "#WAV02 shared.wav\n"
+                + "#WAV03 ./shared.wav\n"
+                + "#00111:0203\n");
+
+            float[] firstSamples = [0.25f, -0.5f, 0.75f, -0.125f];
+            using (var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+                48000,
+                4,
+                frame => firstSamples[checked((int)frame)]))
+            {
+                File.Copy(wave.Path, audioPath);
+            }
+
+            firstPlayer = new TestBMSAutoPlayer(new BMSFile(chartPath));
+            firstPlayer.LoadResources();
+            AssertSharedAudioMatches(firstPlayer, firstSamples);
+            firstPlayer.DisposeLoadedAudio();
+            firstPlayer = null;
+
+            float[] nextSamples = [-0.75f, 0.125f, -0.25f, 0.5f];
+            using (var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+                48000,
+                4,
+                frame => nextSamples[checked((int)frame)]))
+            {
+                File.Copy(wave.Path, audioPath, overwrite: true);
+            }
+
+            nextPlayer = new TestBMSAutoPlayer(new BMSFile(chartPath));
+            nextPlayer.LoadResources();
+            AssertSharedAudioMatches(nextPlayer, nextSamples);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+        finally
+        {
+            if (firstPlayer is not null)
+            {
+                CaptureCleanup(failures, firstPlayer.DisposeLoadedAudio);
+            }
+            if (nextPlayer is not null)
+            {
+                CaptureCleanup(failures, nextPlayer.DisposeLoadedAudio);
+            }
+            CaptureCleanup(failures, directory.Dispose);
+        }
+
+        ThrowFailures(failures);
+    }
+
+    [TestMethod]
     public async Task DisposeBeforeNextSong_StopsAndJoinsBeforeDroppingPublishedAudioResources()
     {
         var directory = new TemporaryDirectory();
@@ -329,6 +394,29 @@ public sealed class BMSAutoPlayerInputTests
             path,
             "#PLAYER 1\n#TITLE audio input\n#ARTIST test\n" + body,
             Encoding.ASCII);
+    }
+
+    private static void AssertSharedAudioMatches(TestBMSAutoPlayer player, float[] expectedSamples)
+    {
+        BmsAudioResource first = player.GetAudioResource(2)
+            ?? throw new AssertFailedException("The first shared WAVE resource was not loaded.");
+        BmsAudioResource alias = player.GetAudioResource(3)
+            ?? throw new AssertFailedException("The aliased WAVE resource was not loaded.");
+        Assert.AreSame(first.Audio, alias.Audio, "Aliases in one player must share the decoded PCM.");
+
+        DecodedAudio audio = first.Audio;
+        Assert.AreEqual(48000, audio.SampleRate);
+        Assert.AreEqual(1, audio.ChannelCount);
+        Assert.AreEqual(4L, audio.FrameCount);
+        Assert.AreEqual(4, expectedSamples.Length);
+        for (int sampleIndex = 0; sampleIndex < expectedSamples.Length; sampleIndex++)
+        {
+            Assert.AreEqual(
+                expectedSamples[sampleIndex],
+                audio.GetSample(sampleIndex),
+                0f,
+                $"Decoded WAVE sample {sampleIndex} did not match the fixture.");
+        }
     }
 
     private static async Task CaptureTaskCompletionAsync(
