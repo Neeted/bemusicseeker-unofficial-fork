@@ -295,7 +295,7 @@ public sealed class AudioMixerPerformanceTests
 
             ownedSession.MixerHandle = customMixer;
             player = new BMSAutoPlayer(new BMSFile(chartPath));
-            player.LoadResources(asParallel: false);
+            player.LoadResources();
             Assert.AreEqual(48000, player.AudioSchedule.SampleRate);
             Assert.IsTrue(player.AudioSchedule.Events.Count > 1000);
             Assert.AreSame(player.AudioResourcesByIndex[1]!.Audio, player.AudioResourcesByIndex[5]!.Audio);

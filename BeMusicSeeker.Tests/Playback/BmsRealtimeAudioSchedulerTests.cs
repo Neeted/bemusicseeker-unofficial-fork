@@ -208,7 +208,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Encoding.ASCII);
 
         var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         session.SetCallbackOutputPaused(true);
         session.ObserveCallbackPullSize(callbackFrames);
@@ -359,7 +359,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         try
         {
             player = new BMSAutoPlayer(new BMSFile(chartPath));
-            player.LoadResources(asParallel: false);
+            player.LoadResources();
             BassAudioSession activeSession = player.ResourceSession;
             session = activeSession;
             previousCallbackOutputHandle = activeSession.CallbackOutputHandle;
@@ -460,7 +460,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         string outputPath = directory.File("writer-output");
 
         using var writer = new BMSAutoPlayWriter(new BMSFile(chartPath));
-        writer.LoadResources(asParallel: false);
+        writer.LoadResources();
 
         // 120 BPMで小節前半が1秒、EXBPM後の四分小節と192刻みSTOPが各0.25秒・1秒、
         // 残り四分小節が0.25秒。次小節は長さ0.5なので0.5秒、その中点は2.75秒です。
@@ -644,7 +644,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:01\n"
             + "#00111:01\n");
         var player = new TickObservedBmsAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         int originalCallbackOutputHandle = session.CallbackOutputHandle;
         AudioPcmRenderer? originalCallbackRenderer = session.CallbackPcmRenderer;
@@ -1005,7 +1005,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00111:01\n");
 
         var player = new TickObservedBmsAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         int originalCallbackOutputHandle = session.CallbackOutputHandle;
         AudioPcmRenderer? originalCallbackRenderer = session.CallbackPcmRenderer;
@@ -1181,7 +1181,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:01\n"
             + "#00111:01\n");
         var player = new TickObservedBmsAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
 
         PlaybackCleanupGate cleanupGate = player.BlockNextPlaybackCleanup();
         Task<PlaybackStateSnapshot> stateApplication = player.ArmNextCompletedStateApplication();
@@ -1240,7 +1240,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:0101\n"
             + "#00111:0001\n");
         var player = new TickObservedBmsAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         using var scheduler = new QueuedPlaybackTaskScheduler();
 
         Task<Task> startDispatch = Task.Factory.StartNew(
@@ -1319,7 +1319,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:02030000000000000000\n");
 
         var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         BmsAudioFrameSchedule schedule = player.AudioSchedule;
         BmsAudioFrameEvent startsAtSeek = schedule.Events.Single(item => item.WavIndex == 3);
@@ -1450,7 +1450,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:0100\n"
             + "#00012:0002\n");
         var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         BmsAudioFrameEvent secondEvent = player.AudioSchedule.Events.Single(item => item.WavIndex == 2);
         Assert.IsTrue(secondEvent.StartFrame > player.AudioSchedule.Events.Single(item => item.WavIndex == 1).StartFrame);
@@ -1522,7 +1522,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:0100\n"
             + "#00012:0002\n");
         var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BmsAudioFrameEvent firstEvent = player.AudioSchedule.Events.Single(item => item.WavIndex == 1);
         var boundary = new FaultInjectingScheduledNativeBoundary(failResumeAt: 1, failNextUnlock: false);
 
@@ -1568,7 +1568,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             failRemoveChannel: true,
             failStreamFree: true);
         var player = new BMSAutoPlayer(new BMSFile(chartPath), native);
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         int baselinePlayerStreams = session.GetPlayerStreams().Count;
 
@@ -1632,7 +1632,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
 
         var nextPlayer = new BMSAutoPlayer(new BMSFile(chartPath));
-        nextPlayer.LoadResources(asParallel: false);
+        nextPlayer.LoadResources();
         await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(() => nextPlayer.Start(),
             "A new BMS player must reject the session while old native cleanup is unconfirmed.");
     }
@@ -1966,7 +1966,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             + "#00011:01\n"
             + "#00012:02\n");
         var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
+        player.LoadResources();
         BassAudioSession session = player.ResourceSession;
         int ownedStreamCountBefore = session.AdditionalStreamHandles.Count;
         var boundary = new FaultInjectingScheduledNativeBoundary(failResumeAt: 0, failNextUnlock: true);

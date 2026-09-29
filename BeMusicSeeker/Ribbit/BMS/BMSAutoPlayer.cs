@@ -16,7 +16,7 @@ namespace Ribbit.BMS;
 
 public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
 {
-    private IReadOnlyList<AudioSourceOmission> omittedAudioSources = Array.Empty<AudioSourceOmission>();
+    private IReadOnlyList<BmsAudioSourceOmission> omittedAudioSources = Array.Empty<BmsAudioSourceOmission>();
     private IReadOnlyList<BmsAudioResource?> audioResourcesByIndex;
     private BassAudioSession? resourceSession;
     private BmsAudioFrameSchedule? audioSchedule;
@@ -41,7 +41,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     }
 
     /// <summary>今回の譜面読み込みで入力失敗により省略した音源を変更不能な一覧で取得します。</summary>
-    internal IReadOnlyList<AudioSourceOmission> OmittedAudioSources => omittedAudioSources;
+    internal IReadOnlyList<BmsAudioSourceOmission> OmittedAudioSources => omittedAudioSources;
 
     /// <summary>読み込んだpath共有resourceをWAV index順で取得します。</summary>
     internal IReadOnlyList<BmsAudioResource?> AudioResourcesByIndex => audioResourcesByIndex;
@@ -319,58 +319,33 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     }
 
     /// <summary>再生に使う音源を事前に復号します。</summary>
-    public override void LoadResources() => LoadResources(asParallel: true);
-
-    /// <summary>再生に使う音源を、指定に応じた並列度で事前に復号します。</summary>
-    public void LoadResources(bool asParallel) => LoadResources(asParallel, observer: null);
-
-    internal void LoadResources(bool asParallel, AudioSourceLoadPipelineObserver? observer)
+    public override void LoadResources()
     {
         string basePath = Path.GetDirectoryName(base.Bms.Path) ?? string.Empty;
-        int[] requiredIndices = BmsAudioFrameSchedule.GetRequiredAudioIndices(base.Bms);
-        var requests = new List<AudioLoadRequest>(requiredIndices.Length);
-        foreach (int index in requiredIndices)
-        {
-            string resourceName = base.Bms.WavArray[index];
-            string? path = FindAudioPath(basePath, resourceName);
-            if (path != null)
-            {
-                requests.Add(new AudioLoadRequest(index, resourceName, path));
-            }
-        }
+        BmsAudioResourceLoadResult result = BmsAudioResourceLoader.Load(
+            base.Bms,
+            basePath,
+            ResourceSourceGain);
 
-        float sourceGain = ResourceSourceGain;
-        AudioSourceLoadResult<BmsAudioResource> result = AudioSourceLoadPipeline.Load(
-            base.Bms.WavArray.Length,
-            requests,
-            asParallel,
-            (decoded, path, _) => new BmsAudioResource(path, decoded, sourceGain),
-            observer);
-
-        foreach (AudioLoadFailure failure in result.Failures)
+        foreach (BmsAudioLoadFailure failure in result.Failures)
         {
             if (failure.Exception is not AudioSourceLoadException { IsInputFailure: true })
             {
                 throw new AudioSourceFatalException(
-                    "The audio source pipeline returned a failure that is not caused by an input file.",
+                    "The BMS audio loader returned a failure that is not caused by an input file.",
                     failure.Exception);
             }
         }
 
-        AudioSourceOmission[] omissions = result.Failures
+        BmsAudioSourceOmission[] omissions = result.Failures
             .OrderBy(failure => failure.Index)
-            .GroupBy(failure => GetNormalizedPath(failure.Path), StringComparer.OrdinalIgnoreCase)
-            .Select(group => new AudioSourceOmission(group.First().ResourceName, group.Key))
+            .Select(failure => new BmsAudioSourceOmission(failure.ResourceName, failure.NormalizedPath))
             .ToArray();
         LogAudioOmissions(omissions, result.Failures);
 
-        int requestedPathCount = requests
-            .Select(request => GetNormalizedPath(request.Path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-        if (requestedPathCount > 0 && omissions.Length == requestedPathCount)
+        if (result.UniquePathCount > 0 && omissions.Length == result.UniquePathCount)
         {
-            AudioLoadFailure failure = result.Failures
+            BmsAudioLoadFailure failure = result.Failures
                 .OrderBy(item => item.Index)
                 .First();
             string stage = GetFailureStage(failure.Exception);
@@ -382,29 +357,47 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
             throw chartFailure;
         }
 
+        BassAudioSession session;
+        BmsAudioFrameSchedule schedule;
+        try
+        {
+            using (BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation())
+            {
+                BassAudioSession? currentSession = BassAudioPlayer.CurrentSessionForAdmittedOperation;
+                if (currentSession?.State != BassAudioSessionState.Active || currentSession.MixerHandle == 0)
+                {
+                    throw new InvalidOperationException("An active input mixer session is required for BMS playback.");
+                }
+
+                if (currentSession.CoreDeviceIndex >= 0)
+                {
+                    ManagedBass.Bass.CurrentDevice = currentSession.CoreDeviceIndex;
+                }
+                ManagedBass.ChannelInfo mixerInfo = ManagedBass.Bass.ChannelGetInfo(currentSession.MixerHandle);
+                if (mixerInfo.Frequency <= 0 || mixerInfo.Channels <= 0)
+                {
+                    throw new InvalidOperationException("The input mixer reported an invalid Float32 format.");
+                }
+
+                session = currentSession;
+                schedule = BmsAudioFrameSchedule.Create(base.Bms, mixerInfo.Frequency);
+            }
+        }
+        catch (AudioSourceFatalException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new AudioSourceFatalException(
+                "The BMS audio session or schedule could not be prepared.",
+                exception);
+        }
+
         omittedAudioSources = Array.AsReadOnly(omissions);
         audioResourcesByIndex = Array.AsReadOnly(result.ResourcesByIndex);
-        using (BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation())
-        {
-            BassAudioSession? session = BassAudioPlayer.CurrentSessionForAdmittedOperation;
-            if (session?.State != BassAudioSessionState.Active || session.MixerHandle == 0)
-            {
-                throw new InvalidOperationException("An active input mixer session is required for BMS playback.");
-            }
-
-            if (session.CoreDeviceIndex >= 0)
-            {
-                ManagedBass.Bass.CurrentDevice = session.CoreDeviceIndex;
-            }
-            ManagedBass.ChannelInfo mixerInfo = ManagedBass.Bass.ChannelGetInfo(session.MixerHandle);
-            if (mixerInfo.Frequency <= 0 || mixerInfo.Channels <= 0)
-            {
-                throw new InvalidOperationException("The input mixer reported an invalid Float32 format.");
-            }
-
-            resourceSession = session;
-            audioSchedule = BmsAudioFrameSchedule.Create(base.Bms, mixerInfo.Frequency);
-        }
+        resourceSession = session;
+        audioSchedule = schedule;
         durationProvider = () => base.MusicDuration;
         base.MusicDuration = base.Bms.Measures.SelectMany(measure =>
             new ReadOnlyCollection<Func<IList<BMSFile.Chart.Note>>>[5]
@@ -471,43 +464,6 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         }
     }
 
-    private static string? FindAudioPath(string basePath, string resourceName)
-    {
-        if (string.IsNullOrWhiteSpace(resourceName))
-        {
-            return null;
-        }
-
-        string? firstCandidate = null;
-        foreach (string item in Resources.NormalizeExtension(resourceName))
-        {
-            string path = Path.Combine(basePath, item);
-            firstCandidate ??= path;
-            if (LongPathFileSystem.FileExists(path))
-            {
-                return path;
-            }
-        }
-
-        string fileName = Path.GetFileName(resourceName);
-        if (!string.Equals(resourceName, fileName, StringComparison.Ordinal))
-        {
-            foreach (string item in Resources.NormalizeExtension(fileName))
-            {
-                string path = Path.Combine(basePath, item);
-                firstCandidate ??= path;
-                if (LongPathFileSystem.FileExists(path))
-                {
-                    return path;
-                }
-            }
-        }
-
-        // 明示された非空参照が見つからない場合も、最初に探索したpathをpipelineへ渡して
-        // 読取り失敗として警告・省略数・全件失敗判定へ一貫して反映します。
-        return firstCandidate;
-    }
-
     private static void ThrowCleanupFailures(IReadOnlyList<Exception> failures)
     {
         if (failures.Count == 0)
@@ -522,21 +478,9 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         throw new AggregateException("BMS playback cleanup reported multiple failures.", failures);
     }
 
-    private static string GetNormalizedPath(string path)
-    {
-        try
-        {
-            return Path.GetFullPath(path);
-        }
-        catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
-        {
-            return path;
-        }
-    }
-
     private static void LogAudioOmissions(
-        IReadOnlyList<AudioSourceOmission> omissions,
-        IReadOnlyList<AudioLoadFailure> failures)
+        IReadOnlyList<BmsAudioSourceOmission> omissions,
+        IReadOnlyList<BmsAudioLoadFailure> failures)
     {
         if (omissions.Count == 0)
         {
@@ -544,11 +488,11 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         }
 
         var failuresByPath = failures
-            .GroupBy(failure => GetNormalizedPath(failure.Path), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(failure => failure.NormalizedPath, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        foreach (AudioSourceOmission omission in omissions)
+        foreach (BmsAudioSourceOmission omission in omissions)
         {
-            if (!failuresByPath.TryGetValue(omission.Path, out AudioLoadFailure? failure))
+            if (!failuresByPath.TryGetValue(omission.Path, out BmsAudioLoadFailure? failure))
             {
                 continue;
             }
