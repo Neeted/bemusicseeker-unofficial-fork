@@ -2,47 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using ManagedBass;
-using ManagedBass.Wasapi;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace Ribbit.BMS;
-
-/// <summary>WASAPI output deviceの実buffer量を確認するnative境界です。</summary>
-internal interface IBassWasapiOutputBufferNativeBoundary
-{
-    /// <summary>対象deviceを選択し、output bufferの保留byte数を取得します。</summary>
-    bool TryGetAvailableBytes(int deviceIndex, out int availableBytes, out Errors? error);
-}
-
-/// <summary>ManagedBass WASAPI APIからoutput buffer量と直後のnative errorを取得します。</summary>
-internal sealed class BassWasapiOutputBufferNativeBoundary : IBassWasapiOutputBufferNativeBoundary
-{
-    /// <inheritdoc />
-    public bool TryGetAvailableBytes(int deviceIndex, out int availableBytes, out Errors? error)
-    {
-        availableBytes = 0;
-        error = null;
-        try
-        {
-            BassWasapi.CurrentDevice = deviceIndex;
-            availableBytes = BassWasapi.GetData(IntPtr.Zero, (int)DataFlags.Available);
-            if (availableBytes < 0)
-            {
-                error = Bass.LastError;
-                return false;
-            }
-            return true;
-        }
-        catch (BassException exception)
-        {
-            error = exception.ErrorCode;
-            return false;
-        }
-    }
-}
 
 /// <summary>BMSの realtime 再生区間でlook-ahead予約とMixer時計を管理します。</summary>
 internal sealed class BmsRealtimeAudioScheduler : IDisposable
@@ -50,15 +14,13 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     private const double TempoSequenceMilliseconds = 33d;
     /// <summary>48kHzの本番BASS_FX tempo出力で測った初回input pullの先読み量です。</summary>
     private const int MeasuredTempoInputReadAheadFrames = 4096;
-    private const BassFlags InputMixerEndFlags = BassFlags.MixerEnd | BassFlags.MixerNonStop;
 
     private readonly object sync = new();
     private readonly BmsAudioFrameSchedule schedule;
     private readonly IReadOnlyList<BmsAudioResource?> resourcesByIndex;
     private readonly BassAudioSession session;
     private readonly IBassScheduledMixerNativeBoundary native;
-    private readonly IBassWasapiOutputBufferNativeBoundary wasapiOutputBufferNative;
-    private readonly long terminalSongFrame;
+    private readonly long durationSongFrame;
     private readonly TimeSpan duration;
     private BmsScheduledAudioMixer scheduledMixer;
     private AudioPcmRenderer? nullDeviceRenderer;
@@ -70,13 +32,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     private long maximumReservationTicks;
     private long lastNullPullTimestamp;
     private double nullPullRemainder;
-    private long maximumWasapiQueuedFramesAfterEnd;
     private long generation;
     private float playbackRate;
-    private int inputEnded;
-    private int inputEndTransitionAttempted;
-    private int terminalSyncHandle;
-    private SyncProcedure? terminalSyncProcedure;
     private bool disposed;
 
     /// <summary>閉じたoutput pull境界で一つのBMS区間を構成し、最初の範囲を予約します。</summary>
@@ -88,15 +45,14 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         TimeSpan duration,
         long segmentStartSongFrame,
         float playbackRate,
-        int generation,
-        IBassWasapiOutputBufferNativeBoundary? wasapiOutputBufferNative = null)
+        int generation)
     {
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.resourcesByIndex = resourcesByIndex ?? throw new ArgumentNullException(nameof(resourcesByIndex));
         this.session = session ?? throw new ArgumentNullException(nameof(session));
         this.native = native ?? throw new ArgumentNullException(nameof(native));
-        this.wasapiOutputBufferNative = wasapiOutputBufferNative ?? new BassWasapiOutputBufferNativeBoundary();
         this.duration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
+        durationSongFrame = AudioFrameMath.TimeToFrame(this.duration, schedule.SampleRate);
         if (segmentStartSongFrame < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(segmentStartSongFrame));
@@ -110,7 +66,6 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             throw new InvalidOperationException("An active input mixer session is required for BMS playback.");
         }
 
-        terminalSongFrame = GetTerminalSongFrame(schedule, resourcesByIndex, this.duration, schedule.SampleRate);
         try
         {
             CreateSegment(segmentStartSongFrame, initial: true);
@@ -118,14 +73,6 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         catch (Exception playbackFailure)
         {
             var cleanupFailures = new List<Exception>();
-            try
-            {
-                RemoveTerminalSync();
-            }
-            catch (Exception cleanupFailure)
-            {
-                cleanupFailures.Add(cleanupFailure);
-            }
             try
             {
                 scheduledMixer?.Dispose();
@@ -159,22 +106,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         }
     }
 
-    /// <summary>入力mixerを自然終端へ切り替えたか取得します。</summary>
-    internal bool InputEnded
-    {
-        get => System.Threading.Volatile.Read(ref inputEnded) != 0;
-    }
-
-    /// <summary>終端flag切替を試みた区間で後処理によるmixer復帰が必要か取得します。</summary>
-    internal bool InputEndTransitionAttempted
-    {
-        get => System.Threading.Volatile.Read(ref inputEndTransitionAttempted) != 0;
-    }
-
-    /// <summary>native input mixerへ登録中の終端syncが残っているか取得します。</summary>
-    internal bool HasTerminalSync => System.Threading.Volatile.Read(ref terminalSyncHandle) != 0;
-
-    /// <summary>song timeへ換算した現在のinput mixer frameを取得します。</summary>
+    /// <summary>予約・回収に使う現在の曲内mixer frameを取得します。</summary>
     internal long CurrentSongFrame
     {
         get
@@ -185,19 +117,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
                 return System.Math.Clamp(
                     scheduledMixer.GetCurrentSongFrame(),
                     segmentStartSongFrame,
-                    terminalSongFrame);
+                    durationSongFrame);
             }
-        }
-    }
-
-    /// <summary>mixer clockを表示時刻へ変換し、曲長へ制限して取得します。</summary>
-    internal TimeSpan CurrentTime
-    {
-        get
-        {
-            long frame = CurrentSongFrame;
-            TimeSpan time = AudioFrameMath.FrameToTime(frame, schedule.SampleRate);
-            return time < duration ? time : duration;
         }
     }
 
@@ -214,57 +135,13 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         }
     }
 
-    /// <summary>自然終端を判定するsong frameです。</summary>
-    internal long TerminalSongFrame => terminalSongFrame;
-
     /// <summary>制御tick間隔の最大実測Stopwatch tick。</summary>
     internal long MaximumTickIntervalTicks => System.Threading.Interlocked.Read(ref maximumTickIntervalTicks);
 
     /// <summary>reservation処理の最大実測Stopwatch tick。</summary>
     internal long MaximumReservationTicks => System.Threading.Interlocked.Read(ref maximumReservationTicks);
 
-    /// <summary>input終端後、tempo出力とendpoint報告latency分を通過したか取得します。</summary>
-    internal bool IsOutputDrained
-    {
-        get
-        {
-            lock (sync)
-            {
-                if (System.Threading.Volatile.Read(ref inputEnded) == 0 || !session.CallbackOutputReachedEnd)
-                {
-                    return false;
-                }
-
-                BassAudioPlayer.DeviceDriver backend = session.ActualBackend;
-                if (backend == BassAudioPlayer.DeviceDriver.NULL_DEVICE)
-                {
-                    return true;
-                }
-
-                long backendDrainFrames;
-                if (backend is BassAudioPlayer.DeviceDriver.WASAPI_SHARED
-                    or BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE)
-                {
-                    backendDrainFrames = GetWasapiOutputDrainFrames();
-                }
-                else if (backend == BassAudioPlayer.DeviceDriver.ASIO)
-                {
-                    backendDrainFrames = CeilingFrames(
-                        session.NegotiationResult.LatencyMilliseconds,
-                        schedule.SampleRate);
-                }
-                else
-                {
-                    throw new InvalidOperationException("The active output backend does not provide a BMS drain contract.");
-                }
-
-                long drainFrames = checked(backendDrainFrames + session.MaximumCallbackFrames);
-                return session.CallbackFramesAfterEnd >= drainFrames;
-            }
-        }
-    }
-
-    /// <summary>遅れを許さず区間の次のlook-aheadを予約し、終端・回収状態を更新します。</summary>
+    /// <summary>遅れを許さず区間の次のlook-aheadを予約し、期限切れvoiceを回収します。</summary>
     internal void Tick() => TickCore(advanceNullOutput: true);
 
     /// <summary>NullDeviceを決定的frame駆動する検証用に、予約だけを一度進めます。</summary>
@@ -287,12 +164,12 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             long logicalCurrentFrame = System.Math.Clamp(
                 currentSongFrame,
                 segmentStartSongFrame,
-                terminalSongFrame);
+                durationSongFrame);
             int reservedCallbackFrames = session.MaximumCallbackFrames;
             long leadFrames = GetLeadFrames(playbackRate, reservedCallbackFrames);
-            long exclusiveSongFrame = currentSongFrame >= terminalSongFrame
-                ? long.MaxValue
-                : System.Math.Min(terminalSongFrame + 1, checked(logicalCurrentFrame + leadFrames));
+            long exclusiveSongFrame = System.Math.Min(
+                checked(durationSongFrame + 1),
+                checked(logicalCurrentFrame + leadFrames));
             if (exclusiveSongFrame <= segmentStartSongFrame)
             {
                 exclusiveSongFrame = checked(segmentStartSongFrame + 1);
@@ -353,13 +230,9 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         lock (sync)
         {
             ThrowIfDisposed();
-            RemoveTerminalSync();
             scheduledMixer.Dispose();
             generation = checked(generation + 1);
-            segmentStartSongFrame = System.Math.Min(songFrame, terminalSongFrame);
-            System.Threading.Volatile.Write(ref inputEnded, 0);
-            System.Threading.Volatile.Write(ref inputEndTransitionAttempted, 0);
-            maximumWasapiQueuedFramesAfterEnd = 0;
+            segmentStartSongFrame = System.Math.Min(songFrame, durationSongFrame);
             lastTickTimestamp = Stopwatch.GetTimestamp();
             CreateSegment(segmentStartSongFrame, initial: false);
         }
@@ -388,10 +261,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             originMixerFrame,
             checked((int)generation));
 
-        RegisterTerminalSync();
-
         long horizon = System.Math.Min(
-            terminalSongFrame + 1,
+            checked(durationSongFrame + 1),
             checked(songStartFrame + leadFrames));
         if (horizon <= songStartFrame)
         {
@@ -454,11 +325,11 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         long currentSongFrame = System.Math.Clamp(
             checked(currentMixerFrame - originMixerFrame),
             segmentStartSongFrame,
-            terminalSongFrame);
+            durationSongFrame);
         int reservedCallbackFrames = session.MaximumCallbackFrames;
-        long exclusive = currentSongFrame >= terminalSongFrame
-            ? long.MaxValue
-            : System.Math.Min(terminalSongFrame + 1, checked(currentSongFrame + GetLeadFrames(rate, reservedCallbackFrames)));
+        long exclusive = System.Math.Min(
+            checked(durationSongFrame + 1),
+            checked(currentSongFrame + GetLeadFrames(rate, reservedCallbackFrames)));
         if (exclusive <= segmentStartSongFrame)
         {
             exclusive = checked(segmentStartSongFrame + 1);
@@ -487,154 +358,6 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         }
     }
 
-    private void RegisterTerminalSync()
-    {
-        long terminalMixerFrame = checked(originMixerFrame + terminalSongFrame);
-        long terminalPositionBytes = checked(terminalMixerFrame * scheduledMixer.BytesPerFrame);
-        SyncProcedure procedure = OnTerminalPositionSync;
-        terminalSyncProcedure = procedure;
-        session.RetainRealtimeTerminalSyncProcedure(procedure);
-        int handle = native.SetPositionSync(session.MixerHandle, terminalPositionBytes, procedure);
-        if (handle == 0)
-        {
-            Errors error = native.GetError();
-            ReleaseTerminalSyncProcedure(procedure);
-            throw new InvalidOperationException(
-                "BASS_ChannelSetSync(POS|MIXTIME) failed while registering the BMS input terminal: "
-                + BassNativeErrorFormatter.Format(error));
-        }
-        System.Threading.Volatile.Write(ref terminalSyncHandle, handle);
-    }
-
-    private void OnTerminalPositionSync(int syncHandle, int channel, int data, IntPtr user)
-    {
-        _ = data;
-        _ = user;
-        if (channel != session.MixerHandle)
-        {
-            System.Threading.Interlocked.Exchange(ref inputEndTransitionAttempted, 1);
-            _ = session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.ScheduledPlayback);
-            return;
-        }
-
-        System.Threading.Interlocked.Exchange(ref inputEndTransitionAttempted, 1);
-        try
-        {
-            BassFlags flags = native.SetMixerStreamFlags(
-                session.MixerHandle,
-                BassFlags.MixerEnd,
-                InputMixerEndFlags);
-            if (unchecked((int)flags) == -1)
-            {
-                Errors error = native.GetError();
-                _ = session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.ScheduledPlayback, error);
-                return;
-            }
-            System.Threading.Interlocked.CompareExchange(ref terminalSyncHandle, 0, syncHandle);
-            ReleaseTerminalSyncProcedure(System.Threading.Volatile.Read(ref terminalSyncProcedure));
-            System.Threading.Volatile.Write(ref inputEnded, 1);
-        }
-        catch
-        {
-            _ = session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.ScheduledPlayback);
-        }
-    }
-
-    private void RemoveTerminalSync()
-    {
-        int handle = System.Threading.Interlocked.Exchange(ref terminalSyncHandle, 0);
-        if (handle == 0)
-        {
-            return;
-        }
-
-        bool removed;
-        try
-        {
-            removed = native.RemoveSync(session.MixerHandle, handle);
-        }
-        catch
-        {
-            System.Threading.Interlocked.CompareExchange(ref terminalSyncHandle, handle, 0);
-            throw;
-        }
-        if (!removed)
-        {
-            Errors error = native.GetError();
-            if (error != Errors.Handle
-                && error != Errors.Init
-                && System.Threading.Volatile.Read(ref inputEndTransitionAttempted) == 0)
-            {
-                System.Threading.Interlocked.CompareExchange(ref terminalSyncHandle, handle, 0);
-                throw new InvalidOperationException(
-                    "BASS_ChannelRemoveSync failed while releasing the BMS input terminal sync: "
-                    + BassNativeErrorFormatter.Format(error));
-            }
-        }
-        ReleaseTerminalSyncProcedure(System.Threading.Volatile.Read(ref terminalSyncProcedure));
-    }
-
-    private void ReleaseTerminalSyncProcedure(SyncProcedure? procedure)
-    {
-        if (procedure == null)
-        {
-            return;
-        }
-
-        System.Threading.Interlocked.CompareExchange(ref terminalSyncProcedure, null, procedure);
-        session.ReleaseRealtimeTerminalSyncProcedure(procedure);
-    }
-
-    private long GetWasapiOutputDrainFrames()
-    {
-        if (session.WasapiDeviceIndex < 0)
-        {
-            RecordDrainFailure(AudioPcmRenderStage.ScheduledPlayback, null);
-            throw new InvalidOperationException("The active WASAPI session has no owned device index.");
-        }
-
-        using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-        if (!ReferenceEquals(BassAudioPlayer.CurrentSessionForAdmittedOperation, session)
-            || session.State != BassAudioSessionState.Active)
-        {
-            RecordDrainFailure(AudioPcmRenderStage.ScheduledPlayback, null);
-            throw new InvalidOperationException("The WASAPI output session changed before drain confirmation.");
-        }
-        if (!wasapiOutputBufferNative.TryGetAvailableBytes(
-                session.WasapiDeviceIndex,
-                out int availableBytes,
-                out Errors? error))
-        {
-            RecordDrainFailure(AudioPcmRenderStage.NativeRead, error);
-            throw new InvalidOperationException(
-                "BASS_WASAPI_GetData(BASS_DATA_AVAILABLE) failed while draining BMS output: "
-                + BassNativeErrorFormatter.Format(error));
-        }
-
-        AudioPcmRenderer? renderer = session.CallbackPcmRenderer;
-        if (renderer == null || renderer.ChannelCount <= 0)
-        {
-            RecordDrainFailure(AudioPcmRenderStage.InvalidReadLength, null);
-            throw new InvalidOperationException("The WASAPI callback output format is unavailable during drain.");
-        }
-        int bytesPerFrame = checked(renderer.ChannelCount * sizeof(float));
-        if (availableBytes < 0 || availableBytes % bytesPerFrame != 0)
-        {
-            RecordDrainFailure(AudioPcmRenderStage.UnalignedFrame, null);
-            throw new InvalidOperationException(
-                "BASS_WASAPI_GetData(BASS_DATA_AVAILABLE) returned a partial Float32 frame.");
-        }
-
-        long queuedFrames = availableBytes / bytesPerFrame;
-        maximumWasapiQueuedFramesAfterEnd = System.Math.Max(
-            maximumWasapiQueuedFramesAfterEnd,
-            queuedFrames);
-        return maximumWasapiQueuedFramesAfterEnd;
-    }
-
-    private void RecordDrainFailure(AudioPcmRenderStage stage, Errors? error) =>
-        _ = session.TryRecordCallbackOutputFailure(stage, error);
-
     private void InitializeNullDevicePull()
     {
         using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
@@ -660,10 +383,6 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
 
     private void AdvanceNullDevice(long currentTimestamp)
     {
-        if (session.CallbackOutputReachedEnd)
-        {
-            return;
-        }
         long elapsedTicks = System.Math.Max(0, currentTimestamp - lastNullPullTimestamp);
         lastNullPullTimestamp = currentTimestamp;
         double elapsedFrames = elapsedTicks * (double)schedule.SampleRate / Stopwatch.Frequency + nullPullRemainder;
@@ -692,52 +411,16 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
                     outputHandle,
                     buffer,
                     frames,
-                    out AudioPcmReadResult result,
+                    out _,
                     out AudioPcmRenderStage stage,
                     out Errors? error))
             {
                 session.TryRecordCallbackOutputFailure(stage, error);
                 throw new AudioPcmRenderException(outputHandle, stage, error);
             }
-            session.RecordCallbackOutput(frames, result.ReachedEnd);
-            if (result.ReachedEnd)
-            {
-                return;
-            }
+            session.ObserveCallbackPullSize(frames);
             framesToPull -= frames;
         }
-    }
-
-    private static long GetTerminalSongFrame(
-        BmsAudioFrameSchedule schedule,
-        IReadOnlyList<BmsAudioResource?> resources,
-        TimeSpan duration,
-        int sampleRate)
-    {
-        long terminalFrame = System.Math.Max(0, AudioFrameMath.TimeToFrame(duration, sampleRate));
-        foreach (BmsAudioFrameEvent audioEvent in schedule.Events)
-        {
-            if (audioEvent.AbsoluteTime > duration)
-            {
-                continue;
-            }
-            terminalFrame = System.Math.Max(terminalFrame, audioEvent.StartFrame);
-            if ((uint)audioEvent.WavIndex >= (uint)resources.Count)
-            {
-                throw new InvalidOperationException("The BMS schedule references a missing WAV resource slot.");
-            }
-            BmsAudioResource? resource = resources[audioEvent.WavIndex];
-            if (resource == null || resource.IsEmpty)
-            {
-                continue;
-            }
-            long naturalEnd = checked(audioEvent.StartFrame + resource.GetOutputFrameCount(sampleRate));
-            long eventEnd = audioEvent.NextSameIndexStartFrame is long nextStart
-                ? System.Math.Min(naturalEnd, nextStart)
-                : naturalEnd;
-            terminalFrame = System.Math.Max(terminalFrame, eventEnd);
-        }
-        return terminalFrame;
     }
 
     private static long GetCurrentMixerFrame(
@@ -827,15 +510,6 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             }
 
             var failures = new List<Exception>();
-            try
-            {
-                RemoveTerminalSync();
-            }
-            catch (Exception exception)
-            {
-                failures.Add(exception);
-            }
-
             try
             {
                 scheduledMixer.Dispose();

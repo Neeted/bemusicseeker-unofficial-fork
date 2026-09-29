@@ -153,7 +153,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 renderedFrames += frames;
             }
             scheduler.TickWithoutNullOutputAdvance();
-            Assert.IsTrue(scheduler.InputEndTransitionAttempted);
         }
 
         const int secondEventFrame = 96000;
@@ -527,7 +526,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 renderedFrames += frames;
             }
             scheduler.TickWithoutNullOutputAdvance();
-            Assert.IsTrue(scheduler.InputEndTransitionAttempted);
         }
 
         for (int frame = 0; frame < totalFrames; frame++)
@@ -554,345 +552,84 @@ public sealed class BmsRealtimeAudioSchedulerTests
     }
 
     [TestMethod]
-    public async Task Start_UsesNullDeviceMixerClockAndRestoresMixerAfterNaturalDrain()
+    public async Task InternalPlayer_NotifiesExitOnceAfterNaturalPlaybackCleanupCompletes()
     {
         using var directory = new TemporaryDirectory();
-        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, BuildSourceSamples()));
-        string chartPath = directory.File("chart.bms");
-        WriteChart(chartPath, "#WAV01 audio.wav\n#00001:01\n");
-        var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
-        BassAudioSession session = player.ResourceSession;
-
-        try
-        {
-            await player.Start();
-
-            Assert.AreEqual(PlayState.Stopped, player.PlayState);
-            Assert.AreEqual(player.Duration, player.CurrentTime);
-            Assert.AreEqual(session.MixerHandle, BassAudioPlayer.OutputMixerHandle);
-            BassFlags flags = Bass.ChannelFlags(
-                session.MixerHandle,
-                BassFlags.Default,
-                BassFlags.Default);
-            Assert.AreNotEqual(-1, unchecked((int)flags));
-            Assert.IsTrue(flags.HasFlag(BassFlags.MixerNonStop));
-            Assert.IsFalse(flags.HasFlag(BassFlags.MixerEnd));
-            Assert.AreEqual(0L, Bass.ChannelGetPosition(session.MixerHandle, PositionFlags.Bytes));
-        }
-        finally
-        {
-            player.DisposeAudioSourcesAfterUse();
-        }
-    }
-
-    [TestMethod]
-    public void OutputDrainRequiresNativeEofAndActualWasapiQueueAfterTheLastCallbackBlock()
-    {
-        using var directory = new TemporaryDirectory();
-        const int sourceFrames = 4800;
         File.WriteAllBytes(
             directory.File("audio.wav"),
-            BuildFloatWave(48000, BuildConstantSamples(sourceFrames, 0.125f)));
-        string chartPath = directory.File("drain-chart.bms");
+            BuildFloatWave(48000, BuildConstantSamples(4800, 0.125f)));
+        string chartPath = directory.File("natural-exit-chart.bms");
         WriteChart(chartPath,
             "#WAV01 audio.wav\n"
             + "#00002:0.001\n"
             + "#00011:01\n");
-        var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
-        BassAudioPlayer.SetBmsTempoChange(1f);
-        BassAudioSession session = player.ResourceSession;
-        BassAudioPlayer.DeviceDriver originalBackend = session.ActualBackend;
-        BassAudioBackendResult originalNegotiation = session.NegotiationResult;
-        int originalCallbackHandle = session.CallbackOutputHandle;
-        AudioPcmRenderer? originalCallbackRenderer = session.CallbackPcmRenderer;
-        AudioOutputProcessor? originalOutputProcessor = session.OutputProcessor;
-        int originalWasapiDeviceIndex = session.WasapiDeviceIndex;
-        var wasapiOutputBuffer = new RecordingWasapiOutputBufferNativeBoundary();
-        const int callbackFrames = 128;
-        session.ObserveCallbackPullSize(callbackFrames);
-        session.SetCallbackOutputPaused(true);
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseStopping = new ManualResetEventSlim(initialState: false);
+        var player = new GatedStoppingBmsAutoPlayer(
+            new BMSFile(chartPath),
+            new BassMixerSourceNativeBoundary(),
+            stopping,
+            releaseStopping);
+        var wrapper = new InternalBMSAutoPlayerSoundOnly(
+            new RealtimeTestPlayerSettingsGateway(),
+            new RealtimeTestPlaybackRuntime(),
+            autoPlayerFactory: _ => player);
+        var exitNotified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int exitCount = 0;
+        bool cleanupWasCompleteAtNotification = false;
+        Task playback = Task.CompletedTask;
+
         try
         {
-            long inputFrameBeforeScheduler = GetMixerFrame(session, channelCount: 2);
-            using (var scheduler = new BmsRealtimeAudioScheduler(
-                       player.AudioSchedule,
-                       player.AudioResourcesByIndex,
-                       session,
-                       new BassMixerSourceNativeBoundary(),
-                       player.Duration,
-                       segmentStartSongFrame: 0,
-                       playbackRate: 1f,
-                       generation: 12,
-                       wasapiOutputBufferNative: wasapiOutputBuffer))
+            playback = wrapper.PlayStart(chartPath, (_, _) =>
             {
-                try
-                {
-                    int outputHandle = BassAudioPlayer.OutputMixerHandle;
-                    session.CallbackPcmRenderer = new AudioPcmRenderer(outputHandle, 48000, 2);
-                    session.OutputProcessor = new AudioOutputProcessor(48000, 1d);
-                    session.PublishCallbackOutputHandle(outputHandle);
-                    session.NegotiationResult = new BassAudioBackendResult(
-                        new BassAudioNegotiationRequest(
-                            BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-                            default,
-                            SampleRate.SAMPLE_RATE_48000Hz,
-                            SampleFormat.SAMPLE_FLOAT_32BIT,
-                            latencyMilliseconds: 10f),
-                        default,
-                        SampleRate.SAMPLE_RATE_48000Hz,
-                        SampleFormat.SAMPLE_FLOAT_32BIT,
-                        SampleFormat.SAMPLE_FLOAT_32BIT,
-                        latencyMilliseconds: 10d,
-                        session.MixerHandle,
-                        Array.Empty<BassAudioBackendAttempt>(),
-                        string.Empty,
-                        actualChannels: 2,
-                        callbackFormat: SampleFormat.SAMPLE_FLOAT_32BIT);
-                    session.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
-                    session.WasapiDeviceIndex = 3;
-                    const long endpointQueueFrames = 640;
-                    wasapiOutputBuffer.AvailableBytes = checked((int)(endpointQueueFrames * 2 * sizeof(float)));
-                    session.SetCallbackOutputPaused(false);
+                Interlocked.Increment(ref exitCount);
+                BassAudioSession session = player.ResourceSession;
+                cleanupWasCompleteAtNotification = player.RealtimeScheduler == null
+                    && player.PlayState == PlayState.Stopped
+                    && player.CurrentTime == player.Duration
+                    && BassAudioPlayer.OutputMixerHandle == session.MixerHandle
+                    && session.GetPlayerStreams().Count == 0;
+                exitNotified.TrySetResult();
+            });
 
-                    Assert.IsFalse(scheduler.IsOutputDrained);
-                    CallbackPcmSummary callbackPcm = ReadTempoCallbackToNativeEnd(
-                        session,
-                        scheduler,
-                        [31, 127, 43, 113, 59]);
-                    Assert.IsTrue(scheduler.InputEndTransitionAttempted);
-                    long expectedLastMusicOutputFrame = checked(
-                        scheduler.OriginMixerFrame
-                        - inputFrameBeforeScheduler
-                        + player.AudioSchedule.Events.Single().StartFrame
-                        + player.AudioResourcesByIndex[1]!.GetOutputFrameCount(48000)
-                        - 1);
-                    Assert.AreEqual(expectedLastMusicOutputFrame, callbackPcm.LastNonZeroFrame,
-                        "The last finite source frame must survive tempo processing and the published output callback.");
-                    Assert.AreEqual(0.125f, callbackPcm.LastNonZeroLeft, 1e-4f);
-                    Assert.AreEqual(-0.125f, callbackPcm.LastNonZeroRight, 1e-4f);
-                    TestContext.WriteLine(
-                        $"wasapiNaturalOutput: pulls={callbackPcm.PullCount}, requestedFrames={callbackPcm.RequestedFrames}, "
-                        + $"lastNonZeroOutputFrame={callbackPcm.LastNonZeroFrame}, expectedLastFrame={expectedLastMusicOutputFrame}, "
-                        + $"terminalSongFrame={scheduler.TerminalSongFrame}, callbackReachedEnd={session.CallbackOutputReachedEnd}.");
-                    Assert.IsFalse(scheduler.IsOutputDrained,
-                        "Generating the last input mixer frame is not output EOF.");
-
-                    const int callbackBytes = callbackFrames * 2 * sizeof(float);
-                    IntPtr callbackBuffer = Marshal.AllocHGlobal(callbackBytes);
-                    try
-                    {
-                        int callbackPullCount = 0;
-                        while (!session.CallbackOutputReachedEnd && callbackPullCount++ < 100)
-                        {
-                            Assert.AreEqual(
-                                callbackBytes,
-                                BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
-                        }
-                        Assert.IsTrue(session.CallbackOutputReachedEnd,
-                            "The callback must observe native EOF before draining endpoint latency.");
-                        Assert.AreEqual(0L, session.CallbackFramesAfterEnd);
-                        Assert.IsFalse(scheduler.IsOutputDrained);
-
-                        long expectedDrainFrames = endpointQueueFrames + callbackFrames;
-                        Assert.AreEqual(expectedDrainFrames, wasapiOutputBuffer.AvailableFrames + session.MaximumCallbackFrames);
-                        Assert.IsTrue(wasapiOutputBuffer.CallCount > 0);
-                        Assert.AreEqual(3, wasapiOutputBuffer.LastDeviceIndex);
-                        while (session.CallbackFramesAfterEnd < expectedDrainFrames)
-                        {
-                            Assert.AreEqual(
-                                callbackBytes,
-                                BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
-                            Assert.AreEqual(
-                                session.CallbackFramesAfterEnd >= expectedDrainFrames,
-                                scheduler.IsOutputDrained);
-                        }
-                        Assert.IsTrue(scheduler.IsOutputDrained);
-
-                        wasapiOutputBuffer.FailQuery = true;
-                        InvalidOperationException drainFailure = Assert.ThrowsException<InvalidOperationException>(
-                            () => _ = scheduler.IsOutputDrained);
-                        StringAssert.Contains(drainFailure.Message, "BASS_WASAPI_GetData(BASS_DATA_AVAILABLE)");
-                        Assert.IsTrue(session.HasCallbackOutputFailure);
-                    }
-                    finally
-                    {
-                        Marshal.FreeHGlobal(callbackBuffer);
-                    }
-                }
-                finally
-                {
-                    session.SetCallbackOutputPaused(true);
-                    session.ActualBackend = originalBackend;
-                    session.NegotiationResult = originalNegotiation;
-                    session.WasapiDeviceIndex = originalWasapiDeviceIndex;
-                    session.PublishCallbackOutputHandle(originalCallbackHandle);
-                    session.CallbackPcmRenderer = originalCallbackRenderer;
-                    session.OutputProcessor = originalOutputProcessor;
-                    session.ResetCallbackOutputProgress();
-                }
+            Task boundary = await Task.WhenAny(stopping.Task, playback);
+            if (!ReferenceEquals(boundary, stopping.Task))
+            {
+                await playback;
             }
+            await stopping.Task;
+            Assert.IsFalse(playback.IsCompleted,
+                "曲長到達後も再生Taskは音声cleanupの完了まで保留されます。");
+            Assert.IsFalse(exitNotified.Task.IsCompleted,
+                "終了通知は再生Taskのcleanup完了前に進みません。");
+
+            releaseStopping.Set();
+            Task completionBoundary = await Task.WhenAny(exitNotified.Task, playback);
+            if (ReferenceEquals(completionBoundary, playback))
+            {
+                await playback;
+            }
+            await exitNotified.Task;
+            await playback;
+
+            Assert.AreEqual(1, Volatile.Read(ref exitCount));
+            Assert.IsTrue(cleanupWasCompleteAtNotification,
+                "通知時点でscheduler、tempo出力、voiceのcleanupが完了している必要があります。");
         }
         finally
         {
-            session.SetCallbackOutputPaused(true);
-            player.DisposeAudioSourcesAfterUse();
-        }
-    }
-
-    [TestMethod]
-    public void OutputDrainUsesReportedAsioLatencyAfterNativeEofAndTheLastCallbackBlock()
-    {
-        using var directory = new TemporaryDirectory();
-        const int sourceFrames = 4800;
-        File.WriteAllBytes(
-            directory.File("audio.wav"),
-            BuildFloatWave(48000, BuildConstantSamples(sourceFrames, 0.125f)));
-        string chartPath = directory.File("asio-drain-chart.bms");
-        WriteChart(chartPath,
-            "#WAV01 audio.wav\n"
-            + "#00002:0.001\n"
-            + "#00011:01\n");
-        var player = new BMSAutoPlayer(new BMSFile(chartPath));
-        player.LoadResources(asParallel: false);
-        BassAudioPlayer.SetBmsTempoChange(1f);
-        BassAudioSession session = player.ResourceSession;
-        BassAudioPlayer.DeviceDriver originalBackend = session.ActualBackend;
-        BassAudioBackendResult originalNegotiation = session.NegotiationResult;
-        int originalCallbackHandle = session.CallbackOutputHandle;
-        AudioPcmRenderer? originalCallbackRenderer = session.CallbackPcmRenderer;
-        AudioOutputProcessor? originalOutputProcessor = session.OutputProcessor;
-        const int callbackFrames = 128;
-        const int postEndPullFrames = 32;
-        const int reportedOutputLatencyFrames = 96;
-        long requiredDrainFrames = reportedOutputLatencyFrames + callbackFrames;
-        session.ObserveCallbackPullSize(callbackFrames);
-        session.SetCallbackOutputPaused(true);
-        try
-        {
-            long inputFrameBeforeScheduler = GetMixerFrame(session, channelCount: 2);
-            using (var scheduler = new BmsRealtimeAudioScheduler(
-                       player.AudioSchedule,
-                       player.AudioResourcesByIndex,
-                       session,
-                       new BassMixerSourceNativeBoundary(),
-                       player.Duration,
-                       segmentStartSongFrame: 0,
-                       playbackRate: 1f,
-                       generation: 14))
+            releaseStopping.Set();
+            try
             {
-                try
-                {
-                    int outputHandle = BassAudioPlayer.OutputMixerHandle;
-                    session.CallbackPcmRenderer = new AudioPcmRenderer(outputHandle, 48000, 2);
-                    session.OutputProcessor = new AudioOutputProcessor(48000, 1d);
-                    session.PublishCallbackOutputHandle(outputHandle);
-                    // ASIO条件と報告latencyだけをfake化し、終端を含むBASS mixer/tempo/callback経路は実NullDeviceで駆動します。
-                    session.NegotiationResult = new BassAudioBackendResult(
-                        new BassAudioNegotiationRequest(
-                            BassAudioPlayer.DeviceDriver.ASIO,
-                            default,
-                            SampleRate.SAMPLE_RATE_48000Hz,
-                            SampleFormat.SAMPLE_FLOAT_32BIT,
-                            latencyMilliseconds: 2f),
-                        default,
-                        SampleRate.SAMPLE_RATE_48000Hz,
-                        SampleFormat.SAMPLE_FLOAT_32BIT,
-                        SampleFormat.SAMPLE_FLOAT_32BIT,
-                        latencyMilliseconds: 2d,
-                        session.MixerHandle,
-                        Array.Empty<BassAudioBackendAttempt>(),
-                        string.Empty,
-                        actualChannels: 2,
-                        callbackFormat: SampleFormat.SAMPLE_FLOAT_32BIT);
-                    session.ActualBackend = BassAudioPlayer.DeviceDriver.ASIO;
-                    session.SetCallbackOutputPaused(false);
-
-                    Assert.IsFalse(scheduler.IsOutputDrained, "input終端前は排出完了にできません。");
-                    const int channelCount = 2;
-                    CallbackPcmSummary callbackPcm = ReadTempoCallbackToNativeEnd(
-                        session,
-                        scheduler,
-                        [31, 127, 43, 113, 59]);
-                    Assert.IsTrue(scheduler.InputEndTransitionAttempted);
-                    long expectedLastMusicOutputFrame = checked(
-                        scheduler.OriginMixerFrame
-                        - inputFrameBeforeScheduler
-                        + player.AudioSchedule.Events.Single().StartFrame
-                        + player.AudioResourcesByIndex[1]!.GetOutputFrameCount(48000)
-                        - 1);
-                    Assert.AreEqual(expectedLastMusicOutputFrame, callbackPcm.LastNonZeroFrame,
-                        "The last finite source frame must survive tempo processing and the published output callback.");
-                    Assert.AreEqual(0.125f, callbackPcm.LastNonZeroLeft, 1e-4f);
-                    Assert.AreEqual(-0.125f, callbackPcm.LastNonZeroRight, 1e-4f);
-                    TestContext.WriteLine(
-                        $"asioNaturalOutput: pulls={callbackPcm.PullCount}, requestedFrames={callbackPcm.RequestedFrames}, "
-                        + $"lastNonZeroOutputFrame={callbackPcm.LastNonZeroFrame}, expectedLastFrame={expectedLastMusicOutputFrame}, "
-                        + $"terminalSongFrame={scheduler.TerminalSongFrame}, callbackReachedEnd={session.CallbackOutputReachedEnd}.");
-                    Assert.IsFalse(scheduler.IsOutputDrained,
-                        "最後のinput mixer frameを生成しただけではcallback EOFになりません。");
-
-                    int callbackBytes = callbackFrames * channelCount * sizeof(float);
-                    IntPtr callbackBuffer = Marshal.AllocHGlobal(callbackBytes);
-                    try
-                    {
-                        int callbackPullCount = 0;
-                        while (!session.CallbackOutputReachedEnd && callbackPullCount++ < 100)
-                        {
-                            Assert.AreEqual(
-                                callbackBytes,
-                                BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
-                        }
-                        Assert.IsTrue(session.CallbackOutputReachedEnd,
-                            "ASIO条件でも、最後のnative PCMを返すcallbackを観測するまでは終端にできません。");
-                        Assert.AreEqual(0L, session.CallbackFramesAfterEnd);
-                        Assert.AreEqual(callbackFrames, session.MaximumCallbackFrames);
-                        Assert.IsFalse(scheduler.IsOutputDrained);
-
-                        int postEndPullBytes = postEndPullFrames * channelCount * sizeof(float);
-                        int belowThresholdPullCount = checked((int)((requiredDrainFrames - postEndPullFrames) / postEndPullFrames));
-                        for (int pull = 0; pull < belowThresholdPullCount; pull++)
-                        {
-                            Assert.AreEqual(
-                                postEndPullBytes,
-                                BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, postEndPullBytes));
-                        }
-                        Assert.AreEqual(requiredDrainFrames - postEndPullFrames, session.CallbackFramesAfterEnd);
-                        Assert.IsFalse(scheduler.IsOutputDrained,
-                            "ASIO報告latencyと最後のcallback blockの合計に達する前は終端にできません。");
-
-                        Assert.AreEqual(
-                            postEndPullBytes,
-                            BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, postEndPullBytes));
-                        Assert.AreEqual(requiredDrainFrames, session.CallbackFramesAfterEnd);
-                        Assert.IsTrue(scheduler.IsOutputDrained,
-                            "報告output latencyと最大callback blockを出力した境界で終端になります。");
-                    }
-                    finally
-                    {
-                        Marshal.FreeHGlobal(callbackBuffer);
-                    }
-                }
-                finally
-                {
-                    session.SetCallbackOutputPaused(true);
-                    session.ActualBackend = originalBackend;
-                    session.NegotiationResult = originalNegotiation;
-                    session.PublishCallbackOutputHandle(originalCallbackHandle);
-                    session.CallbackPcmRenderer = originalCallbackRenderer;
-                    session.OutputProcessor = originalOutputProcessor;
-                    session.ResetCallbackOutputProgress();
-                }
+                await playback;
             }
-        }
-        finally
-        {
-            session.SetCallbackOutputPaused(true);
-            player.DisposeAudioSourcesAfterUse();
+            catch
+            {
+            }
+            wrapper.CloseProcess();
         }
     }
-
     [TestMethod]
     public async Task PauseSeekAndRateChangesKeepTheRealtimeGraphFrozenUntilResume()
     {
@@ -963,7 +700,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Assert.AreEqual(PlayState.Paused, player.PlayState);
             Assert.IsTrue(session.WithCallbackOutputPull(paused => paused));
             long firstSeekFrame = 72000;
-            Assert.AreEqual(AudioFrameMath.FrameToTime(firstSeekFrame, 48000), player.RealtimeScheduler!.CurrentTime);
+            Assert.AreEqual(firstSeekFrame, player.RealtimeScheduler!.CurrentSongFrame);
             Assert.AreEqual(mixerFrameBeforePausedPull, GetMixerFrame(session, channelCount: 2));
 
             Task<PlaybackStateSnapshot> resumedTick = player.ArmNextStateApplication();
@@ -983,7 +720,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             var finalSeek = TimeSpan.FromMilliseconds(3500);
             player.CurrentTime = finalSeek;
             Assert.IsTrue(session.WithCallbackOutputPull(paused => paused));
-            Assert.AreEqual(AudioFrameMath.FrameToTime(168000, 48000), player.RealtimeScheduler!.CurrentTime);
+            Assert.AreEqual(168000L, player.RealtimeScheduler!.CurrentSongFrame);
 
             Task<PlaybackStateSnapshot> finalTick = player.ArmNextStateApplication();
             player.Pause();
@@ -1523,7 +1260,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             player.CurrentTime = seekTime;
             player.PlaybackRate = 2f;
             Assert.AreEqual(PlayState.Paused, player.PlayState);
-            Assert.AreEqual(seekTime, player.RealtimeScheduler!.CurrentTime);
+            Assert.AreEqual(AudioFrameMath.TimeToFrame(seekTime, 48000), player.RealtimeScheduler!.CurrentSongFrame);
             Assert.IsTrue(player.ResourceSession.WithCallbackOutputPull(paused => paused));
 
             Task<PlaybackStateSnapshot> firstStateApplication = player.ArmNextStateApplication();
@@ -1658,14 +1395,14 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Assert.IsTrue(session.IsCallbackOutputPaused);
             wrapper.CurrentTime = TimeSpan.FromMilliseconds(250);
             Assert.AreEqual(
-                AudioFrameMath.FrameToTime(12000, 48000),
-                player.RealtimeScheduler!.CurrentTime);
+                12000L,
+                player.RealtimeScheduler!.CurrentSongFrame);
 
             wrapper.RestartPlayingBMSfile();
 
             Assert.AreEqual(PlayState.Paused, player.PlayState);
             Assert.IsTrue(session.IsCallbackOutputPaused);
-            Assert.AreEqual(TimeSpan.Zero, player.RealtimeScheduler!.CurrentTime);
+            Assert.AreEqual(0L, player.RealtimeScheduler!.CurrentSongFrame);
             long currentMixerFrame = GetMixerFrame(session, channelCount: 2);
             Assert.AreEqual(currentMixerFrame, player.RealtimeScheduler.OriginMixerFrame,
                 "Restart入口は停止中のinput mixer位置をsong frame 0へ対応させます。");
@@ -1817,7 +1554,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
     }
 
     [TestMethod]
-    public async Task StopRetainsTerminalSyncOwnerAndKeepsOutputPausedWhenSyncAndVoiceCleanupFail()
+    public async Task StopRetainsVoiceOwnerAndKeepsOutputPausedWhenVoiceCleanupFails()
     {
         using var directory = new TemporaryDirectory();
         File.WriteAllBytes(
@@ -1828,7 +1565,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
         var native = new FaultInjectingScheduledNativeBoundary(
             failResumeAt: 0,
             failNextUnlock: false,
-            failRemoveSync: true,
             failRemoveChannel: true,
             failStreamFree: true);
         var player = new BMSAutoPlayer(new BMSFile(chartPath), native);
@@ -1839,7 +1575,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Task playback = player.Start();
         BmsRealtimeAudioScheduler scheduler = player.RealtimeScheduler
             ?? throw new AssertFailedException("The active playback did not create its realtime scheduler.");
-        Assert.IsTrue(scheduler.HasTerminalSync);
         Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
             "The active playback must own a scheduled voice before Stop begins.");
 
@@ -1848,40 +1583,26 @@ public sealed class BmsRealtimeAudioSchedulerTests
         AggregateException playbackFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => playback);
 
         Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
-            exception is InvalidOperationException
-            && exception.Message.Contains("terminal sync", StringComparison.OrdinalIgnoreCase)),
-            "Stop must retain the terminal-sync removal failure.");
-        Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
             exception.GetType().Name.Contains("BassAudioPlaybackException", StringComparison.Ordinal)),
             "Stop must retain the scheduled voice removal failure.");
         Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
             exception is OperationCanceledException),
             "Stop must preserve the cancellation that initiated cleanup.");
         Assert.IsTrue(playbackFailure.Flatten().InnerExceptions.Any(exception =>
-            exception is InvalidOperationException
-            && exception.Message.Contains("terminal sync", StringComparison.OrdinalIgnoreCase)),
-            "The Start task must report cleanup failure after cancellation.");
-        Assert.IsTrue(playbackFailure.Flatten().InnerExceptions.Any(exception =>
             exception.GetType().Name.Contains("BassAudioPlaybackException", StringComparison.Ordinal)),
             "The Start task must retain the scheduled voice cleanup failure too.");
-        Assert.AreEqual(1, native.RemoveSyncCalls,
-            "Stop must attempt to remove the input terminal sync.");
         Assert.IsTrue(native.RemoveChannelCalls > 0,
-            "A failed sync removal must not skip independent scheduled voice cleanup.");
+            "Voice cleanup must still attempt native channel detachment.");
         Assert.IsTrue(native.StreamFreeCalls > 0,
             "Scheduled voice disposal must attempt native release even after mixer detachment fails.");
         Assert.IsTrue(session.HasCallbackOutputFailure,
             "Cleanup failure must fault the session before callback output can resume.");
         Assert.IsTrue(session.IsCallbackOutputPaused,
             "Stop must leave callback output paused after cleanup failure.");
-        Assert.IsTrue(scheduler.HasTerminalSync,
-            "The scheduler must retain its native sync handle when removal is unconfirmed.");
         Assert.AreSame(scheduler, player.RealtimeScheduler,
             "The BMS player must retain its failed scheduler owner.");
         Assert.AreSame(session, player.ResourceSession,
             "The failed audio session must remain attached to its BMS player.");
-        Assert.IsTrue(session.HasRetainedRealtimeTerminalSyncProcedure,
-            "The active session must keep the native callback delegate alive until mixer release is confirmed.");
         Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
             "A source whose native cleanup is unconfirmed must remain session-owned.");
 
@@ -2288,67 +2009,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
-    private static CallbackPcmSummary ReadTempoCallbackToNativeEnd(
-        BassAudioSession session,
-        BmsRealtimeAudioScheduler scheduler,
-        int[] pullPattern)
-    {
-        Assert.IsTrue(pullPattern.Length > 0);
-        int maximumPullFrames = pullPattern.Max();
-        int channelCount = 2;
-        int bufferBytes = checked(maximumPullFrames * channelCount * sizeof(float));
-        IntPtr nativeBuffer = Marshal.AllocHGlobal(bufferBytes);
-        float[] pcm = new float[maximumPullFrames * channelCount];
-        long requestedFrames = 0;
-        long lastNonZeroFrame = -1;
-        float lastNonZeroLeft = 0f;
-        float lastNonZeroRight = 0f;
-        int pullCount = 0;
-
-        try
-        {
-            while (!session.CallbackOutputReachedEnd)
-            {
-                Assert.IsTrue(pullCount < 2000,
-                    "Tempo callbackが終端へ達する前に規定pull数を超えました。");
-                scheduler.TickWithoutNullOutputAdvance();
-                int requested = pullPattern[pullCount % pullPattern.Length];
-                int requestedBytes = checked(requested * channelCount * sizeof(float));
-                Assert.AreEqual(
-                    requestedBytes,
-                    BassAudioPlayer.ReadPublishedCallbackOutput(session, nativeBuffer, requestedBytes));
-                Marshal.Copy(nativeBuffer, pcm, 0, requested * channelCount);
-                for (int frame = 0; frame < requested; frame++)
-                {
-                    float left = pcm[frame * channelCount];
-                    float right = pcm[frame * channelCount + 1];
-                    if (Math.Abs(left) > 1e-6f || Math.Abs(right) > 1e-6f)
-                    {
-                        lastNonZeroFrame = checked(requestedFrames + frame);
-                        lastNonZeroLeft = left;
-                        lastNonZeroRight = right;
-                    }
-                }
-
-                requestedFrames = checked(requestedFrames + requested);
-                pullCount++;
-            }
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(nativeBuffer);
-        }
-
-        Assert.IsTrue(lastNonZeroFrame >= 0,
-            "Tempoから公開callbackまでに有限発音のPCMが届きませんでした。");
-        return new CallbackPcmSummary(
-            pullCount,
-            requestedFrames,
-            lastNonZeroFrame,
-            lastNonZeroLeft,
-            lastNonZeroRight);
-    }
-
     private static long GetMixerFrame(BassAudioSession session, int channelCount)
     {
         using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
@@ -2492,7 +2152,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         private ControlOperationObservation? nextSeekOperation;
         private ControlOperationObservation? nextRateOperation;
         private PlaybackCleanupGate? nextPlaybackCleanupGate;
-        private PlaybackTickResult lastTickResult;
+        private TimeSpan lastTickTime;
+        private bool lastTickCompleted;
         private long stateSequence;
 
         public Task<PlaybackStateSnapshot> ArmNextStateApplication()
@@ -2574,20 +2235,20 @@ public sealed class BmsRealtimeAudioSchedulerTests
             }
         }
 
-        protected override PlaybackTickResult OnPlaybackTick(TimeSpan wallClockTime)
+        protected override void OnPlaybackTick(TimeSpan playbackTime)
         {
-            PlaybackTickResult result = base.OnPlaybackTick(wallClockTime);
-            lastTickResult = result;
-            Interlocked.Exchange(ref nextTickGate, null)?.WaitForRelease(result.Time);
-            return result;
+            base.OnPlaybackTick(playbackTime);
+            lastTickTime = playbackTime;
+            lastTickCompleted = playbackTime >= Duration;
+            Interlocked.Exchange(ref nextTickGate, null)?.WaitForRelease(playbackTime);
         }
 
         protected override void ForwardTo(TimeSpan time)
         {
             base.ForwardTo(time);
             var state = new PlaybackStateSnapshot(
-                lastTickResult.Time,
-                lastTickResult.Completed,
+                lastTickTime,
+                lastTickCompleted,
                 CurrentTime,
                 CurrentBpm,
                 Combo,
@@ -2764,14 +2425,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         public long GetPosition(int mixerHandle, PositionFlags mode) => inner.GetPosition(mixerHandle, mode);
 
-        public int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure) =>
-            inner.SetPositionSync(mixerHandle, positionBytes, procedure);
-
-        public bool RemoveSync(int mixerHandle, int syncHandle) => inner.RemoveSync(mixerHandle, syncHandle);
-
-        public BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask) =>
-            inner.SetMixerStreamFlags(mixerHandle, flags, mask);
-
         public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
         {
             BassFlags result = inner.SetMixerChannelFlags(sourceHandle, flags, mask);
@@ -2911,7 +2564,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
         int failResumeAt,
         bool failNextUnlock,
         int failSetPositionAt = 0,
-        bool failRemoveSync = false,
         bool failRemoveChannel = false,
         bool failStreamFree = false,
         int failGetPositionAt = 0,
@@ -2924,14 +2576,11 @@ public sealed class BmsRealtimeAudioSchedulerTests
         private int resumeCount;
         private int setPositionCount;
         private int getPositionCalls;
-        private int removeSyncCalls;
         private int removeChannelCalls;
         private int streamFreeCalls;
         private int failUnlock = failNextUnlock ? 1 : 0;
         private int failNextResume;
         private Errors injectedError = Errors.OK;
-
-        internal int RemoveSyncCalls => Volatile.Read(ref removeSyncCalls);
 
         internal int RemoveChannelCalls => Volatile.Read(ref removeChannelCalls);
 
@@ -2968,22 +2617,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
             }
             return inner.GetPosition(mixerHandle, mode);
         }
-
-        public int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure) =>
-            inner.SetPositionSync(mixerHandle, positionBytes, procedure);
-
-        public bool RemoveSync(int mixerHandle, int syncHandle)
-        {
-            Interlocked.Increment(ref removeSyncCalls);
-            if (failRemoveSync)
-            {
-                return Inject(Errors.Device);
-            }
-            return inner.RemoveSync(mixerHandle, syncHandle);
-        }
-
-        public BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask) =>
-            inner.SetMixerStreamFlags(mixerHandle, flags, mask);
 
         public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
         {
@@ -3058,34 +2691,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
-    private sealed class RecordingWasapiOutputBufferNativeBoundary : IBassWasapiOutputBufferNativeBoundary
-    {
-        internal int AvailableBytes { get; set; }
-
-        internal bool FailQuery { get; set; }
-
-        internal long AvailableFrames => AvailableBytes / (2 * sizeof(float));
-
-        internal int CallCount { get; private set; }
-
-        internal int LastDeviceIndex { get; private set; } = -1;
-
-        public bool TryGetAvailableBytes(int deviceIndex, out int availableBytes, out Errors? error)
-        {
-            CallCount++;
-            LastDeviceIndex = deviceIndex;
-            if (FailQuery)
-            {
-                availableBytes = 0;
-                error = Errors.Init;
-                return false;
-            }
-            availableBytes = AvailableBytes;
-            error = null;
-            return true;
-        }
-    }
-
     private static byte[] BuildFloatWave(int sampleRate, float[] interleavedSamples)
     {
         int dataLength = checked(interleavedSamples.Length * sizeof(float));
@@ -3154,10 +2759,4 @@ public sealed class BmsRealtimeAudioSchedulerTests
         public void Dispose() => Directory.Delete(path, recursive: true);
     }
 
-    private readonly record struct CallbackPcmSummary(
-        int PullCount,
-        long RequestedFrames,
-        long LastNonZeroFrame,
-        float LastNonZeroLeft,
-        float LastNonZeroRight);
 }

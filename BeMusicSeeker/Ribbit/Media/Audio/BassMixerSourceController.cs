@@ -204,14 +204,6 @@ internal interface IBassScheduledMixerNativeBoundary : IBassMixerSourceNativeBou
     /// <summary>mixerの実効出力byte位置を取得します。</summary>
     long GetPosition(int mixerHandle, PositionFlags mode);
 
-    /// <summary>input mixerの指定byte位置でrender中に一度だけ呼ぶ同期を登録します。</summary>
-    int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure);
-
-    /// <summary>input mixerへ登録した同期を解除します。</summary>
-    bool RemoveSync(int mixerHandle, int syncHandle);
-
-    /// <summary>input mixer streamの終端flagを更新します。</summary>
-    BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask);
 }
 
 /// <summary>Calls ManagedBass mixer-source APIs without hiding their failure contracts.</summary>
@@ -233,22 +225,6 @@ internal sealed class BassMixerSourceNativeBoundary : IBassScheduledMixerNativeB
 
     /// <inheritdoc />
     public long GetPosition(int mixerHandle, PositionFlags mode) => Bass.ChannelGetPosition(mixerHandle, mode);
-
-    /// <inheritdoc />
-    public int SetPositionSync(int mixerHandle, long positionBytes, SyncProcedure procedure) =>
-        Bass.ChannelSetSync(
-            mixerHandle,
-            SyncFlags.Position | SyncFlags.Mixtime | SyncFlags.Onetime,
-            positionBytes,
-            procedure,
-            IntPtr.Zero);
-
-    /// <inheritdoc />
-    public bool RemoveSync(int mixerHandle, int syncHandle) => Bass.ChannelRemoveSync(mixerHandle, syncHandle);
-
-    /// <inheritdoc />
-    public BassFlags SetMixerStreamFlags(int mixerHandle, BassFlags flags, BassFlags mask) =>
-        Bass.ChannelFlags(mixerHandle, flags, mask);
 
     /// <inheritdoc />
     public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)

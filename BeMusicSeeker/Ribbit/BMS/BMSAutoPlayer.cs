@@ -5,7 +5,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
-using ManagedBass;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
@@ -55,7 +54,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     internal BassAudioSession ResourceSession =>
         resourceSession ?? throw new InvalidOperationException("BMS audio resources have not been loaded.");
 
-    /// <summary>再生中に実際のRealtime予約、Mixer時計、排出状態を検証するownerです。</summary>
+    /// <summary>再生中に実際のRealtime予約と曲内frame位置を管理するownerです。</summary>
     internal BmsRealtimeAudioScheduler? RealtimeScheduler => realtimeScheduler;
 
     /// <summary>BMS resourceへ捕捉するvoice source gainを取得します。</summary>
@@ -99,7 +98,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         }
     }
 
-    /// <summary>Pause中もnative output callbackと直列化し、曲のmixer時計を凍結します。</summary>
+    /// <summary>Pause中もnative output callbackと直列化し、再生時計を凍結します。</summary>
     public override void Pause()
     {
         lock (playbackControlSync)
@@ -135,7 +134,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         }
     }
 
-    /// <summary>再生Taskへmixer位置を渡し、再生区間の寿命と排出を管理します。</summary>
+    /// <summary>再生Taskの開始前に、予約区間とnative tempoを準備します。</summary>
     protected override void OnPlaybackStarting()
     {
         lock (playbackControlSync)
@@ -149,9 +148,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 {
                     throw new InvalidOperationException("A prior realtime BMS playback segment is still owned.");
                 }
-                RestoreInputMixerForPlayback(session);
                 BassAudioPlayer.SetBmsTempoChange(base.PlaybackRate);
-                session.ResetCallbackOutputProgress();
                 long segmentStartFrame = AudioFrameMath.TimeToFrame(
                     currentTime < TimeSpan.Zero ? TimeSpan.Zero : currentTime,
                     AudioSchedule.SampleRate);
@@ -181,18 +178,14 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         }
     }
 
-    /// <summary>次のreservationを行い、callback故障を再生Taskへ返します。</summary>
-    protected override PlaybackTickResult OnPlaybackTick(TimeSpan wallClockTime)
+    /// <summary>出力故障を確認し、次の発音予約を補充します。</summary>
+    /// <param name="playbackTime">共通再生時計から算出された現在の曲内時刻。</param>
+    protected override void OnPlaybackTick(TimeSpan playbackTime)
     {
         lock (playbackControlSync)
         {
             BassAudioPlayer.CheckOutputHealth();
             realtimeScheduler?.Tick();
-
-            BmsRealtimeAudioScheduler? scheduler = realtimeScheduler;
-            return scheduler == null
-                ? new PlaybackTickResult(wallClockTime, wallClockTime >= Duration)
-                : new PlaybackTickResult(scheduler.CurrentTime, scheduler.IsOutputDrained);
         }
     }
 
@@ -207,8 +200,20 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 return;
             }
             session.SetCallbackOutputPaused(true);
-            bool restoreInput = realtimeScheduler?.InputEndTransitionAttempted == true;
             var failures = new List<Exception>();
+            if (PlayState != PlayState.Stopped)
+            {
+                try
+                {
+                    // 終了tick後の進行中callback故障も、出力を停止してから回収します。
+                    BassAudioPlayer.CheckOutputHealth();
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
             if (realtimeScheduler != null)
             {
                 try
@@ -233,30 +238,6 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
             catch (Exception exception)
             {
                 failures.Add(exception);
-            }
-
-            if (restoreInput)
-            {
-                try
-                {
-                    RestoreInputMixerAfterNaturalEnd(session);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
-            }
-
-            if (failures.Count == 0 && !session.HasCallbackOutputFailure)
-            {
-                try
-                {
-                    session.ResetCallbackOutputProgress();
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
             }
 
             if (failures.Count != 0 || session.HasCallbackOutputFailure)
@@ -289,7 +270,6 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
             bool resumeAfterSeek = PlayState == PlayState.Playing;
             BassAudioSession session = resourceSession;
             session.SetCallbackOutputPaused(true);
-            bool restoreInput = realtimeScheduler.InputEndTransitionAttempted;
             try
             {
                 realtimeScheduler.Dispose();
@@ -299,11 +279,6 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 {
                     throw new InvalidOperationException("The BMS tempo output could not be released before seek.");
                 }
-                if (restoreInput)
-                {
-                    RestoreInputMixerAfterNaturalEnd(session);
-                }
-                session.ResetCallbackOutputProgress();
                 base.MoveTo(boundedTime);
                 BassAudioPlayer.SetBmsTempoChange(base.PlaybackRate);
                 long songFrame = AudioFrameMath.TimeToFrame(boundedTime, AudioSchedule.SampleRate);
@@ -322,6 +297,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 realtimeScheduler.ResetControlInterval();
                 if (resumeAfterSeek)
                 {
+                    ResetPlaybackClock();
                     session.SetCallbackOutputPaused(false);
                 }
             }
@@ -530,93 +506,6 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         // 明示された非空参照が見つからない場合も、最初に探索したpathをpipelineへ渡して
         // 読取り失敗として警告・省略数・全件失敗判定へ一貫して反映します。
         return firstCandidate;
-    }
-
-    private static void RestoreInputMixerForPlayback(BassAudioSession session) =>
-        ConfigureInputMixer(session, resetEndedPosition: true);
-
-    private static void RestoreInputMixerAfterNaturalEnd(BassAudioSession session) =>
-        ConfigureInputMixer(session, resetEndedPosition: true);
-
-    private static void ConfigureInputMixer(BassAudioSession session, bool resetEndedPosition)
-    {
-        using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-        if (!ReferenceEquals(BassAudioPlayer.CurrentSessionForAdmittedOperation, session)
-            || session.State != BassAudioSessionState.Active)
-        {
-            throw new InvalidOperationException("The BMS input mixer session is no longer active.");
-        }
-        if (session.CoreDeviceIndex >= 0)
-        {
-            Bass.CurrentDevice = session.CoreDeviceIndex;
-        }
-
-        BassFlags mixerFlags = BassFlags.MixerNonStop | BassFlags.MixerEnd;
-        bool locked = false;
-        Exception? failure = null;
-        bool mixerHadEnded = false;
-        try
-        {
-            if (!Bass.ChannelLock(session.MixerHandle, true))
-            {
-                Errors error = Bass.LastError;
-                throw new InvalidOperationException(
-                    "BASS_ChannelLock failed while preparing the BMS input mixer: " + BassNativeErrorFormatter.Format(error));
-            }
-            locked = true;
-
-            BassFlags currentFlags = Bass.ChannelFlags(
-                session.MixerHandle,
-                BassFlags.Default,
-                BassFlags.Default);
-            if (unchecked((int)currentFlags) == -1)
-            {
-                Errors error = Bass.LastError;
-                throw new InvalidOperationException(
-                    "BASS_ChannelFlags(read) failed while preparing the BMS input mixer: " + BassNativeErrorFormatter.Format(error));
-            }
-            mixerHadEnded = currentFlags.HasFlag(BassFlags.MixerEnd);
-
-            BassFlags updatedFlags = Bass.ChannelFlags(
-                session.MixerHandle,
-                BassFlags.MixerNonStop,
-                mixerFlags);
-            if (unchecked((int)updatedFlags) == -1)
-            {
-                Errors error = Bass.LastError;
-                throw new InvalidOperationException(
-                    "BASS_ChannelFlags(update) failed while preparing the BMS input mixer: " + BassNativeErrorFormatter.Format(error));
-            }
-
-            if (resetEndedPosition && mixerHadEnded
-                && !Bass.ChannelSetPosition(session.MixerHandle, 0, PositionFlags.Bytes))
-            {
-                Errors error = Bass.LastError;
-                throw new InvalidOperationException(
-                    "BASS_ChannelSetPosition failed while restarting the BMS input mixer: " + BassNativeErrorFormatter.Format(error));
-            }
-        }
-        catch (Exception exception)
-        {
-            failure = exception;
-            session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.ScheduledPlayback);
-        }
-        finally
-        {
-            if (locked && !Bass.ChannelLock(session.MixerHandle, false))
-            {
-                Errors error = Bass.LastError;
-                var unlockFailure = new InvalidOperationException(
-                    "BASS_ChannelLock failed while releasing the BMS input mixer: " + BassNativeErrorFormatter.Format(error));
-                session.TryRecordCallbackOutputFailure(AudioPcmRenderStage.ScheduledPlayback);
-                failure = failure == null ? unlockFailure : new AggregateException(failure, unlockFailure);
-            }
-        }
-
-        if (failure != null)
-        {
-            throw failure;
-        }
     }
 
     private static void ThrowCleanupFailures(IReadOnlyList<Exception> failures)

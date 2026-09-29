@@ -2205,7 +2205,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
 
                 if (!renderer.TryReadFrames(session.CallbackOutputHandle, pcm, requestedFrames,
-                        out AudioPcmReadResult readResult, out AudioPcmRenderStage stage, out Errors? nativeError))
+                        out _, out AudioPcmRenderStage stage, out Errors? nativeError))
                 {
                     session.TryRecordCallbackOutputFailure(stage, nativeError);
                     bytes.Clear();
@@ -2235,7 +2235,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     session.TryMarkOutputOverLevelPending();
                 }
-                session.RecordCallbackOutput(requestedFrames, readResult.ReachedEnd);
                 return length;
             }
             catch

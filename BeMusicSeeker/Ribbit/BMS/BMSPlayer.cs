@@ -317,9 +317,6 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     public PlayState PlayState { get; private set; } = PlayState.Stopped;
 
-    /// <summary>一回の再生tickで取得した時計と音声側の完了判定を変更不能な値で返します。</summary>
-    protected readonly record struct PlaybackTickResult(TimeSpan Time, bool Completed);
-
     protected BMSPlayer()
     {
     }
@@ -928,6 +925,16 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
         }
     }
 
+    /// <summary>現在の再生状態と曲内時刻から再生時計を再設定します。</summary>
+    /// <remarks>派生playerが再生前の準備を終えて再開する直前に呼び、準備時間を再生時間へ含めないために使います。</remarks>
+    protected void ResetPlaybackClock()
+    {
+        lock (playbackControlSync)
+        {
+            ResetTimer();
+        }
+    }
+
     /// <summary>再生を開始し、再生・機能固有の後処理の両方が終わった時点で完了します。</summary>
     public virtual async Task Start()
     {
@@ -1008,9 +1015,10 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
                         TimeSpan wallClockTime = timerOffset
                             + TimeSpan.FromTicks((long)((float)timer.Elapsed.Ticks * playbackRate));
-                        PlaybackTickResult tick = OnPlaybackTick(wallClockTime);
-                        ForwardTo(tick.Time);
-                        completed = tick.Completed;
+                        completed = wallClockTime >= Duration;
+                        TimeSpan playbackTime = completed ? Duration : wallClockTime;
+                        OnPlaybackTick(playbackTime);
+                        ForwardTo(playbackTime);
                     }
                 }
                 catch (OperationCanceledException exception)
@@ -1080,9 +1088,11 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
     {
     }
 
-    /// <summary>一回の制御tickで再生時刻と音声側の完了状態を取得します。</summary>
-    protected virtual PlaybackTickResult OnPlaybackTick(TimeSpan wallClockTime) =>
-        new(wallClockTime, wallClockTime >= Duration);
+    /// <summary>一回の制御tickで機能固有の状態確認と処理補充を行います。</summary>
+    /// <param name="playbackTime">共通の再生時計から算出し、曲長以内へ制限した曲内時刻。</param>
+    protected virtual void OnPlaybackTick(TimeSpan playbackTime)
+    {
+    }
 
     /// <summary>再生ループ終了後、再生Taskが完了する前に機能固有の資源を回収します。</summary>
     protected virtual void OnPlaybackStopping()

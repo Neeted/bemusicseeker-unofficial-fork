@@ -31,6 +31,8 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
 
     private Action<object, EventArgs> _onExitEvent;
 
+    private bool _playbackTaskCompletedSuccessfully;
+
     private bool _fastForwarding;
 
     private bool _fastBackwarding;
@@ -407,7 +409,8 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             {
                 lock (_sharedObjectLock)
                 {
-                    if (_player != null && _player.CurrentTime < _player.Duration)
+                    // cleanup後のseekでCurrentTimeは戻り得るため、完了後は時計値を再判定しません。
+                    if (_player != null && !_playbackTaskCompletedSuccessfully)
                     {
                         TimeSpan elapsed = _timer.Elapsed;
                         if (_fastForwarding || _fastBackwarding)
@@ -448,7 +451,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                     }
                     _timer.Reset();
                     _infloopTask = null;
-                    onExitEvent = _onExitEvent;
+                    onExitEvent = _playbackTaskCompletedSuccessfully ? _onExitEvent : null;
                     _onExitEvent = null;
                 }
                 break;
@@ -493,6 +496,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
 
             Duration = TimeSpan.MinValue;
             CurrentTime = TimeSpan.MinValue;
+            _playbackTaskCompletedSuccessfully = false;
             StopTime = _player?.StopTime ?? TimeSpan.Zero;
             CurrentVoices = 0;
             audioPlaybackRuntime.ClearMaxVoices();
@@ -593,6 +597,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                 Duration = TimeSpan.MinValue;
                 MusicDuration = TimeSpan.MinValue;
                 BmsDuration = TimeSpan.MinValue;
+                _playbackTaskCompletedSuccessfully = false;
                 if (previousPlayer != null)
                 {
                     try
@@ -647,6 +652,14 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         try
         {
             await bMSAutoPlayer.Start();
+            lock (_sharedObjectLock)
+            {
+                if (ReferenceEquals(_player, bMSAutoPlayer))
+                {
+                    // CurrentTimeはcleanup開始前にDurationへ揃うため、実Taskの成功後にだけ終了通知を解放します。
+                    _playbackTaskCompletedSuccessfully = true;
+                }
+            }
         }
         catch (Exception startupFailure)
         {

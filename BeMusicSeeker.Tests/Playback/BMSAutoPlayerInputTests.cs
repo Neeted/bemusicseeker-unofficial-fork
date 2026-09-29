@@ -299,8 +299,6 @@ public sealed class BMSAutoPlayerInputTests
                 Task firstPlayback = firstPlayer.Start();
                 BmsRealtimeAudioScheduler oldScheduler = firstPlayer.RealtimeScheduler
                     ?? throw new AssertFailedException("The first BMS playback did not create its realtime scheduler.");
-                Assert.IsTrue(oldScheduler.HasTerminalSync,
-                    "The active song must own its native input-terminal sync.");
                 Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
                     "The active song must retain its scheduled voice handles.");
                 Assert.AreNotEqual(session.MixerHandle, BassAudioPlayer.OutputMixerHandle,
@@ -310,8 +308,6 @@ public sealed class BMSAutoPlayerInputTests
 
                 Assert.IsNull(firstPlayer.RealtimeScheduler,
                     "The next-song release must finish the old scheduler before dropping its session reference.");
-                Assert.IsFalse(oldScheduler.HasTerminalSync,
-                    "The old song's native input-terminal sync must be removed before the next song starts.");
                 Assert.ThrowsException<ObjectDisposedException>(() => _ = oldScheduler.CurrentSongFrame);
                 Assert.AreEqual(baselinePlayerStreams, session.GetPlayerStreams().Count,
                     "The old scheduled voice handles must be released before the next song starts.");
