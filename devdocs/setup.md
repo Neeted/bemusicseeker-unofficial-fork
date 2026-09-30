@@ -38,7 +38,7 @@ WinGetがない場合やインストーラーを使う場合は、[Microsoftの�
 
 必要なSDKのバージョンは、リポジトリルートの[global.json](../global.json)を正本とします。[.NETの公式ダウンロードページ](https://dotnet.microsoft.com/download/dotnet)で、指定に対応するWindows x64版の**SDK**をインストールしてください。実行専用のRuntimeだけではビルドできません。
 
-`version`と`rollForward`を合わせて確認します。例えば、`version`が`10.0.302`、`rollForward`が`latestPatch`なら、10.0.302以上の10.0.3xx系列が対象です。10.0.4xxだけを導入しても条件を満たしません。「最新の.NET 10」を無条件に選ぶのではなく、チェックアウトした版の指定に合わせます。詳細は[SDKの選択規則](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json)を参照してください。
+`version`と`rollForward`を合わせて確認します。現在の指定は`version`が`10.0.401`、`rollForward`が`latestFeature`で、10.0.401以上の.NET 10.0 SDKを使用できます。後続の機能帯も対象となり、条件を満たすインストール済みSDKのうち最も新しいものを選択します。10.0.401未満のSDKや.NET 11以降のSDKは対象外です。チェックアウトした版の指定に合わせて導入してください。詳細は[SDKの選択規則](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json)を参照してください。
 
 インストール後はターミナルを開き直します。SDKに合わせるために`global.json`やパッケージのロックファイルを変更する必要はありません。
 
