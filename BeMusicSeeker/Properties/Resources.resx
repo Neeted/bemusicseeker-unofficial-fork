@@ -3578,4 +3578,10 @@ uBMplayが正常に動作するか確認してください。</value>
 ネイティブエラー: {1}</value>
   </data>
   <data name="AudioDeviceTestCleanupFailure" xml:space="preserve"><value>音声資源の解放を確認できませんでした。詳細を確認してください。</value></data>
+  <data name="BmsInfiniteStopTimingFailure" xml:space="preserve">
+    <value>STOPの長さが正の無限大のため、このBPMでは停止時間を計算できません。</value>
+  </data>
+  <data name="BmsInfiniteMeasureLengthTimingFailure" xml:space="preserve">
+    <value>小節長が正の無限大のため、譜面の時刻を計算できません。</value>
+  </data>
 </root>

@@ -417,7 +417,7 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
                 case BMSFile.Chart.Note.NoteType.EX_BPM:
                     if (note.Value != null)
                     {
-                        CurrentBpm = ((Fraction)note.Value).ToDouble();
+                        CurrentBpm = ((BmsNumber)note.Value).ToDouble();
                     }
                     break;
                 default:

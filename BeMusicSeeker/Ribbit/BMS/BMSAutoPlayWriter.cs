@@ -107,7 +107,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer(bms)
             title,
             genre: base.Bms.Genre.Trim() ?? string.Empty,
             durationSeconds: (double)totalFrames / renderer.SampleRate,
-            bpm: base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty,
+            bpm: base.Bms.Bpm?.ToDouble().ToString() ?? string.Empty,
             fileName: base.Bms.Path,
             comment: base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0)
                 ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))

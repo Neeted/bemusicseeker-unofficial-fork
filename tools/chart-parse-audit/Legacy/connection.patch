@@ -1,0 +1,19 @@
+--- a/BeMusicSeeker/Ribbit/BMS/BMSFile.cs
++++ b/tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/BMSFile.cs
+@@ -21,0 +22,8 @@
++    private Random auditRandom;
++
++    /// <summary>準備済み本文と呼出し専用乱数源を、凍結した解析処理へ渡します。読込みと復号は共通準備側で一度だけ行います。</summary>
++    public static BMSFile ParsePreparedForAudit(string path, string source, Encoding encoding, string md5, Queue<int> choices, Random random)
++    {
++        return new BMSFile(path, source, encoding, md5, choices, random);
++    }
++
+@@ -1318 +1326 @@
+-    private BMSFile(string path, string source, Encoding encode, string md5, Queue<int> randomPattern = null)
++    private BMSFile(string path, string source, Encoding encode, string md5, Queue<int> randomPattern = null, Random random = null)
+@@ -1319,0 +1328 @@
++        auditRandom = random;
+@@ -1472 +1481 @@
+-        var genRan = new Random();
++        var genRan = auditRandom ?? new Random();

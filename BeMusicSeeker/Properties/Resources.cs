@@ -2685,4 +2685,10 @@ public class Resources
     /// <summary>native解放を確認できなかったことを示します。</summary>
     public static string AudioDeviceTestCleanupFailure => ResourceManager.GetString("AudioDeviceTestCleanupFailure", resourceCulture);
 
+    /// <summary>正の無限大のSTOPを現在のBPMで停止時間へ変換できない理由を取得します。</summary>
+    public static string BmsInfiniteStopTimingFailure => ResourceManager.GetString("BmsInfiniteStopTimingFailure", resourceCulture);
+
+    /// <summary>正の無限大の小節長から譜面時刻を計算できない理由を取得します。</summary>
+    public static string BmsInfiniteMeasureLengthTimingFailure => ResourceManager.GetString("BmsInfiniteMeasureLengthTimingFailure", resourceCulture);
+
 }

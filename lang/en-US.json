@@ -1068,5 +1068,7 @@
   "RightClick_arguments_unbalanced_quote": "The argument template contains an unbalanced double quote.",
   "AudioRequiredResourceLoadFailureFormat": "Could not load required audio resource '{0}'.\nPath: {1}\nStage: {2}\nNative error: {3}",
   "AudioCallbackOutputFailureFormat": "Audio output failed.\nStage: {0}\nNative error: {1}",
-  "AudioDeviceTestCleanupFailure": "Audio resource cleanup could not be confirmed. See the details."
+  "AudioDeviceTestCleanupFailure": "Audio resource cleanup could not be confirmed. See the details.",
+  "BmsInfiniteStopTimingFailure": "The STOP length is positive infinity, so the stop duration cannot be calculated at this BPM.",
+  "BmsInfiniteMeasureLengthTimingFailure": "The measure length is positive infinity, so chart timing cannot be calculated."
 }

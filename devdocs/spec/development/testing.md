@@ -88,6 +88,8 @@ SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK �
 | `ProductionDiffFull` | 除外 | 除外 | 実データとの差分。 |
 | `ParserCompatibilitySlow` | 除外 | 除外 | 巨大・低速の解析入力。 |
 
+[BMS譜面位置の比較ツール](chart-parse-audit.md)は簡易開発用です。変更確認は対象RunnerのReleaseビルドと差分点検に限定し、恒常toolテストは設けません。
+
 カテゴリは保証内容ではなく実行特性です。小さい互換性テストは通常検証に含めます。通常テストでは固有の一時資源と決定的な代替入力を使い、外部Everything索引への即時反映や固定の待ち時間に依存しません。
 
 ### プロセスの待機と失敗
@@ -137,6 +139,8 @@ WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcher
 再起動失敗時の復元テストは、本番の準備・適用処理と呼出し単位のプロセス開始代替処理を使い、配布実行ファイルを破壊しません。非公開の処理入口を呼ぶ例外はこの境界だけとし、確認対象は元の例外、到達した起動、メタデータ・ファイル・利用者データの復元です。非公開名そのものを契約にしません。画面を確認しない更新プロセスは `CreateNoWindow=true` を使用します。
 
 `UpdaterPackageSyncTests` の通常の終了・受付確認は、実プロセスの終了とreadyファイルで順序を保証し、局所的な5秒・30秒の合否条件を設けません。停止は標準入口の検証全体の期限で検出します。生存アプリの模擬プロセスは準備通知を受けてから使い、検査が終わるまで入力待ちで生存させます。決定前・排他競合中に終了しないことの短い否定観測は、通常完了の待機とは区別します。ケース固有のアプリディレクトリと回復登録を使って並列実行を維持し、所有プロセスと出力の回収後に登録・一時領域を清掃します。
+
+再起動先と生存アプリには、[テスト専用GUI stub](../../../BeMusicSeeker.Tests/Fixtures/UpdaterRestartApplication/Program.cs)を使います。既定Terminalへconsoleの寿命を渡さないよう本番と同じWinExeとし、追加引数なしの本番ShellExecuteを通します。版ごとのmarker内容・生存gateは隣接入力をpackage・backupとともに移動させます。marker生成は終了の代わりにせず、root・両pipeのEOF・Job内の全子終了を待ちます。直接Updaterとそのexecution gateの起動は引き続き画面を作りません。stubは.NET 10 runtimeのある検証環境で動くframework依存の単一exeで、通常のテストbuildから独立発行します。
 
 ### 公開旧版からの移行とリリース判定
 

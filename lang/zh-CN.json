@@ -1068,5 +1068,7 @@
   "RightClick_arguments_unbalanced_quote": "参数模板中的双引号不匹配。",
   "AudioRequiredResourceLoadFailureFormat": "无法加载所需的音频资源“{0}”。\n路径：{1}\n处理阶段：{2}\n原生错误：{3}",
   "AudioCallbackOutputFailureFormat": "音频输出失败。\n处理阶段：{0}\n原生错误：{1}",
-  "AudioDeviceTestCleanupFailure": "无法确认音频资源已释放。请查看详细信息。"
+  "AudioDeviceTestCleanupFailure": "无法确认音频资源已释放。请查看详细信息。",
+  "BmsInfiniteStopTimingFailure": "STOP长度为正无穷大，因此无法在此BPM下计算停止时间。",
+  "BmsInfiniteMeasureLengthTimingFailure": "小节长度为正无穷大，因此无法计算谱面的时间。"
 }

@@ -1068,5 +1068,7 @@
   "RightClick_arguments_unbalanced_quote": "인수 템플릿의 큰따옴표가 맞지 않습니다.",
   "AudioRequiredResourceLoadFailureFormat": "필요한 음원 '{0}'을(를) 불러오지 못했습니다.\n경로: {1}\n처리 단계: {2}\n네이티브 오류: {3}",
   "AudioCallbackOutputFailureFormat": "오디오 출력에 실패했습니다.\n처리 단계: {0}\n네이티브 오류: {1}",
-  "AudioDeviceTestCleanupFailure": "오디오 리소스 해제를 확인할 수 없습니다. 세부 정보를 확인하세요."
+  "AudioDeviceTestCleanupFailure": "오디오 리소스 해제를 확인할 수 없습니다. 세부 정보를 확인하세요.",
+  "BmsInfiniteStopTimingFailure": "STOP 길이가 양의 무한대이므로 이 BPM에서는 정지 시간을 계산할 수 없습니다.",
+  "BmsInfiniteMeasureLengthTimingFailure": "마디 길이가 양의 무한대이므로 채보의 시간을 계산할 수 없습니다."
 }

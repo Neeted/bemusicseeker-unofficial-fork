@@ -576,7 +576,9 @@ public sealed class MainWindowViewHostTests
     {
         using var directory = new TestTemporaryDirectory("main-window-mode-restart");
         string settingsPath = Path.Combine(directory.Path, "user.config");
-        Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+        // 本番Settings.Defaultと同じく、UIのReloadと起動後の背景読取りが共有する同一instanceを同期化します。
+        var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
+            PortableSettingsPersistenceTests.OpenSettings(settingsPath));
         settings.OperationModeLR2DB = false;
         settings.PlayHistorySelectedDisplayTargetIdentity = "history-initial";
         settings.BMSRootPath = directory.Path;
@@ -754,7 +756,14 @@ public sealed class MainWindowViewHostTests
                 }
                 Assert.AreEqual(
                     !closeDuringConfirmation && !operationModeSaveFailure,
-                    viewModel.SettingDialog.OperationModeLR2DB);
+                    viewModel.SettingDialog.OperationModeLR2DB,
+                    $"確認回数={dialogs.ConfirmationCount}, モード保存回数={settingsSession.ModeSaveCount}, "
+                        + $"編集完了中={viewModel.SettingDialog.IsEditCompletionInProgress}, "
+                        + $"有効プロファイル={viewModel.HasActiveLibraryProfile}, "
+                        + $"終了準備中={viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted}, "
+                        + $"終了中={viewModel.ShellShutdownWorkflow.IsClosingOrClosed}"
+                        + Environment.NewLine
+                        + string.Join(Environment.NewLine, reportedSettingsFailures.Select(exception => exception.ToString())));
                 Assert.AreEqual(1, dialogs.ConfirmationCount);
                 Assert.AreEqual(closeDuringConfirmation ? 0 : 1, settingsSession.ModeSaveCount);
                 Assert.AreEqual(0, lifetime.RestartCount);

@@ -157,13 +157,10 @@ public sealed class UpdaterPackageSyncTests
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
             CopyRestartExecutable(appDirectoryPath);
-            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json");
             WriteTextFile(appDirectoryPath, "update_backup/previous/BeMusicSeeker.exe", "old-app");
-            File.Copy(
-                FindUpdaterExecutable(),
-                Path.Combine(previousDirectoryPath, "restart.exe"),
-                overwrite: true);
-            WriteTextFile(previousDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe");
+            CopyRestartExecutable(previousDirectoryPath);
+            WriteTextFile(previousDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json");
             WriteTextFile(
                 appDirectoryPath,
                 "update_work/update-transaction.json",
@@ -178,12 +175,12 @@ public sealed class UpdaterPackageSyncTests
                     ExtractDirectory = extractDirectoryPath,
                     RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
                     BackupComplete = true,
-                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "restart.exe", "update-managed-files.txt" }
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "restart.exe", "restart.json", "update-managed-files.txt" }
                 }));
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
             CopyRestartExecutable(packageSourceDirectoryPath);
-            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json");
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
             RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
@@ -248,7 +245,7 @@ public sealed class UpdaterPackageSyncTests
             string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo restarted>restart-marker.txt");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine);
             WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "package");
             WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
             WriteTextFile(
@@ -264,7 +261,7 @@ public sealed class UpdaterPackageSyncTests
                     BackupDirectory = backupDirectoryPath,
                     PreviousDirectory = previousDirectoryPath,
                     ExtractDirectory = extractDirectoryPath,
-                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd"),
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
                     BackupComplete = true,
                     NewPackagePaths = new[] { "BeMusicSeeker.exe" }
                 }));
@@ -291,7 +288,7 @@ public sealed class UpdaterPackageSyncTests
             string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo restarted>restart-marker.txt");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine);
             WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
             WriteTextFile(
                 appDirectoryPath,
@@ -306,7 +303,7 @@ public sealed class UpdaterPackageSyncTests
                     BackupDirectory = backupDirectoryPath,
                     PreviousDirectory = previousDirectoryPath,
                     ExtractDirectory = extractDirectoryPath,
-                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd"),
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
                     BackupComplete = true,
                     NewPackagePaths = new[] { "BeMusicSeeker.exe" }
                 }));
@@ -333,10 +330,7 @@ public sealed class UpdaterPackageSyncTests
             string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
-            File.Copy(
-                Environment.GetEnvironmentVariable("ComSpec") ?? throw new InvalidOperationException("ComSpec was not available."),
-                restartExecutablePath,
-                overwrite: true);
+            CopyRestartExecutable(appDirectoryPath, waitForRelease: true);
             WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
             WriteTextFile(
                 appDirectoryPath,
@@ -507,19 +501,19 @@ public sealed class UpdaterPackageSyncTests
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
             string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
-            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd");
+            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe");
             string restartMarkerPath = Path.Combine(appDirectoryPath, "restart-marker.txt");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo restarted>restart-marker.txt");
-            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.cmd");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json");
             WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
             WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
             WriteTextFile(appDirectoryPath, "unmanaged.txt", "user-content");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@echo updated>restart-marker.txt");
-            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.cmd");
+            CopyRestartExecutable(packageSourceDirectoryPath, "restart-marker.txt", "updated" + Environment.NewLine);
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.exe\nrestart.json");
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
             string canonicalBefore = ComputeCanonicalTreeHash(appDirectoryPath);
@@ -570,10 +564,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
             WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
             WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            File.Copy(
-                FindUpdaterExecutable(),
-                Path.Combine(previousDirectoryPath, "restart.exe"),
-                overwrite: true);
+            CopyRestartExecutable(previousDirectoryPath);
             WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "package");
             WriteTextFile(appDirectoryPath, "update_work/update-failure.txt", "primary-failure-sentinel");
             WriteTextFile(
@@ -590,7 +581,7 @@ public sealed class UpdaterPackageSyncTests
                     ExtractDirectory = extractDirectoryPath,
                     RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
                     BackupComplete = true,
-                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "restart.exe" }
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "restart.exe", "restart.json" }
                 }));
 
             using (FileStream managedLock = new(rollbackFaultPath, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -668,7 +659,6 @@ public sealed class UpdaterPackageSyncTests
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe.config", "old-config");
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "libs/SevenZipExtractor.dll", "old-sevenzip");
@@ -733,7 +723,6 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "config/user.config", "user-config");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.Updater.exe", "new-updater");
             WriteTextFile(packageSourceDirectoryPath, "SevenZipExtractor.dll", "new-sevenzip");
@@ -745,7 +734,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd",
+                "restart.json",
                 "restart.exe",
                 "BeMusicSeeker.Updater.exe",
                 "SevenZipExtractor.dll",
@@ -840,7 +829,6 @@ public sealed class UpdaterPackageSyncTests
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
@@ -848,12 +836,11 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.aaaaaaaaaaaa.7z", "old-history-archive");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -878,7 +865,6 @@ public sealed class UpdaterPackageSyncTests
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
@@ -886,13 +872,12 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.bbbbbbbbbbbb.7z", "old-history-archive");
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "chart-info-metadata.7z", "new-bundled-archive");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd",
+                "restart.json",
                 "restart.exe",
                 "chart-info-metadata.7z"
             }));
@@ -918,7 +903,6 @@ public sealed class UpdaterPackageSyncTests
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
@@ -930,12 +914,11 @@ public sealed class UpdaterPackageSyncTests
             string preservedBefore = ComputePreservedTreeHash(appDirectoryPath);
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -968,15 +951,13 @@ public sealed class UpdaterPackageSyncTests
             string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(appDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(packageSourceDirectoryPath);
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1077,6 +1058,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1098,22 +1080,24 @@ public sealed class UpdaterPackageSyncTests
             string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
             string packagePath = Path.Combine(tempDirectoryPath, "app", "update_work", "downloads", "package.zip");
             string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
-            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd");
+            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe");
             string restartMarkerPath = Path.Combine(appDirectoryPath, "restart.marker");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
-            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo old>\"%~dp0old.marker\"");
+            CopyRestartExecutable(appDirectoryPath, "old.marker", "old" + Environment.NewLine);
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd"
+                "restart.exe",
+                "restart.json"
             }));
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
-            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@echo restarted>\"%~dp0restart.marker\"");
+            CopyRestartExecutable(packageSourceDirectoryPath, "restart.marker", "restarted" + Environment.NewLine);
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
-                "restart.cmd"
+                "restart.exe",
+                "restart.json"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
@@ -1143,6 +1127,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(packageSourceDirectoryPath, "a/b/c.dll", "new-child");
@@ -1150,6 +1135,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a/b/c.dll",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1177,6 +1163,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a/b/old.dll",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(packageSourceDirectoryPath, "a", "new-file");
@@ -1184,6 +1171,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1212,6 +1200,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a/old.dll",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(packageSourceDirectoryPath, "a", "new-file");
@@ -1219,6 +1208,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1253,6 +1243,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
@@ -1261,6 +1252,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
+                "restart.json",
                 "restart.exe",
                 "user-added.dll"
             }));
@@ -1271,7 +1263,7 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.AreEqual("user-content", File.ReadAllText(Path.Combine(appDirectoryPath, "user-added.dll")));
             Assert.AreEqual(
-                string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "restart.exe" }),
+                string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "restart.json", "restart.exe" }),
                 File.ReadAllText(Path.Combine(appDirectoryPath, "update-managed-files.txt")));
             Assert.IsTrue(File.Exists(packagePath));
             Assert.IsFalse(Directory.Exists(backupDirectoryPath));
@@ -1295,6 +1287,7 @@ public sealed class UpdaterPackageSyncTests
             {
                 "BeMusicSeeker.exe",
                 "a",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
@@ -1304,6 +1297,7 @@ public sealed class UpdaterPackageSyncTests
             {
                 "BeMusicSeeker.exe",
                 "a/new.dll",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1312,7 +1306,7 @@ public sealed class UpdaterPackageSyncTests
 
             Assert.AreEqual("user-content", File.ReadAllText(Path.Combine(appDirectoryPath, "a", "user.txt")));
             Assert.AreEqual(
-                string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "a", "restart.exe" }),
+                string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "a", "restart.json", "restart.exe" }),
                 File.ReadAllText(Path.Combine(appDirectoryPath, "update-managed-files.txt")));
             Assert.IsTrue(File.Exists(packagePath));
             Assert.IsFalse(Directory.Exists(backupDirectoryPath));
@@ -1336,6 +1330,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "docs/a.txt",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(packageSourceDirectoryPath, "docs/a.txt", "new-managed");
@@ -1343,6 +1338,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "docs/a.txt",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1371,6 +1367,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "plugins/old.dll",
+                "restart.json",
                 "restart.exe"
             }));
             WriteTextFile(externalDirectoryPath, "old.dll", "external-sentinel");
@@ -1390,6 +1387,7 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
+                "restart.json",
                 "restart.exe"
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
@@ -1574,12 +1572,6 @@ public sealed class UpdaterPackageSyncTests
         OwnedProcess process = StartOwnedProcess(new ProcessStartInfo
         {
             FileName = restartExecutablePath,
-            ArgumentList =
-            {
-                "/d",
-                "/c",
-                "echo BMS_TEST_FIXTURE_READY & set /p _fixtureRelease="
-            },
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -2228,10 +2220,24 @@ public sealed class UpdaterPackageSyncTests
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", entries))));
     }
 
-    private static void CopyRestartExecutable(string rootDirectoryPath)
+    /// <summary>本番と同じGUI起動先を配置し、marker内容や生存gateの入力をその版とともに移動させます。</summary>
+    /// <param name="rootDirectoryPath">アプリ、packageまたはbackupの配置先です。</param>
+    /// <param name="markerFile">起動した版が生成するmarker名です。nullなら生成しません。</param>
+    /// <param name="markerContents">版ごとのmarker内容です。</param>
+    /// <param name="waitForRelease">準備通知と標準入力のreleaseで生存期間を制御する場合にtrueです。</param>
+    private static void CopyRestartExecutable(string rootDirectoryPath, string? markerFile = null, string? markerContents = null, bool waitForRelease = false)
     {
         Directory.CreateDirectory(rootDirectoryPath);
-        File.Copy(FindUpdaterExecutable(), Path.Combine(rootDirectoryPath, "restart.exe"), overwrite: true);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "updater-restart-application", "UpdaterRestartApplication.exe"),
+            Path.Combine(rootDirectoryPath, "restart.exe"),
+            overwrite: true);
+        WriteTextFile(rootDirectoryPath, "restart.json", JsonSerializer.Serialize(new
+        {
+            WaitForRelease = waitForRelease,
+            MarkerFile = markerFile,
+            MarkerContents = markerContents
+        }));
     }
 
     private void WithTemporaryDirectory(Action<string> action)

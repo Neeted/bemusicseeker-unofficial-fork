@@ -1068,5 +1068,7 @@
   "RightClick_arguments_unbalanced_quote": "引數範本中的雙引號不相稱。",
   "AudioRequiredResourceLoadFailureFormat": "無法載入所需的音訊資源「{0}」。\n路徑：{1}\n處理階段：{2}\n原生錯誤：{3}",
   "AudioCallbackOutputFailureFormat": "音訊輸出失敗。\n處理階段：{0}\n原生錯誤：{1}",
-  "AudioDeviceTestCleanupFailure": "無法確認音訊資源已釋放。請查看詳細資訊。"
+  "AudioDeviceTestCleanupFailure": "無法確認音訊資源已釋放。請查看詳細資訊。",
+  "BmsInfiniteStopTimingFailure": "STOP長度為正無窮大，因此無法在此BPM下計算停止時間。",
+  "BmsInfiniteMeasureLengthTimingFailure": "小節長度為正無窮大，因此無法計算譜面的時間。"
 }

@@ -1068,5 +1068,7 @@
   "RightClick_arguments_unbalanced_quote": "Les guillemets doubles du modèle d’arguments ne sont pas appariés.",
   "AudioRequiredResourceLoadFailureFormat": "Impossible de charger la ressource audio requise « {0} ».\nChemin : {1}\nÉtape : {2}\nErreur native : {3}",
   "AudioCallbackOutputFailureFormat": "Échec de la sortie audio.\nÉtape : {0}\nErreur native : {1}",
-  "AudioDeviceTestCleanupFailure": "La libération des ressources audio n’a pas pu être confirmée. Consultez les détails."
+  "AudioDeviceTestCleanupFailure": "La libération des ressources audio n’a pas pu être confirmée. Consultez les détails.",
+  "BmsInfiniteStopTimingFailure": "La longueur du STOP est un infini positif. La durée de l'arrêt ne peut donc pas être calculée à ce BPM.",
+  "BmsInfiniteMeasureLengthTimingFailure": "La longueur de la mesure est un infini positif. Les temps de la partition ne peuvent donc pas être calculés."
 }

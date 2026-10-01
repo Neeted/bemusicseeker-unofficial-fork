@@ -1068,5 +1068,7 @@
   "RightClick_arguments_unbalanced_quote": "引数テンプレートの二重引用符が対応していません。",
   "AudioRequiredResourceLoadFailureFormat": "必要な音源「{0}」を読み込めませんでした。\nパス: {1}\n処理段階: {2}\nネイティブエラー: {3}",
   "AudioCallbackOutputFailureFormat": "音声出力に失敗しました。\n処理段階: {0}\nネイティブエラー: {1}",
-  "AudioDeviceTestCleanupFailure": "音声資源の解放を確認できませんでした。詳細を確認してください。"
+  "AudioDeviceTestCleanupFailure": "音声資源の解放を確認できませんでした。詳細を確認してください。",
+  "BmsInfiniteStopTimingFailure": "STOPの長さが正の無限大のため、このBPMでは停止時間を計算できません。",
+  "BmsInfiniteMeasureLengthTimingFailure": "小節長が正の無限大のため、譜面の時刻を計算できません。"
 }
