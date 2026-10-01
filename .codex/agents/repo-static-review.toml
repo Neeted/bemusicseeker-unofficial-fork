@@ -1,6 +1,6 @@
 name = "repo-static-review"
 description = "凍結した通常変更を、共通の合格基準で独立レビューする担当。"
-model = "gpt-6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "max"
 sandbox_mode = "read-only"
 approval_policy = "never"
