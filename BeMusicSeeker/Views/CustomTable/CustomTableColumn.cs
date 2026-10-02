@@ -409,7 +409,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
             new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder"), editPropertyName: "Folder"),
             new CustomTableColumn("Path", "PATH", settings.Path, 15, "path", TextAlignment.Left, row => GetString(row, "path")),
-            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetString(row, "instl_dst"), editPropertyName: "instl_dst", editSuggestionsSelector: GetInstallDestinationSuggestions),
+            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, GetInstallDestinationText, editPropertyName: "instl_dst", editTextSelector: row => GetString(row, "instl_dst"), editSuggestionsSelector: GetInstallDestinationSuggestions),
             new CustomTableColumn("InstallDstTitle", Resources.Header_InstallDstTitle, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle")),
             new CustomTableColumn("InstallDstArtist", Resources.Header_InstallDstArtist, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist")),
             new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", string.Empty), maxWidth: 50, autoTrimTooltip: false),
@@ -522,6 +522,19 @@ internal static class CustomTableColumnFactory
             nameof(LibraryChartRow.ChartJudgeText) => GetChartJudgeText(row),
             _ => GetReflectionString(row, propertyName),
         };
+    }
+
+    private static string GetInstallDestinationText(object row)
+    {
+        string destination = GetString(row, "instl_dst");
+        if (!GetInstallDestinationSuggestions(row).Any(candidate => !string.IsNullOrWhiteSpace(candidate)))
+        {
+            return destination;
+        }
+        // パス末尾が省略されても、候補を選べる印をセル内に残します。
+        return "▼ " + (string.IsNullOrWhiteSpace(destination)
+            ? Resources.InstallDestination_SelectCandidate
+            : destination);
     }
 
     private static IEnumerable<string> GetInstallDestinationSuggestions(object row)

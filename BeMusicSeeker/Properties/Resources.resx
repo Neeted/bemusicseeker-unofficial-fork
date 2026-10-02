@@ -189,7 +189,7 @@ LR2 連携:
     <value>アーティスト</value>
   </data>
   <data name="Force_install" xml:space="preserve">
-    <value>警告を無視してインストール</value>
+    <value>新規としてインストール</value>
   </data>
   <data name="Record_setting_filetype" xml:space="preserve">
     <value>保存形式:</value>
@@ -2414,13 +2414,12 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 {1}</value>
   </data>
   <data name="Confirm_NormalInstallOverride" xml:space="preserve">
-    <value>インストール先が推定されていますが、
-通常インストールを実行しようとしています。
-インストールは独立したフォルダに行われます。
+    <value>インストール先が設定されていますが、新規としてインストールしようとしています。
+設定されているインストール先は使用せず、新規インストール先へ導入します。
 続行しますか？</value>
   </data>
   <data name="Confirm_NormalInstallTitle" xml:space="preserve">
-    <value>通常インストール機能の通知</value>
+    <value>新規としてインストール</value>
   </data>
   <data name="Confirm_SelectedPlaylistUrlDownload" xml:space="preserve">
     <value>{1} の対象 URL {0} 件をダウンロードし、対応ファイルのみインストール処理へ渡します。
@@ -3583,5 +3582,17 @@ uBMplayが正常に動作するか確認してください。</value>
   </data>
   <data name="BmsInfiniteMeasureLengthTimingFailure" xml:space="preserve">
     <value>小節長が正の無限大のため、譜面の時刻を計算できません。</value>
+  </data>
+  <data name="InstallDestination_SelectCandidate" xml:space="preserve">
+    <value>候補を選択…</value>
+  </data>
+  <data name="Details_show_diag_new_install" xml:space="preserve">
+    <value>新規としてインストールの確認メッセージを表示する</value>
+  </data>
+  <data name="Confirm_NewPackageInstall" xml:space="preserve">
+    <value>このパッケージは自動では新規インストールされず、保留されています。
+推定されたインストール先は使用せず、新規インストール先へ導入します。
+リソース不足などの WARNING がある場合も、その状態のままインストールされます。
+続行しますか？</value>
   </data>
 </root>

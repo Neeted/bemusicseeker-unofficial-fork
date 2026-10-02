@@ -813,6 +813,46 @@ public sealed class CustomTableColumnFactoryTests
             columns["InstallDst"].GetEditSuggestions(bmsonRow).ToArray());
     }
 
+    [DataTestMethod]
+    [DataRow(0, false)]
+    [DataRow(0, true)]
+    [DataRow(1, false)]
+    [DataRow(1, true)]
+    [DataRow(2, false)]
+    [DataRow(2, true)]
+    public void InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths(int candidateCount, bool hasDestination)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var settings = new CustomTableColumnSettings();
+        settings.InstallDst.Visibility = Visibility.Visible;
+        CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings)
+            .Single(candidate => candidate.Id == "InstallDst");
+        string destination = hasDestination ? @"C:\BMS\A" : string.Empty;
+        string[] candidates = new[] { @"C:\BMS\A", @"C:\BMS\B" }.Take(candidateCount).ToArray();
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(new BMSFile()),
+            destination, string.Empty, string.Empty, candidates, []);
+        var row = LibraryChartRow.FromChartFile(chart);
+
+        string displayText = column.GetText(row);
+        if (candidateCount == 0)
+        {
+            Assert.AreEqual(destination, displayText);
+        }
+        else
+        {
+            StringAssert.Contains(displayText, "▼");
+            StringAssert.Contains(displayText, hasDestination
+                ? destination
+                : BeMusicSeeker.Properties.Resources.InstallDestination_SelectCandidate);
+        }
+        Assert.AreEqual(destination, column.GetEditText(row));
+        Assert.AreEqual(destination, CustomTableDataTransfer.BuildCellText(row, column));
+        Assert.AreEqual(destination, CustomTableDataTransfer.BuildTsv([row], [column]));
+        Assert.AreEqual(destination, chart.InstallDestination);
+        CollectionAssert.AreEqual(candidates, column.GetEditSuggestions(row).ToArray());
+    }
+
     [TestMethod]
     public void CreateMainColumns_UsesActualUrlTextForUrlEditing()
     {

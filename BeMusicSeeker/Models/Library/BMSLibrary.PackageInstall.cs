@@ -1378,7 +1378,12 @@ public partial class BMSLibrary
             approvedNormalInstallOverridePackages);
     }
 
-    /// <summary>Returns force-install facts, optionally assigning receipt-backed dialogs to the caller terminal.</summary>
+    /// <summary>
+    /// 保留パッケージを新規として導入し、変更結果と必要に応じて呼出元で通知する情報を返します。
+    /// true は全対象の事前承認、false は承認集合だけの導入を表し、null は設定に従って確認します。
+    /// 導入先設定済みの対象は確認設定によらず承認が必要です。確認は変更リース取得前に行います。
+    /// 確認の既定値は No とし、未選択で閉じた場合は承認せず保留を保持します。
+    /// </summary>
     internal LibraryMutationSessionReceipt ForceInstallPendingPackagesWithReceipt(
         IEnumerable<ChartPackage> packages,
         bool? approveNormalInstallOverride,
@@ -1429,7 +1434,9 @@ public partial class BMSLibrary
             }
             bool hasInstallDestination = pendingPackage.ChartEntries.Any(entry =>
                 !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination));
-            bool approved = !hasInstallDestination
+            // 未選択で閉じた場合も既定値へ正規化されるため、明示的な Yes だけで承認します。
+            bool approved = (approveNormalInstallOverride != false
+                    && !hasInstallDestination && !options.ShowNewPackageInstallConfirmMsg)
                 || approvedNormalInstallOverridePackages?.Contains(pendingPackage) == true
                 || approvedNormalInstallOverridePackages?.Any(package =>
                     package != null
@@ -1438,11 +1445,13 @@ public partial class BMSLibrary
                 || approveNormalInstallOverride == true
                 || (approveNormalInstallOverride != false
                     && ShowOperationDialog(
-                        Resources.Confirm_NormalInstallOverride,
+                        hasInstallDestination
+                            ? Resources.Confirm_NormalInstallOverride
+                            : Resources.Confirm_NewPackageInstall,
                         Resources.Confirm_NormalInstallTitle,
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Question,
-                        MessageBoxResult.Yes) == MessageBoxResult.Yes);
+                        MessageBoxResult.No) == MessageBoxResult.Yes);
             if (approved)
             {
                 approvedNormalInstallPackages.Add(pendingPackage);

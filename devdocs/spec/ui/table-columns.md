@@ -329,8 +329,14 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | --- | --- | --- |
 | 既定順序、幅、表示範囲と保存値の保持 | [`CustomTableColumnSettings`](../../../BeMusicSeeker/ViewModels/ChartList/CustomTableColumnSettings.cs)、[`PlaylistSummaryColumnSettings`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistSummaryColumnSettings.cs) | [`CustomTableColumnSettingsTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnSettingsTests.cs) |
 | 列の定義、意味付きの説明、表示と編集の値 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) |
+| 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
+| 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
 | 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |
 
 ## 関連資料
 
 [一覧表示](table-view.md)、[外観](appearance.md)、[設定](../runtime/settings.md)を参照します。
+
+### 導入先候補の表示
+
+候補を持つ `InstallDst` セルは、候補を選べる印「▼」を表示し、導入先未設定ならローカライズ済みの「候補を選択…」、設定済みなら現在のパスを添えます。印の位置は固定せず、通常の列幅で長いパスが省略されても印をセル内に残します。候補がないセルは従来のパス表示を維持します。装飾は描画用の文字列だけに付け、編集初期値・セルコピー・TSV・候補項目・モデルの導入先・ソートキーへ混ぜません。既存の編集開始と候補サジェストを利用します。

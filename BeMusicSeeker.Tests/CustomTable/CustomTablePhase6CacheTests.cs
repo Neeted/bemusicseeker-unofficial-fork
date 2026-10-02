@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -447,6 +449,45 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>候補の印が長い導入先の省略後も、既定行高のセル内に描画されることを確認します。</summary>
+    [DataTestMethod]
+    [DataRow(0, false)]
+    [DataRow(0, true)]
+    [DataRow(1, false)]
+    [DataRow(1, true)]
+    [DataRow(2, false)]
+    [DataRow(2, true)]
+    public void InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell(int candidateCount, bool hasDestination)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var settings = new CustomTableColumnSettings();
+            settings.InstallDst.Visibility = Visibility.Visible;
+            settings.InstallDst.Width = 250;
+            CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings)
+                .Single(candidate => candidate.Id == "InstallDst");
+            string longPath = @"C:\BMS\" + new string('W', 120);
+            ChartFile chart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(new BMSFile()),
+                hasDestination ? longPath : string.Empty, string.Empty, string.Empty,
+                new[] { longPath, longPath + "-other" }.Take(candidateCount).ToArray(), []);
+            var row = LibraryChartRow.FromChartFile(chart);
+
+            CustomTableView table = RenderTable(row, column, selectedIndex: -1, currentCell: false,
+                out _, out _, width: 250, rowHeight: BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight);
+            CustomTableSurface surface = table.Children.OfType<CustomTableSurface>().Single();
+            DrawingGroup? drawing = VisualTreeHelper.GetDrawing(surface);
+            Assert.IsNotNull(drawing);
+            CustomTableHitTestResult hit = table.HitTestTable(new Point(10d, table.HeaderHeight + table.RowHeight / 2d));
+            Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+            var cellBounds = Rect.Intersect(hit.CellRect, new Rect(surface.RenderSize));
+
+            // 実際に描画された字形を調べ、末尾の省略・セルのクリップで消えた印を成功にしません。
+            bool markerVisible = HasVisibleCandidateMarker(drawing, new RectangleGeometry(cellBounds), Matrix.Identity);
+            Assert.AreEqual(candidateCount > 0, markerVisible);
+        });
+    }
+
     [TestMethod]
     public void CustomTableView_CreatesWrappedTooltipContentWhenWidthIsSpecified()
     {
@@ -474,16 +515,16 @@ public sealed class CustomTablePhase6CacheTests
         return new CustomTableColumn(id, id, layout, 0, null, TextAlignment.Left, row => id);
     }
 
-    private static void RenderTable(object row, CustomTableColumn column, int selectedIndex, bool currentCell, out int redPixels, out int bluePixels)
+    private static CustomTableView RenderTable(object row, CustomTableColumn column, int selectedIndex, bool currentCell,
+        out int redPixels, out int bluePixels, int width = 240, double rowHeight = 60d)
     {
-        const int width = 240;
         const int height = 70;
         var table = new CustomTableView
         {
             Width = width,
             Height = height,
             HeaderHeight = 0d,
-            RowHeight = 60d,
+            RowHeight = rowHeight,
             Columns = [column],
             ItemsSource = new List<object> { row },
             SelectedIndex = selectedIndex
@@ -502,6 +543,55 @@ public sealed class CustomTablePhase6CacheTests
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(table);
         CountDominantPixels(bitmap, out redPixels, out bluePixels);
+        return table;
+    }
+
+    private static bool HasVisibleCandidateMarker(Drawing drawing, Geometry clip, Matrix transform)
+    {
+        if (drawing is DrawingGroup group)
+        {
+            Matrix childTransform = group.Transform?.Value ?? Matrix.Identity;
+            childTransform.Append(transform);
+            Geometry childClip = group.ClipGeometry == null ? clip
+                : Geometry.Combine(clip, TransformGeometry(group.ClipGeometry, childTransform), GeometryCombineMode.Intersect, null);
+            return group.Opacity > 0d && group.Children.Any(child => HasVisibleCandidateMarker(child, childClip, childTransform));
+        }
+        if (drawing is not GlyphRunDrawing glyphDrawing || glyphDrawing.ForegroundBrush.Opacity <= 0d)
+        {
+            return false;
+        }
+        GlyphRun run = glyphDrawing.GlyphRun;
+        if (!run.GlyphTypeface.CharacterToGlyphMap.TryGetValue('▼', out ushort markerGlyph))
+        {
+            return false;
+        }
+        double advance = 0d;
+        for (int index = 0; index < run.GlyphIndices.Count; index++)
+        {
+            if (run.GlyphIndices[index] == markerGlyph)
+            {
+                Point offset = run.GlyphOffsets != null && index < run.GlyphOffsets.Count ? run.GlyphOffsets[index] : default;
+                var glyphTransform = new Matrix(1d, 0d, 0d, 1d, run.BaselineOrigin.X + advance + offset.X, run.BaselineOrigin.Y - offset.Y);
+                glyphTransform.Append(transform);
+                Geometry ink = TransformGeometry(run.GlyphTypeface.GetGlyphOutline(markerGlyph, run.FontRenderingEmSize, run.FontRenderingEmSize), glyphTransform);
+                double area = ink.GetArea();
+                if (area > 0d && Geometry.Combine(ink, clip, GeometryCombineMode.Exclude, null).GetArea() < 0.01d)
+                {
+                    return true;
+                }
+            }
+            advance += run.AdvanceWidths[index];
+        }
+        return false;
+    }
+
+    private static Geometry TransformGeometry(Geometry geometry, Matrix transform)
+    {
+        Geometry result = geometry.CloneCurrentValue();
+        Matrix combined = result.Transform?.Value ?? Matrix.Identity;
+        combined.Append(transform);
+        result.Transform = new MatrixTransform(combined);
+        return result;
     }
 
     private static void CountDominantPixels(BitmapSource bitmap, out int redPixels, out int bluePixels)

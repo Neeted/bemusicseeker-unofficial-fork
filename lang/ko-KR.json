@@ -173,7 +173,7 @@
   "PlaylistProp_asc": "오름차순",
   "Not_use_LR2DB": "스탠드얼론(LR2와 연동하지 않음)",
   "Artist": "아티스트",
-  "Force_install": "경고를 무시하고 설치",
+  "Force_install": "새 패키지로 설치",
   "Record_setting_filetype": "파일 유형",
   "Record_setting_filename": "출력 파일 이름 형식: ",
   "PlaylistProp_ftype_desc": "* 폴더 열기/닫기가 느리면 위 출력 항목을 줄이거나 LR2의 폴더 램프 기능을 꺼 주세요",
@@ -730,8 +730,8 @@
   "Warn_InstallAbortedFilesNotFound": "파일의 일부 또는 전체를 찾을 수 없어\n설치를 중단했습니다.",
   "Error_InstallFailed": "설치 처리 중 오류가 발생했습니다.\n일부 변경 사항이 이미 적용되었을 수 있습니다. 작업 전체가 되돌려졌다고 보장할 수 없습니다.\n\n패키지, 설치 대상의 파일 및 라이브러리 상태를 확인해 주세요. 자세한 내용은 로그를 확인해 주세요.\n패키지: {0}\n설치 대상: {1}\n\n{2}",
   "Error_FolderDeleteFailed": "폴더 삭제에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n{0}\n\n{1}",
-  "Confirm_NormalInstallOverride": "설치 대상이 추정되었지만,\n일반 설치를 실행하려고 합니다.\n설치는 독립된 폴더에서 수행됩니다.\n계속하시겠습니까?",
-  "Confirm_NormalInstallTitle": "일반 설치 기능 알림",
+  "Confirm_NormalInstallOverride": "설치 대상이 설정되어 있지만 새 패키지로 설치하려고 합니다.\n설정된 설치 대상은 사용하지 않고 새 패키지 설치 위치에 설치합니다.\n계속하시겠습니까?",
+  "Confirm_NormalInstallTitle": "새 패키지로 설치",
   "Confirm_SelectedPlaylistUrlDownload": "{1}의 대상 URL {0}개를 다운로드하고, 지원되는 파일만 설치 처리로 전달합니다.\n브라우저에서 열어야 하는 URL은 열지 않고 건너뜁니다.\n\n계속하시겠습니까?",
   "Warn_SelectedPlaylistUrlDownloadLargeSelection": "대상 URL이 {0}개 이상 있습니다.\n다운로드한 파일과 아카이브 압축 해제용 임시 파일은 Windows 임시 영역(일반적으로 C 드라이브)에 생성되므로 디스크 여유 공간을 확인해 주세요.\n다운로드나 압축 해제 처리에 시간이 걸릴 수 있습니다.\n특히 메인 URL 가져오기는 파일 크기가 커지기 쉬우므로 주의해 주세요.",
   "Msg_SelectedPlaylistUrlDownloadResult": "플레이리스트 URL 가져오기 결과\n\n대상: {0}\n다운로드 성공: {1}\n건너뜀(브라우저): {2}\n건너뜀(크기 제한): {3}\n건너뜀(중복): {4}\n실패: {5}\n취소로 미처리: {6}",
@@ -1070,5 +1070,8 @@
   "AudioCallbackOutputFailureFormat": "오디오 출력에 실패했습니다.\n처리 단계: {0}\n네이티브 오류: {1}",
   "AudioDeviceTestCleanupFailure": "오디오 리소스 해제를 확인할 수 없습니다. 세부 정보를 확인하세요.",
   "BmsInfiniteStopTimingFailure": "STOP 길이가 양의 무한대이므로 이 BPM에서는 정지 시간을 계산할 수 없습니다.",
-  "BmsInfiniteMeasureLengthTimingFailure": "마디 길이가 양의 무한대이므로 채보의 시간을 계산할 수 없습니다."
+  "BmsInfiniteMeasureLengthTimingFailure": "마디 길이가 양의 무한대이므로 채보의 시간을 계산할 수 없습니다.",
+  "InstallDestination_SelectCandidate": "후보 선택…",
+  "Details_show_diag_new_install": "새 패키지로 설치하기 전에 확인 메시지 표시",
+  "Confirm_NewPackageInstall": "이 패키지는 자동으로 새로 설치되지 않고 보류되어 있습니다.\n추정된 설치 대상은 사용하지 않고 새 패키지 설치 위치에 설치합니다.\n리소스 부족 등의 WARNING이 있어도 현재 상태 그대로 설치됩니다.\n계속하시겠습니까?"
 }

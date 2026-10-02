@@ -173,7 +173,7 @@
   "PlaylistProp_asc": "ASC",
   "Not_use_LR2DB": "Standalone (without LR2 integration)",
   "Artist": "Artist",
-  "Force_install": "Install ignoring warnings",
+  "Force_install": "Install as new",
   "Record_setting_filetype": "File type",
   "Record_setting_filename": "Output file name format: ",
   "PlaylistProp_ftype_desc": "* If folder opening/closing is slow, reduce the outputs above or turn off the folder lamp function in LR2",
@@ -730,8 +730,8 @@
   "Warn_InstallAbortedFilesNotFound": "Some or all files were not found.\nInstallation has been aborted.",
   "Error_InstallFailed": "An error occurred during installation.\nSome changes may already have been applied. The operation may not have been fully rolled back.\n\nCheck the package, the files at the install destination, and the library state. See the log for details.\nPackage: {0}\nInstall destination: {1}\n\n{2}",
   "Error_FolderDeleteFailed": "Failed to delete the folder.\nPlease check if it is accessible.\n{0}\n\n{1}",
-  "Confirm_NormalInstallOverride": "An install destination has been estimated,\nbut you are about to perform a normal install.\nThe installation will be done in an independent folder.\nDo you want to continue?",
-  "Confirm_NormalInstallTitle": "Normal Install Notification",
+  "Confirm_NormalInstallOverride": "An install destination is set, but you are about to install this package as new.\nThe configured destination will not be used; the package will be installed in the new-package install location.\nContinue?",
+  "Confirm_NormalInstallTitle": "Install as new",
   "Confirm_SelectedPlaylistUrlDownload": "Download {0} target URL(s) for {1}, and pass only supported files to install processing.\nURLs that need to open in a browser will be skipped without opening them.\n\nContinue?",
   "Warn_SelectedPlaylistUrlDownloadLargeSelection": "There are {0} or more target URLs.\nDownloaded files and temporary files for archive extraction are created in the Windows temporary area (usually on the C drive), so check available disk space.\nDownloads and extraction may take a long time.\nBe especially careful when importing main URLs, because file sizes are more likely to be large.",
   "Msg_SelectedPlaylistUrlDownloadResult": "Playlist URL import result\n\nTargets: {0}\nDownloaded: {1}\nSkipped (browser): {2}\nSkipped (size limit): {3}\nSkipped (duplicate): {4}\nFailed: {5}\nUnprocessed due to cancellation: {6}",
@@ -1070,5 +1070,8 @@
   "AudioCallbackOutputFailureFormat": "Audio output failed.\nStage: {0}\nNative error: {1}",
   "AudioDeviceTestCleanupFailure": "Audio resource cleanup could not be confirmed. See the details.",
   "BmsInfiniteStopTimingFailure": "The STOP length is positive infinity, so the stop duration cannot be calculated at this BPM.",
-  "BmsInfiniteMeasureLengthTimingFailure": "The measure length is positive infinity, so chart timing cannot be calculated."
+  "BmsInfiniteMeasureLengthTimingFailure": "The measure length is positive infinity, so chart timing cannot be calculated.",
+  "InstallDestination_SelectCandidate": "Select a candidate…",
+  "Details_show_diag_new_install": "Show confirmation before installing as new",
+  "Confirm_NewPackageInstall": "This package was not automatically installed as new and is pending.\nEstimated destinations will not be used; the package will be installed in the new-package install location.\nIt will be installed even if WARNINGs such as missing resources remain.\nContinue?"
 }

@@ -1101,6 +1101,93 @@ public sealed class PendingPackageWorkflowOwnerTests
         Assert.AreSame(package, store.LastPackages.Single());
     }
 
+    [DataTestMethod]
+    [DataRow(false, true, true, false)]
+    [DataRow(false, true, false, false)]
+    [DataRow(false, false, false, false)]
+    [DataRow(true, true, true, false)]
+    [DataRow(true, true, false, false)]
+    [DataRow(true, false, true, false)]
+    [DataRow(true, false, false, false)]
+    [DataRow(false, true, false, true)]
+    [DataRow(true, true, false, true)]
+    [DataRow(true, false, false, true)]
+    public async Task ForceInstallPackagesAsync_ConfirmsAccordingToDestinationAndNewInstallSetting(
+        bool hasDestination, bool showNewConfirmation, bool accept, bool closeWithoutSelection)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var events = new List<string>();
+        ChartFile chart = CreateChart(installDestination: hasDestination ? @"C:\Installed" : null);
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(accept ? MessageBoxResult.Yes : MessageBoxResult.No)
+        };
+        UiDialogResult? closedResult = null;
+        if (closeWithoutSelection)
+        {
+            dialogs.ConfirmationHandler = request =>
+            {
+                var response = UiDialogResult.ClosedByUser(
+                    ThemedMessageBox.NormalizeDefaultResult(request.Button, request.DefaultResult));
+                closedResult = response;
+                return Task.FromResult(response);
+            };
+        }
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs,
+            settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(false, false, showNewConfirmation));
+
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([package]);
+
+        Assert.IsTrue(result.Succeeded);
+        bool requiresConfirmation = hasDestination || showNewConfirmation;
+        Assert.AreEqual(!requiresConfirmation || accept, store.ApprovedNormalInstallOverridePackages.Contains(package));
+        if (closeWithoutSelection)
+        {
+            Assert.IsNotNull(closedResult);
+            Assert.AreEqual(UiDialogStatus.ClosedByUser, closedResult.Status);
+            Assert.IsFalse(closedResult.IsPositive);
+            Assert.AreSame(package, store.LastPackages.Single());
+            Assert.AreEqual(chart.Path, package.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(chart.InstallDestination, package.ChartEntries.Single().Chart.InstallDestination);
+        }
+
+        if (requiresConfirmation)
+        {
+            Assert.IsNotNull(dialogs.ConfirmationRequest);
+            Assert.AreEqual(hasDestination
+                ? BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride
+                : BeMusicSeeker.Properties.Resources.Confirm_NewPackageInstall, dialogs.ConfirmationRequest.MessageBoxText);
+        }
+        else
+        {
+            Assert.IsNull(dialogs.ConfirmationRequest);
+        }
+    }
+
+    [TestMethod]
+    public async Task ForceInstallPackagesAsync_DisabledNewConfirmationStillRejectsConfiguredDestinationInMixedSelection()
+    {
+        var events = new List<string>();
+        var newPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+        var existingPackage = ChartPackage.FromChartEntries([
+            PackageChartEntry.FromChart(CreateChart(@"C:\Other\chart.bms", @"C:\Installed"))]);
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)
+        };
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs,
+            settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(false, false, false));
+
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([newPackage, existingPackage]);
+
+        Assert.IsTrue(result.Succeeded);
+        CollectionAssert.AreEquivalent(new[] { newPackage }, store.ApprovedNormalInstallOverridePackages.ToArray());
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
+    }
+
     [TestMethod]
     public async Task ManualInstallPackagesAsync_RejectionPreservesShellSelectionAndSkipsMutation()
     {
@@ -2270,7 +2357,8 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         return new InstallDestinationWorkflowSettingsSnapshot(
             showManualInstallConfirmation: false,
-            deletePendingPackageSourceAfterInstall: false);
+            deletePendingPackageSourceAfterInstall: false,
+            showNewPackageInstallConfirmation: false);
     }
 
     private static BMSLibrary CreateLibrary()

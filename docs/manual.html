@@ -798,6 +798,12 @@ Some install-related settings affect real file operations, such as deleting sour
 </tr>
 <tr>
 <td>Message Display</td>
+<td>Show confirmation before installing as new</td>
+<td>ON</td>
+<td>Confirms before installing a pending package with no destination as new. A configured destination always requires confirmation, even when this is OFF.</td>
+</tr>
+<tr>
+<td>Message Display</td>
 <td>Show confirmation message on duplicate file check merge/cleanup</td>
 <td>ON</td>
 <td>Shows a confirmation before duplicate-file-check operations that merge folders or clean up same-folder duplicate-hash charts.</td>
@@ -1042,7 +1048,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <li><code>Install</code> -&gt; <code>Estimate install destination</code>: Estimates the install destination for pending charts.</li>
 <li><code>Install</code> -&gt; <code>Estimate merge destination</code>: Performs estimation for packages that contain only already-owned charts, or for resource-focused merging, without adding bundled resources to the evaluation.</li>
 <li><code>Install</code> -&gt; <code>Install to estimated destination</code>: Installs to <code>INSTL DST</code>.</li>
-<li><code>Install</code> -&gt; <code>Install ignoring warnings</code>: Treats the package as an ordinary new install without using the estimated destination.</li>
+<li><code>Install</code> -&gt; <code>Install as new</code>: Treats the package as an ordinary new install without using the estimated destination.</li>
 <li><code>Install</code> -&gt; <code>Clear install destination</code>: Clears <code>INSTL DST</code>, estimated-destination display, estimation warnings, and candidates.</li>
 <li><code>Fix installed location</code>: Re-estimates the <code>instl_dst</code> of an installed chart, then updates the record with <code>Reinstall to estimated destination</code>. <code>Clear reinstall destination</code> clears the candidates.</li>
 </ul>
@@ -1091,7 +1097,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <ul>
 <li><code>New</code> root: <code>Clear all</code> empties the new package display.</li>
 <li><code>Pending</code> root: You can run <code>Clear all</code> and <code>Advanced features</code>. For advanced features, see <a href="#advanced-features">Advanced Features</a>.</li>
-<li>Pending package: You can run <code>Open in Explorer</code>, <code>Open install destination</code>, the <code>Install</code> submenu, and <code>Remove from list</code>. The <code>Install</code> submenu contains <code>Estimate install destination</code>, <code>Estimate merge destination</code>, <code>Install to estimated destination</code>, <code>Install ignoring warnings</code>, and <code>Clear install destination</code>.</li>
+<li>Pending package: You can run <code>Open in Explorer</code>, <code>Open install destination</code>, the <code>Install</code> submenu, and <code>Remove from list</code>. The <code>Install</code> submenu contains <code>Estimate install destination</code>, <code>Estimate merge destination</code>, <code>Install to estimated destination</code>, <code>Install as new</code>, and <code>Clear install destination</code>.</li>
 <li>Installed package: You can run <code>Open in Explorer</code> and <code>Remove from list</code>.</li>
 </ul>
 <p>Maintenance:</p>
@@ -1348,14 +1354,14 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <li>Resources match reasonably well, but TITLE / ARTIST similarity is low.</li>
 <li>Startup file-difference checking was skipped, so the resource index required for estimation is unavailable.</li>
 </ul>
-<p>When multiple candidates exist, click the <code>INSTL DST</code> cell and enter edit mode to show candidates as suggestions. Suggestions show up to the top 3 candidates. Choosing a candidate sets that directory as <code>INSTL DST</code>. Even after choosing a candidate, or when the setting above automatically applies the first candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.</p>
+<p>When candidates exist, an empty <code>INSTL DST</code> cell shows <code>▼ Select a candidate…</code>; a configured cell shows <code>▼</code> before the current path. The candidate marker remains visible when a long path is shortened. Cells without candidates have no added decoration. Click the cell and enter edit mode to show candidates as suggestions. Suggestions show up to the top 3 candidates. Choosing a candidate sets that directory as <code>INSTL DST</code>. Even after choosing a candidate, or when the setting above automatically applies the first candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.</p>
 <p><code>INSTL DST</code> can also be entered manually. You can enter either the full path of an owned chart file, or the directory containing owned chart files. If you enter a full chart-file path, it is normalized to the directory containing that chart. Nonexistent paths, and directories not recognized as existing chart directories in the library, cannot be specified.</p>
 <h3 id="install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</h3>
 <p>The <code>Install</code> context menu contains several similarly named estimation operations.</p>
 <p><code>Estimate install destination</code> is for ordinary differential-chart installation. Resources bundled in the pending package are counted as resources that will become available after installation, and BeMusicSeeker looks for the destination that works best when combined with the existing directory. Usually, use this operation. <strong>In other words, bundled additional audio files are also considered.</strong></p>
 <p><code>Estimate merge destination</code> is for pending packages that contain only already-owned charts, or for cases where you want to move only resources into an existing folder. It does not add bundled resources inside the pending package to the evaluation; it searches for a merge destination using only resources already present in the existing library. Existing <code>INSTL DST</code> values are overwritten. A confirmation dialog is shown before execution.</p>
 <p><code>Install to estimated destination</code> installs pending packages whose <code>INSTL DST</code> is set into their estimated destinations, one package at a time in list order. After each package's file moves and <code>song.db</code> updates are committed, the pending list, maintenance information, chart metadata, and resource state are updated. Packages whose charts all have an empty <code>INSTL DST</code> remain in Pending. Same-name collisions among bundled files are handled according to <a href="#smart-overwrite">Smart Overwrite</a> in the settings dialog.</p>
-<p><code>Install ignoring warnings</code> ignores the estimated destination and treats the package as an ordinary new installation. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
+<p><code>Install as new</code> ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF <code>Show confirmation before installing as new</code> in Advanced settings. Rejected packages remain pending. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
 <p><code>Clear install destination</code> clears <code>INSTL DST</code>, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Use it when you want to redo estimation.</p>
 <h3 id="advanced-features">Advanced Features</h3>
 <p><img alt="Install Pending Advanced Features" src="img/一覧_インストール_保留_高度な機能.PNG"/></p>

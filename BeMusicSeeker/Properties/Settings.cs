@@ -1078,6 +1078,22 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>導入先未設定の保留パッケージを新規として導入する前に確認します。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("True")]
+    public bool ShowNewPackageInstallConfirmMsg
+    {
+        get
+        {
+            return (bool)this["ShowNewPackageInstallConfirmMsg"];
+        }
+        set
+        {
+            this["ShowNewPackageInstallConfirmMsg"] = value;
+        }
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("True")]

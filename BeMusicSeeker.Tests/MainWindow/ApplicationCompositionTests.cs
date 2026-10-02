@@ -1367,6 +1367,7 @@ public sealed class ApplicationCompositionTests
             EnableBeatorajaBmtOutput = true,
             LR2CustomFolderOutputBaseDir = "session-output-base",
             ShowDiffBMSInstallConfirmMsg = true,
+            ShowNewPackageInstallConfirmMsg = false,
             DeletePendingPackageSourceAfterInstall = true
         };
         var session = new FakeSettingsEditSession { Values = values };
@@ -1390,6 +1391,11 @@ public sealed class ApplicationCompositionTests
         Assert.IsTrue(beatorajaOptions.EnableBeatorajaBmtOutput);
         Assert.AreEqual("session-output-base", customFolderOptions.LR2CustomFolderOutputBaseDir);
         Assert.IsTrue(installDestinationOptions.ShowManualInstallConfirmation);
+        Assert.IsFalse(installDestinationOptions.ShowNewPackageInstallConfirmation);
+        Assert.IsFalse(libraryOptions.ShowNewPackageInstallConfirmMsg);
+        values.ShowNewPackageInstallConfirmMsg = true;
+        Assert.IsTrue(composition.InstallDestinationSettingsProvider().ShowNewPackageInstallConfirmation);
+        Assert.IsTrue(composition.BmsLibraryOptionsProvider().ShowNewPackageInstallConfirmMsg);
         Assert.IsTrue(installDestinationOptions.DeletePendingPackageSourceAfterInstall);
 
         values.PendingInstallEstimateMaxParallelPackages = 13;

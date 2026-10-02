@@ -173,7 +173,7 @@
   "PlaylistProp_asc": "升序",
   "Not_use_LR2DB": "独立模式(不与 LR2 联动)",
   "Artist": "艺术家",
-  "Force_install": "忽略警告并安装",
+  "Force_install": "作为新包安装",
   "Record_setting_filetype": "文件类型",
   "Record_setting_filename": "输出文件名格式：",
   "PlaylistProp_ftype_desc": "* 如果文件夹展开/折叠较慢，请减少上述输出项，或在 LR2 中关闭文件夹灯功能",
@@ -730,8 +730,8 @@
   "Warn_InstallAbortedFilesNotFound": "部分或全部文件未找到，\n安装已中断。",
   "Error_InstallFailed": "安装处理过程中发生错误。\n部分更改可能已经生效，整个操作不一定已完全撤销。\n\n请检查包、安装目标中的文件和曲库状态。详情请查看日志。\n包: {0}\n安装目标: {1}\n\n{2}",
   "Error_FolderDeleteFailed": "文件夹删除失败。\n请确认是否可以正常访问。\n{0}\n\n{1}",
-  "Confirm_NormalInstallOverride": "已推定出安装目标，\n但您正在执行普通安装。\n安装将在独立文件夹中进行。\n是否继续？",
-  "Confirm_NormalInstallTitle": "普通安装功能通知",
+  "Confirm_NormalInstallOverride": "已设置安装目标，但您即将把此包作为新包安装。\n不会使用已设置的安装目标，而是安装到新包安装位置。\n是否继续？",
+  "Confirm_NormalInstallTitle": "作为新包安装",
   "Confirm_SelectedPlaylistUrlDownload": "下载 {1} 的 {0} 个目标 URL，并仅将支持的文件传递给安装处理。\n需要在浏览器中打开的 URL 将不会打开并跳过。\n\n要继续吗？",
   "Warn_SelectedPlaylistUrlDownloadLargeSelection": "目标 URL 数量为 {0} 个以上。\n下载的文件以及用于解压存档的临时文件会创建在 Windows 临时区域（通常位于 C 盘），请注意磁盘剩余空间。\n下载或解压处理可能需要较长时间。\n尤其是导入主 URL 时文件更容易较大，请特别注意。",
   "Msg_SelectedPlaylistUrlDownloadResult": "播放列表 URL 导入结果\n\n目标: {0}\n下载成功: {1}\n跳过(浏览器): {2}\n跳过(大小上限): {3}\n跳过(重复): {4}\n失败: {5}\n因取消未处理: {6}",
@@ -1070,5 +1070,8 @@
   "AudioCallbackOutputFailureFormat": "音频输出失败。\n处理阶段：{0}\n原生错误：{1}",
   "AudioDeviceTestCleanupFailure": "无法确认音频资源已释放。请查看详细信息。",
   "BmsInfiniteStopTimingFailure": "STOP长度为正无穷大，因此无法在此BPM下计算停止时间。",
-  "BmsInfiniteMeasureLengthTimingFailure": "小节长度为正无穷大，因此无法计算谱面的时间。"
+  "BmsInfiniteMeasureLengthTimingFailure": "小节长度为正无穷大，因此无法计算谱面的时间。",
+  "InstallDestination_SelectCandidate": "选择候选位置…",
+  "Details_show_diag_new_install": "显示“作为新包安装”的确认消息",
+  "Confirm_NewPackageInstall": "此包未被自动作为新包安装，目前处于待处理状态。\n不会使用推定的安装目标，而是安装到新包安装位置。\n即使存在资源缺失等 WARNING，也会按当前状态安装。\n是否继续？"
 }

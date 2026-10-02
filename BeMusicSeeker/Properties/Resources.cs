@@ -2691,4 +2691,13 @@ public class Resources
     /// <summary>正の無限大の小節長から譜面時刻を計算できない理由を取得します。</summary>
     public static string BmsInfiniteMeasureLengthTimingFailure => ResourceManager.GetString("BmsInfiniteMeasureLengthTimingFailure", resourceCulture);
 
+    /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
+    public static string InstallDestination_SelectCandidate => ResourceManager.GetString("InstallDestination_SelectCandidate", resourceCulture);
+
+    /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
+    public static string Details_show_diag_new_install => ResourceManager.GetString("Details_show_diag_new_install", resourceCulture);
+
+    /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
+    public static string Confirm_NewPackageInstall => ResourceManager.GetString("Confirm_NewPackageInstall", resourceCulture);
+
 }

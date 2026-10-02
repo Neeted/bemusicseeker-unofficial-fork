@@ -173,7 +173,7 @@
   "PlaylistProp_asc": "ASC",
   "Not_use_LR2DB": "Mode autonome (sans intégration LR2)",
   "Artist": "Artiste",
-  "Force_install": "Installer en ignorant les avertissements",
+  "Force_install": "Installer comme nouveau paquet",
   "Record_setting_filetype": "Format d’enregistrement",
   "Record_setting_filename": "Format du nom du fichier de sortie : ",
   "PlaylistProp_ftype_desc": "* Si l’ouverture/fermeture des dossiers est lente, réduisez les sorties ci-dessus ou désactivez la fonction Folder Lamp dans LR2",
@@ -730,8 +730,8 @@
   "Warn_InstallAbortedFilesNotFound": "Certains ou tous les fichiers n'ont pas été trouvés.\nL'installation a été annulée.",
   "Error_InstallFailed": "Une erreur s’est produite pendant l’installation.\nCertaines modifications peuvent déjà avoir été appliquées. L’opération n’a pas nécessairement été entièrement annulée.\n\nVérifiez le paquet, les fichiers à la destination d’installation et l’état de la bibliothèque. Consultez le journal pour les détails.\nPaquet : {0}\nDestination d’installation : {1}\n\n{2}",
   "Error_FolderDeleteFailed": "Échec de la suppression du dossier.\nVeuillez vérifier s'il est accessible.\n{0}\n\n{1}",
-  "Confirm_NormalInstallOverride": "Une destination d'installation a été estimée,\nmais vous êtes sur le point d'effectuer une installation normale.\nL'installation sera effectuée dans un dossier indépendant.\nVoulez-vous continuer ?",
-  "Confirm_NormalInstallTitle": "Notification d'installation normale",
+  "Confirm_NormalInstallOverride": "Une destination est définie, mais vous allez installer ce paquet comme nouveau paquet.\nLa destination définie sera ignorée au profit de l’emplacement d’installation des nouveaux paquets.\nContinuer ?",
+  "Confirm_NormalInstallTitle": "Installer comme nouveau paquet",
   "Confirm_SelectedPlaylistUrlDownload": "Télécharger {0} URL cible(s) pour {1} et transmettre uniquement les fichiers pris en charge au traitement d’installation.\nLes URL qui doivent être ouvertes dans un navigateur seront ignorées sans être ouvertes.\n\nContinuer ?",
   "Warn_SelectedPlaylistUrlDownloadLargeSelection": "Il y a au moins {0} URL cibles.\nLes fichiers téléchargés et les fichiers temporaires d’extraction des archives sont créés dans le dossier temporaire de Windows (généralement sur le lecteur C), vérifiez donc l’espace disque disponible.\nLe téléchargement et l’extraction peuvent prendre du temps.\nSoyez particulièrement prudent lors de l’import des URL principales, car les fichiers sont plus susceptibles d’être volumineux.",
   "Msg_SelectedPlaylistUrlDownloadResult": "Résultat de l’import des URL de playlist\n\nCibles : {0}\nTéléchargements réussis : {1}\nIgnorées (navigateur) : {2}\nIgnorées (limite de taille) : {3}\nIgnorées (doublon) : {4}\nÉchecs : {5}\nNon traitées (annulation) : {6}",
@@ -1070,5 +1070,8 @@
   "AudioCallbackOutputFailureFormat": "Échec de la sortie audio.\nÉtape : {0}\nErreur native : {1}",
   "AudioDeviceTestCleanupFailure": "La libération des ressources audio n’a pas pu être confirmée. Consultez les détails.",
   "BmsInfiniteStopTimingFailure": "La longueur du STOP est un infini positif. La durée de l'arrêt ne peut donc pas être calculée à ce BPM.",
-  "BmsInfiniteMeasureLengthTimingFailure": "La longueur de la mesure est un infini positif. Les temps de la partition ne peuvent donc pas être calculés."
+  "BmsInfiniteMeasureLengthTimingFailure": "La longueur de la mesure est un infini positif. Les temps de la partition ne peuvent donc pas être calculés.",
+  "InstallDestination_SelectCandidate": "Choisir une destination…",
+  "Details_show_diag_new_install": "Afficher une confirmation avant d’installer comme nouveau paquet",
+  "Confirm_NewPackageInstall": "Ce paquet n’a pas été installé automatiquement comme nouveau paquet et reste en attente.\nLes destinations estimées seront ignorées au profit de l’emplacement d’installation des nouveaux paquets.\nL’installation aura lieu même si des avertissements (WARNING), notamment de ressources manquantes, subsistent.\nContinuer ?"
 }

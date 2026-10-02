@@ -156,6 +156,78 @@ public sealed class SettingsWindowCompiledBehaviorTests
     }
 
     [TestMethod]
+    public void AdvancedPageNewPackageConfirmationBindsDefaultAndRestoresIndependently()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("en-US");
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+                settings.OperationModeLR2DB = false;
+                settings.BMSRootPath = Path.GetTempPath();
+                settings.StandaloneBmsRootPaths = Path.GetTempPath();
+                settings.BMSInstallDir = Path.GetTempPath();
+                settings.ScanBmsFilesOnStartup = false;
+                settings.SkipInitPlaylistLoad = true;
+                settings.UsePlayeruBMplay = false;
+                settings.UsePlayerLR2body = false;
+                settings.UsePlayerBMIIDXView = false;
+                settings.ShowDiffBMSInstallConfirmMsg = false;
+                Assert.IsTrue(settings.ShowNewPackageInstallConfirmMsg);
+                owner = MainWindowViewModelTestFactory.Create(settings);
+                window = new SettingsWindow
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaybackPanel = owner.PlaybackPanel
+                };
+                scope.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
+                Materialize(window);
+
+                var page = (AdvancedSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                CheckBox confirmation = FindLogicalDescendants<CheckBox>(page).Single(checkBox =>
+                    GetBindingPath(checkBox, ToggleButton.IsCheckedProperty)
+                        == nameof(SettingsDialogViewModel.ShowNewPackageInstallConfirmMsg));
+                CheckBox diffConfirmation = FindLogicalDescendants<CheckBox>(page).Single(checkBox =>
+                    GetBindingPath(checkBox, ToggleButton.IsCheckedProperty)
+                        == nameof(SettingsDialogViewModel.ShowDiffBMSInstallConfirmMsg));
+                Assert.AreSame(owner.SettingDialog, confirmation.DataContext);
+                Assert.IsTrue(confirmation.IsVisible);
+                Assert.IsTrue(confirmation.ActualWidth > 0 && confirmation.ActualHeight > 0);
+                Assert.AreEqual(Resources.Details_show_diag_new_install, confirmation.Content);
+                Assert.IsTrue(confirmation.IsChecked == true);
+                Assert.IsTrue(owner.SettingDialog.ShowNewPackageInstallConfirmMsg);
+
+                confirmation.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
+                Materialize(window);
+                Assert.IsFalse(owner.SettingDialog.ShowNewPackageInstallConfirmMsg);
+                Assert.IsFalse(settings.ShowNewPackageInstallConfirmMsg);
+                Assert.IsFalse(owner.SettingDialog.ShowDiffBMSInstallConfirmMsg);
+                Assert.IsFalse(settings.ShowDiffBMSInstallConfirmMsg);
+                Assert.IsTrue(diffConfirmation.IsChecked == false);
+
+                owner.SettingDialog.ResetSettings();
+                Materialize(window);
+                Assert.IsTrue(confirmation.IsChecked == true);
+                Assert.IsTrue(owner.SettingDialog.ShowNewPackageInstallConfirmMsg);
+                Assert.IsTrue(settings.ShowNewPackageInstallConfirmMsg);
+                Assert.IsTrue(diffConfirmation.IsChecked == false);
+                Assert.IsFalse(settings.ShowDiffBMSInstallConfirmMsg);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                owner?.SettingDialog.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
+    [TestMethod]
     public void AudioPagesBindPlayerCapabilitiesAndIndependentEncodingOptions()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>

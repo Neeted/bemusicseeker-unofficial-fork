@@ -579,6 +579,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 MenuItem installMenu = packageMenu.Items.OfType<MenuItem>().Single(item => item.Items.Count == 5);
                 MenuItem[] installCommands = installMenu.Items.OfType<MenuItem>().ToArray();
                 Assert.AreEqual(5, installCommands.Length);
+                Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
 
                 foreach (MenuItem command in installCommands)
                 {
@@ -1134,6 +1135,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
                 MenuItem[] installCommands = installGroup.Items.OfType<MenuItem>().ToArray();
                 Assert.AreEqual(5, installCommands.Length);
+                Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
                 var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
                 installCommands[0].RaiseEvent(searchInstallArgs);
                 Assert.IsTrue(searchInstallArgs.Handled);

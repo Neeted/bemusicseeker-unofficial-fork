@@ -42,6 +42,10 @@
 
 入力エラーは該当欄に表示し、分類の切替や画面の再アクティブ化で失いません。URL等の未確定入力は検証失敗時にもそのまま残します。設定画面を閉じて新しく開いたときは、前回の入力エラーを通知付きで解除します。テーマと一覧表示に関するプレビューは即時反映し、取消では保存済みの値へ戻します。「既定値に戻す」も、取消後の基準を変更しません。
 
+### 新規としてインストールの確認
+
+詳細のメッセージ表示に `ShowNewPackageInstallConfirmMsg` を配置します。既定値は true で、旧設定にキーがない場合も確認を有効にします。設定変更の検出、保存、取消時の復元とプロパティ通知は他の確認設定と同じ経路を使います。false で省略するのは導入先未設定の保留パッケージの新規導入確認だけです。設定済みの導入先を使わない確認は常に残します。表示する確認は No を既定とし、未選択で閉じても新規導入を承認しません。
+
 ### LR2の場所と設定XML
 
 `LR2RootPath`、`LR2SongDBPath`、`LR2ConfigXmlPath` は独立した保存値です。通常の起動で子パスをルートから再生成しません。保存された設定XMLのパスが欠落・読取不能・不正な場合も、別設定の保存や画面の再表示を理由に生のパスを消しません。パス文字列、解析済み設定、表示用の状態を分けます。
@@ -163,6 +167,7 @@ stateDiagram-v2
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 表示・閉じる・分類・入力保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
+| 新規導入確認設定の既定値、実表示、独立した編集・取消・保存と受渡し | [`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`Settings`](../../../BeMusicSeeker/Properties/Settings.cs) | [`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) の `AdvancedPageNewPackageConfirmationBindsDefaultAndRestoresIndependently`: 実設定画面のラベル・表示、既定ON、CheckboxからOFFへの反映とResetSettingsによるUI復元、差分導入確認との独立を確認する。[`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) は欠落キーの既定値とOFF→ONの再保存・再読込み、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs) は変更検出と取消、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) は両設定snapshotへの受渡しを確認する。 |
 | 動作モード変更の確認・再起動要求・失敗通知 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `OperationModeLR2DB` | [`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) の `SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest`: 初回編集、確認の許可・取消、要求失敗時のモード復元・編集再開・保存と終了の抑止、既定通知一回と差替え通知への元例外引渡し。 |
 | 初回・修復設定の保存、閉鎖、通知、初期化の順序 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_InitialSettings_ClosesBeforeNotificationAndAwaitsInitialization`: 単独・LR2、初回通知の有無、表示終了と通知の待機、二重要求の拒否。 |
 | 初回設定の実表示と失敗後の再表示 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実際の通知、親ウィンドウ、モーダル表示の終了、失敗後の編集受付、終了要求時の再表示抑止。 |

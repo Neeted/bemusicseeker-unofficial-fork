@@ -173,7 +173,7 @@
   "PlaylistProp_asc": "遞增",
   "Not_use_LR2DB": "獨立模式(不與 LR2 連動)",
   "Artist": "演出者",
-  "Force_install": "忽略警告並安裝",
+  "Force_install": "作為新套件安裝",
   "Record_setting_filetype": "檔案類型",
   "Record_setting_filename": "輸出檔案名稱格式：",
   "PlaylistProp_ftype_desc": "* 若資料夾展開/折疊較慢，請減少上述輸出項目，或在 LR2 中關閉資料夾燈功能",
@@ -730,8 +730,8 @@
   "Warn_InstallAbortedFilesNotFound": "部分或全部檔案未找到，\n安裝已中斷。",
   "Error_InstallFailed": "安裝處理過程中發生錯誤。\n部分變更可能已經生效，整個操作不一定已完全復原。\n\n請檢查套件、安裝目標中的檔案與曲庫狀態。詳細資訊請查看記錄。\n套件: {0}\n安裝目標: {1}\n\n{2}",
   "Error_FolderDeleteFailed": "資料夾刪除失敗。\n請確認是否可以正常存取。\n{0}\n\n{1}",
-  "Confirm_NormalInstallOverride": "已推定出安裝目標，\n但您正在執行普通安裝。\n安裝將在獨立資料夾中進行。\n是否繼續？",
-  "Confirm_NormalInstallTitle": "普通安裝功能通知",
+  "Confirm_NormalInstallOverride": "已設定安裝目標，但您即將把此套件作為新套件安裝。\n不會使用已設定的安裝目標，而是安裝至新套件安裝位置。\n是否繼續？",
+  "Confirm_NormalInstallTitle": "作為新套件安裝",
   "Confirm_SelectedPlaylistUrlDownload": "下載 {1} 的 {0} 個目標 URL，並只將支援的檔案交給安裝處理。\n需要在瀏覽器中開啟的 URL 將不會開啟並略過。\n\n要繼續嗎？",
   "Warn_SelectedPlaylistUrlDownloadLargeSelection": "目標 URL 數量為 {0} 個以上。\n下載的檔案以及用於解壓縮封存檔的暫存檔會建立在 Windows 暫存區域（通常位於 C 槽），請注意磁碟剩餘空間。\n下載或解壓縮處理可能需要較長時間。\n尤其是匯入主要 URL 時檔案更容易較大，請特別注意。",
   "Msg_SelectedPlaylistUrlDownloadResult": "播放清單 URL 匯入結果\n\n目標: {0}\n下載成功: {1}\n略過(瀏覽器): {2}\n略過(大小上限): {3}\n略過(重複): {4}\n失敗: {5}\n因取消未處理: {6}",
@@ -1070,5 +1070,8 @@
   "AudioCallbackOutputFailureFormat": "音訊輸出失敗。\n處理階段：{0}\n原生錯誤：{1}",
   "AudioDeviceTestCleanupFailure": "無法確認音訊資源已釋放。請查看詳細資訊。",
   "BmsInfiniteStopTimingFailure": "STOP長度為正無窮大，因此無法在此BPM下計算停止時間。",
-  "BmsInfiniteMeasureLengthTimingFailure": "小節長度為正無窮大，因此無法計算譜面的時間。"
+  "BmsInfiniteMeasureLengthTimingFailure": "小節長度為正無窮大，因此無法計算譜面的時間。",
+  "InstallDestination_SelectCandidate": "選擇候選位置…",
+  "Details_show_diag_new_install": "顯示「作為新套件安裝」的確認訊息",
+  "Confirm_NewPackageInstall": "此套件未被自動作為新套件安裝，目前處於待處理狀態。\n不會使用推定的安裝目標，而是安裝至新套件安裝位置。\n即使存在資源缺失等 WARNING，也會按目前狀態安裝。\n是否繼續？"
 }

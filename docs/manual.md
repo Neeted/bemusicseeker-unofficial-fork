@@ -295,6 +295,7 @@ Some install-related settings affect real file operations, such as deleting sour
 | --- | --- | --- | --- |
 | Message Display | Show confirmation message when registering with chart viewer | ON | Shows a confirmation before chart viewer registration operations. |
 | Message Display | Show confirmation message for differential install | ON | Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination. |
+| Message Display | Show confirmation before installing as new | ON | Confirms before installing a pending package with no destination as new. A configured destination always requires confirmation, even when this is OFF. |
 | Message Display | Show confirmation message on duplicate file check merge/cleanup | ON | Shows a confirmation before duplicate-file-check operations that merge folders or clean up same-folder duplicate-hash charts. |
 | Message Display | Show recommend update message | ON | Shows a notification when recommendation information is updated. |
 | Initialization | Scan BMS files and configuration files on startup | ON | Checks file differences and builds the resource index on startup. Turning this OFF speeds up initialization, but the library list saved in the DB is loaded without refreshing the index, so destination estimation for pending packages may not be possible until library `Reload` or `Re-run Initialization` is run manually. |
@@ -475,7 +476,7 @@ Install / install destination:
 - `Install` -> `Estimate install destination`: Estimates the install destination for pending charts.
 - `Install` -> `Estimate merge destination`: Performs estimation for packages that contain only already-owned charts, or for resource-focused merging, without adding bundled resources to the evaluation.
 - `Install` -> `Install to estimated destination`: Installs to `INSTL DST`.
-- `Install` -> `Install ignoring warnings`: Treats the package as an ordinary new install without using the estimated destination.
+- `Install` -> `Install as new`: Treats the package as an ordinary new install without using the estimated destination.
 - `Install` -> `Clear install destination`: Clears `INSTL DST`, estimated-destination display, estimation warnings, and candidates.
 - `Fix installed location`: Re-estimates the `instl_dst` of an installed chart, then updates the record with `Reinstall to estimated destination`. `Clear reinstall destination` clears the candidates.
 
@@ -533,7 +534,7 @@ Install:
 
 - `New` root: `Clear all` empties the new package display.
 - `Pending` root: You can run `Clear all` and `Advanced features`. For advanced features, see [Advanced Features](#advanced-features).
-- Pending package: You can run `Open in Explorer`, `Open install destination`, the `Install` submenu, and `Remove from list`. The `Install` submenu contains `Estimate install destination`, `Estimate merge destination`, `Install to estimated destination`, `Install ignoring warnings`, and `Clear install destination`.
+- Pending package: You can run `Open in Explorer`, `Open install destination`, the `Install` submenu, and `Remove from list`. The `Install` submenu contains `Estimate install destination`, `Estimate merge destination`, `Install to estimated destination`, `Install as new`, and `Clear install destination`.
 - Installed package: You can run `Open in Explorer` and `Remove from list`.
 
 Maintenance:
@@ -860,7 +861,7 @@ In cases such as the following, BeMusicSeeker may avoid automatically fixing `IN
 - Resources match reasonably well, but TITLE / ARTIST similarity is low.
 - Startup file-difference checking was skipped, so the resource index required for estimation is unavailable.
 
-When multiple candidates exist, click the `INSTL DST` cell and enter edit mode to show candidates as suggestions. Suggestions show up to the top 3 candidates. Choosing a candidate sets that directory as `INSTL DST`. Even after choosing a candidate, or when the setting above automatically applies the first candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.
+When candidates exist, an empty `INSTL DST` cell shows `▼ Select a candidate…`; a configured cell shows `▼` before the current path. The candidate marker remains visible when a long path is shortened. Cells without candidates have no added decoration. Click the cell and enter edit mode to show candidates as suggestions. Suggestions show up to the top 3 candidates. Choosing a candidate sets that directory as `INSTL DST`. Even after choosing a candidate, or when the setting above automatically applies the first candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.
 
 `INSTL DST` can also be entered manually. You can enter either the full path of an owned chart file, or the directory containing owned chart files. If you enter a full chart-file path, it is normalized to the directory containing that chart. Nonexistent paths, and directories not recognized as existing chart directories in the library, cannot be specified.
 
@@ -874,7 +875,7 @@ The `Install` context menu contains several similarly named estimation operation
 
 `Install to estimated destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. After each package's file moves and `song.db` updates are committed, the pending list, maintenance information, chart metadata, and resource state are updated. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 
-`Install ignoring warnings` ignores the estimated destination and treats the package as an ordinary new installation. **A typical use case is when the package shows something like `WAV 97%`, but that is known to be the original distribution state of the work.**
+`Install as new` ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF `Show confirmation before installing as new` in Advanced settings. Rejected packages remain pending. **A typical use case is when the package shows something like `WAV 97%`, but that is known to be the original distribution state of the work.**
 
 `Clear install destination` clears `INSTL DST`, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Use it when you want to redo estimation.
 

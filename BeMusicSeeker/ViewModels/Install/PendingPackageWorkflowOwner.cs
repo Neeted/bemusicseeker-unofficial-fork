@@ -975,17 +975,27 @@ internal sealed class PendingPackageWorkflowOwner
     private async Task<ISet<ChartPackage>> ConfirmNormalInstallOverridesAsync(
         IReadOnlyList<ChartPackage> packages)
     {
+        InstallDestinationWorkflowSettingsSnapshot settings = settingsProvider()
+            ?? throw new InvalidOperationException("Install-destination workflow settings provider returned null.");
         var approvedPackages = new HashSet<ChartPackage>();
-        foreach (ChartPackage package in packages.Where(package =>
-            (package.ChartEntries ?? []).Any(entry =>
-                !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination))))
+        foreach (ChartPackage package in packages)
         {
+            bool hasInstallDestination = (package.ChartEntries ?? []).Any(entry =>
+                !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination));
+            if (!hasInstallDestination && !settings.ShowNewPackageInstallConfirmation)
+            {
+                approvedPackages.Add(package);
+                continue;
+            }
+            // 閉鎖結果も既定値を保持する共通ダイアログなので、新規導入の既定は拒否にします。
             UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride,
+                hasInstallDestination
+                    ? BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride
+                    : BeMusicSeeker.Properties.Resources.Confirm_NewPackageInstall,
                 BeMusicSeeker.Properties.Resources.Confirm_NormalInstallTitle,
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question,
-                MessageBoxResult.Yes));
+                MessageBoxResult.No));
             if (ToConfirmationDecision(result, "Pending package normal install override confirmation"))
             {
                 approvedPackages.Add(package);

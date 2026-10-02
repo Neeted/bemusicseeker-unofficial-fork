@@ -3120,7 +3120,8 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
-    /// force install の全 package を一つの operation-scoped install session へ追加します。
+    /// 新規としての導入を承認された package を一つの operation-scoped install session へ追加します。
+    /// 確認コールバックは導入先の有無にかかわらず評価し、拒否された対象は変更しません。
     /// pending / installed collection と install-destination clear は caller が session commit 後に一括反映します。
     /// </summary>
     internal ForceInstallBatchResult ForceInstallPackagesForMutationSession(
@@ -3157,10 +3158,8 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
 
-            bool hasInstallDestination = pendingPackage.ChartEntries.Any(entry =>
-                !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination));
-            if (hasInstallDestination
-                && confirmNormalInstallOverride != null
+            // 導入先未設定でも利用者が新規導入を拒否できるため、全対象で承認結果を守ります。
+            if (confirmNormalInstallOverride != null
                 && !confirmNormalInstallOverride(pendingPackage))
             {
                 result.Skipped++;

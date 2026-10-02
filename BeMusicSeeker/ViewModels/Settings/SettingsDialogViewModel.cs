@@ -703,6 +703,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private bool tempShowScoreViewerRegisterConfirmMsg;
 
     private bool tempShowDiffBMSInstallConfirmMsg;
+    private bool tempShowNewPackageInstallConfirmMsg;
 
     private bool tempShowDuplicateFileCheckConfirmMsg;
 
@@ -3281,6 +3282,23 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 ApplicationSettings.ShowDiffBMSInstallConfirmMsg = value;
                 RaisePropertyChanged("ShowDiffBMSInstallConfirmMsg");
+            }
+        }
+    }
+
+    /// <summary>保留パッケージを新規として導入するときの確認表示を編集します。</summary>
+    public bool ShowNewPackageInstallConfirmMsg
+    {
+        get
+        {
+            return ApplicationSettings.ShowNewPackageInstallConfirmMsg;
+        }
+        set
+        {
+            if (ApplicationSettings.ShowNewPackageInstallConfirmMsg != value)
+            {
+                ApplicationSettings.ShowNewPackageInstallConfirmMsg = value;
+                RaisePropertyChanged("ShowNewPackageInstallConfirmMsg");
             }
         }
     }
@@ -6027,6 +6045,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempUseOnlyShiftJISChars = ApplicationSettings.UseOnlyShiftJISChars;
         tempShowScoreViewerRegisterConfirmMsg = ApplicationSettings.ShowScoreViewerRegisterConfirmMsg;
         tempShowDiffBMSInstallConfirmMsg = ApplicationSettings.ShowDiffBMSInstallConfirmMsg;
+        tempShowNewPackageInstallConfirmMsg = ApplicationSettings.ShowNewPackageInstallConfirmMsg;
         tempShowDuplicateFileCheckConfirmMsg = ApplicationSettings.ShowDuplicateFileCheckConfirmMsg;
         tempShowRecommUpdatedMsg = ApplicationSettings.ShowRecommUpdatedMsg;
         tempScanBmsFilesOnStartup = ApplicationSettings.ScanBmsFilesOnStartup;
@@ -6160,6 +6179,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempUseOnlyShiftJISChars != ApplicationSettings.UseOnlyShiftJISChars
             || tempShowScoreViewerRegisterConfirmMsg != ApplicationSettings.ShowScoreViewerRegisterConfirmMsg
             || tempShowDiffBMSInstallConfirmMsg != ApplicationSettings.ShowDiffBMSInstallConfirmMsg
+            || tempShowNewPackageInstallConfirmMsg != ApplicationSettings.ShowNewPackageInstallConfirmMsg
             || tempShowDuplicateFileCheckConfirmMsg != ApplicationSettings.ShowDuplicateFileCheckConfirmMsg
             || tempShowRecommUpdatedMsg != ApplicationSettings.ShowRecommUpdatedMsg
             || tempScanBmsFilesOnStartup != ApplicationSettings.ScanBmsFilesOnStartup
@@ -7278,6 +7298,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.UseOnlyShiftJISChars = tempUseOnlyShiftJISChars;
         ApplicationSettings.ShowScoreViewerRegisterConfirmMsg = tempShowScoreViewerRegisterConfirmMsg;
         ApplicationSettings.ShowDiffBMSInstallConfirmMsg = tempShowDiffBMSInstallConfirmMsg;
+        ApplicationSettings.ShowNewPackageInstallConfirmMsg = tempShowNewPackageInstallConfirmMsg;
         ApplicationSettings.ShowDuplicateFileCheckConfirmMsg = tempShowDuplicateFileCheckConfirmMsg;
         ApplicationSettings.ShowRecommUpdatedMsg = tempShowRecommUpdatedMsg;
         ApplicationSettings.ScanBmsFilesOnStartup = tempScanBmsFilesOnStartup;
@@ -7379,6 +7400,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(UseOnlyShiftJISChars));
         RaisePropertyChanged(nameof(ShowScoreViewerRegisterConfirmMsg));
         RaisePropertyChanged(nameof(ShowDiffBMSInstallConfirmMsg));
+        RaisePropertyChanged(nameof(ShowNewPackageInstallConfirmMsg));
         RaisePropertyChanged(nameof(ShowDuplicateFileCheckConfirmMsg));
         RaisePropertyChanged(nameof(ShowRecommUpdatedMsg));
         RaisePropertyChanged(nameof(ScanBmsFilesOnStartup));
