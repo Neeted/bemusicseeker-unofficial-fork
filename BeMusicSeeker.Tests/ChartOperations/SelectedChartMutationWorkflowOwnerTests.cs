@@ -153,7 +153,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             presentation.Events.Count,
             string.Join("|", presentation.Events));
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "pending-playback", "pending-refresh-start", "pending-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "pending-refresh-start", "pending-refresh-end", "activity-end" },
             presentation.Events);
     }
 
@@ -183,7 +183,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task DeleteLibraryAsync_StopsSelectedChartsAndApprovedDirectoriesBeforeStoreWrite()
+    public async Task DeleteLibraryAsync_StopsPlaybackBeforeApprovedFolderDeletion()
     {
         var events = new List<string>();
         var store = new RecordingStore(events) { WholeFolderDeletePaths = [@"C:\Songs\Folder"] };
@@ -202,9 +202,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
 
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual(7, events.Count, string.Join("|", events));
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-directories", "library-refresh-start", "store-library-delete", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "store-library-delete", "library-refresh-end", "activity-end" },
             events);
     }
 
@@ -243,7 +242,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameTerminalCalls);
         CollectionAssert.AreEqual(new[] { "pending:.bmx", "pending:.pmx" }, store.RenameOperations);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "pending-playback", "pending-refresh-start", "store-pending-rename", "store-pending-rename", "pending-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "pending-refresh-start", "store-pending-rename", "store-pending-rename", "pending-refresh-end", "activity-end" },
             events);
     }
 
@@ -429,7 +428,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         Assert.IsFalse(result.Succeeded);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-refresh-start", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "library-refresh-end", "activity-end" },
             presentation.Events);
     }
 
@@ -449,7 +448,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(@"D:\Moved", store.MovedDirectory);
         Assert.AreEqual(1, presentation.PathRefreshCalls);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
             events);
     }
 
@@ -682,7 +681,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(0, presentation.PathRefreshCalls);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-refresh-start", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "library-refresh-end", "activity-end" },
             presentation.Events);
     }
 
@@ -774,7 +773,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             null);
     }
 
-    private sealed class RecordingPresentation : ISelectedChartMutationPlaybackPort
+    private sealed class RecordingPresentation : IChartMutationPlaybackPort
     {
         internal List<string> Events { get; }
 
@@ -835,13 +834,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             }
         }
 
-        public void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts) => Events.Add("pending-playback");
-
-        public void StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts) => Events.Add("library-playback");
-
-        public void StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
+        public Task StopPlaybackForMutationAsync()
         {
-            Events.Add("library-directories");
+            Events.Add("playback-stop");
+            return Task.CompletedTask;
         }
     }
 

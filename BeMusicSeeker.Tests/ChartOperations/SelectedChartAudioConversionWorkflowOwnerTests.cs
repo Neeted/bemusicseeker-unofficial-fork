@@ -864,6 +864,45 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task RunAsync_WaitsForPlaybackCleanupBeforeStartingWriter()
+    {
+        string root = CreateRoot();
+        var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<SelectedChartAudioConversionResult>? operation = null;
+        try
+        {
+            string chartPath = CreateChartFile(root, "song.bms");
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var executor = new RecordingExecutor(events) { ExecuteAction = (_, _, _, _, report) => report(new SelectedChartAudioConversionFileResult(chartPath)) };
+            var playback = new RecordingPlayback(events)
+            {
+                StopCompletion = () => { entered.SetResult(); return cleanup.Task; }
+            };
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
+            operation = owner.RunAsync(new SelectedChartAudioConversionRequest([CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)]));
+            await entered.Task;
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.AreEqual(0, executor.CallCount);
+            cleanup.SetResult();
+            await operation;
+            Assert.AreEqual(1, executor.CallCount);
+        }
+        finally
+        {
+            cleanup.TrySetResult();
+            if (operation != null) { await operation; }
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
     public async Task RunAsync_PickerCancellationDoesNotStopPlaybackOrStartWriter()
     {
         string root = CreateRoot();
@@ -1521,11 +1560,14 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
         internal Action? StopAction { get; set; }
 
-        public void StopPlayback()
+        internal Func<Task>? StopCompletion { get; set; }
+
+        public Task StopPlayback()
         {
             StopCalls++;
             events.Add("playback");
             StopAction?.Invoke();
+            return StopCompletion?.Invoke() ?? Task.CompletedTask;
         }
     }
 

@@ -37,6 +37,92 @@ public sealed class BMSAutoPlayerInputTests
         BassAudioRuntime.Shutdown();
     }
 
+    [DataTestMethod]
+    [DataRow(44100)]
+    [DataRow(48000)]
+    public async Task PreparedSong_UsesParsedBranchAndDecodedPcmAfterInputsDisappear(int outputRate)
+    {
+        SampleRate previousFrequency = BassAudioPlayer.Frequency;
+        try
+        {
+            using var directory = new TemporaryDirectory();
+            string path = directory.File("chart.bms");
+            string wave = directory.File("used.wav");
+            File.WriteAllBytes(wave, BuildPcmWave(frameCount: 2205));
+            WriteChart(path, "#BPM 400\n#RANDOM 2\n#IF 1\n#WAV01 used.wav\n#WAV02 ./USED.WAV\n#00011:0102\n#ENDIF\n#IF 2\n#WAV01 absent.wav\n#00011:01\n#ENDIF\n#ENDRANDOM\n");
+            var chart = new BMSFile(path, new Queue<int>([1]));
+            BassAudioSession session = BassAudioPlayer.ActiveSession
+                ?? throw new AssertFailedException("The audio session is missing.");
+            int ownedStreams = session.OwnedStreamCount;
+            var prepared = PreparedBmsSong.Prepare(chart, 0.1f, expectedSession: session);
+            Assert.AreEqual(ownedStreams, session.OwnedStreamCount, "Preparation must leave no native decoder or voice.");
+            File.Delete(wave);
+            File.Delete(path);
+            BassAudioPlayer.Free();
+            BassAudioPlayer.Frequency = outputRate == 48000 ? SampleRate.SAMPLE_RATE_48000Hz : SampleRate.SAMPLE_RATE_44100Hz;
+            BassAudioPlayer.InitializeOwned(BassAudioPlayer.DeviceDriver.NULL_DEVICE, default, 0f, out _);
+            BassAudioSession playbackSession = BassAudioPlayer.ActiveSession
+                ?? throw new AssertFailedException("The playback session is missing.");
+            int playbackOwnedStreams = playbackSession.OwnedStreamCount;
+            using var player = new BMSAutoPlayer(prepared.Chart);
+            player.AdoptPreparedSong(prepared);
+            Assert.AreSame(chart, player.Bms);
+            BmsAudioResource first = player.AudioResourcesByIndex[1]
+                ?? throw new AssertFailedException("The selected branch was not decoded.");
+            Assert.AreSame(first, player.AudioResourcesByIndex[2]);
+            Assert.AreEqual(2205L, first.Audio.FrameCount);
+            Assert.AreEqual(outputRate, player.AudioSchedule.SampleRate);
+            CollectionAssert.AreEqual(new long[] { 0, outputRate * 3L / 10 }, player.AudioSchedule.Events.Select(item => item.StartFrame).ToArray());
+            Assert.AreEqual(BassAudioPlayer.DefaultVolume, first.SourceGain,
+                "The next start binds source gain without copying or scaling PCM.");
+            Assert.AreEqual(0, player.OmittedAudioSources.Count);
+            Assert.AreEqual(playbackOwnedStreams, playbackSession.OwnedStreamCount, "Adoption must not create voices before Start.");
+            await player.Start();
+            Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
+        }
+        finally { BassAudioPlayer.Frequency = previousFrequency; }
+    }
+
+    [TestMethod]
+    public void PreparedSong_CancellationPreservesSessionAndCancellationClassification()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteChart(directory.File("chart.bms"), "#WAV01 used.wav\n#00111:01\n");
+        File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
+        BassAudioSession session = BassAudioPlayer.ActiveSession ?? throw new AssertFailedException("Audio session is missing.");
+        int streams = session.OwnedStreamCount;
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.ThrowsException<OperationCanceledException>(() => PreparedBmsSong.Prepare(new BMSFile(directory.File("chart.bms")), 0.4f, cancellation.Token, session));
+        Assert.AreEqual(streams, session.OwnedStreamCount);
+        Assert.AreSame(session, BassAudioPlayer.ActiveSession);
+    }
+
+    [TestMethod]
+    public void PreparedSong_DefersOmissionWarningsUntilAdoption()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteChart(directory.File("chart.bms"), "#WAV01 missing.wav\n#WAV02 used.wav\n#00111:0102\n");
+        File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
+        _ = NLogWrapper.GetLogger(nameof(BMSAutoPlayer));
+        LoggingConfiguration? originalConfiguration = LogManager.Configuration;
+        var warnings = new MemoryTarget { Layout = "${message}" };
+        var configuration = new LoggingConfiguration();
+        configuration.AddRule(LogLevel.Warn, LogLevel.Warn, warnings, nameof(BMSAutoPlayer));
+        LogManager.Configuration = configuration;
+        try
+        {
+            var chart = new BMSFile(directory.File("chart.bms"));
+            var prepared = PreparedBmsSong.Prepare(chart, 0.4f);
+            Assert.AreEqual(0, warnings.Logs.Count);
+            using var player = new BMSAutoPlayer(chart);
+            player.AdoptPreparedSong(prepared);
+            Assert.AreEqual(1, warnings.Logs.Count);
+            Assert.AreEqual(1, player.OmittedAudioSources.Count);
+        }
+        finally { LogManager.Configuration = originalConfiguration; }
+    }
+
     [TestMethod]
     public void LoadResources_WarnsOncePerMissingOrCorruptPathWhileContinuing()
     {

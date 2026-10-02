@@ -416,7 +416,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             CreatePendingPackageWorkflowOwner(),
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
-            new NoOpFolderAutoRenamePlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             new TestUiScheduler(() => null!));
         RegularChartListRequestLease lease = owner.BeginRequest();
         var rows = new List<object> { new(), new() };
@@ -496,7 +496,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             CreatePendingPackageWorkflowOwner(),
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
-            new NoOpFolderAutoRenamePlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             new TestUiScheduler(() => null!));
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new(), new() };

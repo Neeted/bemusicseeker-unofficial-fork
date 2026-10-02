@@ -1116,18 +1116,20 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
         }
     }
 
+    /// <summary>再生Taskと後処理へ合流し、画面素材の解放後に通常取消以外の失敗を呼出元へ返します。</summary>
     protected virtual void Dispose(bool disposing)
     {
         Task playbackCompletion = null;
+        Exception completionFailure = null;
         if (disposing)
         {
             lock (playbackControlSync)
             {
-                if (disposedValue)
+                if (!disposedValue)
                 {
-                    return;
+                    taskTokenSource?.Cancel();
                 }
-                taskTokenSource?.Cancel();
+                // 素材の解放済み状態で、再生Taskに残る未回収のnative故障を成功へ変えません。
                 playbackCompletion = playTask;
             }
 
@@ -1139,38 +1141,53 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
             }
             catch (Exception ex)
             {
-                NLogWrapper.TraceLogger?.Info("BMSPlayer disposed and task stopped: " + ex);
+                Exception taskFailure = UnwrapTaskWaitFailure(ex);
+                if (IsOnlyCancellation(taskFailure))
+                {
+                    NLogWrapper.TraceLogger?.Info("BMSPlayer disposed and task cancelled: " + ex);
+                }
+                else
+                {
+                    completionFailure = taskFailure;
+                }
             }
         }
 
-        lock (playbackControlSync)
+        try
         {
-            if (disposedValue)
+            lock (playbackControlSync)
             {
-                return;
-            }
-            if (disposing)
-            {
-                foreach (TImageLoader imageLoader in ImageLoaders)
+                if (!disposedValue)
                 {
-                    imageLoader?.Dispose();
+                    if (disposing)
+                    {
+                        foreach (TImageLoader imageLoader in ImageLoaders)
+                        {
+                            imageLoader?.Dispose();
+                        }
+                        BgaBaseLoader?.Dispose();
+                        BgaPoorLoader?.Dispose();
+                        BgaLayerLoader?.Dispose();
+                        StagefileLoader?.Dispose();
+                        BannerLoader?.Dispose();
+                        BackbmpLoader?.Dispose();
+                    }
+                    ImageLoaders = null;
+                    BgaBaseLoader = null;
+                    BgaPoorLoader = null;
+                    BgaLayerLoader = null;
+                    StagefileLoader = null;
+                    BannerLoader = null;
+                    BackbmpLoader = null;
+                    disposedValue = true;
                 }
-                BgaBaseLoader?.Dispose();
-                BgaPoorLoader?.Dispose();
-                BgaLayerLoader?.Dispose();
-                StagefileLoader?.Dispose();
-                BannerLoader?.Dispose();
-                BackbmpLoader?.Dispose();
             }
-            ImageLoaders = null;
-            BgaBaseLoader = null;
-            BgaPoorLoader = null;
-            BgaLayerLoader = null;
-            StagefileLoader = null;
-            BannerLoader = null;
-            BackbmpLoader = null;
-            disposedValue = true;
         }
+        catch (Exception disposalFailure) when (completionFailure != null)
+        {
+            throw new AggregateException(completionFailure, disposalFailure);
+        }
+        if (completionFailure != null) { ExceptionDispatchInfo.Capture(completionFailure).Throw(); }
     }
 
     private static Exception UnwrapTaskWaitFailure(Exception exception) =>

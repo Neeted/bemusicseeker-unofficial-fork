@@ -64,7 +64,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly PendingPackageWorkflowOwner pendingPackageWorkflow;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
-    private readonly IFolderAutoRenamePlaybackPort playback;
+    private readonly IChartMutationPlaybackPort playback;
     private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> sortCache = [];
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
@@ -133,7 +133,7 @@ internal sealed class RegularChartListOwner : IDisposable
         PendingPackageWorkflowOwner pendingPackageWorkflow,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
-        IFolderAutoRenamePlaybackPort playback,
+        IChartMutationPlaybackPort playback,
         IUiScheduler normalLibraryRefreshUiScheduler,
         IUiDialogService mutationDialogs = null)
     {
@@ -1042,9 +1042,9 @@ internal sealed class RegularChartListOwner : IDisposable
             operationAdmitted = true;
             if (IsCurrentLibrary(library))
             {
-                dialogScope = library.BeginOperationDialogScope();
                 activityLease = chartMutationActivity.Enter();
-                playback?.StopPlaybackForCharts([request.Chart]);
+                if (playback != null) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
+                dialogScope = library.BeginOperationDialogScope();
                 suppressionStarted = true;
                 PublishRefreshSuppressionChanged(isSuppressed: true);
                 string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);

@@ -16,6 +16,7 @@ using IAudioPlaybackRuntime = BeMusicSeeker.Models.IAudioPlaybackRuntime;
 using IPlayerSettingsGateway = BeMusicSeeker.Models.IPlayerSettingsGateway;
 using InternalBMSAutoPlayerSoundOnly = BeMusicSeeker.Models.InternalBMSAutoPlayerSoundOnly;
 using PlayerResolution = BeMusicSeeker.Models.PlayerResolution;
+using PlaybackStartOperation = BeMusicSeeker.Models.PlaybackStartOperation;
 using PlayerSettingsSnapshot = BeMusicSeeker.Models.PlayerSettingsSnapshot;
 using WindowPlacement = BeMusicSeeker.Models.Utils.WindowPlacement;
 using ManagedBass;
@@ -332,6 +333,38 @@ public sealed class BmsRealtimeAudioSchedulerTests
             player.DisposeAudioSourcesAfterUse();
             session.SetCallbackOutputPaused(false);
         }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PhysicalSessionWithoutCallback_RejectsSchedulerConstructionAndPlaybackStart(bool startPlayer)
+    {
+        using var directory = new TemporaryDirectory();
+        string path = directory.File("unobserved.bms");
+        WriteChart(path, "#00111:00\n");
+        using var player = new BMSAutoPlayer(new BMSFile(path));
+        player.LoadResources();
+        BassAudioSession session = player.ResourceSession;
+        Assert.AreEqual(0, session.MaximumCallbackFrames);
+        BassAudioPlayer.DeviceDriver originalBackend = session.ActualBackend;
+        try
+        {
+            session.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+            if (startPlayer)
+            {
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(player.Start);
+                Assert.IsNull(player.RealtimeScheduler);
+            }
+            else
+            {
+                Assert.ThrowsException<InvalidOperationException>(() => new BmsRealtimeAudioScheduler(
+                    player.AudioSchedule, player.AudioResourcesByIndex, session, new BassMixerSourceNativeBoundary(),
+                    player.Duration, 0, 1f, 0));
+            }
+            Assert.AreEqual(-1, session.RealtimeReservedCallbackFrames);
+        }
+        finally { session.ActualBackend = originalBackend; }
     }
 
     [TestMethod]
@@ -799,7 +832,9 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         try
         {
-            start = wrapper.PlayStart(chartPath);
+            PlaybackStartOperation operation = wrapper.BeginStart(chartPath, null, allowPreload: true);
+            start = operation.Completion;
+            await operation.Ready;
             GatedStoppingBmsAutoPlayer player = activePlayer
                 ?? throw new AssertFailedException("UI playback did not create its BMS player.");
             BassAudioSession session = player.ResourceSession;
@@ -927,7 +962,9 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         try
         {
-            start = wrapper.PlayStart(chartPath);
+            PlaybackStartOperation operation = wrapper.BeginStart(chartPath, null, allowPreload: true);
+            start = operation.Completion;
+            await operation.Ready;
             GatedStoppingBmsAutoPlayer player = activePlayer
                 ?? throw new AssertFailedException("UI playback did not create its BMS player.");
             BassAudioSession session = player.ResourceSession;
@@ -1100,6 +1137,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             TimeSpan seekTickTime = await activeTickGate.Entered;
             ControlOperationObservation seekObservation = player.ArmSeekOperation();
             var seekTime = TimeSpan.FromMilliseconds(1500);
+            Task<PlaybackStateSnapshot> seekApplication = player.ArmSeekStateApplication(seekTime);
             Task seek = Task.Run(() => player.CurrentTime = seekTime);
             operationTasks.Add(seek);
             await seekObservation.Entered;
@@ -1109,16 +1147,19 @@ public sealed class BmsRealtimeAudioSchedulerTests
             PlaybackStateSnapshot seekTick = await AwaitStateApplicationOrPlaybackCompletion(seekState, playback);
             long seekSequence = await seekObservation.Completed;
             await seek;
+            PlaybackStateSnapshot appliedSeek = await AwaitStateApplicationOrPlaybackCompletion(seekApplication, playback);
             Assert.IsTrue(seekTick.Sequence < seekSequence);
             Assert.AreEqual(seekTickTime, seekTick.TickTime);
             Assert.AreEqual(seekTick.TickTime, seekTick.CurrentTime,
                 "seek操作との競合中も譜面状態反映は観測済みのtick時刻を使います。");
-            Assert.AreEqual(PlayState.Playing, player.PlayState);
-            Assert.IsTrue(player.CurrentTime >= seekTime,
-                "再開済みoutput pullが進めたinput mixer位置は、seek先より先へ進み得ます。");
-            Assert.AreEqual(240d, player.CurrentBpm);
-            Assert.IsTrue(seekTick.Combo < player.Combo);
-            Assert.IsTrue(seekTick.NoteDensity < player.NoteDensity);
+            Assert.AreEqual(PlayState.Playing, appliedSeek.PlayState);
+            Assert.AreEqual(seekTime, appliedSeek.CurrentTime);
+            Assert.AreEqual(240d, appliedSeek.CurrentBpm);
+            Assert.AreEqual(3, appliedSeek.Combo);
+            Assert.IsTrue(seekTick.Combo < appliedSeek.Combo);
+            Assert.AreEqual(2d, appliedSeek.NoteDensity,
+                "seek先1.5秒の直前1秒には、0.5秒と1秒の二つのノートが含まれます。");
+            Assert.IsTrue(seekTick.NoteDensity < appliedSeek.NoteDensity);
 
             activeTickGate.Dispose();
             player.Pause();
@@ -1404,7 +1445,9 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         try
         {
-            start = wrapper.PlayStart(chartPath);
+            PlaybackStartOperation operation = wrapper.BeginStart(chartPath, null, allowPreload: true);
+            start = operation.Completion;
+            await operation.Ready;
             TickObservedBmsAutoPlayer player = activePlayer
                 ?? throw new AssertFailedException("UI playback did not create its BMS player.");
             Task<PlaybackStateSnapshot> firstState = player.ArmNextStateApplication();
@@ -1574,8 +1617,10 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
-    [TestMethod]
-    public async Task StopRetainsVoiceOwnerAndKeepsOutputPausedWhenVoiceCleanupFails()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task StopOrDisposeRetainsVoiceOwnerAndKeepsOutputPausedWhenVoiceCleanupFails(bool dispose)
     {
         using var directory = new TemporaryDirectory();
         File.WriteAllBytes(
@@ -1594,68 +1639,82 @@ public sealed class BmsRealtimeAudioSchedulerTests
         int baselinePlayerStreams = session.GetPlayerStreams().Count;
 
         Task playback = player.Start();
-        BmsRealtimeAudioScheduler scheduler = player.RealtimeScheduler
-            ?? throw new AssertFailedException("The active playback did not create its realtime scheduler.");
-        Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
-            "The active playback must own a scheduled voice before Stop begins.");
-
-        var stop = Task.Run(player.Stop);
-        AggregateException stopFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => stop);
-        AggregateException playbackFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => playback);
-
-        Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
-            exception.GetType().Name.Contains("BassAudioPlaybackException", StringComparison.Ordinal)),
-            "Stop must retain the scheduled voice removal failure.");
-        Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
-            exception is OperationCanceledException),
-            "Stop must preserve the cancellation that initiated cleanup.");
-        Assert.IsTrue(playbackFailure.Flatten().InnerExceptions.Any(exception =>
-            exception.GetType().Name.Contains("BassAudioPlaybackException", StringComparison.Ordinal)),
-            "The Start task must retain the scheduled voice cleanup failure too.");
-        Assert.IsTrue(native.RemoveChannelCalls > 0,
-            "Voice cleanup must still attempt native channel detachment.");
-        Assert.IsTrue(native.StreamFreeCalls > 0,
-            "Scheduled voice disposal must attempt native release even after mixer detachment fails.");
-        Assert.IsTrue(session.HasCallbackOutputFailure,
-            "Cleanup failure must fault the session before callback output can resume.");
-        Assert.IsTrue(session.IsCallbackOutputPaused,
-            "Stop must leave callback output paused after cleanup failure.");
-        Assert.AreSame(scheduler, player.RealtimeScheduler,
-            "The BMS player must retain its failed scheduler owner.");
-        Assert.AreSame(session, player.ResourceSession,
-            "The failed audio session must remain attached to its BMS player.");
-        Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
-            "A source whose native cleanup is unconfirmed must remain session-owned.");
-
-        session.PublishCallbackOutputHandle(session.MixerHandle);
-        session.CallbackPcmRenderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
-        session.OutputProcessor = new AudioOutputProcessor(48000, 1d);
-        const int callbackFrames = 64;
-        int callbackBytes = callbackFrames * 2 * sizeof(float);
-        IntPtr callbackBuffer = Marshal.AllocHGlobal(callbackBytes);
+        Task? stop = null;
         try
         {
-            for (int offset = 0; offset < callbackBytes; offset += sizeof(int))
+            BmsRealtimeAudioScheduler scheduler = player.RealtimeScheduler
+                ?? throw new AssertFailedException("The active playback did not create its realtime scheduler.");
+            Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
+                "The active playback must own a scheduled voice before stopping or disposing begins.");
+
+            stop = Task.Run(dispose ? (Action)player.Dispose : player.Stop);
+            AggregateException stopFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => stop);
+            AggregateException playbackFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => playback);
+            Assert.AreSame(playbackFailure, stopFailure,
+                "Stopping or disposing must return the original playback cleanup failure.");
+
+            Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
+                exception is BassAudioPlaybackException),
+                "Stopping or disposing must retain the scheduled voice removal failure.");
+            Assert.IsTrue(stopFailure.Flatten().InnerExceptions.Any(exception =>
+                exception is OperationCanceledException),
+                "Stopping or disposing must preserve the cancellation that initiated cleanup.");
+            Assert.IsTrue(playbackFailure.Flatten().InnerExceptions.Any(exception =>
+                exception is BassAudioPlaybackException),
+                "The Start task must retain the scheduled voice cleanup failure too.");
+            Assert.IsTrue(native.RemoveChannelCalls > 0,
+                "Voice cleanup must still attempt native channel detachment.");
+            Assert.IsTrue(native.StreamFreeCalls > 0,
+                "Scheduled voice disposal must attempt native release even after mixer detachment fails.");
+            Assert.IsTrue(session.HasCallbackOutputFailure,
+                "Cleanup failure must fault the session before callback output can resume.");
+            Assert.IsTrue(session.IsCallbackOutputPaused,
+                "Stopping or disposing must leave callback output paused after cleanup failure.");
+            Assert.AreSame(scheduler, player.RealtimeScheduler,
+                "The BMS player must retain its failed scheduler owner.");
+            Assert.AreSame(session, player.ResourceSession,
+                "The failed audio session must remain attached to its BMS player.");
+            Assert.IsTrue(session.GetPlayerStreams().Count > baselinePlayerStreams,
+                "A source whose native cleanup is unconfirmed must remain session-owned.");
+
+            session.PublishCallbackOutputHandle(session.MixerHandle);
+            session.CallbackPcmRenderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
+            session.OutputProcessor = new AudioOutputProcessor(48000, 1d);
+            const int callbackFrames = 64;
+            int callbackBytes = callbackFrames * 2 * sizeof(float);
+            IntPtr callbackBuffer = Marshal.AllocHGlobal(callbackBytes);
+            try
             {
-                Marshal.WriteInt32(callbackBuffer, offset, unchecked((int)0x7fc00000));
+                for (int offset = 0; offset < callbackBytes; offset += sizeof(int))
+                {
+                    Marshal.WriteInt32(callbackBuffer, offset, unchecked((int)0x7fc00000));
+                }
+
+                Assert.AreEqual(callbackBytes,
+                    BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
+                float[] callbackPcm = new float[callbackFrames * 2];
+                Marshal.Copy(callbackBuffer, callbackPcm, 0, callbackPcm.Length);
+                CollectionAssert.AreEqual(new float[callbackPcm.Length], callbackPcm,
+                    "A faulted, paused callback must overwrite its full output block with silence.");
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(callbackBuffer);
             }
 
-            Assert.AreEqual(callbackBytes,
-                BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
-            float[] callbackPcm = new float[callbackFrames * 2];
-            Marshal.Copy(callbackBuffer, callbackPcm, 0, callbackPcm.Length);
-            CollectionAssert.AreEqual(new float[callbackPcm.Length], callbackPcm,
-                "A faulted, paused callback must overwrite its full output block with silence.");
+            using var nextPlayer = new BMSAutoPlayer(new BMSFile(chartPath));
+            nextPlayer.LoadResources();
+            await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(() => nextPlayer.Start(),
+                "A new BMS player must reject the session while old native cleanup is unconfirmed.");
         }
         finally
         {
-            Marshal.FreeHGlobal(callbackBuffer);
+            // Assertion failures must not leave the accepted playback task running.
+            stop ??= Task.Run(player.Stop);
+            try { await Task.WhenAll(stop, playback); }
+            catch (Exception exception) when (exception is AggregateException or OperationCanceledException) { }
+            // The fixture owns final native session release; the failed player retains its sources.
         }
-
-        var nextPlayer = new BMSAutoPlayer(new BMSFile(chartPath));
-        nextPlayer.LoadResources();
-        await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(() => nextPlayer.Start(),
-            "A new BMS player must reject the session while old native cleanup is unconfirmed.");
     }
 
     [TestMethod]
@@ -2168,6 +2227,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         private TaskCompletionSource<PlaybackStateSnapshot>? nextStateApplication;
         private TaskCompletionSource<PlaybackStateSnapshot>? nextCompletedStateApplication;
+        private SeekStateObservation? nextSeekStateApplication;
         private PlaybackTickGate? nextTickGate;
         private ControlOperationObservation? nextPauseOperation;
         private ControlOperationObservation? nextSeekOperation;
@@ -2191,6 +2251,13 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Task<PlaybackStateSnapshot> task = source.Task;
             _ = Interlocked.Exchange(ref nextCompletedStateApplication, source);
             return task;
+        }
+
+        public Task<PlaybackStateSnapshot> ArmSeekStateApplication(TimeSpan time)
+        {
+            var source = new TaskCompletionSource<PlaybackStateSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = Interlocked.Exchange(ref nextSeekStateApplication, new SeekStateObservation(time, source));
+            return source.Task;
         }
 
         public PlaybackTickGate BlockNextTickBeforeStateApplication()
@@ -2266,22 +2333,33 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         protected override void ForwardTo(TimeSpan time)
         {
+            // seekが反映した状態は、次のtickが密度の集計窓を進める前に読む。
+            // 再生側の既存lock内の境界を観測し、制御操作をfixtureのlockで直列化しない。
+            SeekStateObservation? seek = Volatile.Read(ref nextSeekStateApplication);
+            if (seek != null && CurrentTime == seek.Time)
+            {
+                Interlocked.Exchange(ref nextSeekStateApplication, null)?.Completion.TrySetResult(CaptureState());
+            }
             base.ForwardTo(time);
-            var state = new PlaybackStateSnapshot(
-                lastTickTime,
-                lastTickCompleted,
-                CurrentTime,
-                CurrentBpm,
-                Combo,
-                NoteDensity,
-                RealtimeScheduler?.CurrentSongFrame ?? 0,
-                Interlocked.Increment(ref stateSequence));
+            PlaybackStateSnapshot state = CaptureState();
             Interlocked.Exchange(ref nextStateApplication, null)?.TrySetResult(state);
             if (state.TickCompleted)
             {
                 Interlocked.Exchange(ref nextCompletedStateApplication, null)?.TrySetResult(state);
             }
         }
+
+        private PlaybackStateSnapshot CaptureState() =>
+            new(
+                lastTickTime,
+                lastTickCompleted,
+                CurrentTime,
+                CurrentBpm,
+                Combo,
+                NoteDensity,
+                PlayState,
+                RealtimeScheduler?.CurrentSongFrame ?? 0,
+                Interlocked.Increment(ref stateSequence));
 
         protected override void OnPlaybackStopping()
         {
@@ -2297,8 +2375,13 @@ public sealed class BmsRealtimeAudioSchedulerTests
         double CurrentBpm,
         int Combo,
         double NoteDensity,
+        PlayState PlayState,
         long SongFrame,
         long Sequence);
+
+    private sealed record SeekStateObservation(
+        TimeSpan Time,
+        TaskCompletionSource<PlaybackStateSnapshot> Completion);
 
     private sealed class ControlOperationObservation
     {
@@ -2522,6 +2605,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
     private sealed class RealtimeTestPlaybackRuntime : IAudioPlaybackRuntime
     {
+        public Task WaitForOutputReadyAsync() => Task.CompletedTask;
+
         public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings) => new(
             settings.PlayerDriver,
             settings.PlayerDevice,
@@ -2581,7 +2666,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
-    private sealed class FaultInjectingScheduledNativeBoundary(
+    internal sealed class FaultInjectingScheduledNativeBoundary(
         int failResumeAt,
         bool failNextUnlock,
         int failSetPositionAt = 0,
@@ -2712,7 +2797,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
-    private static byte[] BuildFloatWave(int sampleRate, float[] interleavedSamples)
+    internal static byte[] BuildFloatWave(int sampleRate, float[] interleavedSamples)
     {
         int dataLength = checked(interleavedSamples.Length * sizeof(float));
         byte[] wave = new byte[checked(44 + dataLength)];

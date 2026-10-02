@@ -24,7 +24,8 @@ namespace BeMusicSeeker.ViewModels;
 
 internal interface ISelectedChartAudioConversionPlaybackPort
 {
-    void StopPlayback();
+    /// <summary>ファイル変更・runtime解放前に、再生と先読みの必要な停止を終端まで待ちます。</summary>
+    Task StopPlayback();
 }
 
 internal interface ISelectedChartAudioConversionExecutor
@@ -346,7 +347,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             {
                 throw new DirectoryNotFoundException();
             }
-            playback.StopPlayback();
+            await playback.StopPlayback().ConfigureAwait(false);
             using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             int completedCount = 0;
             int failedCount = 0;

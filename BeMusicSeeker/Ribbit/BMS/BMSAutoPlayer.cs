@@ -321,11 +321,31 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <summary>再生に使う音源を事前に復号します。</summary>
     public override void LoadResources()
     {
-        string basePath = Path.GetDirectoryName(base.Bms.Path) ?? string.Empty;
-        BmsAudioResourceLoadResult result = BmsAudioResourceLoader.Load(
-            base.Bms,
-            basePath,
-            ResourceSourceGain);
+        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Bms, ResourceSourceGain));
+    }
+
+    /// <summary>解析済み譜面とPCMを一回採用し、現在の実効出力レートでscheduleを構築します。</summary>
+    internal void AdoptPreparedSong(PreparedBmsSong prepared)
+    {
+        if (!ReferenceEquals(base.Bms, prepared.Chart))
+        {
+            throw new InvalidOperationException("The prepared chart and playback chart must be identical.");
+        }
+        BmsAudioResourceLoadResult result = prepared.TakeResources();
+        // 出力設定は採用時に捕捉します。PCM本体は複製せず、曲内alias共有も維持します。
+        var rebound = new Dictionary<BmsAudioResource, BmsAudioResource>();
+        for (int index = 0; index < result.ResourcesByIndex.Length; index++)
+        {
+            if (result.ResourcesByIndex[index] is BmsAudioResource resource && resource.SourceGain != ResourceSourceGain)
+            {
+                if (!rebound.TryGetValue(resource, out BmsAudioResource? replacement))
+                {
+                    replacement = new BmsAudioResource(resource.Path, resource.Audio, ResourceSourceGain);
+                    rebound.Add(resource, replacement);
+                }
+                result.ResourcesByIndex[index] = replacement;
+            }
+        }
 
         foreach (BmsAudioLoadFailure failure in result.Failures)
         {
@@ -416,7 +436,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         base.BgaDuration = TimeSpan.Zero;
     }
 
-    /// <summary>次曲の解析前に旧曲sourceを停止・解放し、未確認をSourceReleaseで通知します。</summary>
+    /// <summary>次曲の出力接続前に旧曲sourceを停止・解放し、未確認をSourceReleaseで通知します。</summary>
     internal virtual void DisposeBeforeNextSong()
     {
         // 再生taskのResetPlaybackStateも旧配列を参照するため、配列を置き換える前に停止・合流します。

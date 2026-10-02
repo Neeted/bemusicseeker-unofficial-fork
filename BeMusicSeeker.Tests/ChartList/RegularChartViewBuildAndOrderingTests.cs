@@ -92,7 +92,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             CreatePendingPackageWorkflowOwner(),
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
-            new NoOpFolderAutoRenamePlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             new TestUiScheduler(() => null!));
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;

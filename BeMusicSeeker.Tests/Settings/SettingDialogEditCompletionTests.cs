@@ -944,46 +944,83 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    [TestMethod]
-    public async Task ApplySettingsAsync_AudioProcessingChangesDoNotReplaceCurrentPlaybackRuntime()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void ApplySettingsAsync_AudioProcessingChangesDoNotReplaceCurrentPlaybackRuntime(bool originalEventMode, bool eventOnly)
     {
-        string root = CreateTemporaryRoot();
-        try
+        TestUiDispatcherHost.Invoke(() =>
         {
-            Settings values = CreateValidStandaloneSettings(root);
-            values.PlayerResamplingQuality = 4;
-            values.PlayerMixerThreadCount = 1;
-            var settingsSession = new CountingSettingsEditSession(values);
-            var sequence = new List<string>();
-            settingsSession.SaveObserved = () => sequence.Add("save");
-            var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
-            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
-            MainWindowViewModel viewModel = CreateViewModel(
-                settingsSession,
-                firstStartup: false,
-                playerFactoryPort: factory,
-                playbackRuntimePort: runtime);
-            SetActiveLibraryProfile(viewModel, true);
-            AttachPlaylistTables(viewModel, root);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
-            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
-            dialog.PlayerResamplingQuality = 2;
-            dialog.PlayerMixerThreadCount = 4;
+            async Task VerifyAsync()
+            {
+                string root = CreateTemporaryRoot();
+                PlaybackPanelViewModel? playingPanel = null;
+                var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                try
+                {
+                    Settings values = CreateValidStandaloneSettings(root);
+                    values.PlayerResamplingQuality = 4;
+                    values.PlayerMixerThreadCount = 1;
+                    values.PlayerWASAPIParam = originalEventMode;
+                    var settingsSession = new CountingSettingsEditSession(values);
+                    var sequence = new List<string>();
+                    settingsSession.SaveObserved = () => sequence.Add("save");
+                    var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
+                    var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+                    MainWindowViewModel viewModel = CreateViewModel(
+                        settingsSession,
+                        firstStartup: false,
+                        playerFactoryPort: factory,
+                        playbackRuntimePort: runtime);
+                    SetActiveLibraryProfile(viewModel, true);
+                    AttachPlaylistTables(viewModel, root);
+                    var currentPlayer = new PlaybackPanelViewModelTests.PreloadBmsPlayer
+                    {
+                        BeginOperation = _ => new PlaybackStartOperation(Task.CompletedTask, completion.Task),
+                        CloseCompletion = () => { completion.TrySetCanceled(); return Task.CompletedTask; }
+                    };
+                    playingPanel = viewModel.PlaybackPanel;
+                    await playingPanel.ReplacePlayerAsync(currentPlayer);
+                    string chartPath = Path.Combine(root, "current.bms");
+                    File.WriteAllText(chartPath, "#PLAYER 1\n#BPM 120\n#00111:00\n");
+                    var currentChart = new BeMusicSeeker.Models.BMSFile { path = chartPath };
+                    viewModel.MainChartList.Rows = new List<object> { currentChart };
+                    await playingPanel.StartAtIndex(0);
+                    Assert.AreSame(currentChart, playingPanel.NowPlayingBmsFile);
+                    Assert.IsTrue(playingPanel.IsPlaying);
+                    SettingsDialogViewModel dialog = viewModel.SettingDialog;
+                    dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+                    if (eventOnly) { dialog.PlayerWASAPIParam = !originalEventMode; }
+                    else { dialog.PlayerResamplingQuality = 2; dialog.PlayerMixerThreadCount = 4; }
 
-            await dialog.ApplySettingsAsync();
+                    await dialog.ApplySettingsAsync();
 
-            CollectionAssert.AreEqual(
-                new[] { "save", "close" },
-                sequence);
-            Assert.AreEqual(2, values.PlayerResamplingQuality);
-            Assert.AreEqual(4, values.PlayerMixerThreadCount);
-            Assert.AreEqual(1, settingsSession.SaveCount);
-            Assert.IsNull(runtime.LastReplacementPlayer);
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
+                    CollectionAssert.AreEqual(
+                        new[] { "save", "close" },
+                        sequence);
+                    Assert.AreEqual(eventOnly ? 4 : 2, values.PlayerResamplingQuality);
+                    Assert.AreEqual(eventOnly ? 1 : 4, values.PlayerMixerThreadCount);
+                    Assert.AreEqual(eventOnly ? !originalEventMode : originalEventMode, values.PlayerWASAPIParam);
+                    Assert.AreEqual(0, runtime.ApplyCount);
+                    Assert.AreEqual(0, runtime.NotifyCount);
+                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    Assert.IsNull(runtime.LastReplacementPlayer);
+                    Assert.AreSame(currentChart, playingPanel.NowPlayingBmsFile);
+                    Assert.IsTrue(playingPanel.IsPlaying);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+                    CollectionAssert.AreEqual(new[] { chartPath }, currentPlayer.Starts.ToArray());
+                }
+                finally
+                {
+                    if (playingPanel != null) { await playingPanel.StopPlayback(closeProcess: true); }
+                    completion.TrySetCanceled();
+                    try { await completion.Task; } catch (OperationCanceledException) { }
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(VerifyAsync(), "audio-settings-current-playback");
+        });
     }
 
     [TestMethod]
@@ -5838,8 +5875,9 @@ public sealed class SettingDialogEditCompletionTests
 
     private sealed class TestAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
     {
-        public void StopPlayback()
+        public Task StopPlayback()
         {
+            return Task.CompletedTask;
         }
     }
 
@@ -5910,8 +5948,9 @@ public sealed class SettingDialogEditCompletionTests
             sequence?.Add("notify");
         }
 
-        public void StopPlayback()
+        public Task StopPlayback()
         {
+            return Task.CompletedTask;
         }
     }
 

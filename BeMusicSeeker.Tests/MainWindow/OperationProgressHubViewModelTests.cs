@@ -734,6 +734,7 @@ public sealed class OperationProgressHubViewModelTests
                     fixture.packageRelease.Wait(TimeSpan.FromSeconds(10));
                     return new PackageInstallCommandResult([], null);
                 }),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     action();
@@ -767,12 +768,12 @@ public sealed class OperationProgressHubViewModelTests
                         return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                     },
                     (current, parentDirectory) => true),
-                new ProgressFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action => Task.Factory.StartNew(
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             fixture = new ProgressWorkflowFixture(
@@ -866,17 +867,6 @@ public sealed class OperationProgressHubViewModelTests
             BMSLibrary library,
             string parentDirectory,
             IFolderAutoRenameProgressWriter progressWriter) => all(library, parentDirectory, progressWriter);
-    }
-
-    private sealed class ProgressFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
-    {
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-        {
-        }
-
-        public void StopPlaybackForFolderMutation()
-        {
-        }
     }
 
     private sealed class AcceptedDialogService : IUiDialogService

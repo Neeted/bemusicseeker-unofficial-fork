@@ -1027,8 +1027,9 @@ public sealed class BassWasapiNegotiationTests
 
     private sealed class NoOpAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
     {
-        public void StopPlayback()
+        public Task StopPlayback()
         {
+            return Task.CompletedTask;
         }
     }
 

@@ -707,6 +707,8 @@ public sealed class MainWindowViewHostTests
                 {
                     dialogs.OnConfirmation = window.Close;
                 }
+                viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
+                Assert.IsTrue(packageEntered.Wait(TimeSpan.FromSeconds(5)), "The tracked package worker did not enter.");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.PlaybackPanel.ReplacePlayerAsync(new FakeBmsPlayer(() =>
                     {
@@ -714,8 +716,6 @@ public sealed class MainWindowViewHostTests
                         playerRelease.Wait();
                     })),
                     "MainWindowViewHostTests.mode-restart-player");
-                viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
-                Assert.IsTrue(packageEntered.Wait(TimeSpan.FromSeconds(5)), "The tracked package worker did not enter.");
                 if (operationModeSaveFailure)
                 {
                     // provider は user.config を置換して公開するため、削除/名前変更を拒否して

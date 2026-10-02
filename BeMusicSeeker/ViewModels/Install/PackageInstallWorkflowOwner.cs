@@ -124,6 +124,8 @@ internal sealed class PackageInstallWorkflowOwner
 
     private readonly IPackageInstallMutationPort mutationPort;
 
+    private readonly IChartMutationPlaybackPort playback;
+
     private readonly DroppedInstallIngressMaterializer droppedInstallIngressMaterializer;
 
     private readonly Func<Action, bool> tryDispatchToUi;
@@ -146,12 +148,13 @@ internal sealed class PackageInstallWorkflowOwner
 
     private long latestStatusSequence;
 
-    /// <summary>共通の変更受付と UI 通知サービスを受け取り、導入予約から queue 終端までを所有します。</summary>
+    /// <summary>共通の変更受付、再生停止、UI通知を接続し、各バッチの停止待ちから導入・queue終端までを所有します。</summary>
     internal PackageInstallWorkflowOwner(
         IUiDialogService dialogs,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IPackageInstallMutationPort mutationPort,
+        IChartMutationPlaybackPort playback,
         Func<Action, bool> tryDispatchToUi,
         Action<Exception> reportNotificationFailure = null,
         DroppedInstallIngressMaterializer droppedInstallIngressMaterializer = null)
@@ -160,6 +163,7 @@ internal sealed class PackageInstallWorkflowOwner
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.mutationPort = mutationPort ?? throw new ArgumentNullException(nameof(mutationPort));
+        this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.tryDispatchToUi = tryDispatchToUi ?? throw new ArgumentNullException(nameof(tryDispatchToUi));
         this.reportNotificationFailure = reportNotificationFailure;
         this.droppedInstallIngressMaterializer = droppedInstallIngressMaterializer
@@ -386,14 +390,14 @@ internal sealed class PackageInstallWorkflowOwner
             (request, token) =>
             {
                 context.ActiveBatch = request;
-                ProcessBatch(context, request, token);
+                return ProcessBatchAsync(context, request, token);
             },
             snapshot => PublishQueueStatus(context, snapshot),
             exception => PublishBatchFailure(context, exception));
         return context;
     }
 
-    private void ProcessBatch(QueueProcessorContext context, DroppedInstallBatchRequest request, CancellationToken token)
+    private async Task ProcessBatchAsync(QueueProcessorContext context, DroppedInstallBatchRequest request, CancellationToken token)
     {
         BMSLibrary currentLibrary;
         long currentGeneration;
@@ -410,6 +414,10 @@ internal sealed class PackageInstallWorkflowOwner
         {
             return;
         }
+
+        // queueの既存受付が新しい再生を拒否します。同期の通知scopeを開く前に停止を終えます。
+        await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
+        if (token.IsCancellationRequested || !IsCurrentGeneration(currentGeneration, currentLibrary)) { return; }
 
         var progressWriter = new PackageInstallProgressWriter(this, context);
         PackageInstallCommandResult commandResult = ExecuteInstallBatch(

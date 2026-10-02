@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -17,10 +18,7 @@ namespace BeMusicSeeker.ViewModels;
 /// Owns the playback adapter and telemetry exposed by the playback panel.
 /// </summary>
 public sealed class PlaybackPanelViewModel : ViewModel,
-    IDuplicateMaintenancePlaybackPort,
-    ISelectedChartMutationPlaybackPort,
-    IFolderAutoRenamePlaybackPort,
-    IPendingPackageMutationPlaybackPort,
+    IChartMutationPlaybackPort,
     ISelectedChartAudioConversionPlaybackPort,
     ISettingsDialogPlaybackRuntimePort
 {
@@ -38,11 +36,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private readonly object sessionGate = new();
 
-    private readonly object playerOperationGate = new();
+    private readonly SemaphoreSlim playerOperationGate = new(1, 1);
 
     private readonly SemaphoreSlim playerReplacementGate = new(1, 1);
 
-    private readonly object workflowGate = new();
+    // 曲開始・変更前停止と必要な準備の合流を順序付けます。演奏全体や背景の先読み実行中は保持しません。
+    private readonly SemaphoreSlim playbackInputGate = new(1, 1);
 
     private IBMSPlayer bmsPlayer;
 
@@ -119,7 +118,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             long generation,
             IBMSPlayer player,
             BMSFile file,
-            Action<object, EventArgs> onExit)
+            Action<object, EventArgs, long, IBMSPlayer, BMSFile> onExit)
         {
             Generation = generation;
             Player = player;
@@ -133,7 +132,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
         internal BMSFile File { get; }
 
-        internal Action<object, EventArgs> OnExit { get; }
+        internal Action<object, EventArgs, long, IBMSPlayer, BMSFile> OnExit { get; }
 
         internal bool StartCompleted { get; set; }
 
@@ -181,37 +180,81 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     public ViewModelCommand IncreaseHighSpeedCommand => increaseHighSpeedCommand ??= CreateBackgroundCommand(IncreaseHighSpeed, "PlaybackPanel.IncreaseHighSpeed");
     public ViewModelCommand DecreaseHighSpeedCommand => decreaseHighSpeedCommand ??= CreateBackgroundCommand(DecreaseHighSpeed, "PlaybackPanel.DecreaseHighSpeed");
 
-    private ViewModelCommand CreateBackgroundCommand(Action action, string routeName)
+    private ViewModelCommand CreateBackgroundCommand(Func<Task> action, string routeName) =>
+        new(() => StartBackgroundPlaybackAction(action, routeName), () => !shutdownStarted);
+
+    private void StartBackgroundPlaybackAction(Func<Task> action, string routeName)
     {
-        return new ViewModelCommand(
-            () => StartBackgroundPlaybackAction(action, routeName),
-            () => !shutdownStarted);
+        if (shutdownStarted) { return; }
+        Task.Run(() => ObservePlaybackActionAsync(action, routeName)).ObserveFault(routeName);
     }
 
-    private void StartBackgroundPlaybackAction(Action action, string routeName)
+    private async Task ObservePlaybackActionAsync(Func<Task> action, string routeName)
     {
-        if (shutdownStarted)
+        if (shutdownStarted) { return; }
+        try { await action().ConfigureAwait(false); }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
         {
+            Task.FromException(exception).ObserveFault(routeName);
+            NotifyPlaybackFailureSafely(exception);
+        }
+    }
+
+    private ViewModelCommand CreateBackgroundCommand(Action action, string routeName) =>
+        new(() => StartBackgroundPlaybackAction(action, routeName), () => !shutdownStarted);
+
+    private void StartBackgroundPlaybackAction(Action action, string routeName) =>
+        StartBackgroundPlaybackAction(() =>
+        {
+            action();
+            return Task.CompletedTask;
+        }, routeName);
+
+    /// <summary>曲開始を直列化し、開始に成功した曲についてだけ次の一件を準備します。</summary>
+    private async Task RunPlaybackSelectionAsync(Func<Task> selectAndStart, bool stopIfBusy = false,
+        (long Generation, IBMSPlayer Player, BMSFile File)? naturalExit = null)
+    {
+        // 変更中の入力を予約して後から再生しません。受付済みの開始は変更側の停止が待ちます。
+        if (shutdownStarted) { return; }
+        if (!naturalExit.HasValue && chartFileOperations.IsActive)
+        {
+            if (stopIfBusy) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
             return;
         }
-        Task.Run(() =>
+        await playbackInputGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            if (!shutdownStarted)
+            if (shutdownStarted) { return; }
+            if (naturalExit is { } acceptedExit)
             {
-                try
+                lock (sessionGate)
                 {
-                    action();
-                }
-                catch (OperationCanceledException)
-                {
-                }
-                catch (Exception exception)
-                {
-                    Task.FromException(exception).ObserveFault(routeName);
-                    NotifyPlaybackFailureSafely(exception);
+                    if (acceptedExit.Generation != playbackGeneration
+                        || !ReferenceEquals(acceptedExit.Player, bmsPlayer)
+                        || !ReferenceEquals(acceptedExit.File, NowPlayingBmsFile)) { return; }
                 }
             }
-        }).ObserveFault(routeName);
+            if (chartFileOperations.IsActive)
+            {
+                if (naturalExit is { } busyExit)
+                {
+                    await TryStopPlaybackForGeneration(busyExit.Generation, busyExit.File).ConfigureAwait(false);
+                }
+                else if (stopIfBusy) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
+                return;
+            }
+            long previousGeneration;
+            lock (sessionGate) { previousGeneration = playbackGeneration; }
+            await selectAndStart().ConfigureAwait(false);
+            bool started;
+            lock (sessionGate) { started = previousGeneration != playbackGeneration; }
+            if (started)
+            {
+                await PrepareNextSongAsync().ConfigureAwait(false);
+            }
+        }
+        finally { playbackInputGate.Release(); }
     }
 
     /// <summary>
@@ -238,14 +281,16 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>
-    /// 受付を閉じた後、先行する曲選択処理を回収して player を解放する。worker から呼ぶ。
+    /// 受付を閉じた後、先行する曲開始・停止へ合流し、現在曲と先読みを解放します。workerから呼びます。
     /// </summary>
-    internal void CloseForShutdown()
+    internal async Task CloseForShutdown()
     {
-        lock (workflowGate)
+        await playbackInputGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            CloseProcessCore(forShutdown: true);
+            await CloseProcessCore(forShutdown: true).ConfigureAwait(false);
         }
+        finally { playbackInputGate.Release(); }
     }
 
     internal void AttachLibrary(BMSLibrary library)
@@ -261,52 +306,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         this.library = library;
     }
 
-    void IDuplicateMaintenancePlaybackPort.StopPlaybackForMerge()
-    {
-        StopPlayback(closeProcess: true);
-    }
+    Task IChartMutationPlaybackPort.StopPlaybackForMutationAsync() => StopPlaybackForMutationAsync();
 
-    void IDuplicateMaintenancePlaybackPort.StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
+    Task ISelectedChartAudioConversionPlaybackPort.StopPlayback()
     {
-        StopIfPlayingCharts(GetBmsFormatCharts(charts));
-    }
-
-    void ISelectedChartMutationPlaybackPort.StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
-    {
-        StopIfPlayingCharts(charts);
-    }
-
-    void ISelectedChartMutationPlaybackPort.StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts)
-    {
-        StopIfPlayingLibraryCharts(charts);
-    }
-
-    void ISelectedChartMutationPlaybackPort.StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
-    {
-        StopIfPlayingChartDirectories(directories);
-    }
-
-    void IFolderAutoRenamePlaybackPort.StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-    {
-        StopIfPlayingCharts(charts);
-    }
-
-    void IFolderAutoRenamePlaybackPort.StopPlaybackForFolderMutation()
-        => StopPlayback(closeProcess: true);
-
-    void IPendingPackageMutationPlaybackPort.StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
-    {
-        StopIfPlayingCharts(charts);
-    }
-
-    void ISelectedChartAudioConversionPlaybackPort.StopPlayback()
-    {
-        StopPlayback(closeProcess: true);
-    }
-
-    private static List<ChartFile> GetBmsFormatCharts(IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
+        return StopPlayback(closeProcess: true);
     }
 
     internal event EventHandler PlaybackStarting;
@@ -324,7 +328,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <summary>有効な譜面の再生要求を投入する。終了受付後は false を返す。</summary>
     internal bool HandleTableRowActivation(int rowIndex, object row)
     {
-        if (shutdownStarted || rowIndex < 0
+        if (shutdownStarted || chartFileOperations.IsActive || rowIndex < 0
             || rowIndex >= playbackQueue.Count
             || !GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile bmsFile))
         {
@@ -340,14 +344,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>queue の同一行を確認して再生する。終了受付後の待機済み要求は破棄する。</summary>
-    internal void ExecuteTableRowActivation(int rowIndex, object expectedRow)
-    {
-        lock (workflowGate)
+    internal Task ExecuteTableRowActivation(int rowIndex, object expectedRow) =>
+        RunPlaybackSelectionAsync(async () =>
         {
-            if (shutdownStarted)
-            {
-                return;
-            }
             if (rowIndex < 0 || rowIndex >= playbackQueue.Count)
             {
                 return;
@@ -368,10 +367,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
 
             playbackQueue.SelectedIndex = rowIndex;
-            StopPlayback();
-            StartAtIndex(rowIndex, currentRow, useInitialRow: true);
-        }
-    }
+            ClearPlaybackForSongSelection();
+            await StartAtIndex(rowIndex, currentRow, useInitialRow: true).ConfigureAwait(false);
+        });
 
     /// <summary>
     /// Gets the chart whose playback session is active or being prepared.
@@ -736,11 +734,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     {
         try
         {
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
-                lock (playerOperationGate)
+                await playerOperationGate.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    previousPlayer?.CloseProcess();
+                    if (previousPlayer is INextSongPreloadPlayer preloadPlayer) { await preloadPlayer.CloseAsync().ConfigureAwait(false); }
+                    else { previousPlayer?.CloseProcess(); }
                     lock (sessionGate)
                     {
                         if (!ReferenceEquals(bmsPlayer, previousPlayer)
@@ -756,6 +756,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                         bmsPlayer = player;
                     }
                 }
+                finally { playerOperationGate.Release(); }
             }).ConfigureAwait(false);
         }
         catch
@@ -803,9 +804,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>通常の player close。終了受付後の遅い要求は terminal close に委ねる。</summary>
-    internal void CloseProcess() => CloseProcessCore(forShutdown: false);
+    internal Task CloseProcess() => CloseProcessCore(forShutdown: false);
 
-    private void CloseProcessCore(bool forShutdown)
+    private async Task CloseProcessCore(bool forShutdown)
     {
         IBMSPlayer player;
         lock (sessionGate)
@@ -818,7 +819,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             playbackGeneration++;
             player = bmsPlayer;
         }
-        CloseCapturedPlayer(player, forShutdown);
+        await CloseCapturedPlayer(player, forShutdown).ConfigureAwait(false);
     }
 
     /// <summary>現行 session の player 開始を試みる。終了受付後や失効済みの要求は false を返す。</summary>
@@ -827,16 +828,19 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         Task<bool> playStartTask = TryPlayStart(
             expectedGeneration,
             bmsFilePath,
-            onExitEventHandler,
-            out PlaybackStartObservation observation);
+            onExitEventHandler == null ? null : (sender, args, _, _, _) => onExitEventHandler(sender, args),
+            out PlaybackStartObservation observation,
+            waitForLegacyCompletion: true);
         return playStartTask;
     }
 
     private Task<bool> TryPlayStart(
         long expectedGeneration,
         string bmsFilePath,
-        Action<object, EventArgs> onExitEventHandler,
-        out PlaybackStartObservation observation)
+        Action<object, EventArgs, long, IBMSPlayer, BMSFile> onExitEventHandler,
+        out PlaybackStartObservation observation,
+        bool waitForLegacyCompletion = false,
+        bool allowPreload = true)
     {
         IBMSPlayer player;
         BMSFile file;
@@ -862,20 +866,36 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             observation = currentObservation;
         }
 
+        if (player is INextSongPreloadPlayer preloadPlayer)
+        {
+            return StartWithReadyAsync(preloadPlayer, bmsFilePath, currentObservation, allowPreload);
+        }
+
+        return StartLegacyAsync(bmsFilePath, currentObservation, waitForLegacyCompletion);
+    }
+
+    private async Task<bool> StartLegacyAsync(string bmsFilePath, PlaybackStartObservation currentObservation,
+        bool waitForCompletion)
+    {
+        IBMSPlayer player = currentObservation.Player;
+        BMSFile file = currentObservation.File;
+        long expectedGeneration = currentObservation.Generation;
         Task playStartTask;
-        lock (playerOperationGate)
+        await playerOperationGate.WaitAsync().ConfigureAwait(false);
+        try
         {
             lock (sessionGate)
             {
                 if (!IsCurrentPlaybackObservation(currentObservation))
                 {
-                    return Task.FromResult(false);
+                    return false;
                 }
             }
             playStartTask = player.PlayStart(
                 bmsFilePath,
                 (sender, e) => HandlePlaybackExit(currentObservation, sender, e));
         }
+        finally { playerOperationGate.Release(); }
         if (playStartTask == null)
         {
             throw new InvalidOperationException("The playback player returned no start task.");
@@ -906,14 +926,113 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 CompletePlaybackStartObservation(currentObservation, succeeded: true, failure: null);
             }
-            return AwaitPlaybackCompletionAsync(playStartTask);
+            return await AwaitPlaybackCompletionAsync(playStartTask).ConfigureAwait(false);
         }
         if (observedTask != null)
         {
             TrackPlaybackStart(observedTask);
-            return observedTask;
+            // 選曲側は操作待機とPlayStartの同期呼出しまでを開始境界とします。
+            // 返却Taskの終了まで一時コピーや選曲の受付を保持せず、終了・故障の観測は継続します。
+            if (!waitForCompletion)
+            {
+                return true;
+            }
+            return await observedTask.ConfigureAwait(false);
         }
         throw new InvalidOperationException("Playback start observation was not created.");
+    }
+
+    private async Task<bool> StartWithReadyAsync(INextSongPreloadPlayer player, string path,
+        PlaybackStartObservation observation, bool allowPreload)
+    {
+        await playerOperationGate.WaitAsync().ConfigureAwait(false);
+        PlaybackStartOperation operation;
+        try
+        {
+            lock (sessionGate)
+            {
+                if (!IsCurrentPlaybackObservation(observation)) { return false; }
+            }
+            operation = player.BeginStart(path,
+                (sender, args) => HandlePlaybackExit(observation, sender, args), allowPreload,
+                failure => HandlePreloadFailure(observation.Generation, observation.Player, observation.File, failure));
+            // 開始失敗はReady側で扱い、演奏中の失敗だけを後続のCompletion観測へ渡します。
+            operation.Completion.ObserveFault("PlaybackPanel.InternalCompletion");
+            await operation.Ready.ConfigureAwait(false);
+            lock (sessionGate)
+            {
+                if (!IsCurrentPlaybackObservation(observation)) { return false; }
+                observation.File.status &= ~BMSFile.BMSFileStatus.LOADING;
+                observation.File.status |= BMSFile.BMSFileStatus.PLAY;
+                RaisePlaybackStatusPropertiesChanged();
+            }
+        }
+        finally { playerOperationGate.Release(); }
+        TrackPlaybackStart(ObservePlaybackStartAsync(operation.Completion, observation, notifyFailure: false));
+        return true;
+    }
+
+    private void OnNaturalPlaybackExit(object sender, EventArgs args, long generation, IBMSPlayer player, BMSFile file) =>
+        ObservePlaybackActionAsync(() => NextCore(sender, args, (generation, player, file)), "PlaybackPanel.NaturalNext")
+            .ObserveFault("PlaybackPanel.NaturalNext");
+
+    private static bool NeedsTemporaryInstall(ChartFile chart) =>
+        !string.IsNullOrWhiteSpace(chart?.InstallDestination)
+        && LongPathFileSystem.DirectoryExists(chart.InstallDestination);
+
+    private async Task PrepareNextSongAsync()
+    {
+        IBMSPlayer player;
+        BMSFile currentFile;
+        int currentIndex;
+        long generation;
+        PlaybackModeSnapshot modes;
+        lock (sessionGate)
+        {
+            player = bmsPlayer;
+            currentFile = NowPlayingBmsFile;
+            currentIndex = NowPlayingRowIndex;
+            generation = playbackGeneration;
+            if (shutdownStarted || currentFile == null || (!IsPlaying && !IsPaused)) { return; }
+            modes = new PlaybackModeSnapshot(playbackSettings.RepeatPlay, playbackSettings.FolderSkipPlay);
+        }
+        if (player is not INextSongPreloadPlayer preloadPlayer) { return; }
+        int index = FindNextPlaybackIndex(currentIndex, currentFile, modes);
+        (int Index, BMSFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay);
+        if (candidate.File == null) { return; }
+        ChartFile chart = candidate.Chart ?? ChartFileProjection.FromBmsFile(candidate.File, includeResourceReferences: false);
+        if (NeedsTemporaryInstall(chart)) { return; }
+        NextSongPreloadInput input;
+        try { input = NextSongPreloadInput.Capture(candidate.File.path); }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) { return; }
+
+        await playerOperationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (sessionGate)
+            {
+                if (shutdownStarted || generation != playbackGeneration
+                    || !ReferenceEquals(currentFile, NowPlayingBmsFile) || !ReferenceEquals(player, bmsPlayer)) { return; }
+            }
+            await preloadPlayer.PrepareNextAsync(input,
+                failure => HandlePreloadFailure(generation, player, currentFile, failure)).ConfigureAwait(false);
+        }
+        finally { playerOperationGate.Release(); }
+    }
+
+    private void HandlePreloadFailure(long generation, IBMSPlayer player, BMSFile file, Exception failure)
+    {
+        // 内蔵playerが準備と現在曲の停止を終えた通知です。遅い通知で新しい曲を停止しません。
+        lock (sessionGate)
+        {
+            if (!shutdownStarted && generation == playbackGeneration
+                && ReferenceEquals(player, bmsPlayer) && ReferenceEquals(file, NowPlayingBmsFile))
+            {
+                ClearPlaybackStateWithoutExternalCall(closeProcess: false);
+            }
+        }
+        // 別の明示再生が先に始まっていても、回収済みの故障自体は隠しません。
+        NotifyPlaybackFailureSafely(failure);
     }
 
     private static async Task<bool> AwaitPlaybackCompletionAsync(Task playStartTask)
@@ -924,7 +1043,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private async Task<bool> ObservePlaybackStartAsync(
         Task playStartTask,
-        PlaybackStartObservation observation)
+        PlaybackStartObservation observation,
+        bool notifyFailure = true)
     {
         try
         {
@@ -937,7 +1057,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         catch (Exception exception)
         {
-            CompletePlaybackStartObservation(observation, succeeded: false, failure: exception);
+            CompletePlaybackStartObservation(observation, succeeded: false, failure: notifyFailure ? exception : null);
             throw;
         }
         CompletePlaybackStartObservation(observation, succeeded: true, failure: null);
@@ -954,7 +1074,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         bool succeeded,
         Exception failure)
     {
-        Action<object, EventArgs> exitCallback = null;
+        Action<object, EventArgs, long, IBMSPlayer, BMSFile> exitCallback = null;
+        long exitGeneration = 0;
         object exitSender = null;
         EventArgs exitArgs = null;
         bool stoppedCurrentPlayback = false;
@@ -972,7 +1093,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 else if (observation.ExitRequested && !observation.ExitClaimed)
                 {
                     observation.ExitClaimed = true;
-                    playbackGeneration++;
+                    exitGeneration = ++playbackGeneration;
                     exitCallback = observation.OnExit;
                     exitSender = observation.ExitSender;
                     exitArgs = observation.ExitArgs;
@@ -985,13 +1106,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         if (exitCallback != null)
         {
-            InvokePlaybackExitCallback(exitCallback, exitSender, exitArgs);
+            InvokePlaybackExitCallback(exitCallback, exitSender, exitArgs, exitGeneration, observation);
         }
     }
 
     private void HandlePlaybackExit(PlaybackStartObservation observation, object sender, EventArgs e)
     {
-        Action<object, EventArgs> exitCallback = null;
+        Action<object, EventArgs, long, IBMSPlayer, BMSFile> exitCallback = null;
+        long exitGeneration = 0;
         lock (sessionGate)
         {
             if (!IsCurrentPlaybackObservation(observation))
@@ -1013,12 +1135,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
 
             observation.ExitClaimed = true;
-            playbackGeneration++;
+            exitGeneration = ++playbackGeneration;
             exitCallback = observation.OnExit;
         }
         if (exitCallback != null)
         {
-            InvokePlaybackExitCallback(exitCallback, sender, e);
+            InvokePlaybackExitCallback(exitCallback, sender, e, exitGeneration, observation);
         }
     }
 
@@ -1031,13 +1153,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     private void InvokePlaybackExitCallback(
-        Action<object, EventArgs> exitCallback,
+        Action<object, EventArgs, long, IBMSPlayer, BMSFile> exitCallback,
         object sender,
-        EventArgs e)
+        EventArgs e,
+        long generation,
+        PlaybackStartObservation observation)
     {
         try
         {
-            exitCallback(sender, e);
+            exitCallback(sender, e, generation, observation.Player, observation.File);
         }
         catch (Exception exception)
         {
@@ -1049,11 +1173,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         PlaybackStartObservation observation,
         Exception failure)
     {
-        if (!TryClearPlaybackForStartObservation(observation))
+        if (IsPlaybackStartObservationCompleted(observation)) { return; }
+        bool clearedCurrentPlayback = TryClearPlaybackForStartObservation(observation);
+        // 内蔵playerが引き取った準備Taskのfatalは、Stopによる表示失効後も開始側が報告します。
+        // 旧世代の表示更新や、外部player・通常入力不良の遅い通知には広げません。
+        if (clearedCurrentPlayback
+            || (observation?.Player is INextSongPreloadPlayer && !NextSongPreloadOwner.IsInputFailure(failure)))
         {
-            return;
+            NotifyPlaybackFailureSafely(failure);
         }
-        NotifyPlaybackFailureSafely(failure);
     }
 
     private bool TryClearPlaybackForStartObservation(PlaybackStartObservation observation)
@@ -1069,7 +1197,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return true;
     }
 
-    private bool TryStopPlaybackForGeneration(long generation, BMSFile file)
+    private async Task<bool> TryStopPlaybackForGeneration(long generation, BMSFile file)
     {
         IBMSPlayer playerToClose;
         lock (sessionGate)
@@ -1080,7 +1208,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
         }
-        CloseCapturedPlayer(playerToClose);
+        await CloseCapturedPlayer(playerToClose).ConfigureAwait(false);
         return true;
     }
 
@@ -1105,111 +1233,70 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>選択譜面の再生または一時停止を行う。終了受付後は操作しない。</summary>
-    internal void Start(bool forceNewPlay = true)
-    {
-        lock (workflowGate)
+    internal Task Start(bool forceNewPlay = true) =>
+        RunPlaybackSelectionAsync(async () =>
         {
-            if (shutdownStarted)
-            {
-                return;
-            }
             if (!forceNewPlay && NowPlayingBmsFile != null)
             {
                 TogglePause();
                 return;
             }
 
-            StopPlayback();
+            ClearPlaybackForSongSelection();
             if (playbackQueue.SelectedIndex >= 0 && playbackQueue.SelectedIndex < playbackQueue.Count)
             {
-                StartAtIndex(playbackQueue.SelectedIndex);
+                await StartAtIndex(playbackQueue.SelectedIndex, null, false).ConfigureAwait(false);
             }
-        }
-    }
+        });
 
     /// <summary>次の有効な譜面へ進む。終了受付後の入力と自動送りは操作しない。</summary>
-    internal void Next(object sender = null, EventArgs e = null)
-    {
-        lock (workflowGate)
+    internal Task Next(object sender = null, EventArgs e = null) => NextCore(sender, e);
+
+    private Task NextCore(object sender, EventArgs e,
+        (long Generation, IBMSPlayer Player, BMSFile File)? naturalExit = null) =>
+        RunPlaybackSelectionAsync(async () =>
         {
-            if (shutdownStarted)
-            {
-                return;
-            }
             int index = NowPlayingRowIndex;
             if (index < 0 || index >= playbackQueue.Count)
             {
-                StopPlayback();
+                await StopPlayback(closeProcess: true).ConfigureAwait(false);
                 return;
             }
             if (sender != null && playbackSettings.SinglePlay)
             {
                 if (!playbackSettings.RepeatPlay)
                 {
-                    StopPlayback();
+                    await StopPlayback(closeProcess: true).ConfigureAwait(false);
                     return;
                 }
             }
-            else
-            {
-                string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
-                index++;
-                if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
-                {
-                    index = 0;
-                }
-                while (playbackSettings.FolderSkipPlay && index != playbackQueue.Count)
-                {
-                    GridRowResolver.TryGetBmsPlayerFile(playbackQueue.GetRow(index), out BMSFile candidate);
-                    if (index == NowPlayingRowIndex)
-                    {
-                        break;
-                    }
-                    string candidateFolder = GetPlaybackFolderIdentity(candidate, index);
-                    if (!string.IsNullOrWhiteSpace(candidateFolder) && currentFolder != candidateFolder)
-                    {
-                        break;
-                    }
-                    currentFolder = candidateFolder;
-                    index++;
-                    if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
-                    {
-                        index = 0;
-                    }
-                }
-            }
+            else { index = FindNextPlaybackIndex(); }
             if (index < playbackQueue.Count)
             {
-                StopPlayback();
-                StartAtIndex(index);
+                ClearPlaybackForSongSelection();
+                await StartAtIndex(index, null, false).ConfigureAwait(false);
             }
             else if (sender != null)
             {
-                StopPlayback();
+                await StopPlayback(closeProcess: true).ConfigureAwait(false);
             }
-        }
-    }
+        }, stopIfBusy: sender != null, naturalExit: naturalExit);
 
     /// <summary>前の有効な譜面へ戻る。終了受付後は操作しない。</summary>
-    internal void Previous(object sender = null, EventArgs e = null)
-    {
-        lock (workflowGate)
+    internal Task Previous(object sender = null, EventArgs e = null) =>
+        RunPlaybackSelectionAsync(async () =>
         {
-            if (shutdownStarted)
-            {
-                return;
-            }
             int index = NowPlayingRowIndex;
             if (index < 0 || index >= playbackQueue.Count)
             {
-                StopPlayback();
+                await StopPlayback(closeProcess: true).ConfigureAwait(false);
                 return;
             }
             if (sender != null && playbackSettings.SinglePlay)
             {
                 if (!playbackSettings.RepeatPlay)
                 {
-                    StopPlayback();
+                    await StopPlayback(closeProcess: true).ConfigureAwait(false);
                     return;
                 }
             }
@@ -1223,7 +1310,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
                 while (playbackSettings.FolderSkipPlay && index != -1)
                 {
-                    GridRowResolver.TryGetBmsPlayerFile(playbackQueue.GetRow(index), out BMSFile candidate);
+                    BMSFile candidate = playbackQueue.GetPlaybackFiles(index, includeChart: false).PlayerFile;
                     if (index == NowPlayingRowIndex)
                     {
                         break;
@@ -1243,15 +1330,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             if (index >= 0)
             {
-                StopPlayback();
-                StartAtIndex(index);
+                ClearPlaybackForSongSelection();
+                await StartAtIndex(index, null, false).ConfigureAwait(false);
             }
             else if (sender != null)
             {
-                StopPlayback();
+                await StopPlayback(closeProcess: true).ConfigureAwait(false);
             }
-        }
-    }
+        });
 
     private static string GetPlaybackFolderIdentity(BMSFile file, int fallbackIndex)
     {
@@ -1262,17 +1348,37 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private int FindNextPlaybackIndex()
     {
-        int index = NowPlayingRowIndex;
-        string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
+        int index;
+        BMSFile file;
+        PlaybackModeSnapshot modes;
+        lock (sessionGate)
+        {
+            index = NowPlayingRowIndex;
+            file = NowPlayingBmsFile;
+            modes = new PlaybackModeSnapshot(playbackSettings.RepeatPlay, playbackSettings.FolderSkipPlay);
+        }
+        return FindNextPlaybackIndex(index, file, modes);
+    }
+
+    private readonly record struct PlaybackModeSnapshot(bool RepeatPlay, bool FolderSkipPlay);
+
+    private int FindNextPlaybackIndex(int currentIndex, BMSFile currentFile, PlaybackModeSnapshot modes)
+    {
+        // 行交換は候補探索と並行します。折返しの件数を途中で変えると、
+        // 縮小後の一覧を巡回しても開始時のcurrentIndexへ戻れなくなります。
+        int count = playbackQueue.Count;
+        if (currentIndex < 0 || currentIndex >= count) { return count; }
+        int index = currentIndex;
+        string currentFolder = GetPlaybackFolderIdentity(currentFile, index);
         index++;
-        if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
+        if (modes.RepeatPlay && index == count)
         {
             index = 0;
         }
-        while (playbackSettings.FolderSkipPlay && index != playbackQueue.Count)
+        while (modes.FolderSkipPlay && index >= 0 && index < count)
         {
-            GridRowResolver.TryGetBmsPlayerFile(playbackQueue.GetRow(index), out BMSFile candidate);
-            if (index == NowPlayingRowIndex)
+            BMSFile candidate = playbackQueue.GetPlaybackFiles(index, includeChart: false).PlayerFile;
+            if (index == currentIndex)
             {
                 break;
             }
@@ -1283,7 +1389,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             currentFolder = candidateFolder;
             index++;
-            if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
+            if (modes.RepeatPlay && index == count)
             {
                 index = 0;
             }
@@ -1291,78 +1397,51 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return index;
     }
 
-    /// <summary>曲選択の所有境界で指定行を再生する。終了受付後は操作しない。</summary>
-    internal void StartAtIndex(int index)
+    private (int Index, BMSFile File, ChartFile Chart) FindPlayableChart(
+        int index, bool repeat, object initialRow = null, bool useInitialRow = false)
     {
-        lock (workflowGate)
+        int count = playbackQueue.Count;
+        for (int remaining = count; remaining > 0 && index >= 0 && index < count; remaining--)
         {
-            if (shutdownStarted)
+            BMSFile file;
+            ChartFile chart;
+            if (useInitialRow)
             {
-                return;
+                GridRowResolver.TryGetBmsPlayerFile(initialRow, out file);
+                GridRowResolver.TryGetChartFile(initialRow, out chart);
+                useInitialRow = false;
             }
-            StartAtIndex(index, initialRow: null, useInitialRow: false);
+            else { (file, chart) = playbackQueue.GetPlaybackFiles(index); }
+            if (file != null && !string.IsNullOrWhiteSpace(file.path) && LongPathFileSystem.FileExists(file.path))
+            {
+                return (index, file, chart);
+            }
+            index++;
+            if (repeat && index == count) { index = 0; }
         }
+        return (count, null, null);
     }
 
-    private void StartAtIndex(int index, object initialRow, bool useInitialRow)
+    /// <summary>曲選択の所有境界で指定行を再生する。終了受付後は操作しない。</summary>
+    internal Task StartAtIndex(int index) =>
+        RunPlaybackSelectionAsync(() => StartAtIndex(index, initialRow: null, useInitialRow: false));
+
+    private async Task StartAtIndex(int index, object initialRow, bool useInitialRow)
     {
-        BMSFile bmsFile = null;
-        ChartFile playbackChart = null;
         int remainingCandidates = playbackQueue.Count;
     ResolveCandidate:
-        while (remainingCandidates > 0)
+        if (shutdownStarted) { return; }
+        (int Index, BMSFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, initialRow, useInitialRow);
+        useInitialRow = false;
+        if (candidate.File == null)
         {
-            if (shutdownStarted)
-            {
-                return;
-            }
-            object row;
-            try
-            {
-                row = useInitialRow ? initialRow : playbackQueue.GetRow(index);
-                useInitialRow = false;
-                playbackChart = null;
-                bmsFile = null;
-                GridRowResolver.TryGetChartFile(row, out playbackChart);
-                GridRowResolver.TryGetBmsPlayerFile(row, out bmsFile);
-            }
-            catch
-            {
-                return;
-            }
-            if (bmsFile != null
-                && !string.IsNullOrWhiteSpace(bmsFile.path)
-                && LongPathFileSystem.FileExists(bmsFile.path))
-            {
-                break;
-            }
-
-            SkipUnavailablePlaybackCandidate(index);
-            remainingCandidates--;
-            index++;
-            if (index >= playbackQueue.Count)
-            {
-                if (playbackSettings.RepeatPlay)
-                {
-                    index = 0;
-                }
-                else
-                {
-                    StopPlayback();
-                    return;
-                }
-            }
-            if (remainingCandidates == 0)
-            {
-                StopPlayback();
-                return;
-            }
-        }
-
-        if (shutdownStarted)
-        {
+            await StopPlayback(closeProcess: true).ConfigureAwait(false);
             return;
         }
+        index = candidate.Index;
+        BMSFile bmsFile = candidate.File;
+        ChartFile playbackChart = candidate.Chart;
+
         long generation = BeginPlayback(bmsFile, index);
         if (shutdownStarted)
         {
@@ -1371,15 +1450,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         playbackQueue.SelectedIndex = index;
         playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
         string installDestination = playbackChart?.InstallDestination;
-        if (!string.IsNullOrWhiteSpace(installDestination) && LongPathFileSystem.DirectoryExists(installDestination))
+        if (NeedsTemporaryInstall(playbackChart))
         {
             try
             {
-                StartTemporarilyInstalledChart(playbackChart, bmsFile, generation, installDestination);
+                await StartTemporarilyInstalledChart(playbackChart, bmsFile, generation, installDestination).ConfigureAwait(false);
             }
             catch
             {
-                TryStopPlaybackForGeneration(generation, bmsFile);
+                await TryStopPlaybackForGeneration(generation, bmsFile).ConfigureAwait(false);
                 throw;
             }
             return;
@@ -1391,9 +1470,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             Task<bool> playStartTask = TryPlayStart(
                 generation,
                 bmsFile.path,
-                Next,
+                OnNaturalPlaybackExit,
                 out observation);
-            if (playStartTask.IsCompleted && !playStartTask.GetAwaiter().GetResult())
+            if (!await playStartTask.ConfigureAwait(false))
             {
                 return;
             }
@@ -1436,17 +1515,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         catch (Exception ex)
         {
-            if (IsPlaybackStartObservationCompleted(observation))
-            {
-                return;
-            }
             StopAfterPlaybackStartFailure(observation, ex);
             return;
         }
         NotifyPlaybackStarted(generation);
     }
 
-    private void StartTemporarilyInstalledChart(
+    private async Task StartTemporarilyInstalledChart(
         ChartFile playbackChart,
         BMSFile bmsFile,
         long generation,
@@ -1471,7 +1546,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     && playbackSettings.UsesLr2Database
                     && !playbackDialogs.ConfirmTemporaryInstallPlayback())
                 {
-                    TryStopPlaybackForGeneration(generation, bmsFile);
+                    await TryStopPlaybackForGeneration(generation, bmsFile).ConfigureAwait(false);
                     return;
                 }
                 chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
@@ -1518,10 +1593,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                         playbackStartTask = TryPlayStart(
                             generation,
                             playbackPath,
-                            Next,
-                            out playbackStartObservation);
-                        if (playbackStartTask.IsCompleted
-                            && !playbackStartTask.GetAwaiter().GetResult())
+                            OnNaturalPlaybackExit,
+                            out playbackStartObservation,
+                            allowPreload: false);
+                        if (!await playbackStartTask.ConfigureAwait(false))
                         {
                             return;
                         }
@@ -1536,10 +1611,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     }
                     catch (Exception ex)
                     {
-                        if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
-                        {
-                            StopAfterPlaybackStartFailure(playbackStartObservation, ex);
-                        }
+                        StopAfterPlaybackStartFailure(playbackStartObservation, ex);
                         return;
                     }
                 }
@@ -1569,66 +1641,18 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             && (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(chart) == true);
     }
 
-    internal void StopIfPlayingCharts(IEnumerable<ChartFile> charts)
+    /// <summary>既存の譜面変更受付の内側で、開始済みの選曲と再生・先読みの停止を待ちます。</summary>
+    /// <remarks>変更側がChartFileOperationSynchronizerを保持する間、新しい選曲は受け付けません。別の入力scopeは返しません。</remarks>
+    internal async Task StopPlaybackForMutationAsync()
     {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBmsFile?.path))
-        {
-            string playingDirectory = Path.GetDirectoryName(NowPlayingBmsFile.path);
-            if ((charts ?? []).Any(chart => IsChartDirectorySameOrUnder(playingDirectory, chart?.Path)))
-            {
-                StopPlayback(closeProcess: true);
-            }
-        }
-    }
-
-    internal void StopIfPlayingLibraryCharts(IEnumerable<LibraryChartRef> charts)
-    {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBmsFile?.path))
-        {
-            string playingDirectory = Path.GetDirectoryName(NowPlayingBmsFile.path);
-            if ((charts ?? []).Any(chart => IsChartDirectorySameOrUnder(playingDirectory, chart?.Path)))
-            {
-                StopPlayback(closeProcess: true);
-            }
-        }
-    }
-
-    internal void StopIfPlayingChartDirectories(IEnumerable<string> directories)
-    {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBmsFile?.path)
-            && (directories ?? []).Any(directory => IsChartDirectorySameOrUnder(directory, NowPlayingBmsFile.path)))
-        {
-            StopPlayback(closeProcess: true);
-        }
-    }
-
-    private static bool IsChartDirectorySameOrUnder(string parentDirectory, string chartPath)
-    {
-        if (string.IsNullOrWhiteSpace(parentDirectory) || string.IsNullOrWhiteSpace(chartPath))
-        {
-            return false;
-        }
-        string chartDirectory = Path.GetDirectoryName(chartPath);
-        if (string.IsNullOrWhiteSpace(chartDirectory))
-        {
-            return false;
-        }
-        string normalizedParent = NormalizeDirectoryForPrefixCheck(parentDirectory);
-        string normalizedChartDirectory = NormalizeDirectoryForPrefixCheck(chartDirectory);
-        return string.Equals(normalizedParent, normalizedChartDirectory, StringComparison.OrdinalIgnoreCase)
-            || normalizedChartDirectory.StartsWith(normalizedParent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeDirectoryForPrefixCheck(string directoryPath)
-    {
+        await playbackInputGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            return Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            await StopPlayback(closeProcess: true).ConfigureAwait(false);
+            // terminal側へ停止を委ねた場合は、変更側を成功として物理書込みへ進めません。
+            if (shutdownStarted) { throw new OperationCanceledException(); }
         }
-        catch
-        {
-            return directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
+        finally { playbackInputGate.Release(); }
     }
 
     /// <summary>譜面の準備 session を作成する。終了受付後は状態を変更しない。</summary>
@@ -1679,7 +1703,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>通常の停止を行う。再開可能な受付を維持し、終了受付後は terminal に解放を委ねる。</summary>
-    internal void StopPlayback(bool closeProcess = false)
+    internal async Task StopPlayback(bool closeProcess = false)
     {
         IBMSPlayer playerToClose;
         lock (sessionGate)
@@ -1688,9 +1712,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess);
+            playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess || bmsPlayer is INextSongPreloadPlayer);
         }
-        CloseCapturedPlayer(playerToClose);
+        await CloseCapturedPlayer(playerToClose).ConfigureAwait(false);
+    }
+
+    private void ClearPlaybackForSongSelection()
+    {
+        // 曲選択時の表示クリアでは、これから消費する先読みを失効させません。
+        lock (sessionGate) { ClearPlaybackStateWithoutExternalCall(closeProcess: false); }
     }
 
     private IBMSPlayer ClearPlaybackStateWithoutExternalCall(bool closeProcess)
@@ -1706,21 +1736,24 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return playerToClose;
     }
 
-    private void CloseCapturedPlayer(IBMSPlayer player, bool forShutdown = false)
+    private async Task CloseCapturedPlayer(IBMSPlayer player, bool forShutdown = false)
     {
         if (player == null)
         {
             return;
         }
-        lock (playerOperationGate)
+        await playerOperationGate.WaitAsync().ConfigureAwait(false);
+        try
         {
             // capture 済みの通常停止が terminal close 後に player を再度操作しない。
             if (shutdownStarted && !forShutdown)
             {
                 return;
             }
-            player.CloseProcess();
+            if (player is INextSongPreloadPlayer preloadPlayer) { await preloadPlayer.CloseAsync().ConfigureAwait(false); }
+            else { await Task.Run(player.CloseProcess).ConfigureAwait(false); }
         }
+        finally { playerOperationGate.Release(); }
         DispatchToUi(() =>
         {
             lock (sessionGate)
@@ -2014,7 +2047,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     {
         if (currentValue != newValue)
         {
-            assign(newValue);
+            lock (sessionGate) { assign(newValue); }
             RaisePropertyChanged(propertyName);
         }
     }
@@ -2045,7 +2078,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     void ISettingsDialogPlaybackRuntimePort.NotifySettingsChanged()
         => NotifySettingsChanged();
 
-    void IAudioDeviceTestPlaybackPort.StopPlayback()
+    Task IAudioDeviceTestPlaybackPort.StopPlayback()
         => StopPlayback(closeProcess: true);
 
     private sealed class PlayerStateSnapshot

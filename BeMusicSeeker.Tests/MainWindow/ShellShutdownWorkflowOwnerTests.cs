@@ -691,6 +691,50 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
+    public void TerminalAsyncPlayerCloseRunsOnWorkerBeforeUiSettingsSave()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(RunAsync(), "terminal-async-player-close");
+
+            async Task RunAsync()
+            {
+                MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+                try
+                {
+                    Dispatcher dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                    bool? closeOnUi = null;
+                    bool? saveOnUi = null;
+                    int closesAtSave = 0;
+                    var player = new AsyncCloseBmsPlayer(() => closeOnUi = dispatcher.CheckAccess());
+                    await viewModel.PlaybackPanel.ReplacePlayerAsync(player);
+                    var settingsSession = new RecordingSettingsEditSession(() =>
+                    {
+                        saveOnUi = dispatcher.CheckAccess();
+                        closesAtSave = player.CloseProcessCount;
+                    });
+                    ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+                        viewModel,
+                        settingsEditSession: settingsSession);
+
+                    await owner.CompleteTerminalShutdownAsync();
+
+                    Assert.IsTrue(closeOnUi is false,
+                        "非同期停止の同期部分もUI外で実行し、UIで先行player操作のlockを待ちません。");
+                    Assert.AreEqual(1, player.CloseProcessCount);
+                    Assert.AreEqual(1, closesAtSave, "playerの解放後に設定を保存します。");
+                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    Assert.IsTrue(saveOnUi is true, "設定保存はUIへ戻して実行します。");
+                }
+                finally
+                {
+                    viewModel.SettingDialog.Dispose();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public async Task PreparationWaitsForDetailWorkerIdleAfterRequestCancellationBecomesTerminal()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
@@ -991,6 +1035,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
                     releaseInstall.Wait();
                     return new PackageInstallCommandResult([], null);
                 }),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     action();
@@ -1095,12 +1140,12 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new BlockingFolderMutationPort(folderEntered, folderRelease),
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action => Task.Factory.StartNew(
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 CreateAcceptedDialogService());
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
@@ -1285,17 +1330,6 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
-    private sealed class NoopFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
-    {
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-        {
-        }
-
-        public void StopPlaybackForFolderMutation()
-        {
-        }
-    }
-
     private sealed class NoOpPreparedUpdaterLaunch : IPreparedUpdaterLaunch
     {
         public UpdaterLaunchReceipt Start()
@@ -1319,7 +1353,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
-    private sealed class FakeBmsPlayer : IBMSPlayer
+    private class FakeBmsPlayer : IBMSPlayer
     {
         private readonly Action? onClose;
 
@@ -1369,6 +1403,22 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public void IncreaseHighSpeed() { }
         public void DecreaseHighSpeed() { }
         public void VolumeChanged() { }
+    }
+
+    private sealed class AsyncCloseBmsPlayer(Action onClose) : FakeBmsPlayer(onClose), INextSongPreloadPlayer
+    {
+        public PlaybackStartOperation BeginStart(string path, Action<object, EventArgs>? onExit, bool allowPreload,
+            Action<Exception>? onPlaybackFailure = null)
+            => throw new NotSupportedException();
+
+        public Task PrepareNextAsync(NextSongPreloadInput input, Action<Exception> onFailure) => Task.CompletedTask;
+
+        public Task CloseAsync()
+        {
+            // 完了済みTaskでも、呼出側の同期部分をUIで実行しない契約を確認します。
+            CloseProcess();
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession

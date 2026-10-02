@@ -252,24 +252,29 @@ public sealed class RibbitBmsFileTimingTests
         }, options: options, choices: new Queue<int>([1, 2, 3]));
     }
 
-    [TestMethod]
-    public void AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails(bool argumentOutOfRange)
     {
         var observed = new List<(int Range, int Value, bool Used)>();
+        Exception cause = argumentOutOfRange ? new ArgumentOutOfRangeException("range") : new InvalidOperationException("random failed");
         var options = new BmsParseOptions
         {
-            RandomSource = new FailOnUnspecifiedRandom(),
+            RandomSource = new FailOnUnspecifiedRandom(cause),
             RandomChoice = choice => observed.Add((choice.Range, choice.Value, choice.Used))
         };
-        Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
+        BMSFile.InvalidBmsFileException failure = Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
             WithChart("#BPM 120\n#RANDOM 2\n#IF 2\n#RANDOM 3\n#ENDIF\n#RANDOM 4\n#00011:01\n", _ => { },
                 options: options, choices: new Queue<int>([1, 2])));
+        Assert.AreSame(cause, failure.InnerException);
+        Assert.IsFalse(failure.IsInputFailure, "通常範囲の乱数実装故障を譜面入力不良に変換しません。");
         CollectionAssert.AreEqual(new[] { (2, 1, true), (3, 2, false) }, observed.ToArray());
     }
 
-    private sealed class FailOnUnspecifiedRandom : Random
+    private sealed class FailOnUnspecifiedRandom(Exception failure) : Random
     {
-        public override int Next(int minValue, int maxValue) => throw new InvalidOperationException("未指定の選択を乱数で補いません。");
+        public override int Next(int minValue, int maxValue) => throw failure;
     }
 
     private static Fraction RequireFinite(BmsNumber? value)

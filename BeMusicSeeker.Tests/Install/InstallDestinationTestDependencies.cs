@@ -10,11 +10,9 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Tests;
 
-internal sealed class NoOpPendingPackageMutationPlaybackPort : IPendingPackageMutationPlaybackPort
+internal sealed class NoOpChartMutationPlaybackPort : IChartMutationPlaybackPort
 {
-    public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
-    {
-    }
+    public Task StopPlaybackForMutationAsync() => Task.CompletedTask;
 }
 
 internal sealed class TestUiDialogService : IUiDialogService

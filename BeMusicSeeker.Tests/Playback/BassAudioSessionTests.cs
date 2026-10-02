@@ -770,7 +770,76 @@ public sealed class BassAudioSessionTests
         }
     }
 
-    private sealed class CallbackPcmNative : IAudioPcmNative
+    [TestMethod]
+    public async Task FirstCallbackReady_PublishesRealFramesBeforeAsynchronousContinuationAndIsRetained()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO)
+        {
+            ActualBackend = BassAudioPlayer.DeviceDriver.ASIO,
+            OutputProcessor = new AudioOutputProcessor(48000, 1),
+            CallbackPcmRenderer = new AudioPcmRenderer(123, 48000, 2, new CallbackPcmNative())
+        };
+        session.TrackOutputHandle(456);
+        Task ready = session.WaitForOutputReadyAsync();
+        Assert.IsFalse(ready.IsCompleted);
+        session.ObserveCallbackPullSize(0);
+        session.ObserveCallbackPullSize(-1);
+        Assert.IsFalse(ready.IsCompleted);
+        using var insideCallback = new ThreadLocal<bool>();
+        Task continuation = ready.ContinueWith(_ =>
+        {
+            Assert.IsFalse(insideCallback.Value, "初回通知の継続をcallback内で同期実行しません。");
+            Assert.AreEqual(2, session.MaximumCallbackFrames);
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        IntPtr buffer = Marshal.AllocHGlobal(16);
+        try
+        {
+            insideCallback.Value = true;
+            try { Assert.AreEqual(16, BassAudioPlayer.ReadPublishedCallbackOutput(session, buffer, 16)); }
+            finally { insideCallback.Value = false; }
+            await continuation;
+            await ready;
+            Assert.IsTrue(session.WaitForOutputReadyAsync().IsCompletedSuccessfully, "既観測sessionは追加callbackなしで通過します。");
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    [DataTestMethod]
+    [DataRow(-1, (int)AudioPcmRenderStage.InvalidReadLength)]
+    [DataRow(1, (int)AudioPcmRenderStage.UnalignedFrame)]
+    public async Task FirstCallbackReady_InvalidLengthWakesManagementWithOriginalFailure(int length, int expectedStage)
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO)
+        {
+            ActualBackend = BassAudioPlayer.DeviceDriver.ASIO,
+            OutputProcessor = new AudioOutputProcessor(48000, 1),
+            CallbackPcmRenderer = new AudioPcmRenderer(123, 48000, 2, new CallbackPcmNative())
+        };
+        session.TrackOutputHandle(456);
+        Task ready = session.WaitForOutputReadyAsync();
+        IntPtr buffer = Marshal.AllocHGlobal(16);
+        try
+        {
+            _ = BassAudioPlayer.ReadPublishedCallbackOutput(session, buffer, length);
+            AudioCallbackOutputFailureException failure = await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(() => ready);
+            Assert.AreEqual((AudioPcmRenderStage)expectedStage, failure.Failure.RenderStage);
+            Assert.AreEqual(0, session.MaximumCallbackFrames);
+            await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(session.WaitForOutputReadyAsync);
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    [TestMethod]
+    public async Task FirstCallbackReady_NullDeviceDoesNotRequirePhysicalObservation()
+    {
+        var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.NULL_DEVICE) { ActualBackend = BassAudioPlayer.DeviceDriver.NULL_DEVICE };
+        Task ready = session.WaitForOutputReadyAsync();
+        Assert.IsTrue(ready.IsCompletedSuccessfully);
+        await ready;
+        Assert.AreEqual(0, session.MaximumCallbackFrames);
+    }
+
+    internal sealed class CallbackPcmNative : IAudioPcmNative
     {
         internal int LastHandle { get; private set; }
         internal bool Fail { get; set; }

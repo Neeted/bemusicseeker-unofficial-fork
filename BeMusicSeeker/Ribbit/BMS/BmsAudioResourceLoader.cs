@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -58,14 +59,21 @@ internal static class BmsAudioResourceLoader
     /// <param name="bms">使用音源indexを得る譜面です。</param>
     /// <param name="basePath">譜面ファイルの配置pathです。</param>
     /// <param name="sourceGain">各resourceへ捕捉するgainです。</param>
-    internal static BmsAudioResourceLoadResult Load(BMSFile bms, string basePath, float sourceGain)
+    /// <param name="cancellationToken">探索、read前、decode前、結果公開前の取消です。native呼出しは強制終了しません。</param>
+    /// <param name="expectedSession">先読み開始時のsessionです。通常ロードでは現在sessionを捕捉します。</param>
+    internal static BmsAudioResourceLoadResult Load(BMSFile bms, string basePath, float sourceGain, CancellationToken cancellationToken = default,
+        BassAudioSession? expectedSession = null)
     {
         ArgumentNullException.ThrowIfNull(bms);
         ArgumentNullException.ThrowIfNull(basePath);
 
         try
         {
-            return LoadCore(bms, basePath, sourceGain);
+            return LoadCore(bms, basePath, sourceGain, cancellationToken, expectedSession);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (AudioSourceFatalException)
         {
@@ -79,17 +87,21 @@ internal static class BmsAudioResourceLoader
         }
     }
 
-    private static BmsAudioResourceLoadResult LoadCore(BMSFile bms, string basePath, float sourceGain)
+    private static BmsAudioResourceLoadResult LoadCore(BMSFile bms, string basePath, float sourceGain,
+        CancellationToken cancellationToken, BassAudioSession? expectedSession)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int[] requiredIndices = BmsAudioFrameSchedule.GetRequiredAudioIndices(bms);
         BmsAudioPathRequest[] requests = requiredIndices
             .AsParallel()
             .AsOrdered()
+            .WithCancellation(cancellationToken)
             .WithDegreeOfParallelism(Environment.ProcessorCount)
             .Select(index =>
             {
                 string resourceName = bms.WavArray[index];
-                string? path = FindAudioPath(basePath, resourceName);
+                cancellationToken.ThrowIfCancellationRequested();
+                string? path = FindAudioPath(basePath, resourceName, cancellationToken);
                 return path == null ? (BmsAudioPathRequest?)null : new BmsAudioPathRequest(index, resourceName, path);
             })
             .Where(request => request.HasValue)
@@ -105,13 +117,18 @@ internal static class BmsAudioResourceLoader
 
         if (readableWork.Length > 0)
         {
-            BassAudioSession expectedSession = CaptureActiveSession();
+            expectedSession ??= CaptureActiveSession();
             try
             {
                 Partitioner.Create(readableWork, EnumerablePartitionerOptions.NoBuffering)
                     .AsParallel()
+                    .WithCancellation(cancellationToken)
                     .WithDegreeOfParallelism(Environment.ProcessorCount)
-                    .ForAll(work => LoadResource(work, expectedSession, resourcesByIndex, failures, sourceGain));
+                    .ForAll(work => LoadResource(work, expectedSession, resourcesByIndex, failures, sourceGain, cancellationToken));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception exception)
             {
@@ -121,13 +138,15 @@ internal static class BmsAudioResourceLoader
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return new BmsAudioResourceLoadResult(
             resourcesByIndex,
             failures.OrderBy(failure => failure.Index).ToArray(),
             groupedWork.Length);
     }
 
-    private static BassAudioSession CaptureActiveSession()
+    /// <summary>先読みの全期間を占有せず、各復号で照合する現在の音声sessionを捕捉します。</summary>
+    internal static BassAudioSession CaptureActiveSession()
     {
         using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
         BassAudioSession? session = BassAudioPlayer.CurrentSessionForAdmittedOperation;
@@ -197,13 +216,16 @@ internal static class BmsAudioResourceLoader
         BassAudioSession expectedSession,
         BmsAudioResource?[] resourcesByIndex,
         ConcurrentQueue<BmsAudioLoadFailure> failures,
-        float sourceGain)
+        float sourceGain, CancellationToken cancellationToken)
     {
         BmsAudioPathRequest first = work.Requests[0];
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using AudioInputFile input = ReadInput(work.Path);
+            cancellationToken.ThrowIfCancellationRequested();
             DecodedAudio decoded = AudioSourceLoader.Decode(input, expectedSession);
+            cancellationToken.ThrowIfCancellationRequested();
             var resource = new BmsAudioResource(work.Path, decoded, sourceGain);
             foreach (BmsAudioPathRequest request in work.Requests)
             {
@@ -244,7 +266,7 @@ internal static class BmsAudioResourceLoader
         }
     }
 
-    private static string? FindAudioPath(string basePath, string resourceName)
+    private static string? FindAudioPath(string basePath, string resourceName, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(resourceName))
         {
@@ -254,6 +276,7 @@ internal static class BmsAudioResourceLoader
         string? firstCandidate = null;
         foreach (string item in Resources.NormalizeExtension(resourceName))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string path = Path.Combine(basePath, item);
             firstCandidate ??= path;
             if (LongPathFileSystem.FileExists(path))
@@ -267,6 +290,7 @@ internal static class BmsAudioResourceLoader
         {
             foreach (string item in Resources.NormalizeExtension(fileName))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 string path = Path.Combine(basePath, item);
                 firstCandidate ??= path;
                 if (LongPathFileSystem.FileExists(path))

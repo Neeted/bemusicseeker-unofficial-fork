@@ -1300,7 +1300,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     installCount++;
                     return new PackageInstallCommandResult([], null);
-                }), action => { action(); return true; });
+                }), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
             installOwner.AttachLibrary(library);
             var gateway = new RecordingPlaylistUrlDownloadGateway(root);
             Uri first = new("https://example.invalid/first.zip");

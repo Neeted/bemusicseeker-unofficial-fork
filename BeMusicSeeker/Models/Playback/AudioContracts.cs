@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Properties;
 using Ribbit.Logging;
 using Ribbit.Media;
@@ -591,6 +592,9 @@ internal interface IAudioPlaybackRuntime
 {
     AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings);
 
+    /// <summary>保持sessionの実初回pull観測を非同期に待ちます。native leaseや排他lockを保持せず、故障は失敗として返します。</summary>
+    Task WaitForOutputReadyAsync();
+
     int CurrentVoices { get; }
 
     int MaxVoices { get; }
@@ -599,6 +603,7 @@ internal interface IAudioPlaybackRuntime
 
     void SetVolume(int volume);
 
+    /// <summary>保持sessionを解放します。解放未確認なら所有を維持し、呼出元へ失敗を返します。</summary>
     void Free();
 }
 
@@ -707,6 +712,11 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
 
     public int CurrentVoices => Ribbit.Media.BassAudioPlayer.CurrentVoices;
 
+    /// <summary>初期化後に保持したsessionの一回観測へ合流します。交渉結果には待機状態を含めません。</summary>
+    public Task WaitForOutputReadyAsync() => (sessionLease.Session
+        ?? throw new InvalidOperationException("The playback runtime has no initialized audio session."))
+        .WaitForOutputReadyAsync();
+
     public int MaxVoices => Ribbit.Media.BassAudioPlayer.MaxVoices;
 
     public void ClearMaxVoices()
@@ -719,12 +729,14 @@ internal sealed class BassAudioPlaybackRuntime : IAudioPlaybackRuntime
         Ribbit.Media.BassAudioPlayer.DeviceVolume = Math.Min(100, Math.Max(0, volume)) / 100f;
     }
 
+    /// <summary>native解放を一回試み、成功した場合だけsessionと初期化結果を手放します。</summary>
     public void Free()
     {
-        if (sessionLease.TryRelease(releaseNativeSession))
+        if (!sessionLease.TryRelease(releaseNativeSession))
         {
-            activeInitialization = null;
+            throw new InvalidOperationException(Resources.AudioDeviceTestCleanupFailure);
         }
+        activeInitialization = null;
     }
 
     /// <summary>再生と設定テストで共通の実効要求・実時間音量と、保持中のnative実値から結果を作成します。</summary>

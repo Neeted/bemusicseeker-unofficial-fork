@@ -9,7 +9,6 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -299,7 +298,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
+    public async Task PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         bool originalUsePlayerLR2body = testSettings.UsePlayerLR2body;
@@ -322,7 +321,7 @@ public sealed class ChartListVirtualViewTests
             var composition = new ApplicationComposition(
                 defaultBmsPlayerFactory: () => player,
                 settingsEditSession: new NoOpSettingsEditSession(testSettings),
-                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var viewModel = new MainWindowViewModel(composition, composition);
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
@@ -351,7 +350,8 @@ public sealed class ChartListVirtualViewTests
                 viewRow
             };
 
-            viewModel.PlaybackPanel.StartAtIndex(0);
+            // 非同期の開始と一時改名・コピーの後片付けを待ってから検査します。
+            await viewModel.PlaybackPanel.StartAtIndex(0);
 
             Assert.AreEqual(Path.Combine(destinationDirectoryPath, temporaryChartName), player.LastPlayedPath);
             Assert.AreEqual(sourceChartPath, file.path);

@@ -123,8 +123,9 @@ internal static class AudioDeviceTestWorkflowTestFactory
 
 internal sealed class NoOpAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
 {
-    public void StopPlayback()
+    public Task StopPlayback()
     {
+        return Task.CompletedTask;
     }
 }
 

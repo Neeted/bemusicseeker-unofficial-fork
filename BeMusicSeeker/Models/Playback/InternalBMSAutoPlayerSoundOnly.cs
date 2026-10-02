@@ -1,7 +1,9 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
@@ -9,7 +11,7 @@ using Ribbit.BMS;
 
 namespace BeMusicSeeker.Models;
 
-public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INotifyPropertyChanged
+public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INotifyPropertyChanged, INextSongPreloadPlayer
 {
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
@@ -18,6 +20,11 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     private readonly Action<Action<object, EventArgs>, object> exitEventDispatcher;
 
     private readonly Func<string, BMSAutoPlayer> autoPlayerFactory;
+
+    private readonly TimeSpan outputReadyTimeout;
+
+    private readonly SemaphoreSlim startStopGate = new(1, 1);
+    private readonly NextSongPreloadOwner preload;
 
     private readonly Stopwatch _timer = Stopwatch.StartNew();
 
@@ -73,20 +80,32 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     /// <param name="playerSettingsGateway">再生設定のsnapshotを取得するgatewayです。</param>
     /// <param name="audioPlaybackRuntime">音声出力runtimeです。</param>
     /// <param name="exitEventDispatcher">指定時は捕捉した終了callbackをdispatchします。未指定なら直接呼び出します。</param>
+    /// <param name="songPreparation">解析と復号の準備境界です。未指定なら現在のsessionで共通loaderを使います。</param>
     /// <param name="autoPlayerFactory">指定時は曲pathからplayerを作成します。未指定なら通常のBMS parserとplayerを使います。</param>
+    /// <param name="outputReadyTimeout">初回出力観測だけの待機上限です。通常は10秒、期限失敗の検査でのみ差し替えます。</param>
     internal InternalBMSAutoPlayerSoundOnly(
         IPlayerSettingsGateway playerSettingsGateway,
         IAudioPlaybackRuntime audioPlaybackRuntime,
         Action<Action<object, EventArgs>, object> exitEventDispatcher = null,
-        Func<string, BMSAutoPlayer> autoPlayerFactory = null)
+        Func<string, BMSAutoPlayer> autoPlayerFactory = null,
+        Func<NextSongPreloadInput, CancellationToken, PreparedBmsSong> songPreparation = null,
+        TimeSpan? outputReadyTimeout = null)
     {
         this.playerSettingsGateway = playerSettingsGateway
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.audioPlaybackRuntime = audioPlaybackRuntime
             ?? throw new ArgumentNullException(nameof(audioPlaybackRuntime));
         this.exitEventDispatcher = exitEventDispatcher;
+        this.outputReadyTimeout = outputReadyTimeout ?? TimeSpan.FromSeconds(10);
         this.autoPlayerFactory = autoPlayerFactory
             ?? new Func<string, BMSAutoPlayer>(path => new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path)));
+        preload = new NextSongPreloadOwner(songPreparation ?? ((input, token) =>
+        {
+            Ribbit.Media.Audio.BassAudioSession session = BmsAudioResourceLoader.CaptureActiveSession();
+            token.ThrowIfCancellationRequested();
+            var chart = new Ribbit.BMS.BMSFile(input.Path);
+            return PreparedBmsSong.Prepare(chart, Ribbit.Media.BassAudioPlayer.DefaultVolume, token, session);
+        }));
         _playbackThreadAction = CreatePlaybackThreadAction();
     }
 
@@ -480,13 +499,70 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     {
     }
 
+    /// <summary>既存の同期player契約です。UI経路はCloseAsyncで停止終端を待ち、同期入口はworkerでのみ使います。</summary>
     public void CloseProcess()
     {
-        CloseProcessCore(expectedPlayer: null);
+        CloseAsync().GetAwaiter().GetResult();
+    }
+
+    /// <summary>先読みの後片付けと旧曲の停止を待ってからruntimeを解放します。</summary>
+    public async Task CloseAsync()
+    {
+        await startStopGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            Exception failure = null;
+            try { await preload.InvalidateAsync().ConfigureAwait(false); }
+            catch (Exception exception) { failure = exception; }
+            try { await Task.Run(() => CloseProcessCore(null)).ConfigureAwait(false); }
+            catch (Exception exception) { failure = failure == null ? exception : new AggregateException(failure, exception); }
+            if (failure != null) { ExceptionDispatchInfo.Capture(failure).Throw(); }
+        }
+        finally { startStopGate.Release(); }
+    }
+
+    /// <summary>現在曲の開始後に一件だけ準備します。曲の途中では候補を差し替えません。</summary>
+    async Task INextSongPreloadPlayer.PrepareNextAsync(NextSongPreloadInput input, Action<Exception> onFailure)
+    {
+        ArgumentNullException.ThrowIfNull(onFailure);
+        await startStopGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_sharedObjectLock) { if (_player == null) { return; } }
+            Task<PreparedBmsSong> preparation = preload.Request(input);
+            ObservePreloadFailureAsync(preparation, onFailure).ObserveFault("InternalPlayer.NextSong");
+        }
+        finally { startStopGate.Release(); }
+    }
+
+    private async Task ObservePreloadFailureAsync(Task<PreparedBmsSong> preparation, Action<Exception> onFailure)
+    {
+        Exception failure;
+        try { await preparation.ConfigureAwait(false); return; }
+        catch (OperationCanceledException) { return; }
+        catch (Exception exception) when (NextSongPreloadOwner.IsInputFailure(exception)) { return; }
+        catch (Exception exception) { failure = exception; }
+
+        await startStopGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            // 先に実開始や停止が引き取った失敗は、その呼出元だけが報告します。
+            if (!preload.Owns(preparation)) { return; }
+            try { await preload.InvalidateAsync().ConfigureAwait(false); }
+            catch (Exception exception) when (ReferenceEquals(exception, failure)) { }
+            try { await Task.Run(() => CloseProcessCore(null)).ConfigureAwait(false); }
+            catch (Exception cleanupFailure) { failure = new AggregateException(failure, cleanupFailure); }
+        }
+        finally { startStopGate.Release(); }
+
+        Task.FromException(failure).ObserveFault("InternalPlayer.NextSong");
+        // 通知は開始停止gateの外です。呼出元は捕捉した曲の状態だけを更新します。
+        onFailure(failure);
     }
 
     private void CloseProcessCore(BMSAutoPlayer expectedPlayer)
     {
+        BMSAutoPlayer releasedPlayer;
         lock (_sharedObjectLock)
         {
             if (expectedPlayer != null && !ReferenceEquals(_player, expectedPlayer))
@@ -495,7 +571,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             }
 
             Duration = TimeSpan.MinValue;
-            CurrentTime = TimeSpan.MinValue;
+            NotifyCurrentTimeChanged();
             _playbackTaskCompletedSuccessfully = false;
             StopTime = _player?.StopTime ?? TimeSpan.Zero;
             CurrentVoices = 0;
@@ -511,12 +587,22 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             Notes = _player?.Bms.TotalNoteCount ?? 0;
             Measure = _player?.CurrentMeasure ?? 0;
             LastMeasure = _player?.Bms.Measures.LastIndex ?? 0;
-            _player?.Dispose();
+            releasedPlayer = _player;
             _player = null;
             _fastForwarding = false;
             _fastBackwarding = false;
-            audioPlaybackRuntime.Free();
         }
+        // 停止合流は表示monitor外で行い、再生終了側の状態確認を妨げません。
+        Exception disposalFailure = null;
+        try { releasedPlayer?.Dispose(); }
+        catch (Exception failure) { disposalFailure = failure; }
+        try { audioPlaybackRuntime.Free(); }
+        catch (Exception failure)
+        {
+            if (disposalFailure != null) { throw new AggregateException(disposalFailure, failure); }
+            throw;
+        }
+        if (disposalFailure != null) { ExceptionDispatchInfo.Capture(disposalFailure).Throw(); }
     }
 
     public void DecreaseHighSpeed()
@@ -579,94 +665,178 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         }
     }
 
-    public async Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
+    /// <summary>既存APIは準備だけでなく演奏と後片付けの終端まで待ちます。</summary>
+    public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null) =>
+        BeginStart(bmsFilePath, onExitEventHandler, allowPreload: true).Completion;
+
+    /// <summary>準備・開始の成功と、演奏の終了を独立して観測できる開始操作です。</summary>
+    PlaybackStartOperation INextSongPreloadPlayer.BeginStart(string path, Action<object, EventArgs> onExit, bool allowPreload,
+        Action<Exception> onPlaybackFailure) => BeginStart(path, onExit, allowPreload, onPlaybackFailure);
+
+    /// <summary>同じ対象の先読みTaskを一回採用し、開始成功と演奏終端を別々に返します。</summary>
+    /// <param name="onPlaybackFailure">Ready成功後の停止をこの開始が所有した場合だけ、通常取消以外の終端故障を通知します。</param>
+    internal PlaybackStartOperation BeginStart(string path, Action<object, EventArgs> onExit, bool allowPreload,
+        Action<Exception> onPlaybackFailure = null)
     {
-        if (!LongPathFileSystem.FileExists(bmsFilePath))
-        {
-            throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFilePath);
-        }
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = ready.Task.ContinueWith(task => { _ = task.Exception; }, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        Task completion = StartCoreAsync(path, onExit, allowPreload, ready, onPlaybackFailure);
+        return new PlaybackStartOperation(ready.Task, completion);
+    }
+
+    private async Task StartCoreAsync(string bmsFilePath, Action<object, EventArgs> onExitEventHandler,
+        bool allowPreload, TaskCompletionSource ready, Action<Exception> onPlaybackFailure)
+    {
         BMSAutoPlayer bMSAutoPlayer = null;
-        lock (_sharedObjectLock)
+        Task playbackTask = null;
+        await startStopGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            try
+            if (!LongPathFileSystem.FileExists(bmsFilePath))
             {
-                PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-                BMSAutoPlayer previousPlayer = _player;
+                throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFilePath);
+            }
+            // 停止を先に要求し、同じ対象の復号が終わるまでは旧sessionを維持します。
+            BMSAutoPlayer previousPlayer;
+            lock (_sharedObjectLock)
+            {
+                previousPlayer = _player;
+                _player = null;
+                _onExitEvent = null;
+                _playbackTaskCompletedSuccessfully = false;
                 _fastForwarding = false;
                 _fastBackwarding = false;
+            }
+            await Task.Run(() => previousPlayer?.DisposeBeforeNextSong()).ConfigureAwait(false);
+            PreparedBmsSong prepared = await preload.TakeAsync(
+                allowPreload ? NextSongPreloadInput.Capture(bmsFilePath) : null).ConfigureAwait(false);
+            await Task.Run(() =>
+            {
+                PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
                 Duration = TimeSpan.MinValue;
                 MusicDuration = TimeSpan.MinValue;
                 BmsDuration = TimeSpan.MinValue;
-                _playbackTaskCompletedSuccessfully = false;
-                if (previousPlayer != null)
-                {
-                    try
-                    {
-                        previousPlayer.DisposeBeforeNextSong();
-                    }
-                    finally
-                    {
-                        _player = null;
-                    }
-                }
                 NotifyCurrentTimeChanged();
                 _ = audioPlaybackRuntime.Initialize(settings);
-                bMSAutoPlayer = autoPlayerFactory(bmsFilePath);
-                bMSAutoPlayer.LoadResources();
-                _player = bMSAutoPlayer;
-                Duration = bMSAutoPlayer.Duration;
-                CurrentTime = TimeSpan.Zero;
-                MusicDuration = bMSAutoPlayer.MusicDuration;
-                BmsDuration = bMSAutoPlayer.BmsDuration;
-                StopTime = bMSAutoPlayer.StopTime;
-                CurrentVoices = 0;
-                audioPlaybackRuntime.ClearMaxVoices();
-                MaxVoices = audioPlaybackRuntime.MaxVoices;
-                NoteDensity = (int)bMSAutoPlayer.NoteDensity;
-                NoteDensityMax = (int)bMSAutoPlayer.NoteDensityMax;
-                Bpm = (int)bMSAutoPlayer.CurrentBpm;
-                MinBpm = (int)(bMSAutoPlayer.Bms.MinBpm?.ToDouble() ?? 0.0);
-                MaxBpm = (int)(bMSAutoPlayer.Bms.MaxBpm?.ToDouble() ?? 0.0);
-                Total = bMSAutoPlayer.Bms.Total ?? 0.0;
-                Combo = bMSAutoPlayer.Combo;
-                Notes = bMSAutoPlayer.Bms.TotalNoteCount;
-                Measure = bMSAutoPlayer.CurrentMeasure;
-                LastMeasure = bMSAutoPlayer.Bms.Measures.LastIndex;
-                if (Duration == TimeSpan.Zero)
+                if (prepared == null)
                 {
-                    throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);
+                    bMSAutoPlayer = autoPlayerFactory(bmsFilePath);
+                    bMSAutoPlayer.LoadResources();
                 }
-                _onExitEvent = onExitEventHandler;
-                if (_infloopTask == null)
+                else
                 {
-                    _infloopTask = Task.Run(_playbackThreadAction);
-                    _infloopTask.ObserveFault("PlayStart");
+                    bMSAutoPlayer = new BMSAutoPlayer(prepared.Chart);
+                    bMSAutoPlayer.AdoptPreparedSong(prepared);
                 }
-            }
-            catch (Exception startupFailure)
+            }).ConfigureAwait(false);
+            // native Startと復号は完了済みです。出力・表示lockを保持せず実pullの一回観測を待ちます。
+            await audioPlaybackRuntime.WaitForOutputReadyAsync().WaitAsync(outputReadyTimeout).ConfigureAwait(false);
+            await Task.Run(() =>
             {
-                CleanupFailedStart(bMSAutoPlayer, startupFailure, closeCurrentPlayer: true);
-                throw;
-            }
+                lock (_sharedObjectLock)
+                {
+                    _player = bMSAutoPlayer;
+                    Duration = bMSAutoPlayer.Duration;
+                    CurrentTime = TimeSpan.Zero;
+                    MusicDuration = bMSAutoPlayer.MusicDuration;
+                    BmsDuration = bMSAutoPlayer.BmsDuration;
+                    StopTime = bMSAutoPlayer.StopTime;
+                    CurrentVoices = 0;
+                    audioPlaybackRuntime.ClearMaxVoices();
+                    MaxVoices = audioPlaybackRuntime.MaxVoices;
+                    NoteDensity = (int)bMSAutoPlayer.NoteDensity;
+                    NoteDensityMax = (int)bMSAutoPlayer.NoteDensityMax;
+                    Bpm = (int)bMSAutoPlayer.CurrentBpm;
+                    MinBpm = (int)(bMSAutoPlayer.Bms.MinBpm?.ToDouble() ?? 0.0);
+                    MaxBpm = (int)(bMSAutoPlayer.Bms.MaxBpm?.ToDouble() ?? 0.0);
+                    Total = bMSAutoPlayer.Bms.Total ?? 0.0;
+                    Combo = bMSAutoPlayer.Combo;
+                    Notes = bMSAutoPlayer.Bms.TotalNoteCount;
+                    Measure = bMSAutoPlayer.CurrentMeasure;
+                    LastMeasure = bMSAutoPlayer.Bms.Measures.LastIndex;
+                    if (Duration == TimeSpan.Zero)
+                    {
+                        throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);
+                    }
+                    _onExitEvent = onExitEventHandler;
+                }
+                playbackTask = bMSAutoPlayer.Start();
+                if (playbackTask.IsFaulted || playbackTask.IsCanceled)
+                {
+                    playbackTask.GetAwaiter().GetResult();
+                }
+                lock (_sharedObjectLock)
+                {
+                    if (_infloopTask == null)
+                    {
+                        _infloopTask = Task.Run(_playbackThreadAction);
+                        _infloopTask.ObserveFault("PlayStart");
+                    }
+                }
+            }).ConfigureAwait(false);
+            ready.TrySetResult();
         }
+        catch (Exception failure)
+        {
+            // 旧曲の解放・準備は順に待ちます。途中で失敗しても残った先読みを終えてからFreeします。
+            try { await preload.InvalidateAsync().ConfigureAwait(false); }
+            catch (Exception preparationFailure) { failure = new AggregateException(failure, preparationFailure); }
+            try
+            {
+                await Task.Run(() => CleanupFailedStart(bMSAutoPlayer, failure, closeCurrentPlayer: true)).ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure) { failure = cleanupFailure; }
+            ready.TrySetException(failure);
+            ExceptionDispatchInfo.Capture(failure).Throw();
+            throw;
+        }
+        finally { startStopGate.Release(); }
         try
         {
-            await bMSAutoPlayer.Start();
+            await playbackTask.ConfigureAwait(false);
             lock (_sharedObjectLock)
             {
                 if (ReferenceEquals(_player, bMSAutoPlayer))
                 {
-                    // CurrentTimeはcleanup開始前にDurationへ揃うため、実Taskの成功後にだけ終了通知を解放します。
                     _playbackTaskCompletedSuccessfully = true;
                 }
             }
         }
-        catch (Exception startupFailure)
+        catch (Exception failure)
         {
-            CleanupFailedStart(bMSAutoPlayer, startupFailure);
+            bool ownsFailure;
+            await startStopGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                lock (_sharedObjectLock) { ownsFailure = ReferenceEquals(_player, bMSAutoPlayer); }
+                if (ownsFailure)
+                {
+                    // 演奏が故障しても、同じsessionで先読み中の入力・decoder終端より先にFreeしません。
+                    try { await preload.InvalidateAsync().ConfigureAwait(false); }
+                    catch (Exception preparationFailure) { failure = new AggregateException(failure, preparationFailure); }
+                    try { await Task.Run(() => CleanupFailedStart(bMSAutoPlayer, failure)).ConfigureAwait(false); }
+                    catch (Exception cleanupFailure) { failure = cleanupFailure; }
+                }
+                // 外されたplayerのDispose故障は、Close・背景監視・切替の所有者だけが報告します。
+            }
+            finally { startStopGate.Release(); }
+            if (ownsFailure && onPlaybackFailure != null && !IsOnlyCancellation(failure))
+            {
+                try { onPlaybackFailure(failure); }
+                catch (Exception notificationFailure)
+                {
+                    Task.FromException(notificationFailure).ObserveFault("InternalPlayer.PlaybackFailureNotification");
+                }
+            }
+            ExceptionDispatchInfo.Capture(failure).Throw();
             throw;
         }
     }
+
+    private static bool IsOnlyCancellation(Exception failure) => failure is OperationCanceledException
+        || (failure is AggregateException aggregate && aggregate.InnerExceptions.Count > 0
+            && aggregate.InnerExceptions.All(IsOnlyCancellation));
 
     private void CleanupFailedStart(
         BMSAutoPlayer failedPlayer,
@@ -674,19 +844,15 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         bool closeCurrentPlayer = false)
     {
         Exception cleanupFailure = null;
+        bool disposeUnpublished;
         lock (_sharedObjectLock)
         {
-            if (failedPlayer != null && !ReferenceEquals(_player, failedPlayer))
-            {
-                try
-                {
-                    failedPlayer.Dispose();
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailure = exception;
-                }
-            }
+            disposeUnpublished = closeCurrentPlayer && failedPlayer != null && !ReferenceEquals(_player, failedPlayer);
+        }
+        if (disposeUnpublished)
+        {
+            try { failedPlayer.Dispose(); }
+            catch (Exception exception) { cleanupFailure = exception; }
         }
 
         try

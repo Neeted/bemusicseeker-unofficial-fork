@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Asio;
@@ -69,6 +70,7 @@ internal sealed class BassAudioSession
     private int callbackOutputPaused;
     private int realtimeReservedCallbackFrames = -1;
     private int maximumCallbackFrames;
+    private readonly TaskCompletionSource firstCallbackObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>要求backend、endpoint、SRC品質を捕捉した初期化中sessionを作成します。</summary>
     internal BassAudioSession(
@@ -166,6 +168,16 @@ internal sealed class BassAudioSession
     /// <summary>再生callbackが一回に要求した最大frame数を取得します。</summary>
     internal int MaximumCallbackFrames => Volatile.Read(ref maximumCallbackFrames);
 
+    /// <summary>物理出力の初回実pullまたは故障を待ち、管理側で故障を取り出します。NullDeviceはcallbackを待ちません。</summary>
+    internal async Task WaitForOutputReadyAsync()
+    {
+        if (ActualBackend != BassAudioPlayer.DeviceDriver.NULL_DEVICE)
+        {
+            await firstCallbackObserved.Task.ConfigureAwait(false);
+        }
+        ThrowIfCallbackOutputFailed();
+    }
+
     /// <summary>callback出力がnative pullとの合流境界でpause中か取得します。</summary>
     internal bool IsCallbackOutputPaused => Volatile.Read(ref callbackOutputPaused) != 0;
 
@@ -190,6 +202,7 @@ internal sealed class BassAudioSession
             }
             observedMaximum = prior;
         }
+        firstCallbackObserved.TrySetResult();
     }
 
     /// <summary>予約が先読みへ含めたcallback block上限を公開します。</summary>
@@ -313,6 +326,7 @@ internal sealed class BassAudioSession
 
         callbackOutputFailure = failure;
         Volatile.Write(ref callbackOutputFailureState, 2);
+        firstCallbackObserved.TrySetResult();
         return true;
     }
 

@@ -39,7 +39,7 @@ public sealed class RegularChartNavigationTests
             () => library,
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
-            new NoOpPendingPackageMutationPlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             new TestUiDialogService(),
             () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: false,

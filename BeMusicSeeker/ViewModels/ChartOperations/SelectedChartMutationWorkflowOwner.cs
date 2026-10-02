@@ -53,15 +53,6 @@ internal sealed class SelectedChartMutationAppliedEventArgs : SelectedChartMutat
     internal bool EncodingChanged { get; }
 }
 
-internal interface ISelectedChartMutationPlaybackPort
-{
-    void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts);
-
-    void StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts);
-
-    void StopPlaybackForChartDirectories(IReadOnlyList<string> directories);
-}
-
 internal interface IPendingDeleteConfirmationDialogPort
 {
     Task<UiInteractionResult<bool>> ShowAsync();
@@ -262,7 +253,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
-    private readonly ISelectedChartMutationPlaybackPort playback;
+    private readonly IChartMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly IPendingDeleteConfirmationDialogPort pendingDeleteDialog;
     private readonly ISelectedChartMutationStore store;
@@ -271,7 +262,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
-        ISelectedChartMutationPlaybackPort playback,
+        IChartMutationPlaybackPort playback,
         IUiDialogService dialogs,
         IPendingDeleteConfirmationDialogPort pendingDeleteDialog,
         ISelectedChartMutationStore store = null)
@@ -376,38 +367,24 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 resolution.Route == ChartDeleteRoute.Pending
                 ? SelectedChartMutationRefreshScope.Pending
                 : SelectedChartMutationRefreshScope.Library,
-            () =>
-            {
-                if (resolution.Route == ChartDeleteRoute.Pending)
+                library =>
                 {
-                    IReadOnlyList<ChartFile> playbackCharts = deleteContainingPackageFoldersWhenNoBms
-                        ? pendingCharts
-                        : [.. pendingCharts.Where(ChartFileKindResolver.IsBmsChartFile)];
-                    playback.StopPlaybackForPendingCharts(playbackCharts);
-                    return;
-                }
-                playback.StopPlaybackForLibraryCharts(
-                    [.. libraryCharts.Where(chart => chart?.Kind == LibraryChartKind.Bms)]);
-                playback.StopPlaybackForChartDirectories(approvedFolderPaths);
-            },
-            library =>
-            {
-                if (resolution.Route == ChartDeleteRoute.Pending)
-                {
-                    store.RemovePendingCharts(
-                        library,
-                        pendingCharts,
-                        sendToRecycleBin: true,
-                        deleteContainingPackageFoldersWhenNoBms);
-                    return;
-                }
+                    if (resolution.Route == ChartDeleteRoute.Pending)
+                    {
+                        store.RemovePendingCharts(
+                            library,
+                            pendingCharts,
+                            sendToRecycleBin: true,
+                            deleteContainingPackageFoldersWhenNoBms);
+                        return;
+                    }
 
-                removalOutcome = store.RemoveLibraryCharts(
-                    library,
-                    libraryCharts,
-                    approvedFolderPaths);
-            },
-            acquiredOperationGate: operationGate)).ConfigureAwait(false);
+                    removalOutcome = store.RemoveLibraryCharts(
+                        library,
+                        libraryCharts,
+                        approvedFolderPaths);
+                },
+                acquiredOperationGate: operationGate)).ConfigureAwait(false);
             operationGateTransferred = true;
             if (removalOutcome != null)
             {
@@ -476,7 +453,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
                 IReadOnlyList<ChartFile> pCharts = [.. charts.Where(chart =>
                 (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
-                IReadOnlyList<ChartFile> allCharts = [.. bCharts.Concat(pCharts)];
                 var libraryRenameBatches = new List<LibraryFileExtensionRenameBatch>(2);
                 if (bCharts.Count > 0)
                 {
@@ -486,22 +462,11 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 {
                     libraryRenameBatches.Add(new LibraryFileExtensionRenameBatch(pCharts, ".pmx"));
                 }
-                Action stopPlayback;
-                if (request.IsPendingSelected)
-                {
-                    stopPlayback = () => playback.StopPlaybackForPendingCharts(allCharts);
-                }
-                else
-                {
-                    stopPlayback = () => playback.StopPlaybackForLibraryCharts(
-                        [.. allCharts.Select(LibraryChartRef.FromChartFile).Where(chart => chart != null)]);
-                }
                 Task<SelectedChartMutationResult> task;
                 if (!request.IsPendingSelected)
                 {
                     task = Task.Run(() => ExecuteMutation(
                         SelectedChartMutationRefreshScope.Library,
-                        stopPlayback,
                         mutation: null,
                         mutationWithReceipt: library => store.RenameLibraryChartsWithReceipt(
                             library,
@@ -512,7 +477,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 {
                     task = Task.Run(() => ExecuteMutation(
                         SelectedChartMutationRefreshScope.Pending,
-                        stopPlayback,
                         library =>
                         {
                             if (bCharts.Count > 0)
@@ -591,7 +555,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
                 Task<SelectedChartMutationResult> task = Task.Run(() => ExecuteMutation(
                     SelectedChartMutationRefreshScope.Library,
-                    () => playback.StopPlaybackForLibraryCharts(moveRequest.Charts),
                     mutation: null,
                     mutationWithReceipt: library => store.MoveLibraryChartsWithReceipt(library, moveRequest),
                     publishMutationApplied: true,
@@ -658,9 +621,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
         return result;
     }
 
-    private SelectedChartMutationResult ExecuteMutation(
+    private async Task<SelectedChartMutationResult> ExecuteMutation(
         SelectedChartMutationRefreshScope refreshScope,
-        Action stopPlayback,
         Action<BMSLibrary> mutation,
         Func<BMSLibrary, LibraryMutationSessionReceipt> mutationWithReceipt = null,
         bool publishMutationApplied = false,
@@ -694,9 +656,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
-            dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            stopPlayback?.Invoke();
+            await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
+            dialogScope = library.BeginOperationDialogScope();
             suppressionStarted = true;
             PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
             if (mutationWithReceipt == null)
@@ -848,15 +810,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
             ?? throw new InvalidOperationException("Selected chart mutation library is not available.");
     }
 
-    private bool TryEnterOperation(bool pending, out IDisposable operationGate)
-    {
-        BMSLibrary library = libraryProvider();
-        if (pending && library?.IsPendingOperationAdmissionReady == true)
-        {
-            return library.TryEnterPendingOperation(out operationGate);
-        }
-        return chartFileOperations.TryEnter(out operationGate);
-    }
+    private bool TryEnterOperation(bool pending, out IDisposable operationGate) => pending
+        ? chartFileOperations.TryEnterPendingOperation(libraryProvider(), out operationGate)
+        : chartFileOperations.TryEnter(out operationGate);
 
     private static void CaptureCleanupFailure(Action action, ICollection<ExceptionDispatchInfo> failures)
     {

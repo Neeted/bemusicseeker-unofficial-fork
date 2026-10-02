@@ -66,14 +66,6 @@ internal sealed class DuplicateFolderKeyboardAction
     internal string DestinationPath { get; }
 }
 
-internal interface IDuplicateMaintenancePlaybackPort
-{
-
-    void StopPlaybackForMerge();
-
-    void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts);
-}
-
 internal interface IDuplicateMaintenanceStore
 {
     /// <summary>フォルダ統合の変更セッションを実行し、終端へ確定結果を返します。</summary>
@@ -205,7 +197,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
-    private readonly IDuplicateMaintenancePlaybackPort playback;
+    private readonly IChartMutationPlaybackPort playback;
     private readonly IUiDialogService dialogs;
     private readonly Func<bool> showConfirmationProvider;
 
@@ -221,7 +213,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
-        IDuplicateMaintenancePlaybackPort playback,
+        IChartMutationPlaybackPort playback,
         IUiDialogService dialogs,
         Func<bool> showConfirmationProvider,
         Func<string, bool> duplicateFolderDirectoryExists,
@@ -494,7 +486,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 request.SelectionHeader,
                 mutation: null,
-                stopPlayback: playback.StopPlaybackForMerge,
                 refreshPriorityReason: "merge_folder",
                 mutationWithReceipt: library => store.MergeFolderWithReceipt(
                     library,
@@ -548,7 +539,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 plan.SelectionHeader,
                 library => removalOutcome = store.RemoveCharts(library, plan.ChartsToRemove),
-                () => playback.StopPlaybackForCharts(plan.ChartsToRemove),
                 refreshPriorityReason: null,
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate));
@@ -605,10 +595,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
     }
 
-    private DuplicateMaintenanceMutationResult ExecuteMutation(
+    private async Task<DuplicateMaintenanceMutationResult> ExecuteMutation(
         string selectionHeader,
         Action<BMSLibrary> mutation,
-        Action stopPlayback,
         string refreshPriorityReason,
         int removedChartCount = 0,
         Func<BMSLibrary, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
@@ -636,9 +625,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                     selectionHeader,
                     new InvalidOperationException("Duplicate maintenance library is not available."));
             }
-            dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            stopPlayback();
+            await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
+            dialogScope = library.BeginOperationDialogScope();
             PublishRefreshSuppressionChanged(isSuppressed: true);
             suppressionStarted = true;
             if (!string.IsNullOrWhiteSpace(refreshPriorityReason))

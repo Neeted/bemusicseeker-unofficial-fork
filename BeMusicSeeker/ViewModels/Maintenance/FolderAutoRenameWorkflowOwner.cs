@@ -68,13 +68,6 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
     }
 }
 
-internal interface IFolderAutoRenamePlaybackPort
-{
-    void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts);
-
-    void StopPlaybackForFolderMutation();
-}
-
 internal sealed class FolderAutoRenameRefreshSuppressionChangedEventArgs : EventArgs
 {
     internal FolderAutoRenameRefreshSuppressionChangedEventArgs(bool isSuppressed)
@@ -242,9 +235,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private readonly ChartMutationActivityOwner chartMutationActivity;
 
-    private readonly IFolderAutoRenamePlaybackPort playback;
+    private readonly IChartMutationPlaybackPort playback;
 
-    private readonly Func<Action, Task> schedule;
+    private readonly Func<Func<Task>, Task> schedule;
 
     private readonly Action<Action> dispatchToUi;
 
@@ -272,8 +265,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IFolderAutoRenameMutationPort mutationPort,
-        IFolderAutoRenamePlaybackPort playback,
-        Func<Action, Task> schedule,
+        IChartMutationPlaybackPort playback,
+        Func<Func<Task>, Task> schedule,
         Action<Action> dispatchToUi,
         IUiDialogService dialogs,
         Action<string> logInfo = null,
@@ -510,7 +503,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    private void Execute(RunContext run)
+    private async Task Execute(RunContext run)
     {
         FolderAutoRenameExecutionResult result = null;
         try
@@ -526,9 +519,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 try
                 {
                     hasTargets = false;
-                    if (!ExecuteMutation(
+                    if (!await ExecuteMutation(
                         run,
-                        stopPlayback: null,
+                        stopPlayback: false,
                         mutation: () => hasTargets = mutationPort.HasTargets(run.Library, run.ParentDirectory),
                         refreshSuppression: false,
                         releaseAcquiredOperationGate: false))
@@ -553,9 +546,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
             LogInfoSafely("folder_auto_rename start scope=" + (run.AllFolders ? "all" : "selected"));
             if (run.AllFolders)
             {
-                if (!ExecuteMutation(
+                if (!await ExecuteMutation(
                     run,
-                    playback.StopPlaybackForFolderMutation,
+                    stopPlayback: true,
                     () =>
                     {
                         result = FolderAutoRenameExecutionResult.From(
@@ -573,9 +566,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
             }
             else
             {
-                if (!ExecuteMutation(
+                if (!await ExecuteMutation(
                     run,
-                    () => playback.StopPlaybackForCharts(run.SelectedRequest.Charts),
+                    stopPlayback: true,
                     () =>
                     {
                         result = mutationPort.RenameSelectedWithProgress(
@@ -613,9 +606,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    private bool ExecuteMutation(
+    private async Task<bool> ExecuteMutation(
         RunContext run,
-        Action stopPlayback,
+        bool stopPlayback,
         Action mutation,
         bool refreshSuppression,
         bool releaseAcquiredOperationGate = true)
@@ -634,7 +627,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 throw new InvalidOperationException("A chart-file operation is already active.");
             }
-            dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
             if (!IsCurrentGeneration(run))
             {
@@ -642,7 +634,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
             }
             else
             {
-                stopPlayback?.Invoke();
+                if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
+                dialogScope = library.BeginOperationDialogScope();
                 suppressionStarted = refreshSuppression;
                 if (suppressionStarted)
                 {

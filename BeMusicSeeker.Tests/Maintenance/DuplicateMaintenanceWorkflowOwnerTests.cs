@@ -46,7 +46,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new[]
             {
                 "activity-start",
-                "stop-merge",
+                "playback-stop",
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge",
@@ -105,7 +105,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new[]
             {
                 "activity-start",
-                "stop-merge",
+                "playback-stop",
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge-with-receipt",
@@ -349,7 +349,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new[]
             {
                 "activity-start",
-                "stop-merge",
+                "playback-stop",
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge-with-receipt",
@@ -473,7 +473,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         };
     }
 
-    private sealed class RecordingPresentation : IDuplicateMaintenancePlaybackPort
+    private sealed class RecordingPresentation : IChartMutationPlaybackPort
     {
         private readonly List<string> events;
 
@@ -516,9 +516,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             }
         }
 
-        public void StopPlaybackForMerge() => events.Add("stop-merge");
-
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts) => events.Add("stop-charts");
+        public Task StopPlaybackForMutationAsync()
+        {
+            events.Add("playback-stop");
+            return Task.CompletedTask;
+        }
     }
 
     private class RecordingStore : IDuplicateMaintenanceStore

@@ -23,6 +23,29 @@ public partial class BMSFile
     {
         public string FileName { get; private set; }
 
+        private readonly bool parserInputFailure;
+
+        /// <summary>
+        /// 不正な譜面データ、入力I/O、または譜面時刻の算術処理に由来する失敗かを示します。
+        /// 元例外と従来の受理条件は変えず、環境・資源・原因不明の失敗を入力不良として破棄させません。
+        /// </summary>
+        internal bool IsInputFailure => parserInputFailure || InnerException switch
+        {
+            InvalidBmsFileException nested => nested.IsInputFailure,
+            InvalidDataException or IOException or UnauthorizedAccessException or ArithmeticException => true,
+            _ => false
+        };
+
+        /// <summary>既存の乱数上限計算で拒否された譜面入力を、元の例外を保持して分類します。</summary>
+        internal static InvalidBmsFileException FromInvalidRandomRange(ArgumentOutOfRangeException cause) =>
+            new(cause);
+
+        private InvalidBmsFileException(ArgumentOutOfRangeException cause)
+            : base(cause.Message, cause)
+        {
+            parserInputFailure = true;
+        }
+
         public InvalidBmsFileException()
         {
         }
@@ -1682,7 +1705,16 @@ public partial class BMSFile
                                     }
                                     else
                                     {
-                                        num = ((pattern == null || pattern.Count == 0) ? new int?(genRan.Next(1, num7 + 1)) : new int?(pattern.Dequeue()));
+                                        if (pattern == null || pattern.Count == 0)
+                                        {
+                                            try { num = genRan.Next(1, num7 + 1); }
+                                            catch (ArgumentOutOfRangeException cause) when (num7 == int.MaxValue)
+                                            {
+                                                // 従来の上限overflowによる拒否だけを入力不良にします。乱数実装の任意故障は分類しません。
+                                                throw InvalidBmsFileException.FromInvalidRandomRange(cause);
+                                            }
+                                        }
+                                        else { num = pattern.Dequeue(); }
                                         RecordRandomChoice(new RandomNumber
                                         {
                                             Value = num.Value,

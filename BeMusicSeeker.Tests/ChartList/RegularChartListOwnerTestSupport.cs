@@ -53,7 +53,7 @@ internal static class RegularChartListOwnerTestSupport
             pendingPackageWorkflow ?? CreatePendingPackageWorkflowOwner(),
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
             chartMutationActivity ?? new ChartMutationActivityOwner(),
-            new NoOpFolderAutoRenamePlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             normalLibraryRefreshUiScheduler ?? new TestUiScheduler(() => null!),
             mutationDialogs);
     }
@@ -97,7 +97,7 @@ internal static class RegularChartListOwnerTestSupport
               () => null!,
               new ChartFileOperationSynchronizer(),
               new ChartMutationActivityOwner(),
-              new NoOpPendingPackageMutationPlaybackPort(),
+              new NoOpChartMutationPlaybackPort(),
               new TestUiDialogService(),
               () => new InstallDestinationWorkflowSettingsSnapshot(
                   showManualInstallConfirmation: false,
@@ -195,17 +195,6 @@ internal static class RegularChartListOwnerTestSupport
             {
                 Directory.Delete(tempRootPath, recursive: true);
             }
-        }
-    }
-
-    internal sealed class NoOpFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
-    {
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-        {
-        }
-
-        public void StopPlaybackForFolderMutation()
-        {
         }
     }
 

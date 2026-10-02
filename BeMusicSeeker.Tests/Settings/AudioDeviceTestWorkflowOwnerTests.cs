@@ -806,9 +806,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             this.stopPlayback = stopPlayback;
         }
 
-        public void StopPlayback()
+        public Task StopPlayback()
         {
             stopPlayback();
+            return Task.CompletedTask;
         }
     }
 

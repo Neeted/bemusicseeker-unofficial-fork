@@ -42,8 +42,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
@@ -127,8 +126,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 dialogs: new AcceptedFolderDialogService(),
@@ -202,14 +200,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 mutationPort,
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     Task scheduled = Task.Factory.StartNew(
                         action,
                         CancellationToken.None,
                         TaskCreationOptions.LongRunning,
-                        TaskScheduler.Default);
+                        TaskScheduler.Default).Unwrap();
                     mutationTask = scheduled;
                     return scheduled;
                 },
@@ -413,7 +411,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: dialogs);
             owner.AttachLibrary(library);
@@ -457,8 +455,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 action =>
                 {
                     schedulerCalls++;
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 dialogs: dialogs);
@@ -516,7 +513,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 gate,
                 activity,
                 mutationPort,
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action => Task.Run(action),
                 action => action(),
                 new AcceptedFolderDialogService());
@@ -703,8 +700,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action =>
                 {
@@ -767,7 +763,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
@@ -826,7 +822,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
@@ -882,12 +878,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     },
                     (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                     (current, parentDirectory) => false),
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action => Task.Factory.StartNew(
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
@@ -950,7 +946,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action =>
                 {
                     lock (notifications)
@@ -1009,7 +1005,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
@@ -1045,8 +1041,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 reportWorkflowFailure: exception => observed = exception,
@@ -1110,7 +1105,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected,
         Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll,
         Func<BMSLibrary, string, bool> hasAllTargets,
-        Func<Action, Task> schedule,
+        Func<Func<Task>, Task> schedule,
         Action<Action> dispatchToUi,
         IUiDialogService dialogs,
         Action<string>? logInfo = null,
@@ -1121,7 +1116,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new DelegateFolderAutoRenameMutationPort(executeSelected, executeAll, hasAllTargets),
-            new NoopFolderAutoRenamePlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             schedule,
             dispatchToUi,
             dialogs,
@@ -1320,17 +1315,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             RenameAllWithReceiptWithProgressCallCount++;
             return result;
-        }
-    }
-
-    private sealed class NoopFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
-    {
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-        {
-        }
-
-        public void StopPlaybackForFolderMutation()
-        {
         }
     }
 

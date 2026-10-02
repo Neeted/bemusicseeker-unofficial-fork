@@ -49,8 +49,19 @@ public static class AuditRunner
             }
             void SaveRun(string status, string? error = null) => File.WriteAllText(Path.Combine(options.Out, "run.json"), Wire.Encode(new
             {
-                schema = Wire.Schema, status, beganUtc = began, endedUtc = status == "running" ? (DateTime?)null : DateTime.UtcNow,
-                options, totalCases, submitted, completed, unsubmitted = totalCases - submitted, planned, started, counts, error
+                schema = Wire.Schema,
+                status,
+                beganUtc = began,
+                endedUtc = status == "running" ? (DateTime?)null : DateTime.UtcNow,
+                options,
+                totalCases,
+                submitted,
+                completed,
+                unsubmitted = totalCases - submitted,
+                planned,
+                started,
+                counts,
+                error
             }), new UTF8Encoding(false));
             Console.Error.WriteLine($"処理開始: 0 / {planned} 譜面");
             SaveRun("running");

@@ -2463,9 +2463,10 @@ public sealed class SettingsDialogBehaviorTests
             runtimeCalls.ThrowIfUnexpected(nameof(NotifySettingsChanged));
         }
 
-        public void StopPlayback()
+        public Task StopPlayback()
         {
             runtimeCalls.ThrowIfUnexpected(nameof(StopPlayback));
+            return Task.CompletedTask;
         }
     }
 

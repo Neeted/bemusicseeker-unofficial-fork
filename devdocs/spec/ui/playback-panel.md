@@ -38,11 +38,32 @@ DataContextが読込み前・読込み中のどちらで設定されても同じ
 
 高さとぼかしは約1秒、大きい題名は0.7秒です。小型バナーは0.8秒後から0.5秒で表示し、拡大型へ戻るときは0.2秒で消します。小型題名は小型化の0.8秒後から表示します。完了・置換・非表示時にアニメーションを除去し、プロパティの基本値を最終状態として残します。
 
+### 曲の準備・開始と次候補
+
+内蔵playerの開始成功は[次曲の先行準備](../runtime/audio.md#次曲一件の先行準備)のReadyで判定し、成功時にLOADINGからPLAYへ移します。演奏終了やUI描画を待たず、開始した曲の手動送り先一件を準備します。通常開始も先読み採用も同じ出力開始確認を通ります。Readyの開始失敗をCompletionから再通知せず、短曲の終了callbackとCompletionも一回だけ扱います。自然終了を受け付けた時点の世代・player・譜面を保持し、選曲入力の待機後に再確認します。先行する手動送りで現在曲が変わった場合、古い自然終了は次曲送りも変更中の停止も行いません。手動送りのFIFOは維持します。
+
+外部playerには先読み能力を要求しません。旧playerの操作終了後、`PlayStart`の同期呼出しを終えた時点を選曲側の開始境界とします。返却された未完了Taskは終了・失敗の観測へつなぎますが、選曲入力や一時コピーをその終了まで保持しません。内蔵playerの一時コピーはReady終端まで保持します。コピーの除去と元pathの復元は開始失敗時にも行います。
+
+先読みの基準は現在の再生対象であり、Pause/Resume、Seek、ハイライト変更では候補を変更しません。一覧差替え・並べ替え・再生モード変更への先読み再評価も行いません。次の実対象は通常選択で決め、保持した準備と一致する場合だけ使います。不一致なら通常ロードの待ちを許し、古い先読み候補へは送りません。単曲リピートでは手動送り先を優先し、第二候補は持ちません。一時配置が必要な候補は先読みせず、さらに先へ飛ばしません。
+
+実選曲と候補計算は同じ前方向移動・再生可能譜面の探索を使います。行の取得は一覧側の寿命内で済ませ、workerへ渡すのは入力一件だけです。曲開始は共通の非同期処理でReadyと候補登録まで直列化し、演奏全体は待機区間に含めません。モード・行変更の通知から先読みTaskを差し替える処理は持ちません。
+
+譜面・音源の物理変更では現在曲と先読みを全て停止します。既存の共通変更受付中は新しい再生を予約せず断り、自然終了の次曲送りも停止へ変えます。変更後の自動再開・先読み再登録はありません。停止・変更・交換・終了の資源終端は[音声仕様](../runtime/audio.md#次曲一件の先行準備)に従います。
+
+先読みfatalは、準備Taskを引き取った開始・停止、または未消費のTaskを監視する背景処理が報告します。背景処理は停止・cleanupを終えて通知し、パネルは捕捉した曲がまだ現在曲の場合だけ表示状態を解除します。新しい明示再生と重なった遅い故障も原因を隠さず通知しますが、新曲の状態を消しません。通常の入力不良は実採用時の既存の失敗処理へ渡します。自然終了からの停止が先読みTaskを引き取った場合も、その故障を一回通知し、停止表示を維持して次曲へは進みません。実開始へ引き渡した準備Taskのfatalも、停止によって開始時の表示世代が失効していても開始側が通知します。表示解除は現在の開始に限り、旧開始の故障で新しい曲の状態を消しません。通常の取消は故障通知にしません。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 要求状態と実効状態、初期フレーム、差替え・再読込み、遷移 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) |
+| Ready成功時のPLAY・一回の次候補、一時コピー寿命、停止の終端 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackChartQueue`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackChartQueue.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`InternalReady_StartsNextPreparationBeforeCompletionOrUiPublication`、`TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion`、`FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy`で開始・入力・停止の境界を確認する。[`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)の`PreloadFatal_CloseJoinsPreparationAndNotifiesOnceWithIndependentCleanupFailure`で実内蔵playerの背景故障通知を確認する。 |
+| 停止で表示が失効した後の採用済み準備故障の通知 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`AdoptedPreloadFailure_AfterStopNotifiesOnceWithoutRestarting`でB開始が準備中にStopを受けた後の元原因の一回通知、次へ・停止の終端、自動再開なしと停止表示を確認する。 |
+| 手動送り待ちの後に残った旧曲の自然終了 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`NaturalExit_QueuedBehindManualNextDoesNotAdvanceTheReplacementSong`でA候補解決中に手動・自然終了・手動を受け付け、A・B・Cだけを開始することを確認する。 |
+| 自然終了の停止へ渡った先読み故障の一回通知 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`NaturalSinglePlayStop_NotifiesPreloadCleanupFailureOnceWithoutStartingNextSong`でA開始後のB準備、自然終了callbackとCompletionからの単曲停止、元原因の一回通知、B開始なしと停止表示を確認する。 |
+| 外部playerの停止中に受け付けた開始、一時コピー寿命、開始呼出しと返却Taskの失敗 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`LegacyStart_WaitsForPreviousCloseAndRetainsInputUntilInvocation`で通常・一時配置の双方について旧playerの終了前の開始禁止、呼出し時の入力保持、未完了Taskを待たない選曲完了、開始呼出し失敗・開始後の失敗の一回通知を確認する。 |
+| 一時改名時の配置先維持、元ファイルの復元、一時コピーの除去 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs)の`PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath`で共通Dispatcherを使い、開始Taskの完了後に再生先pathとファイルの復元・除去を確認する。 |
+| Pause・シーク・一覧・モード変更では準備を差し替えず、実際の送り先を優先すること | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`SongStart_PreparesOnceAndUsesLiveTargetAfterListAndModeChanges`でAの次にBを準備した後、現在の一覧からCへ進み、Cの開始で次候補を準備することを確認する。 |
 | 関連する画面状態と更新 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePresentationStateTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs)、[`PlaylistWorkspaceDetailRefreshTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs) |
 | ルート画面への再生管理主体の接続と表示の能力 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowPlaybackWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaybackWpfTests.cs) |
 

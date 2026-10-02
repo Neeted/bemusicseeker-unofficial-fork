@@ -180,7 +180,8 @@ internal sealed class TestSettingsDialogPlaybackRuntimePort : ISettingsDialogPla
         sequence?.Add("notify");
     }
 
-    public void StopPlayback()
+    public Task StopPlayback()
     {
+        return Task.CompletedTask;
     }
 }

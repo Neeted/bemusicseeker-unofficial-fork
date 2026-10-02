@@ -20,17 +20,28 @@ public sealed class BMSPlayerControlTests
         using var directory = new TemporaryDirectory();
         Exception playbackFailure = new InvalidOperationException("playback failed");
         Exception cleanupFailure = new InvalidOperationException("cleanup failed");
-        using var player = new PlaybackProbe(
+        var player = new PlaybackProbe(
             new BMSFile(WriteChart(directory)),
             playbackFailure: playbackFailure,
             cleanupFailure: cleanupFailure);
 
-        AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(() => player.Start());
+        try
+        {
+            AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(() => player.Start());
 
-        Assert.AreSame(playbackFailure, exception.InnerExceptions[0]);
-        Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
-        Assert.AreEqual(1, player.CleanupCount);
-        Assert.AreEqual(PlayState.Stopped, player.PlayState);
+            Assert.AreSame(playbackFailure, exception.InnerExceptions[0]);
+            Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
+            Assert.AreEqual(1, player.CleanupCount);
+            Assert.AreEqual(PlayState.Stopped, player.PlayState);
+        }
+        finally
+        {
+            try { player.Dispose(); }
+            catch (AggregateException failure) when (failure.InnerExceptions.Count == 2
+                && ReferenceEquals(playbackFailure, failure.InnerExceptions[0])
+                && ReferenceEquals(cleanupFailure, failure.InnerExceptions[1]))
+            { }
+        }
     }
 
     [TestMethod]
@@ -38,19 +49,27 @@ public sealed class BMSPlayerControlTests
     {
         using var directory = new TemporaryDirectory();
         Exception cleanupFailure = new InvalidOperationException("cleanup failed");
-        using var player = new PlaybackProbe(
+        var player = new PlaybackProbe(
             new BMSFile(WriteChart(directory)),
             playbackDuration: TimeSpan.Zero,
             initialClockTime: TimeSpan.Zero,
             cleanupFailure: cleanupFailure);
-        player.PlaybackRate = float.Epsilon;
+        try
+        {
+            player.PlaybackRate = float.Epsilon;
 
-        InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => player.Start());
+            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => player.Start());
 
-        Assert.AreSame(cleanupFailure, actual);
-        Assert.AreEqual(1, player.CleanupCount);
-        Assert.AreEqual(PlayState.Stopped, player.PlayState);
+            Assert.AreSame(cleanupFailure, actual);
+            Assert.AreEqual(1, player.CleanupCount);
+            Assert.AreEqual(PlayState.Stopped, player.PlayState);
+        }
+        finally
+        {
+            try { player.Dispose(); }
+            catch (InvalidOperationException failure) when (ReferenceEquals(cleanupFailure, failure)) { }
+        }
     }
 
     [TestMethod]

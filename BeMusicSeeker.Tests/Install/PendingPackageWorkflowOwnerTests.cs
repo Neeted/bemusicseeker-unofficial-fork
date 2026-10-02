@@ -926,7 +926,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 store,
                 dialogs,
                 presentation: presentation,
-                playback: new NoOpPendingPackageMutationPlaybackPort());
+                playback: new NoOpChartMutationPlaybackPort());
 
             InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => owner.SearchPackagesAsync(
@@ -991,7 +991,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 store,
                 dialogs,
                 presentation: presentation,
-                playback: new NoOpPendingPackageMutationPlaybackPort());
+                playback: new NoOpChartMutationPlaybackPort());
 
             AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
                 () => owner.SearchPackagesAsync(
@@ -1063,7 +1063,6 @@ public sealed class PendingPackageWorkflowOwnerTests
             },
             events);
         Assert.AreEqual(PendingPackageRefreshScope.PackageMutation, presentation.LastRefreshScope);
-        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
         Assert.IsTrue(store.ApprovedNormalInstallOverridePackages.Contains(package));
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
     }
@@ -1117,7 +1116,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             events,
             store,
             dialogs,
-            playback: new NoOpPendingPackageMutationPlaybackPort(),
+            playback: new NoOpChartMutationPlaybackPort(),
             settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: true,
                 deletePendingPackageSourceAfterInstall: true));
@@ -1149,7 +1148,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             events,
             store,
             dialogs,
-            playback: new NoOpPendingPackageMutationPlaybackPort(),
+            playback: new NoOpChartMutationPlaybackPort(),
             settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
                 showManualInstallConfirmation: true,
                 deletePendingPackageSourceAfterInstall: true));
@@ -1219,7 +1218,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 events,
                 new BmsLibraryPendingPackageStore(),
                 dialogs,
-                playback: new NoOpPendingPackageMutationPlaybackPort(),
+                playback: new NoOpChartMutationPlaybackPort(),
                 settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
                     showManualInstallConfirmation: false,
                     deletePendingPackageSourceAfterInstall: false));
@@ -1289,7 +1288,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 [],
                 new BmsLibraryPendingPackageStore(),
                 dialogs,
-                playback: new NoOpPendingPackageMutationPlaybackPort());
+                playback: new NoOpChartMutationPlaybackPort());
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
 
             PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
@@ -1526,7 +1525,6 @@ public sealed class PendingPackageWorkflowOwnerTests
             },
             events);
         Assert.AreEqual(PendingPackageRefreshScope.PackageMutation, presentation.LastRefreshScope);
-        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
         CollectionAssert.AreEqual(
             new[] { chart.Path },
             store.ApprovedDuplicateRemovalChartPaths.ToArray());
@@ -1550,6 +1548,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             {
                 "store-get-installed-only",
                 "activity-start",
+                "playback-stop",
                 "suppression-start",
                 "store-delete-sources",
                 "suppression-end",
@@ -1627,7 +1626,6 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
     }
 
     [TestMethod]
@@ -1673,7 +1671,6 @@ public sealed class PendingPackageWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        Assert.AreEqual(chart.Path, playback.StoppedCharts.Single().Path);
         StringAssert.Contains(dialogs.MessageRequest!.MessageBoxText, "1");
     }
 
@@ -1865,7 +1862,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 events,
                 store,
                 dialogs,
-                playback: new NoOpPendingPackageMutationPlaybackPort(),
+                playback: new NoOpChartMutationPlaybackPort(),
                 chartFileOperations: gate);
             Assert.IsTrue(library.TryEnterPendingOperation(out IDisposable incumbent));
             try
@@ -2048,7 +2045,8 @@ public sealed class PendingPackageWorkflowOwnerTests
                 {
                     Interlocked.Increment(ref autoCalls);
                     return new PackageInstallCommandResult([], null);
-                }), action => { action(); return true; });
+                }),
+            new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
             automatic.AttachLibrary(library);
 
             pending = manual ? owner.ManualInstallPackagesAsync([package]) : owner.ForceInstallPackagesAsync([package]);
@@ -2140,7 +2138,8 @@ public sealed class PendingPackageWorkflowOwnerTests
                     // 完了通知は受付解放後なので、競合拒否は実変更が戻る前に観測する。
                     rejectionsDuringBatch.Add(Install());
                     return new PackageInstallCommandResult([new ChartPackage()], null);
-                }), action =>
+                }),
+            new NoOpChartMutationPlaybackPort(), action =>
                 {
                     if (Interlocked.Exchange(ref blockEnqueue, 0) == 1)
                     {
@@ -2209,7 +2208,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         Func<string, ExplorerOpenResult>? explorerOpener = null,
         Func<string, ExplorerOpenResult>? fileExplorerOpener = null,
         RecordingPresentation? presentation = null,
-        IPendingPackageMutationPlaybackPort? playback = null,
+        IChartMutationPlaybackPort? playback = null,
         ChartFileOperationSynchronizer? chartFileOperations = null,
         Func<InstallDestinationWorkflowSettingsSnapshot>? settingsProvider = null)
     {
@@ -2410,7 +2409,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         }
     }
 
-    private sealed class RecordingPlayback : IPendingPackageMutationPlaybackPort
+    private sealed class RecordingPlayback : IChartMutationPlaybackPort
     {
         private readonly List<string> events;
 
@@ -2419,12 +2418,11 @@ public sealed class PendingPackageWorkflowOwnerTests
             this.events = events;
         }
 
-        internal IReadOnlyList<ChartFile> StoppedCharts { get; private set; } = [];
 
-        public void StopIfPlayingCharts(IReadOnlyList<ChartFile> charts)
+        public Task StopPlaybackForMutationAsync()
         {
-            StoppedCharts = charts;
             events.Add("playback-stop");
+            return Task.CompletedTask;
         }
     }
 

@@ -842,7 +842,8 @@ internal interface IAudioDeviceTestRuntime
 
 internal interface IAudioDeviceTestPlaybackPort
 {
-    void StopPlayback();
+    /// <summary>ファイル変更・runtime解放前に、再生と先読みの必要な停止を終端まで待ちます。</summary>
+    Task StopPlayback();
 }
 
 /// <summary>音声backendの選択済み機器能力を一回照会する境界です。</summary>
@@ -940,9 +941,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
         Volatile.Write(ref isTestRunning, 1);
         try
         {
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
-                playbackPort.StopPlayback();
+                await playbackPort.StopPlayback().ConfigureAwait(false);
                 return runtime.Run(request);
             });
         }

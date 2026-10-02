@@ -26,6 +26,8 @@ BMSの有限十進文字列は係数と指数から厳密に生成します。�
 
 未参照の正∞STOP等を入力時に一括拒否しません。旧パースでも有限となるBPM下の正∞STOP参照は旧版と同様に失敗します。正∞小節長の時刻計算は正∞BPM下や旧正∞分類の有限BPM下でも旧版と同様に失敗します。有限tickにできない参照時の組合せは算術・範囲エラーとして表面化します。NaN・無限大の汎用算術を有限Fractionへ持ち込みません。除算後のlong範囲外やゼロ除算を別の値へ置き換えません。旧版で成功し新版で算術・範囲エラーになる実入力を見つけた場合は、受理互換性の問題として個別に調査します。
 
+`InvalidBmsFileException.IsInputFailure` は、解析器がラップした不正データ、入力I/O、アクセス拒否、譜面時刻の算術失敗を通常の入力不良として分類します。先読み側がparser内部の例外一覧を別に持つことはしません。OOM、DLL、音声資源のfatal、原因不明・未設定のラップは入力不良へ変換せず、音声資源のfatal内に算術例外があっても分類を変えません。`#RANDOM 2147483647`の既存の上限計算失敗も、乱数呼出し境界で元の例外を保持して入力不良に分類します。通常範囲で乱数実装が投げる任意の`ArgumentOutOfRangeException`はこの分類へ広げません。入力の従来の拒否条件と内部原因は維持し、[次曲の先行準備](../runtime/audio.md#次曲一件の先行準備)では実採用時まで通常入力失敗を保留します。
+
 ### 小節内時間と制御順
 
 直前の制御位置を `p0`、その制御後の分数tickを `q0`、BPMを `b` とします。
@@ -65,6 +67,7 @@ STOP増分 = 12,500,000 × STOP値 / b
 | 再生・書出しの時間接続、独立したframe期待値 | [BMSPlayer](../../../BeMusicSeeker/Ribbit/BMS/BMSPlayer.cs)、[BMSAutoPlayWriter](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs) | [BMSPlayerControlTests](../../../BeMusicSeeker.Tests/Playback/BMSPlayerControlTests.cs)、[BmsAudioFrameScheduleTests](../../../BeMusicSeeker.Tests/Playback/BmsAudioFrameScheduleTests.cs)、[BMSAutoPlayWriterTests](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) 、[BmsRealtimeAudioSchedulerTests](../../../BeMusicSeeker.Tests/Playback/BmsRealtimeAudioSchedulerTests.cs) の `ParsedTempoStopAndMeasureChangesMatchIndependentWriterAndRealtimeFrames` の既存期待値を維持。 |
 | 明示正∞STOP・小節長の失敗理由の表示言語 | [BMSFileTiming](../../../BeMusicSeeker/Ribbit/BMS/BMSFileTiming.cs)、[表示リソース](../../../BeMusicSeeker/Properties/Resources.resx)、[言語辞書](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) の全件検査でアクセサー・6言語のキーと非空値・日本語正本の一致を確認。上記の非有限参照テストで従来の失敗条件・例外種別を維持。 |
 | 実入力識別、指定乱数・途中履歴、任意診断 | [BmsParseOptions](../../../BeMusicSeeker/Ribbit/BMS/BmsParseOptions.cs)、`BMSFile.ParseForAudit` | 同時刻テストの `AuditReportsEachUsedAndSkippedRandomChoiceOnceInOrder` と `AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails` が本番監査APIの順・回数と途中失敗の回収を直接検査し、比較ツールの準備済み本文入口は対象Runnerのビルドと差分点検で確認。実譜面比較に基づく性能・受理互換性の評価は[採用判断](../../decisions/ribbit-exact-timing-adoption.md)を参照。 |
+| 乱数上限の既存拒否と通常入力失敗分類、任意の乱数故障の保持 | [BMSFile](../../../BeMusicSeeker/Ribbit/BMS/BMSFile.cs)、[NextSongPreloadOwner](../../../BeMusicSeeker/Models/Playback/NextSongPreloadOwner.cs) | [NextSongPreloadOwnerTests](../../../BeMusicSeeker.Tests/Playback/NextSongPreloadOwnerTests.cs)の`InputFailure_IsReturnedOnAdoptionWithoutRetry`と`DiscardedFailure_SuppressesOnlyOrdinaryInputErrors`は上限overflow入力を実parserで確認する。[RibbitBmsFileTimingTests](../../../BeMusicSeeker.Tests/Chart/RibbitBmsFileTimingTests.cs)の`AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails`は通常範囲の未分類故障・任意の引数例外を入力不良に変換しないことを確認する。 |
 
 ## 関連資料
 

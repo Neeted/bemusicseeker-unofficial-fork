@@ -12,13 +12,20 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DropInstallQueueProcessorTests
 {
+    private static Func<DroppedInstallBatchRequest, CancellationToken, Task> CompleteBatch(
+        Action<DroppedInstallBatchRequest, CancellationToken> action) => (request, token) =>
+        {
+            action(request, token);
+            return Task.CompletedTask;
+        };
+
     [TestMethod]
     public async Task WaitForIdleAsync_CompletesAfterTerminalStatusNotificationReturns()
     {
         using var terminalEntered = new ManualResetEventSlim(false);
         using var releaseTerminal = new ManualResetEventSlim(false);
         var processor = new DropInstallQueueProcessor(
-            (_, _) => { },
+            CompleteBatch((_, _) => { }),
             snapshot =>
             {
                 if (!snapshot.IsActive)
@@ -94,7 +101,7 @@ public sealed class DropInstallQueueProcessorTests
         DropInstallQueueProcessor? processor = null;
         int terminalEnqueueCount = 0;
         processor = new DropInstallQueueProcessor(
-            (request, _) =>
+            CompleteBatch((request, _) =>
             {
                 if (request.DisplayName == "first.zip")
                 {
@@ -105,7 +112,7 @@ public sealed class DropInstallQueueProcessorTests
                 {
                     secondProcessed.TrySetResult(true);
                 }
-            },
+            }),
             snapshot =>
             {
                 if (!snapshot.IsActive
@@ -165,7 +172,7 @@ public sealed class DropInstallQueueProcessorTests
         bool firstEnqueued = false;
         bool secondEnqueued = false;
         var processor = new DropInstallQueueProcessor(
-            delegate (DroppedInstallBatchRequest request, CancellationToken token)
+            CompleteBatch(delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 lock (syncRoot)
                 {
@@ -180,7 +187,7 @@ public sealed class DropInstallQueueProcessorTests
                 {
                     secondFinished.TrySetResult(true);
                 }
-            },
+            }),
             delegate (DropInstallQueueStatusSnapshot snapshot)
             {
                 lock (syncRoot)
@@ -261,7 +268,7 @@ public sealed class DropInstallQueueProcessorTests
         var tokenCancelled = new ManualResetEventSlim(initialState: false);
         var queueBecameInactive = new ManualResetEventSlim(initialState: false);
         var processor = new DropInstallQueueProcessor(
-            delegate (DroppedInstallBatchRequest request, CancellationToken token)
+            CompleteBatch(delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 lock (syncRoot)
                 {
@@ -279,7 +286,7 @@ public sealed class DropInstallQueueProcessorTests
                 }
                 tokenCancelled.Set();
                 token.ThrowIfCancellationRequested();
-            },
+            }),
             delegate (DropInstallQueueStatusSnapshot snapshot)
             {
                 lock (syncRoot)
@@ -320,7 +327,7 @@ public sealed class DropInstallQueueProcessorTests
         object syncRoot = new();
         var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var processor = new DropInstallQueueProcessor(
-            delegate (DroppedInstallBatchRequest request, CancellationToken token)
+            CompleteBatch(delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 if (request.DisplayName == "first.zip")
                 {
@@ -331,7 +338,7 @@ public sealed class DropInstallQueueProcessorTests
                     processed.Add(request.DisplayName);
                 }
                 secondFinished.TrySetResult(true);
-            },
+            }),
             delegate (DropInstallQueueStatusSnapshot snapshot)
             {
             },
@@ -366,7 +373,7 @@ public sealed class DropInstallQueueProcessorTests
         bool firstEnqueued = false;
         bool secondEnqueued = false;
         var processor = new DropInstallQueueProcessor(
-            (request, _) =>
+            CompleteBatch((request, _) =>
             {
                 Interlocked.Increment(ref processCalls);
                 if (request.DisplayName == "first.zip")
@@ -376,7 +383,7 @@ public sealed class DropInstallQueueProcessorTests
                     throw new InvalidOperationException("batch failed");
                 }
                 secondFinished.TrySetResult(true);
-            },
+            }),
             _ => { },
             _ =>
             {
@@ -427,12 +434,12 @@ public sealed class DropInstallQueueProcessorTests
         var queueBecameInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         DropInstallQueueProcessor processor = null!;
         processor = new DropInstallQueueProcessor(
-            delegate (DroppedInstallBatchRequest request, CancellationToken token)
+            CompleteBatch(delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 processor.ReportActiveBatchCurrentWork(1, 3, "a.zip");
                 releaseBatch.Wait();
                 processor.ReportActiveBatchProgress(1);
-            },
+            }),
             delegate (DropInstallQueueStatusSnapshot snapshot)
             {
                 lock (syncRoot)
@@ -516,7 +523,7 @@ public sealed class DropInstallQueueProcessorTests
         try
         {
             processor = new DropInstallQueueProcessor(
-                (request, _) =>
+                CompleteBatch((request, _) =>
                 {
                     if (request.DisplayName == "first.zip")
                     {
@@ -526,7 +533,7 @@ public sealed class DropInstallQueueProcessorTests
                     }
                     Assert.AreEqual("staged", File.ReadAllText(request.Paths.Single()));
                     secondRead.TrySetResult(true);
-                },
+                }),
                 _ => { },
                 exception => failure = exception);
 
@@ -585,12 +592,12 @@ public sealed class DropInstallQueueProcessorTests
         try
         {
             processor = new DropInstallQueueProcessor(
-                (_, token) =>
+                CompleteBatch((_, token) =>
                 {
                     activeStarted.Set();
                     WaitHandle.WaitAny([token.WaitHandle, releaseActive.WaitHandle]);
                     token.ThrowIfCancellationRequested();
-                },
+                }),
                 _ => { });
             processor.TryEnqueue(CreateOwnedRequest(activeRoot, original, "active.zip"));
             activeStarted.Wait();
@@ -627,7 +634,7 @@ public sealed class DropInstallQueueProcessorTests
         try
         {
             var processor = new DropInstallQueueProcessor(
-                (request, _) => Assert.IsTrue(request.TransferSourceOwnershipToInstaller()),
+                CompleteBatch((request, _) => Assert.IsTrue(request.TransferSourceOwnershipToInstaller())),
                 _ => { });
             processor.TryEnqueue(new DroppedInstallBatchRequest(
                 [Path.Combine(root, "chart.bms")],
@@ -675,7 +682,7 @@ public sealed class DropInstallQueueProcessorTests
         try
         {
             processor = new DropInstallQueueProcessor(
-                (request, token) =>
+                CompleteBatch((request, token) =>
                 {
                     if (request.DisplayName == "active.zip")
                     {
@@ -698,7 +705,7 @@ public sealed class DropInstallQueueProcessorTests
                         return;
                     }
                     Interlocked.Increment(ref unexpectedProcessCalls);
-                },
+                }),
                 snapshot =>
                 {
                     if (!snapshot.IsActive)
@@ -811,7 +818,7 @@ public sealed class DropInstallQueueProcessorTests
         try
         {
             var processor = new DropInstallQueueProcessor(
-                (request, token) =>
+                CompleteBatch((request, token) =>
                 {
                     if (request.DisplayName == "active.zip")
                     {
@@ -823,7 +830,7 @@ public sealed class DropInstallQueueProcessorTests
                     {
                         freshProcessed.TrySetResult(true);
                     }
-                },
+                }),
                 _ => { },
                 exception => backgroundFailure = exception);
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["active.zip"])));
