@@ -25,6 +25,7 @@
 | 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md) |
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
 | 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
+| リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
 | テストの追加・変更・削除 | [テスト作成](devdocs/spec/development/test-authoring.md)、[テスト検証](devdocs/spec/development/testing.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
 | ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
@@ -47,6 +48,8 @@
 利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残さず、`LocalizationResourceParityTests` の全件共通検査で対応を確認します。新規キーごとのテストや機能別のキー一覧は増やしません。表示への到達と検査の分担は[テスト作成](devdocs/spec/development/test-authoring.md#表示リソースの検査)に従います。開発診断・性能記録・内部識別子は対象外です。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
 
 ## 文書と検証
+
+利用者向け文書の作成・編集では、[利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針)を先に読み、その方針に従います。
 
 仕様は[共通書式](devdocs/spec/README.md#仕様書の書式)で日本語に統一し、機能・条件・期待結果から実装とテストへ辿れるようにします。現行ツリーには現行情報と未完了作業だけを残します。完了計画は必要な契約・設計判断・残課題を引き継いで削除し、完了記録や一時的な作業番号は残しません。詳細は[文書運用](devdocs/README.md#現行情報の維持)を参照します。
 
