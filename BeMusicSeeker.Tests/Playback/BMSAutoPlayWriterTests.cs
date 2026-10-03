@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using BeMusicSeeker.Tests.Helpers;
@@ -73,6 +74,246 @@ public sealed class BMSAutoPlayWriterTests
         CaptureCleanup(ref failure, () => BassAudioPlayer.Format = previousFormat);
         ownedSession = null;
         failure?.Throw();
+    }
+
+    [DataTestMethod]
+    [DataRow(48000, 48000, 100, 100, 120)]
+    [DataRow(48000, 44100, 100, 92, 120)]
+    [DataRow(44100, 48000, 92, 101, 120)]
+    [DataRow(32000, 48000, 4, 6, 16000)]
+    public void BmsonWriterContinuationInsertionKeepsContinuousPcmAndPhysicalEof(
+        int sourceRate, int outputRate, int sourceFrames, int expectedFrames, int bpm)
+    {
+        ReinitializeAudioRuntime(SampleFormat.SAMPLE_FLOAT_32BIT, (SampleRate)outputRate);
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(sourceRate, sourceFrames, frame => 0.05f + frame * 0.0001f));
+        string prefix = "{\"info\":{\"init_bpm\":" + bpm + "},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":";
+        AudioTestWaveFile baseline = WriteBmsonOutput(directory, "restart-only", prefix + "[{\"y\":0}]}]}");
+        Assert.AreEqual(expectedFrames, baseline.DataLength / (baseline.Channels * sizeof(float)));
+        foreach (bool firstContinues in new[] { false, true })
+        {
+            string json = prefix + "[{\"y\":0,\"c\":" + (firstContinues ? "true" : "false")
+                + "},{\"y\":1,\"c\":true},{\"y\":2,\"c\":true}]}]}";
+            PlaybackChart logical = BmsonPlaybackParserTests.Parse(json);
+            Assert.AreEqual(3, logical.AudioEvents.Count);
+            AudioTestWaveFile withContinuations = WriteBmsonOutput(directory, "continuations-" + firstContinues, json);
+            AssertSamePcm(baseline, withContinuations);
+        }
+        if (sourceRate == outputRate)
+        {
+            for (int frame = 0; frame < sourceFrames; frame++)
+            {
+                Assert.AreEqual((0.05f + frame * 0.0001f) * 0.16f, ReadFloatSample(baseline, frame, 0), 1e-6f);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void BmsonWriterSharedSliceIsOnceButSeparateChannelsOverlap()
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 4800, _ => 0.125f));
+        AudioTestWaveFile wave = WriteBmsonOutput(directory, "shared", "{\"info\":{\"init_bpm\":120},\"sound_channels\":["
+            + "{\"name\":\"audio.wav\",\"notes\":[{\"y\":0,\"x\":1},{\"y\":0,\"x\":2},{\"y\":0}]},"
+            + "{\"name\":\"audio.wav\",\"notes\":[{\"y\":0,\"x\":1}]}]}");
+        Assert.AreEqual(4800, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreEqual(0.04f, ReadFloatSample(wave, 10, 0), 1e-6f);
+    }
+
+    [TestMethod]
+    public void BmsonWriterContinuationRunsPreserveRestartAndSamePathChannelOverlap()
+    {
+        using var directory = new TemporaryDirectory();
+        float[] samples = new float[48000 * 2];
+        Array.Fill(samples, 0.125f);
+        File.WriteAllBytes(directory.File("audio.wav"), BmsRealtimeAudioSchedulerTests.BuildFloatWave(48000, samples));
+        const string prefix = "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":";
+        AudioTestWaveFile restarted = WriteBmsonOutput(directory, "restarted", prefix
+            + "[{\"y\":0},{\"y\":60,\"c\":true},{\"y\":120},{\"y\":180,\"c\":true}]}]}");
+        AudioTestWaveFile restartOnly = WriteBmsonOutput(directory, "restart-pair", prefix + "[{\"y\":0},{\"y\":120}]}]}");
+        AssertSamePcm(restartOnly, restarted);
+        Assert.AreEqual(60000, restarted.DataLength / (restarted.Channels * sizeof(float)));
+        Assert.AreEqual(0.02f, ReadFloatSample(restarted, 1000, 0), 1e-6f);
+        Assert.AreEqual(0.04f, ReadFloatSample(restarted, 24000, 0), 1e-6f);
+        Assert.AreEqual(0.02f, ReadFloatSample(restarted, 50000, 0), 1e-6f);
+
+        AudioTestWaveFile single = WriteBmsonOutput(directory, "one-channel", prefix + "[{\"y\":0},{\"y\":60,\"c\":true}]}]}");
+        AudioTestWaveFile separate = WriteBmsonOutput(directory, "two-channels", prefix
+            + "[{\"y\":0},{\"y\":60,\"c\":true}]},{\"name\":\"audio.wav\",\"notes\":[{\"y\":0},{\"y\":60,\"c\":true}]}]}");
+        Assert.AreEqual(single.DataLength, separate.DataLength);
+        for (int frame = 0; frame < 48000; frame++)
+        {
+            for (int channel = 0; channel < single.Channels; channel++)
+            {
+                Assert.AreEqual(2 * ReadFloatSample(single, frame, channel), ReadFloatSample(separate, frame, channel), 1e-6f);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void BmsonWriterRestartDoesNotCutAnEarlierContinuationEofTail()
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 144000, _ => 0.125f));
+        AudioTestWaveFile wave = WriteBmsonOutput(directory, "overlap", "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":["
+            + "{\"y\":0},{\"y\":240,\"c\":true},{\"y\":480},{\"y\":720,\"c\":true}]}]}");
+        Assert.AreEqual(192000, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreEqual(0.02f, ReadFloatSample(wave, 12000, 0), 1e-6f);
+        Assert.AreEqual(0.04f, ReadFloatSample(wave, 60000, 0), 1e-6f);
+        Assert.AreEqual(0.02f, ReadFloatSample(wave, 156000, 0), 1e-6f);
+        Assert.AreNotEqual(0f, ReadFloatSample(wave, 191999, 0));
+    }
+
+    [TestMethod]
+    public void BmsonWriterLongNoteDoesNotCutAudioAndExplicitOrphanUpSoundsAtItsOwnPulse()
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 48000, _ => 0.125f));
+        File.WriteAllBytes(directory.File("release.wav"), BuildFloatWave(48000, 480, _ => 0.25f));
+        File.WriteAllBytes(directory.File("ignored.wav"), BuildFloatWave(48000, 48000, _ => 0.75f));
+        AudioTestWaveFile wave = WriteBmsonOutput(directory, "release", "{\"info\":{\"init_bpm\":120,\"mode_hint\":\"custom\"},\"sound_channels\":["
+            + "{\"name\":\"audio.wav\",\"notes\":[{\"y\":0,\"x\":1,\"l\":240}]},"
+            + "{\"name\":\"release.wav\",\"notes\":[{\"y\":240,\"x\":1,\"up\":true}]},"
+            + "{\"name\":\"release.wav\",\"notes\":[{\"y\":360,\"x\":99,\"up\":true}]}],"
+            + "\"key_channels\":[{\"name\":\"ignored.wav\",\"notes\":[{\"y\":0}]}],\"mine_channels\":[{\"name\":\"ignored.wav\",\"notes\":[{\"y\":0}]}],\"scroll_events\":[{\"y\":0,\"rate\":3}]}");
+        Assert.AreEqual(48000, wave.DataLength / (wave.Channels * sizeof(float)));
+        Assert.AreEqual(0.02f, ReadFloatSample(wave, 100, 0), 1e-6f);
+        Assert.AreEqual(0.06f, ReadFloatSample(wave, 24010, 0), 1e-6f);
+        Assert.AreEqual(0.06f, ReadFloatSample(wave, 36010, 0), 1e-6f);
+        Assert.AreEqual(0.02f, ReadFloatSample(wave, 40000, 0), 1e-6f);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void WriterFallbackMatchesDirectHealthySourcePcmAndFrames(bool bmson)
+    {
+        using var directory = new TemporaryDirectory();
+        byte[] input = BuildFloatWave(48000, 17, frame => 0.05f + frame * 0.001f);
+        File.WriteAllBytes(directory.File("tone.wav"), [1, 2, 3]);
+        File.WriteAllBytes(directory.File("tone.ogg"), input);
+        File.WriteAllBytes(directory.File("direct.wav"), input);
+        AudioTestWaveFile Render(string name, string resource)
+        {
+            string path = directory.File(name + (bmson ? ".bmson" : ".bms"));
+            File.WriteAllText(path, bmson
+                ? "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"" + resource + "\",\"notes\":[{\"y\":0}]}]}"
+                : "#BPM 120\n#WAV01 " + resource + "\n#00011:01\n");
+            using var writer = new BMSAutoPlayWriter(PlaybackChart.Load(path));
+            writer.LoadResources();
+            Assert.AreEqual(0, writer.OmittedAudioSources.Count);
+            writer.Write(EncoderType.WAVE, 0.4f, directory.File(name + "-out"), BMSAutoPlayWriter.Normalization.NONE);
+            return AudioTestWaveFileReader.Read(File.ReadAllBytes(directory.File(name + "-out.wav")));
+        }
+        AssertSamePcm(Render("direct", "direct.wav"), Render("fallback", "tone.wav"));
+    }
+
+    private static AudioTestWaveFile WriteBmsonOutput(TemporaryDirectory directory, string name, string json)
+    {
+        string path = directory.File(name + ".bmson");
+        File.WriteAllText(path, json);
+        using var writer = new BMSAutoPlayWriter(PlaybackChart.Load(path));
+        writer.LoadResources();
+        writer.Write(EncoderType.WAVE, 0.4f, directory.File(name + "-output"), BMSAutoPlayWriter.Normalization.NONE);
+        return AudioTestWaveFileReader.Read(File.ReadAllBytes(directory.File(name + "-output.wav")));
+    }
+
+    [DataTestMethod]
+    [DataRow("missing", 480)]
+    [DataRow("zero", 480)]
+    [DataRow("empty-window", 480)]
+    [DataRow("restart", 24480)]
+    [DataRow("separate-channel", 24480)]
+    [DataRow("zero-only", 0)]
+    [DataRow("empty-window-only", 0)]
+    public void BmsonAudioEndUsesOnlyNonemptyVoicesAcrossLoadPreparationAndWriter(string laterKind, int expectedFrames)
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 480, _ => 0.125f));
+        using var zero = AudioMixerSignalTests.TemporaryFloatWave.Create(48000, 0, _ => 0f);
+        File.Copy(zero.Path, directory.File("zero.wav"));
+        const string first = "{\"name\":\"audio.wav\",\"notes\":[{\"y\":0,\"x\":1}]}";
+        bool onlyEmpty = laterKind.EndsWith("-only", StringComparison.Ordinal);
+        string laterName = laterKind == "missing" ? "missing.wav" : laterKind.StartsWith("zero", StringComparison.Ordinal) ? "zero.wav" : "audio.wav";
+        string channels = laterKind == "restart"
+            ? "{\"name\":\"audio.wav\",\"notes\":[{\"y\":0,\"x\":1},{\"y\":240,\"x\":1}]}"
+            : (onlyEmpty ? "" : first + ",") + "{\"name\":\"" + laterName + "\",\"notes\":[{\"y\":240,\"x\":2}]}";
+        string json = "{\"info\":{\"init_bpm\":120,\"resolution\":240},\"sound_channels\":[" + channels + "],\"lines\":[{\"y\":240}]}";
+        string path = directory.File("chart.bmson");
+        File.WriteAllText(path, json);
+        var chart = PlaybackChart.Load(path);
+        if (laterKind.StartsWith("empty-window", StringComparison.Ordinal))
+        {
+            // 解析情報を保ったまま、共通音声入口の空source窓を復号PCMで検査します。
+            PlaybackAudioEvent[] events = chart.AudioEvents.ToArray();
+            events[^1] = events[^1] with { SourceStart = PlaybackTime.FromTimeSpan(TimeSpan.FromSeconds(0.5)) };
+            chart = new PlaybackChart(chart.Path, chart.Hash, chart.Title, chart.Subtitle, chart.Artist, chart.Subartist,
+                chart.Genre, chart.Bpm, chart.MinBpm, chart.MaxBpm, chart.Total, chart.ModeHint,
+                PlaybackTime.FromTimeSpan(chart.Duration), chart.ResourceNames.ToArray(), events,
+                chart.Controls.ToArray(), chart.CountTimes.ToArray());
+        }
+        Assert.AreEqual(TimeSpan.FromSeconds(0.5), chart.Duration);
+        Assert.AreEqual(onlyEmpty ? 1 : 2, chart.TotalNoteCount);
+        Assert.AreEqual(TimeSpan.FromSeconds(0.5), chart.AudioEvents[^1].Start.ToTimeSpan());
+        var expectedDuration = TimeSpan.FromTicks(expectedFrames * TimeSpan.TicksPerSecond / 48000);
+        void AssertLoaded(BMSAutoPlayer player)
+        {
+            Assert.AreSame(chart, player.Chart);
+            Assert.AreEqual(expectedDuration, player.MusicDuration);
+            Assert.AreEqual(chart.Duration, player.BmsDuration);
+            Assert.AreEqual(chart.TotalNoteCount, player.Chart.TotalNoteCount);
+            Assert.AreEqual(expectedFrames == 0 ? 0 : laterKind is "restart" or "separate-channel" ? 2 : 1, player.AudioSchedule.Events.Count);
+            Assert.AreEqual(laterKind == "missing" ? 1 : 0, player.OmittedAudioSources.Count);
+        }
+        using (var normal = new BMSAutoPlayer(chart))
+        {
+            normal.LoadResources();
+            AssertLoaded(normal);
+        }
+        var prepared = PreparedBmsSong.Prepare(chart, 1f);
+        using (var adopted = new BMSAutoPlayer(chart))
+        {
+            adopted.AdoptPreparedSong(prepared);
+            AssertLoaded(adopted);
+        }
+        using var writer = new BMSAutoPlayWriter(chart);
+        writer.LoadResources();
+        AssertLoaded(writer);
+        string output = directory.File("actual-output");
+        if (expectedFrames == 0)
+        {
+            Assert.ThrowsException<InvalidOperationException>(() => writer.Write(EncoderType.WAVE, 0.4f, output, BMSAutoPlayWriter.Normalization.NONE));
+            Assert.IsFalse(File.Exists(output + ".wav"), "0frameはencoder作成前に拒否します。");
+            return;
+        }
+        writer.Write(EncoderType.WAVE, 0.4f, output, BMSAutoPlayWriter.Normalization.NONE);
+        AudioTestWaveFile actual = AudioTestWaveFileReader.Read(File.ReadAllBytes(output + ".wav"));
+        Assert.AreEqual(expectedFrames, actual.DataLength / (actual.Channels * sizeof(float)));
+        if (expectedFrames == 480)
+        {
+            AssertSamePcm(WriteBmsonOutput(directory, "healthy", "{\"info\":{\"init_bpm\":120},\"sound_channels\":[" + first + "]}"), actual);
+        }
+        else
+        {
+            Assert.AreEqual(0f, ReadFloatSample(actual, 1000, 0));
+            Assert.AreEqual(0.02f, ReadFloatSample(actual, 24479, 0), 1e-6f);
+        }
+    }
+
+    private static void AssertSamePcm(AudioTestWaveFile expected, AudioTestWaveFile actual)
+    {
+        Assert.AreEqual(expected.Format, actual.Format);
+        Assert.AreEqual(expected.SampleRate, actual.SampleRate);
+        Assert.AreEqual(expected.Channels, actual.Channels);
+        Assert.AreEqual(expected.DataLength, actual.DataLength);
+        int frames = expected.DataLength / (expected.Channels * sizeof(float));
+        for (int frame = 0; frame < frames; frame++)
+        {
+            for (int channel = 0; channel < expected.Channels; channel++)
+            {
+                Assert.AreEqual(ReadFloatSample(expected, frame, channel), ReadFloatSample(actual, frame, channel), 1e-6f);
+            }
+        }
     }
 
     [TestMethod]

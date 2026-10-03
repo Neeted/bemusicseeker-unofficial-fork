@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,71 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSPlayerControlTests
 {
+    [DataTestMethod]
+    [DataRow("normal-ln", new long[] { 4800000 })]
+    [DataRow("ln-normal", new long[] { 4800000, 9600000 })]
+    [DataRow("short-long", new long[] { 4800000, 9600000 })]
+    [DataRow("long-short", new long[] { 4800000, 14400000 })]
+    [DataRow("stable-channel-order", new long[] { 4800000, 4800000, 4800000, 9600000, 9600000, 14400000, 14400000, 14420000 })]
+    [DataRow("later-channel-earlier-head", new long[] { 4800000, 9600000, 12000000, 14400000, 14400000, 14400000 })]
+    public void BmsonPlayableConflictsPreserveRegistrationOrderForProgressAndBackwardSeek(string scenario, long[] expectedTicks)
+    {
+        PlaybackChart chart = BmsonPlaybackParserTests.Parse(BmsonPlaybackParserTests.ConflictingPlayableInput(scenario));
+        using var player = new PlaybackProbe(chart);
+        player.LoadResources(); // probeの表示長だけを設定し、音声資源とnative出力は使いません。
+        Assert.AreEqual(expectedTicks.Length, player.Chart.TotalNoteCount);
+        long[] boundaries = expectedTicks.Distinct().Order().ToArray();
+        foreach (long boundary in boundaries.Concat(boundaries.Reverse()))
+        {
+            player.CurrentTime = TimeSpan.FromTicks(boundary - 1);
+            Assert.AreEqual(expectedTicks.Count(tick => tick < boundary), player.Combo, "境界直前と戻りseekの進行");
+            player.CurrentTime = TimeSpan.FromTicks(boundary);
+            Assert.AreEqual(expectedTicks.Count(tick => tick <= boundary), player.Combo, "境界の進行");
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(0, false)]
+    [DataRow(1, false)]
+    [DataRow(2, false)]
+    [DataRow(0, true)]
+    [DataRow(1, true)]
+    [DataRow(2, true)]
+    public async Task BmsonInitialLinesDoNotAdvanceMeasureButQuantizedPositiveLinesDo(int initialLines, bool quantizedToZero)
+    {
+        string lines = "[" + string.Concat(Enumerable.Repeat("{\"y\":0},", initialLines)) + "{\"y\":240},{\"y\":480}]";
+        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":" + (quantizedToZero ? "1e1000" : "120")
+            + "},\"lines\":" + lines + ",\"sound_channels\":[]}");
+        Assert.AreEqual(2, chart.LastMeasure);
+        using var player = new PlaybackProbe(chart, initialClockTime: TimeSpan.Zero);
+        player.PlaybackRate = float.Epsilon;
+        Task<TimeSpan> initial = player.ArmNextTimeApplication();
+        Task playback = player.Start();
+        try
+        {
+            Assert.AreEqual(TimeSpan.Zero, await initial);
+            Assert.AreEqual(quantizedToZero ? 2 : 0, player.CurrentMeasure);
+            if (!quantizedToZero)
+            {
+                Assert.AreEqual(TimeSpan.FromSeconds(0.5), await player.SetClockAndArmNextTimeApplication(TimeSpan.FromSeconds(0.5)));
+                Assert.AreEqual(1, player.CurrentMeasure);
+                Assert.AreEqual(TimeSpan.FromSeconds(1), await player.SetClockAndArmNextTimeApplication(TimeSpan.FromSeconds(1)));
+                Assert.AreEqual(2, player.CurrentMeasure);
+            }
+        }
+        finally
+        {
+            player.Stop();
+            try { await playback; } catch (OperationCanceledException) { }
+        }
+        using var seeker = new PlaybackProbe(chart);
+        seeker.LoadResources();
+        foreach ((double seconds, int measure) in new[] { (1d, 2), (0.5d, 1), (0d, 0), (1d, 2) })
+        {
+            seeker.CurrentTime = TimeSpan.FromSeconds(seconds);
+            Assert.AreEqual(quantizedToZero ? 2 : measure, seeker.CurrentMeasure);
+        }
+    }
     [TestMethod]
     public async Task Start_PreservesPlaybackFailureWhenCleanupAlsoFails()
     {
@@ -70,6 +136,43 @@ public sealed class BMSPlayerControlTests
             try { player.Dispose(); }
             catch (InvalidOperationException failure) when (ReferenceEquals(cleanupFailure, failure)) { }
         }
+    }
+
+    [TestMethod]
+    public async Task BmsonDisplayCountsLogicalPositionsAndNaturalCompletionWaitsForCleanup()
+    {
+        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0,\"l\":240},{\"x\":2,\"y\":120}]}],\"bpm_events\":[{\"y\":240,\"bpm\":60}],\"stop_events\":[{\"y\":240,\"duration\":240}]}");
+        using var cleanupGate = new ManualResetEventSlim(initialState: false);
+        using var player = new PlaybackProbe(chart, playbackDuration: chart.Duration, initialClockTime: chart.Duration,
+            cleanupGate: cleanupGate);
+        player.LoadResources();
+        player.CurrentTime = TimeSpan.FromSeconds(0.25);
+        Assert.AreEqual(2, player.Combo);
+        player.CurrentTime = TimeSpan.FromSeconds(0.5);
+        Assert.AreEqual(3, player.Combo);
+        Assert.AreEqual(60d, player.CurrentBpm);
+        Assert.AreEqual(TimeSpan.FromSeconds(1), player.StopTime);
+        player.CurrentTime = TimeSpan.FromSeconds(0.25);
+        Assert.AreEqual(2, player.Combo);
+        player.PlaybackRate = float.Epsilon;
+        Task playback = player.Start();
+        try
+        {
+            await player.CleanupEntered;
+            Assert.IsFalse(playback.IsCompleted, "Startは自然終了の後処理が完了する前に戻ってはいけません。");
+            Assert.AreEqual(chart.Duration, player.CurrentTime);
+            Assert.AreEqual(3, player.Combo);
+        }
+        finally
+        {
+            cleanupGate.Set();
+            await playback;
+        }
+
+        Assert.AreEqual(chart.Duration, player.CurrentTime);
+        Assert.AreEqual(3, player.Combo);
+        Assert.AreEqual(1, player.CleanupCount);
+        Assert.AreEqual(PlayState.Stopped, player.PlayState);
     }
 
     [TestMethod]
@@ -207,7 +310,7 @@ public sealed class BMSPlayerControlTests
     }
 
     private sealed class PlaybackProbe(
-        BMSFile bms,
+        PlaybackChart bms,
         Exception? playbackFailure = null,
         Exception? preparationFailure = null,
         Exception? cleanupFailure = null,
@@ -215,6 +318,11 @@ public sealed class BMSPlayerControlTests
         TimeSpan? initialClockTime = null,
         ManualResetEventSlim? cleanupGate = null) : BMSPlayer<NullImageLoader>(bms)
     {
+        internal PlaybackProbe(BMSFile bms, Exception? playbackFailure = null, Exception? preparationFailure = null,
+            Exception? cleanupFailure = null, TimeSpan? playbackDuration = null, TimeSpan? initialClockTime = null,
+            ManualResetEventSlim? cleanupGate = null)
+            : this(PlaybackChart.FromBms(bms), playbackFailure, preparationFailure, cleanupFailure, playbackDuration, initialClockTime, cleanupGate) { }
+
         private readonly TaskCompletionSource cleanupEntered =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private TaskCompletionSource<TimeSpan>? nextTimeApplication;
@@ -257,13 +365,15 @@ public sealed class BMSPlayerControlTests
             return task;
         }
 
+        /// <summary>音源を使わないテスト用の再生長を準備します。</summary>
         public override void LoadResources()
         {
+            Duration = playbackDuration ?? TimeSpan.FromHours(1);
         }
 
         protected override void OnPlaybackStarting()
         {
-            Duration = playbackDuration ?? TimeSpan.FromHours(1);
+            LoadResources();
             if (initialClockTime is TimeSpan time)
             {
                 timerOffset = time;

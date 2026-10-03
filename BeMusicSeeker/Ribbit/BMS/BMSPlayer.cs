@@ -199,7 +199,18 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     private ExceptionDispatchInfo playbackControlFailure;
 
-    public BMSFile Bms { get; }
+    /// <summary>BMSだけが持つ従来の画像・分岐データです。bmsonではnullです。</summary>
+#nullable enable annotations
+    public BMSFile? Bms { get; }
+#nullable restore annotations
+
+    /// <summary>一回だけ解析した形式共通の再生入力です。</summary>
+    public PlaybackChart Chart { get; }
+
+    private int commonControlIndex;
+    private int commonCountIndex;
+    private int commonDensityIndex;
+    private TimeSpan commonStopEnd;
 
     public TimeSpan CurrentTime
     {
@@ -213,7 +224,7 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
         }
     }
 
-    public TimeSpan BmsDuration => Bms.Duration;
+    public TimeSpan BmsDuration => Chart.Duration;
 
     public TimeSpan MusicDuration
     {
@@ -271,7 +282,7 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     public TimeSpan Duration { get; protected set; }
 
-    public string FileName => Bms.Path;
+    public string FileName => Chart.Path;
 
     public double NoteDensity
     {
@@ -321,42 +332,48 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
     {
     }
 
-    public BMSPlayer(BMSFile bms)
+    public BMSPlayer(BMSFile bms) : this(PlaybackChart.FromBms(bms)) { }
+
+    /// <summary>形式共通の解析結果から表示状態を作ります。BMSの既存laneと画像はそのまま維持します。</summary>
+    protected BMSPlayer(PlaybackChart chart)
     {
-        Bms = bms ?? throw new ArgumentNullException("bms");
-        ControlNotesQueue = new NoteQueue(Bms.Measures.ControlNotes);
-        BgaBaseNotesQueue = new NoteQueue(Bms.Measures.BgaBaseNotes);
-        BgaPoorNotesQueue = new NoteQueue(Bms.Measures.BgaPoorNotes);
-        BgaLayerNotesQueue = new NoteQueue(Bms.Measures.BgaLayerNotes);
-        VisibleNotes1PQueue = Bms.Measures.VisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        VisibleNotes2PQueue = Bms.Measures.VisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        InvisibleNotes1PQueue = Bms.Measures.InvisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        InvisibleNotes2PQueue = Bms.Measures.InvisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        LongNotes1PQueue = Bms.Measures.LongNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        LongNotes2PQueue = Bms.Measures.LongNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        MineNotes1PQueue = Bms.Measures.MineNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        MineNotes2PQueue = Bms.Measures.MineNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        Chart = chart ?? throw new ArgumentNullException(nameof(chart));
+        Bms = chart.Bms;
+        ControlNotesQueue = new NoteQueue(Bms?.Measures.ControlNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        BgaBaseNotesQueue = new NoteQueue(Bms?.Measures.BgaBaseNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        BgaPoorNotesQueue = new NoteQueue(Bms?.Measures.BgaPoorNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        BgaLayerNotesQueue = new NoteQueue(Bms?.Measures.BgaLayerNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        VisibleNotes1PQueue = Bms?.Measures.VisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        VisibleNotes2PQueue = Bms?.Measures.VisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        InvisibleNotes1PQueue = Bms?.Measures.InvisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        InvisibleNotes2PQueue = Bms?.Measures.InvisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        LongNotes1PQueue = Bms?.Measures.LongNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        LongNotes2PQueue = Bms?.Measures.LongNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        MineNotes1PQueue = Bms?.Measures.MineNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        MineNotes2PQueue = Bms?.Measures.MineNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
         InitializeLoaders();
         currentTime = TimeSpan.Zero;
         durationProvider = () => TimeSpan.FromTicks(System.Math.Max(BmsDuration.Ticks, System.Math.Max(BgaDuration.Ticks, MusicDuration.Ticks)));
         MusicDuration = TimeSpan.Zero;
         BgaDuration = TimeSpan.Zero;
-        CurrentBpm = Bms.Bpm?.ToDouble() ?? 0.0;
+        CurrentBpm = Bms?.Bpm?.ToDouble() ?? Chart.Bpm.ToDouble();
     }
 
     private double calculateNotesDensity()
     {
+        if (Bms == null) { return (commonCountIndex - commonDensityIndex) / densityRange.TotalSeconds; }
         return (double)(VisibleNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + VisibleNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS))) / densityRange.TotalSeconds;
     }
 
     private int calculateCombo()
     {
+        if (Bms == null) { return commonCountIndex; }
         return VisibleNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + VisibleNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE));
     }
 
     protected virtual void InitializeLoaders()
     {
-        ImageLoaders = new TImageLoader[Bms.BmpArray.Length].ToList().AsReadOnly();
+        ImageLoaders = new TImageLoader[Bms?.BmpArray.Length ?? 0].ToList().AsReadOnly();
         BgaBaseLoader = null;
         BgaPoorLoader = null;
         BgaLayerLoader = null;
@@ -397,6 +414,22 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     protected virtual void ForwardControlNotesToCurrentTime()
     {
+        if (Bms == null)
+        {
+            while (commonControlIndex < Chart.Controls.Count && Chart.Controls[commonControlIndex].Time.ToTimeSpan() <= currentTime)
+            {
+                PlaybackControl control = Chart.Controls[commonControlIndex++];
+                switch (control.Kind)
+                {
+                    case PlaybackControlKind.Bpm: CurrentBpm = control.Bpm; break;
+                    case PlaybackControlKind.BarLine: CurrentMeasure++; break;
+                    case PlaybackControlKind.InitialBarLine: break; // pulse0の線情報は保持し、小節番号には加算しません。
+                    case PlaybackControlKind.Stop: commonStopEnd = (control.Time + control.Stop).ToTimeSpan(); break;
+                }
+            }
+            StopTime = commonStopEnd > currentTime ? commonStopEnd - currentTime : TimeSpan.Zero;
+            return;
+        }
         foreach (BMSFile.Chart.Note item in ControlNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             BMSFile.Chart.Note note = (lastCtrlNote = item);
@@ -473,6 +506,7 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     protected virtual void ForwardVisibleNotesToCurrentTime()
     {
+        if (Bms == null) { AdvanceCommonCounts(); return; }
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
             foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
@@ -729,6 +763,7 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     protected virtual void MoveVisibleNotesToCurrentTime()
     {
+        if (Bms == null) { AdvanceCommonCounts(); return; }
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
             foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
@@ -811,8 +846,16 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
         }
     }
 
+    private void AdvanceCommonCounts()
+    {
+        while (commonCountIndex < Chart.CountTimes.Count && Chart.CountTimes[commonCountIndex].ToTimeSpan() <= currentTime) commonCountIndex++;
+        while (commonDensityIndex < Chart.CountTimes.Count && Chart.CountTimes[commonDensityIndex].ToTimeSpan() < currentTime - densityRange) commonDensityIndex++;
+    }
+
     protected virtual void ResetPlaybackState()
     {
+        commonControlIndex = commonCountIndex = commonDensityIndex = 0;
+        commonStopEnd = TimeSpan.Zero;
         currentTime = TimeSpan.Zero;
         ControlNotesQueue.Reset();
         BgaBaseNotesQueue.Reset();
@@ -861,11 +904,11 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
         BannerLoader?.Detach();
         BackbmpLoader?.Detach();
         NoteDensity = 0.0;
-        CurrentBpm = Bms.Bpm?.ToDouble() ?? 0.0;
+        CurrentBpm = Bms?.Bpm?.ToDouble() ?? Chart.Bpm.ToDouble();
         StopTime = TimeSpan.Zero;
         CurrentMeasure = 0;
         lastCtrlNote = null;
-        CurrentBpm = Bms.Bpm?.ToDouble() ?? 0.0;
+        CurrentBpm = Bms?.Bpm?.ToDouble() ?? Chart.Bpm.ToDouble();
     }
 
     public virtual void Pause()

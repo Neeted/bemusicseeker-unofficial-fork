@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -58,6 +59,108 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.AreEqual(Resources.Open_chart_viewer, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Header);
             },
             selectedChartContextMenuTerminals: terminals);
+    }
+
+    [TestMethod]
+    public void CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(MainWindowSelectedChartContextMenuWpfTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string bmsonPath = Path.Combine(root, "first.bmson");
+            string bmsPath = Path.Combine(root, "second.bms");
+            File.WriteAllText(bmsonPath, "{\"info\":{\"title\":\"First\",\"init_bpm\":120},\"sound_channels\":[]}");
+            File.WriteAllText(bmsPath, "#TITLE Second\n#BPM 120\n");
+            LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, new string('b', 32), bmsonPath);
+            LibraryChartRow bmsRow = CreateChartRow(ChartFileKind.Bms, new string('c', 32), bmsPath);
+            var pendingBmsonRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsonRow.Chart));
+            var pendingBmsRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsRow.Chart));
+            LibraryChartRow missingRow = CreateChartRow(ChartFileKind.Bmson, new string('d', 32), Path.Combine(root, "missing.bmson"));
+            var calls = new List<SelectedChartAudioConversionRequest>();
+            MainWindowSelectedChartAudioConversionTerminal audio = new(
+                (request, _) =>
+                {
+                    calls.Add(request);
+                    return Task.FromResult(SelectedChartAudioConversionResult.Empty);
+                });
+
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    MenuItem convert = FindMenuItem(menu, "tableContextMenuItemConvertToAudioFile");
+                    Separator convertSeparator = menu.Items.OfType<Separator>()
+                        .Single(item => item.Name == "tableContextMenuSeparatorForConvert");
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    table.ItemsSource = new List<object> { bmsonRow, bmsRow };
+                    table.SelectRowsByPredicate(row => ReferenceEquals(row, bmsonRow));
+                    menu.PlacementTarget = new FrameworkElement { DataContext = bmsonRow };
+
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Visible, convert.Visibility);
+                    Assert.IsTrue(convert.IsEnabled);
+                    Assert.AreEqual(Visibility.Visible, convertSeparator.Visibility);
+                    Assert.IsTrue(convertSeparator.IsEnabled);
+                    foreach (string name in new[]
+                    {
+                        "tableContextMenuItemFixEncoding",
+                        "tableContextMenuItemRegisterScore",
+                        "tableContextMenuItemUpdateRankingData",
+                        "tableContextMenuItemRenameInvalidExt"
+                    })
+                    {
+                        MenuItem bmsOnly = FindMenuItem(menu, name);
+                        Assert.AreEqual(Visibility.Collapsed, bmsOnly.Visibility, name);
+                        Assert.IsFalse(bmsOnly.IsEnabled, name);
+                    }
+                    Assert.IsTrue(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(1, calls.Count);
+                    Assert.AreEqual(1, calls[0].Targets.Count);
+                    Assert.AreSame(bmsonRow.Chart, calls[0].Targets[0].Chart);
+                    Assert.IsNull(calls[0].Targets[0].Chart.GetBmsStorageOwner());
+
+                    table.SelectRowsByPredicate(_ => true);
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Visible, convert.Visibility);
+                    Assert.IsTrue(convert.IsEnabled);
+                    Assert.IsTrue(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+                    CollectionAssert.AreEqual(new[] { bmsonRow.Chart, bmsRow.Chart }, calls[1].Targets.Select(target => target.Chart).ToArray());
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    table.ItemsSource = new List<object> { pendingBmsonRow, pendingBmsRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = pendingBmsonRow };
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Collapsed, convert.Visibility);
+                    Assert.IsFalse(convert.IsEnabled);
+                    Assert.AreEqual(Visibility.Collapsed, convertSeparator.Visibility);
+                    Assert.IsFalse(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    table.ItemsSource = new List<object> { missingRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = missingRow };
+                    OpenContextMenu(menu);
+
+                    Assert.IsFalse(convert.IsEnabled);
+                    Assert.IsFalse(convertSeparator.IsEnabled);
+                    Assert.IsFalse(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+                },
+                selectedChartContextMenuTerminals: CreateTerminals(audio: audio));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]

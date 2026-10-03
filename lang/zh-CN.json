@@ -1014,6 +1014,7 @@
   "Error_InvalidLR2ScoreDbFile": "找不到文件，或文件扩展名不是 .db。",
   "Error_InvalidPlayerExecutableFormat": "找不到可执行文件，或文件名不是 {0}。",
   "Error_ExecutableNotFound": "找不到可执行文件。",
+  "Error_InvalidBmsonInputFormat": "bmson 输入无效：{0}",
   "Error_BmsFileNotFound": "找不到 BMS 文件。",
   "Error_InvalidHashFormat": "不是有效的 {0} 哈希值。",
   "Error_InvalidHashValueFormat": "不是有效的 {0} 哈希值。值：{1}",

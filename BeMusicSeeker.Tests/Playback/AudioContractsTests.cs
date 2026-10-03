@@ -732,7 +732,10 @@ public sealed class AudioContractsTests
         string directory = Path.Combine(Path.GetTempPath(), "bms-switch-join-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string firstPath = WritePlaybackChart(directory, "first.bms", 400, 50);
-        string nextPath = WritePlaybackChart(directory, "next.bms", 400, 1);
+        string nextPath = Path.Combine(directory, "next.bmson");
+        using var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(48000, 2205, _ => .125f);
+        File.Copy(wave.Path, Path.Combine(directory, "used.wav"));
+        File.WriteAllText(nextPath, "{\"info\":{\"init_bpm\":400},\"sound_channels\":[{\"name\":\"used.wav\",\"notes\":[{\"y\":480}]}]}");
         var preparationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var preparationFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -763,7 +766,7 @@ public sealed class AudioContractsTests
                 using CancellationTokenRegistration registration = token.Register(() => cancelled = true);
                 preparationEntered.SetResult();
                 preparationGate.Wait();
-                var result = PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token);
+                var result = PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 0.4f, token);
                 preparationFinished.SetResult();
                 return result;
             });

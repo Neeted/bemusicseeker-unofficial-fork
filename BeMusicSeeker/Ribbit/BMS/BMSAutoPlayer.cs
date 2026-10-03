@@ -25,7 +25,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     private int playbackGeneration;
 
     public BMSAutoPlayer(BMSFile bms)
-        : this(bms, new BassMixerSourceNativeBoundary())
+        : this(PlaybackChart.FromBms(bms), new BassMixerSourceNativeBoundary())
     {
     }
 
@@ -33,11 +33,18 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <param name="bms">再生対象の譜面。</param>
     /// <param name="realtimeMixerNative">schedulerが使うnative mixer境界。</param>
     internal BMSAutoPlayer(BMSFile bms, IBassScheduledMixerNativeBoundary realtimeMixerNative)
+        : this(PlaybackChart.FromBms(bms), realtimeMixerNative) { }
+
+    /// <summary>形式共通の譜面を既存の再生・pause・seek経路へ接続します。</summary>
+    public BMSAutoPlayer(PlaybackChart chart) : this(chart, new BassMixerSourceNativeBoundary()) { }
+
+    /// <summary>形式共通の譜面とnative境界を捕捉します。</summary>
+    internal BMSAutoPlayer(PlaybackChart bms, IBassScheduledMixerNativeBoundary realtimeMixerNative)
         : base(bms)
     {
         this.realtimeMixerNative = realtimeMixerNative
             ?? throw new ArgumentNullException(nameof(realtimeMixerNative));
-        audioResourcesByIndex = Array.AsReadOnly(new BmsAudioResource?[bms.WavArray.Length]);
+        audioResourcesByIndex = Array.AsReadOnly(new BmsAudioResource?[bms.ResourceNames.Count]);
     }
 
     /// <summary>今回の譜面読み込みで入力失敗により省略した音源を変更不能な一覧で取得します。</summary>
@@ -321,13 +328,13 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <summary>再生に使う音源を事前に復号します。</summary>
     public override void LoadResources()
     {
-        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Bms, ResourceSourceGain));
+        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Chart, ResourceSourceGain));
     }
 
     /// <summary>解析済み譜面とPCMを一回採用し、現在の実効出力レートでscheduleを構築します。</summary>
     internal void AdoptPreparedSong(PreparedBmsSong prepared)
     {
-        if (!ReferenceEquals(base.Bms, prepared.Chart))
+        if (!ReferenceEquals(base.Chart, prepared.Chart) && !(base.Bms != null && ReferenceEquals(base.Bms, prepared.Chart.Bms)))
         {
             throw new InvalidOperationException("The prepared chart and playback chart must be identical.");
         }
@@ -363,7 +370,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
             .ToArray();
         LogAudioOmissions(omissions, result.Failures);
 
-        if (result.UniquePathCount > 0 && omissions.Length == result.UniquePathCount)
+        if (result.Failures.Count > 0 && !result.ResourcesByIndex.Any(resource => resource != null))
         {
             BmsAudioLoadFailure failure = result.Failures
                 .OrderBy(item => item.Index)
@@ -400,7 +407,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 }
 
                 session = currentSession;
-                schedule = BmsAudioFrameSchedule.Create(base.Bms, mixerInfo.Frequency);
+                schedule = BmsAudioFrameSchedule.Create(base.Chart, mixerInfo.Frequency, result.ResourcesByIndex);
             }
         }
         catch (AudioSourceFatalException)
@@ -419,7 +426,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         resourceSession = session;
         audioSchedule = schedule;
         durationProvider = () => base.MusicDuration;
-        base.MusicDuration = base.Bms.Measures.SelectMany(measure =>
+        base.MusicDuration = base.Bms != null
+            ? base.Bms.Measures.SelectMany(measure =>
             new ReadOnlyCollection<Func<IList<BMSFile.Chart.Note>>>[5]
             {
                 measure.GetPropertiesAllBgmNotes,
@@ -432,7 +440,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
             .SelectMany(getter => getter())
             .Select(note => note.AbsoluteTime + (audioResourcesByIndex[note.Index]?.Duration ?? TimeSpan.Zero)))
             .DefaultIfEmpty(TimeSpan.Zero)
-            .Max();
+            .Max()
+            : AudioFrameMath.FrameToTime(schedule.Events.Select(item => item.EndFrame ?? item.StartFrame).DefaultIfEmpty(0).Max(), schedule.SampleRate);
         base.BgaDuration = TimeSpan.Zero;
     }
 

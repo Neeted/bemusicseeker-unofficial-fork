@@ -346,14 +346,16 @@ internal sealed class PlaylistDetailSourceRow
         return copy;
     }
 
-    /// <summary>
-    /// UI 表示用の lightweight row を生成します。
-    /// </summary>
-    /// <returns>一覧表示用 row。</returns>
+    /// <summary>表示行生成時にstatus読取りへ渡す、現在の再生状態のdelegateです。</summary>
+    internal Func<ChartFile, ChartFileStatus> PlaybackStatusProvider { get; set; }
+
+    /// <summary>UI表示用の行を生成し、再生状態の読取り口へ接続します。</summary>
     internal PlaylistDetailRow CreateViewRow()
     {
         Chart = CreateChartFileWithEffectiveScore();
-        return new PlaylistDetailRow(this);
+        var row = new PlaylistDetailRow(this);
+        row.SetPlaybackStatusProvider(PlaybackStatusProvider);
+        return row;
     }
 
     /// <summary>

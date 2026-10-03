@@ -1014,6 +1014,7 @@
   "Error_InvalidLR2ScoreDbFile": "ファイルが見つからないか、拡張子が .db ではありません。",
   "Error_InvalidPlayerExecutableFormat": "実行ファイルが見つからないか、{0} ではありません。",
   "Error_ExecutableNotFound": "実行ファイルが見つかりません。",
+  "Error_InvalidBmsonInputFormat": "bmson 入力が不正です: {0}",
   "Error_BmsFileNotFound": "BMS ファイルが見つかりません。",
   "Error_InvalidHashFormat": "{0} ハッシュではありません。",
   "Error_InvalidHashValueFormat": "{0} ハッシュではありません。値: {1}",

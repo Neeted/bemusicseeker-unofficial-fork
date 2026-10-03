@@ -1,324 +1,193 @@
-#nullable enable annotations
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using BeMusicSeeker.Models.Utils;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace Ribbit.BMS;
 
-/// <summary>BMSで使う一つのWAV indexと解決した音声pathです。</summary>
-internal readonly record struct BmsAudioPathRequest(int Index, string ResourceName, string Path);
+/// <summary>一つの音源参照へ対応する、全候補失敗後の代表入力失敗です。</summary>
+internal sealed record BmsAudioLoadFailure(int Index, string ResourceName, string Path, string NormalizedPath, Exception Exception);
 
-/// <summary>一つのWAV indexへ対応する音声入力失敗です。</summary>
-internal sealed record BmsAudioLoadFailure(
-    int Index,
-    string ResourceName,
-    string Path,
-    string NormalizedPath,
-    Exception Exception);
-
-/// <summary>BMS譜面から省略した一意の音声pathです。</summary>
+/// <summary>譜面から省略した一意の音声pathです。</summary>
 internal sealed record BmsAudioSourceOmission(string ResourceName, string Path);
 
-/// <summary>全音源の処理完了後に公開するBMS音源と入力失敗です。</summary>
+/// <summary>全候補の処理完了後に公開する共有音源と最終入力失敗です。</summary>
 internal sealed class BmsAudioResourceLoadResult
 {
-    /// <summary>各WAV indexのresourceとpath単位の入力失敗をロード結果にまとめます。</summary>
-    /// <param name="resourcesByIndex">各WAV indexから参照する共有resource配列です。</param>
-    /// <param name="failures">path単位に集約した入力失敗一覧です。</param>
-    /// <param name="uniquePathCount">今回要求された一意path数です。</param>
-    internal BmsAudioResourceLoadResult(
-        BmsAudioResource?[] resourcesByIndex,
-        IReadOnlyList<BmsAudioLoadFailure> failures,
-        int uniquePathCount)
+    /// <summary>成功したindex別resourceと、未解決参照だけのpath集約失敗をまとめます。</summary>
+    /// <param name="resourcesByIndex">各音源indexが参照する、同pathで共有した成功resourceです。</param>
+    /// <param name="failures">全候補失敗後に正規化pathで集約した代表失敗です。</param>
+    internal BmsAudioResourceLoadResult(BmsAudioResource?[] resourcesByIndex, IReadOnlyList<BmsAudioLoadFailure> failures)
     {
         ResourcesByIndex = resourcesByIndex;
         Failures = failures;
-        UniquePathCount = uniquePathCount;
     }
 
-    /// <summary>各WAV indexから参照するpath共有resourceです。</summary>
+    /// <summary>各音源indexから参照するpath共有resourceです。0frameも成功として保持します。</summary>
     internal BmsAudioResource?[] ResourcesByIndex { get; }
 
-    /// <summary>path単位で集約した入力失敗です。</summary>
+    /// <summary>全候補に失敗した参照の、正規化path単位の代表失敗です。</summary>
     internal IReadOnlyList<BmsAudioLoadFailure> Failures { get; }
-
-    /// <summary>今回のロードで要求した一意path数です。</summary>
-    internal int UniquePathCount { get; }
 }
 
-/// <summary>BMSの音源pathを解決し、unique pathごとに一回で読み込み・復号します。</summary>
+/// <summary>BMSとbmsonの候補を順に復号し、曲内の同一絶対pathを一回だけ読み込みます。</summary>
 internal static class BmsAudioResourceLoader
 {
-    /// <summary>使用音源をpath単位で並列に読み込み、完了後にindex別resourceを返します。</summary>
-    /// <param name="bms">使用音源indexを得る譜面です。</param>
-    /// <param name="basePath">譜面ファイルの配置pathです。</param>
-    /// <param name="sourceGain">各resourceへ捕捉するgainです。</param>
-    /// <param name="cancellationToken">探索、read前、decode前、結果公開前の取消です。native呼出しは強制終了しません。</param>
-    /// <param name="expectedSession">先読み開始時のsessionです。通常ロードでは現在sessionを捕捉します。</param>
-    internal static BmsAudioResourceLoadResult Load(BMSFile bms, string basePath, float sourceGain, CancellationToken cancellationToken = default,
-        BassAudioSession? expectedSession = null)
+    /// <summary>BMSで実際に使用する非空音源参照を共通pipelineへ渡します。</summary>
+    /// <param name="bms">使用音源indexと定義を持つBMS譜面です。</param>
+    /// <param name="basePath">譜面の配置フォルダです。</param>
+    /// <param name="sourceGain">共有resourceのgainです。</param>
+    /// <param name="cancellationToken">候補処理の前後と結果公開前の取消です。</param>
+    /// <param name="expectedSession">先読み開始時のsessionです。未指定なら現在sessionを捕捉します。</param>
+    internal static BmsAudioResourceLoadResult Load(BMSFile bms, string basePath, float sourceGain,
+        CancellationToken cancellationToken = default, BassAudioSession? expectedSession = null)
+        => Load(PlaybackChart.FromBms(bms), basePath, sourceGain, cancellationToken, expectedSession);
+
+    /// <summary>未解決参照の候補を段階ごとに並列処理し、最初の復号成功を採用します。</summary>
+    /// <param name="bms">使用する音源参照と定義を持つ譜面です。</param>
+    /// <param name="basePath">譜面の配置フォルダです。</param>
+    /// <param name="sourceGain">共有resourceのgainです。</param>
+    /// <param name="cancellationToken">read/decodeの前後と結果公開前の取消です。native呼出しは強制終了しません。</param>
+    /// <param name="expectedSession">先読み開始時のsessionです。未指定なら現在sessionを捕捉します。</param>
+    /// <param name="readInput">呼出し単位の入力read境界です。未指定なら実ファイルを読み込みます。</param>
+    /// <param name="decode">呼出し単位の復号境界です。未指定なら実decoderを使います。</param>
+    internal static BmsAudioResourceLoadResult Load(PlaybackChart bms, string basePath, float sourceGain,
+        CancellationToken cancellationToken = default, BassAudioSession? expectedSession = null,
+        Func<string, AudioInputFile>? readInput = null, Func<AudioInputFile, BassAudioSession, DecodedAudio>? decode = null)
     {
         ArgumentNullException.ThrowIfNull(bms);
         ArgumentNullException.ThrowIfNull(basePath);
-
         try
         {
-            return LoadCore(bms, basePath, sourceGain, cancellationToken, expectedSession);
+            cancellationToken.ThrowIfCancellationRequested();
+            AudioReference[] references = bms.AudioEvents.Select(item => item.ResourceIndex).Distinct().Order()
+                .Where(index => !string.IsNullOrWhiteSpace(bms.ResourceNames[index]))
+                .Select(index => new AudioReference(index, bms.ResourceNames[index], GetCandidates(basePath, bms.ResourceNames[index])))
+                .ToArray();
+            var resources = new BmsAudioResource?[bms.ResourceNames.Count];
+            // 並列workerは辞書へ書かず、段階の完了結果をこの呼出しだけが追加します。
+            var completed = new Dictionary<string, PathResult>(StringComparer.OrdinalIgnoreCase);
+            int stages = references.Length == 0 ? 0 : references.Max(item => item.Candidates.Length);
+            for (int stage = 0; stage < stages; stage++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                (AudioReference Reference, Candidate Candidate)[] candidates = references.Where(item => resources[item.Index] == null && stage < item.Candidates.Length)
+                    .Select(item => (Reference: item, Candidate: NormalizeCandidate(item.Candidates[stage])))
+                    .ToArray();
+                Candidate[] work = candidates.Select(item => item.Candidate)
+                    .Where(item => !completed.ContainsKey(item.Path))
+                    .DistinctBy(item => item.Path, StringComparer.OrdinalIgnoreCase).ToArray();
+                if (work.Length > 0)
+                {
+                    expectedSession ??= CaptureActiveSession();
+                    BassAudioSession session = expectedSession;
+                    PathResult[] results = Partitioner.Create(work, EnumerablePartitionerOptions.NoBuffering)
+                        .AsParallel().WithCancellation(cancellationToken)
+                        .WithDegreeOfParallelism(Environment.ProcessorCount)
+                        .Select(item => ReadAndDecode(item, session, sourceGain, cancellationToken, readInput, decode)).ToArray();
+                    foreach (PathResult result in results) completed.Add(result.Path, result);
+                }
+                foreach ((AudioReference reference, Candidate candidate) in candidates)
+                {
+                    PathResult result = completed[candidate.Path];
+                    if (result.Resource is BmsAudioResource resource) resources[reference.Index] = resource;
+                    else if (result.Failure is AudioSourceLoadException failure)
+                    {
+                        // 後続欠落で実際の復号・アクセス失敗を上書きしません。全欠落なら最初の要求を残します。
+                        if (reference.Failure == null || (IsMissing(reference.Failure.Exception) && !IsMissing(failure)))
+                            reference.Failure = new BmsAudioLoadFailure(reference.Index, reference.Name,
+                                candidate.Path, candidate.Path, failure);
+                    }
+                }
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            BmsAudioLoadFailure[] failures = references.Where(item => resources[item.Index] == null)
+                .Select(item => item.Failure ?? throw new InvalidOperationException("An unresolved audio reference has no failure."))
+                .GroupBy(item => item.NormalizedPath, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.MinBy(item => item.Index) ?? throw new InvalidOperationException("An audio failure group is empty."))
+                .OrderBy(item => item.Index).ToArray();
+            return new BmsAudioResourceLoadResult(resources, failures);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (AudioSourceFatalException)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (AudioSourceFatalException) { throw; }
         catch (Exception exception)
         {
-            throw new AudioSourceFatalException(
-                "BMS audio loading failed outside a classified input read or decode failure.",
-                exception);
+            throw new AudioSourceFatalException("Audio loading failed outside a classified input read or decode failure.", exception);
         }
     }
 
-    private static BmsAudioResourceLoadResult LoadCore(BMSFile bms, string basePath, float sourceGain,
-        CancellationToken cancellationToken, BassAudioSession? expectedSession)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        int[] requiredIndices = BmsAudioFrameSchedule.GetRequiredAudioIndices(bms);
-        BmsAudioPathRequest[] requests = requiredIndices
-            .AsParallel()
-            .AsOrdered()
-            .WithCancellation(cancellationToken)
-            .WithDegreeOfParallelism(Environment.ProcessorCount)
-            .Select(index =>
-            {
-                string resourceName = bms.WavArray[index];
-                cancellationToken.ThrowIfCancellationRequested();
-                string? path = FindAudioPath(basePath, resourceName, cancellationToken);
-                return path == null ? (BmsAudioPathRequest?)null : new BmsAudioPathRequest(index, resourceName, path);
-            })
-            .Where(request => request.HasValue)
-            .Select(request => request.GetValueOrDefault())
-            .ToArray();
-
-        BmsAudioSourceWork[] groupedWork = GroupByNormalizedPath(requests, out BmsAudioLoadFailure[] pathFailures);
-        var failures = new ConcurrentQueue<BmsAudioLoadFailure>(pathFailures);
-        var resourcesByIndex = new BmsAudioResource?[bms.WavArray.Length];
-        BmsAudioSourceWork[] readableWork = groupedWork
-            .Where(work => work.PathNormalizationFailure == null)
-            .ToArray();
-
-        if (readableWork.Length > 0)
-        {
-            expectedSession ??= CaptureActiveSession();
-            try
-            {
-                Partitioner.Create(readableWork, EnumerablePartitionerOptions.NoBuffering)
-                    .AsParallel()
-                    .WithCancellation(cancellationToken)
-                    .WithDegreeOfParallelism(Environment.ProcessorCount)
-                    .ForAll(work => LoadResource(work, expectedSession, resourcesByIndex, failures, sourceGain, cancellationToken));
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                throw new AudioSourceFatalException(
-                    "BMS audio loading failed outside an input read or decode failure.",
-                    exception);
-            }
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return new BmsAudioResourceLoadResult(
-            resourcesByIndex,
-            failures.OrderBy(failure => failure.Index).ToArray(),
-            groupedWork.Length);
-    }
-
-    /// <summary>先読みの全期間を占有せず、各復号で照合する現在の音声sessionを捕捉します。</summary>
+    /// <summary>各復号で照合する現在の音声sessionを、操作権を長期占有せず捕捉します。</summary>
     internal static BassAudioSession CaptureActiveSession()
     {
         using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
         BassAudioSession? session = BassAudioPlayer.CurrentSessionForAdmittedOperation;
-        return session?.State == BassAudioSessionState.Active
-            ? session
-            : throw new InvalidOperationException("An active audio session is required to load BMS audio.");
+        return session?.State == BassAudioSessionState.Active ? session
+            : throw new InvalidOperationException("An active audio session is required to load audio.");
     }
 
-    private static BmsAudioSourceWork[] GroupByNormalizedPath(
-        IReadOnlyList<BmsAudioPathRequest> requests,
-        out BmsAudioLoadFailure[] failures)
+    private static string[] GetCandidates(string basePath, string name)
     {
-        var groupsByPath = new Dictionary<string, BmsAudioSourceWork>(StringComparer.OrdinalIgnoreCase);
-        var groups = new List<BmsAudioSourceWork>();
-        foreach (BmsAudioPathRequest request in requests)
-        {
-            string pathKey;
-            Exception? pathFailure = null;
-            try
-            {
-                pathKey = Path.GetFullPath(request.Path);
-            }
-            catch (Exception exception) when (exception is IOException
-                or UnauthorizedAccessException
-                or ArgumentException
-                or NotSupportedException)
-            {
-                pathKey = request.Path;
-                pathFailure = exception;
-            }
-
-            if (!groupsByPath.TryGetValue(pathKey, out BmsAudioSourceWork? group))
-            {
-                group = new BmsAudioSourceWork(pathKey);
-                groupsByPath.Add(pathKey, group);
-                groups.Add(group);
-            }
-            group.Add(request, pathFailure);
-        }
-
-        var pathFailures = new List<BmsAudioLoadFailure>();
-        foreach (BmsAudioSourceWork group in groups)
-        {
-            group.SortRequests();
-            BmsAudioPathRequest first = group.Requests[0];
-            if (group.PathNormalizationFailure is Exception normalizationFailure)
-            {
-                pathFailures.Add(new BmsAudioLoadFailure(
-                    first.Index,
-                    first.ResourceName,
-                    first.Path,
-                    group.Path,
-                    new AudioSourceLoadException(
-                        AudioSourceLoadStage.InspectContainer,
-                        first.Path,
-                        "The audio input path could not be resolved.",
-                        normalizationFailure)));
-            }
-        }
-
-        failures = pathFailures.ToArray();
-        return groups.ToArray();
+        IEnumerable<string> names = Resources.NormalizeExtension(name);
+        string basename = Path.GetFileName(name);
+        if (!string.Equals(name, basename, StringComparison.Ordinal)) names = names.Concat(Resources.NormalizeExtension(basename));
+        return names.Select(item => Path.Combine(basePath, item)).ToArray();
     }
 
-    private static void LoadResource(
-        BmsAudioSourceWork work,
-        BassAudioSession expectedSession,
-        BmsAudioResource?[] resourcesByIndex,
-        ConcurrentQueue<BmsAudioLoadFailure> failures,
-        float sourceGain, CancellationToken cancellationToken)
+    private static Candidate NormalizeCandidate(string path)
     {
-        BmsAudioPathRequest first = work.Requests[0];
-        try
+        try { return new Candidate(Path.GetFullPath(path), null); }
+        catch (Exception cause) when (cause is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            using AudioInputFile input = ReadInput(work.Path);
-            cancellationToken.ThrowIfCancellationRequested();
-            DecodedAudio decoded = AudioSourceLoader.Decode(input, expectedSession);
-            cancellationToken.ThrowIfCancellationRequested();
-            var resource = new BmsAudioResource(work.Path, decoded, sourceGain);
-            foreach (BmsAudioPathRequest request in work.Requests)
-            {
-                resourcesByIndex[request.Index] = resource;
-            }
-        }
-        catch (Exception exception) when (exception is AudioSourceLoadException { IsInputFailure: true })
-        {
-            failures.Enqueue(new BmsAudioLoadFailure(
-                first.Index,
-                first.ResourceName,
-                first.Path,
-                work.Path,
-                exception));
+            return new Candidate(path, new AudioSourceLoadException(AudioSourceLoadStage.InspectContainer, path,
+                "The audio input path could not be resolved.", cause));
         }
     }
 
-    private static AudioInputFile ReadInput(string path)
+    private static PathResult ReadAndDecode(Candidate candidate, BassAudioSession session, float gain,
+        CancellationToken cancellationToken, Func<string, AudioInputFile>? readInput,
+        Func<AudioInputFile, BassAudioSession, DecodedAudio>? decode)
     {
         try
         {
-            return AudioInputFile.Read(path);
-        }
-        catch (AudioSourceLoadException)
-        {
-            throw;
-        }
-        catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException)
-        {
-            throw new AudioSourceLoadException(
-                AudioSourceLoadStage.InspectContainer,
-                path,
-                "The audio input could not be read.",
-                exception);
-        }
-    }
-
-    private static string? FindAudioPath(string basePath, string resourceName, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(resourceName))
-        {
-            return null;
-        }
-
-        string? firstCandidate = null;
-        foreach (string item in Resources.NormalizeExtension(resourceName))
-        {
             cancellationToken.ThrowIfCancellationRequested();
-            string path = Path.Combine(basePath, item);
-            firstCandidate ??= path;
-            if (LongPathFileSystem.FileExists(path))
+            if (candidate.Failure is AudioSourceLoadException pathFailure) throw pathFailure;
+            AudioInputFile input;
+            try { input = readInput == null ? AudioInputFile.Read(candidate.Path) : readInput(candidate.Path); }
+            catch (Exception cause) when (cause is not AudioSourceLoadException
+                && (cause is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException))
             {
-                return path;
+                throw new AudioSourceLoadException(AudioSourceLoadStage.InspectContainer, candidate.Path,
+                    "The audio input could not be read.", cause);
             }
-        }
-
-        string fileName = Path.GetFileName(resourceName);
-        if (!string.Equals(resourceName, fileName, StringComparison.Ordinal))
-        {
-            foreach (string item in Resources.NormalizeExtension(fileName))
+            using (input)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string path = Path.Combine(basePath, item);
-                firstCandidate ??= path;
-                if (LongPathFileSystem.FileExists(path))
-                {
-                    return path;
-                }
+                DecodedAudio audio = decode == null ? AudioSourceLoader.Decode(input, session) : decode(input, session);
+                cancellationToken.ThrowIfCancellationRequested();
+                return new PathResult(candidate.Path, new BmsAudioResource(candidate.Path, audio, gain), null);
             }
         }
-
-        return firstCandidate;
-    }
-
-    private sealed class BmsAudioSourceWork(string path)
-    {
-        private readonly List<BmsAudioPathRequest> requests = [];
-
-        internal string Path { get; } = path;
-
-        internal IReadOnlyList<BmsAudioPathRequest> Requests => requests;
-
-        internal Exception? PathNormalizationFailure { get; private set; }
-
-        internal void Add(BmsAudioPathRequest request, Exception? pathNormalizationFailure)
+        catch (AudioSourceLoadException failure) when (failure.IsInputFailure)
         {
-            requests.Add(request);
-            PathNormalizationFailure ??= pathNormalizationFailure;
+            return new PathResult(candidate.Path, null, failure);
         }
-
-        internal void SortRequests() => requests.Sort(static (left, right) => left.Index.CompareTo(right.Index));
     }
+
+    private static bool IsMissing(Exception exception) => exception is FileNotFoundException or DirectoryNotFoundException
+        || (exception.InnerException is Exception cause && IsMissing(cause));
+
+    private sealed class AudioReference(int index, string name, string[] candidates)
+    {
+        internal int Index { get; } = index;
+        internal string Name { get; } = name;
+        internal string[] Candidates { get; } = candidates;
+        internal BmsAudioLoadFailure? Failure { get; set; }
+    }
+    private readonly record struct Candidate(string Path, AudioSourceLoadException? Failure);
+    private sealed record PathResult(string Path, BmsAudioResource? Resource, AudioSourceLoadException? Failure);
 }

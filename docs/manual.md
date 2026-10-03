@@ -36,7 +36,7 @@ In addition to the basic features of the traditional version, this fork includes
 - Faster initialization, reload, and list display for large libraries
 - Fast file enumeration and resource index creation using `Everything 1.5 (x64)`
 - Faster install-destination estimation, estimated-destination install, and duplicate folder merging
-- bmson management support, though playback is not supported
+- bmson management, built-in audio playback, and audio-file conversion
 - Standalone mode that does not depend on LR2
 - Enhanced LR2 integration, including `song.db` generation and synchronization
 - Portable application packaging
@@ -486,7 +486,7 @@ File organization:
 - `Remove entry`: In playlist detail, removes the selected row from the playlist.
 - `Delete file`: Lets you choose `Rename to invalid extension (*.bmx/pmx)` or `Move to Recycle Bin`.
 - `Auto rename folder`: Renames the selected chart's folder according to the folder-name format in settings.
-- `Convert to audio file`: Outputs the chart playback result as an audio file according to the recording settings in the settings dialog.
+- `Convert to audio file`: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.
 
 When you run `Delete file` -> `Move to Recycle Bin` in the normal library, if deleting the selected chart would leave no charts in the target folder, you may be asked to confirm moving the entire folder to the Recycle Bin. In that case, bundled files other than charts will also be moved. Check the target path in the confirmation dialog before executing.
 
@@ -581,7 +581,9 @@ You can play a chart by double-clicking it in a list or pressing Enter. Select t
 
 The built-in player is for simple audio-only preview playback. When using an external player, specify the corresponding executable file.
 
-bmson is treated as a chart file in the library, but it is currently not supported for playback in the built-in player or for `Convert to audio file`. It also cannot be passed to a configured external player by the normal playback operation. If you want to play bmson, open it from an external app that supports bmson, for example by using `Open with association`.
+The built-in player supports BMS / bmson audio playback. It reads bmson 1.0.0 and legacy 0.21, and supports next-chart navigation, pause, and seek in lists containing both BMS and bmson. It plays sound-channel continuations, restarts, and explicit long-note release sounds. BGA, key-press-only sounds, and mine sounds are outside the audio preview. The panel counts notes for preview progress; those counts may differ from game scoring.
+
+`Convert to audio file` also supports BMS / bmson and uses the recording settings. The selected charts need their audio resources. Built-in playback support does not change the formats supported by a configured external player. To open bmson in an external app, use an operation such as `Open with association` and choose an app that supports bmson.
 
 Recording is configured on the `Recording` tab in the settings dialog, where you set the save format, quality, sample rate, filename format, and encoder location. It is safer to confirm the recording destination and encoding format in advance using a short chart.
 

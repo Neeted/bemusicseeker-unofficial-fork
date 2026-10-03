@@ -12,8 +12,12 @@ using Ribbit.Util.Extensions;
 
 namespace Ribbit.BMS;
 
-public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer(bms)
+public class BMSAutoPlayWriter : BMSAutoPlayer
 {
+    public BMSAutoPlayWriter(BMSFile bms) : base(bms) { }
+
+    /// <summary>形式共通の譜面を同じPCM render・正規化・encoder経路へ接続します。</summary>
+    public BMSAutoPlayWriter(PlaybackChart chart) : base(chart) { }
     private const int PullBlockFrames = 4096;
     public enum Normalization
     {
@@ -67,8 +71,8 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer(bms)
         }
 
         ResetPlaybackState();
-        string artist = ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim();
-        string title = ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim();
+        string artist = ((base.Chart.Artist.Trim() ?? string.Empty) + " " + (base.Chart.Subartist?.Trim() ?? string.Empty)).Trim();
+        string title = ((base.Chart.Title.Trim() ?? string.Empty) + " " + (base.Chart.Subtitle?.Trim() ?? string.Empty)).Trim();
         if (string.IsNullOrWhiteSpace(filePathWithoutExtension))
         {
             filePathWithoutExtension = AppContext.BaseDirectory;
@@ -105,11 +109,11 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer(bms)
         AudioTagInfo tagInfo = new(
             artist,
             title,
-            genre: base.Bms.Genre.Trim() ?? string.Empty,
+            genre: base.Chart.Genre.Trim() ?? string.Empty,
             durationSeconds: (double)totalFrames / renderer.SampleRate,
-            bpm: base.Bms.Bpm?.ToDouble().ToString() ?? string.Empty,
-            fileName: base.Bms.Path,
-            comment: base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0)
+            bpm: (base.Bms?.Bpm?.ToDouble() ?? base.Chart.Bpm.ToDouble()).ToString(),
+            fileName: base.Chart.Path,
+            comment: base.Chart.Hash + ((base.Bms?.RandomPattern.Count > 0)
                 ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))
                 : string.Empty));
 
@@ -180,6 +184,8 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer(bms)
 
     private long GetRenderFrameCount(int outputSampleRate)
     {
+        if (base.Chart.Bms == null)
+            return base.AudioSchedule.Events.Select(item => item.EndFrame ?? item.StartFrame).DefaultIfEmpty(0).Max();
         long totalFrames = AudioFrameMath.TimeToFrame(base.Duration, outputSampleRate);
         foreach (BmsAudioFrameEvent audioEvent in base.AudioSchedule.Events)
         {

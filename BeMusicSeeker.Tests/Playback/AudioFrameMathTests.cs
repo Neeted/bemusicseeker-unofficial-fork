@@ -1,6 +1,8 @@
 using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
+using Ribbit.BMS;
+using System.Numerics;
 
 namespace BeMusicSeeker.Tests;
 
@@ -8,6 +10,20 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AudioFrameMathTests
 {
+    [TestMethod]
+    public void SubtickFrameBoundariesAreDirectAndBmsTicksRemainExact()
+    {
+        BigInteger grid = BigInteger.One << 32;
+        var first = new PlaybackTime(625 * grid / 4);
+        var third = new PlaybackTime(1875 * grid / 4);
+        Assert.AreEqual(0L, first.ToOutputFrame(32000));
+        Assert.AreEqual(2L, third.ToOutputFrame(32000));
+        Assert.AreEqual(0L, first.ToSourceFrame(32000));
+        Assert.AreEqual(1L, third.ToSourceFrame(32000));
+        foreach (long ticks in new long[] { -300, 0, 100, 150000, 9999999999 })
+            Assert.AreEqual(AudioFrameMath.TimeToFrame(TimeSpan.FromTicks(ticks), 48000), PlaybackTime.FromTimeSpan(TimeSpan.FromTicks(ticks)).ToOutputFrame(48000));
+    }
+
     [TestMethod]
     public void AbsoluteTimeUsesTiesToEvenAtTheEffectiveSampleRate()
     {

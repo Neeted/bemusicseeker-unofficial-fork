@@ -1014,6 +1014,7 @@
   "Error_InvalidLR2ScoreDbFile": "파일을 찾을 수 없거나 확장자가 .db가 아닙니다.",
   "Error_InvalidPlayerExecutableFormat": "실행 파일을 찾을 수 없거나 {0} 파일이 아닙니다.",
   "Error_ExecutableNotFound": "실행 파일을 찾을 수 없습니다.",
+  "Error_InvalidBmsonInputFormat": "잘못된 bmson 입력: {0}",
   "Error_BmsFileNotFound": "BMS 파일을 찾을 수 없습니다.",
   "Error_InvalidHashFormat": "올바른 {0} 해시가 아닙니다.",
   "Error_InvalidHashValueFormat": "올바른 {0} 해시가 아닙니다. 값: {1}",

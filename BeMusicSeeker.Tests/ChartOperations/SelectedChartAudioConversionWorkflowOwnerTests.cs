@@ -8,9 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Tests.Helpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
@@ -28,22 +30,74 @@ namespace BeMusicSeeker.Tests;
 public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 {
     [TestMethod]
-    public void Request_FiltersCapabilityBmsKindAndExistingFilesInSelectionOrder()
+    public void ProductionExecutorExportsBmsonThroughTheSharedWriterAndReleasesItsSession()
+    {
+        string root = CreateRoot();
+        var lease = new BassAudioSessionLease();
+        SampleRate previousFrequency = BassAudioPlayer.Frequency;
+        SampleFormat previousFormat = BassAudioPlayer.Format;
+        string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+        try
+        {
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            string path = Path.Combine(root, "chart.bmson");
+            File.WriteAllBytes(Path.Combine(root, "tone.wav"), CreatePcmWave());
+            File.WriteAllText(path, "{\"info\":{\"init_bpm\":120,\"title\":\"Bmson export\"},\"sound_channels\":[{\"name\":\"tone.wav\",\"notes\":[{\"y\":0},{\"y\":0,\"x\":1}]}]}");
+            var executor = new BassSelectedChartAudioConversionExecutor(BassAudioWriter.TryReleaseEncoder, BassAudioPlayer.Free, lease);
+            var settings = new SelectedChartAudioConversionSettingsSnapshot(EncoderType.WAVE, SampleRate.SAMPLE_RATE_48000Hz,
+                SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 1f, "%TITLE%", "WAVE", "48000Hz", "float");
+            var results = new List<SelectedChartAudioConversionFileResult>();
+            executor.Execute([CreateTarget(path, ChartOperationCapabilities.ConvertToAudio).Chart], root, settings,
+                CancellationToken.None, _ => Assert.Fail("WAVE should be available."), results.Add);
+            Assert.AreEqual(1, results.Count);
+            Assert.IsNull(results[0].Error);
+            Assert.IsNull(lease.Session);
+            AudioTestWaveFile wave = AudioTestWaveFileReader.Read(File.ReadAllBytes(Path.Combine(root, "Bmson export.wav")));
+            Assert.AreEqual(4800, wave.DataLength / (wave.Channels * sizeof(float)));
+        }
+        finally
+        {
+            BassAudioWriter.TryReleaseEncoder();
+            if (lease.Session != null) lease.TryRelease(BassAudioPlayer.Free);
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = previousFrequency;
+            BassAudioPlayer.Format = previousFormat;
+            BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public void Request_FiltersCapabilityAndExistingFilesAcrossChartKindsInSelectionOrder()
     {
         string root = CreateRoot();
         try
         {
-            string firstPath = CreateChartFile(root, "first.bms");
-            string secondPath = CreateChartFile(root, "second.bms");
-            ChartOperationTarget first = CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio);
-            ChartOperationTarget ineligible = CreateTarget(CreateChartFile(root, "ignored.bms"), ChartOperationCapabilities.None);
-            ChartOperationTarget second = CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio);
-            ChartOperationTarget missing = CreateTarget(Path.Combine(root, "missing.bms"), ChartOperationCapabilities.ConvertToAudio);
+            ChartOperationTarget first = CreateResolvedTarget(CreateChartFile(root, "first.bmson"));
+            ChartOperationTarget second = CreateResolvedTarget(CreateChartFile(root, "second.bms"));
+            ChartOperationTarget missingBms = CreateResolvedTarget(Path.Combine(root, "missing.bms"));
+            ChartOperationTarget missingBmson = CreateResolvedTarget(Path.Combine(root, "missing.bmson"));
 
-            var request = new SelectedChartAudioConversionRequest([first, ineligible, second, missing]);
+            var request = new SelectedChartAudioConversionRequest([first, missingBms, second, missingBmson]);
 
             Assert.IsTrue(request.HasTargets);
             CollectionAssert.AreEqual(new[] { first, second }, request.Targets.ToArray());
+            Assert.IsNull(first.Chart.GetBmsStorageOwner());
+            Assert.IsTrue(missingBms.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+            Assert.IsTrue(missingBmson.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+
+            ChartOperationTarget pendingBms = CreateResolvedTarget(
+                CreateChartFile(root, "pending.bms"), ChartOperationSourceScope.PendingPackage);
+            ChartOperationTarget pendingBmson = CreateResolvedTarget(
+                CreateChartFile(root, "pending.bmson"), ChartOperationSourceScope.PendingPackage);
+            var pendingRequest = new SelectedChartAudioConversionRequest([pendingBmson, pendingBms]);
+
+            Assert.IsTrue(pendingBms.IsPending);
+            Assert.IsTrue(pendingBmson.IsPending);
+            Assert.IsFalse(pendingRequest.HasTargets);
+            Assert.AreEqual(0, pendingRequest.Targets.Count);
         }
         finally
         {
@@ -191,7 +245,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 ExecuteAction = (files, _, _, _, report) =>
                 {
                     bool canContinue = BassSelectedChartAudioConversionExecutor.CompleteFile(
-                        files[0].path,
+                        files[0].Path,
                         primaryFailure,
                         () => false,
                         report);
@@ -472,9 +526,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
             AudioSourceFatalException failure = Assert.ThrowsException<AudioSourceFatalException>(() => executor.Execute(
                 [
-                    new ModelBmsFile { path = firstPath },
-                    new ModelBmsFile { path = secondPath },
-                    new ModelBmsFile { path = thirdPath }
+                    ChartFileProjection.FromBmsFile(new ModelBmsFile { path = firstPath }),
+                    ChartFileProjection.FromBmsFile(new ModelBmsFile { path = secondPath }),
+                    ChartFileProjection.FromBmsFile(new ModelBmsFile { path = thirdPath })
                 ],
                 outputDirectory,
                 settings,
@@ -941,8 +995,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         string root = CreateRoot();
         try
         {
-            string firstPath = CreateChartFile(root, "first.bms");
+            string firstPath = CreateChartFile(root, "first.bmson");
             string secondPath = CreateChartFile(root, "second.bms");
+            ChartOperationTarget first = CreateResolvedTarget(firstPath);
+            ChartOperationTarget second = CreateResolvedTarget(secondPath);
             var events = new EventLog();
             var dialogs = new RecordingDialogService(events)
             {
@@ -950,12 +1006,17 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
+            IReadOnlyList<ChartFile>? executedCharts = null;
+            SelectedChartAudioConversionSettingsSnapshot? executedSettings = null;
             var executor = new RecordingExecutor(events)
             {
-                ExecuteAction = (_, _, _, _, report) =>
+                ExecuteAction = (charts, _, settings, cancellationToken, report) =>
                 {
-                    report(new SelectedChartAudioConversionFileResult("success.bms"));
-                    report(new SelectedChartAudioConversionFileResult("failure.bms", new InvalidOperationException("render failed")));
+                    executedCharts = charts.ToArray();
+                    executedSettings = settings;
+                    Assert.IsFalse(cancellationToken.IsCancellationRequested);
+                    report(new SelectedChartAudioConversionFileResult(firstPath));
+                    report(new SelectedChartAudioConversionFileResult(secondPath, new InvalidOperationException("render failed")));
                 }
             };
             var playback = new RecordingPlayback(events);
@@ -963,10 +1024,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events, fallbackValues);
 
             SelectedChartAudioConversionResult result = await owner.RunAsync(
-                new SelectedChartAudioConversionRequest([
-                    CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
-                    CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
-                ]));
+                new SelectedChartAudioConversionRequest([first, second]));
 
             Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, result.Status);
             Assert.AreEqual(2, result.TotalCount);
@@ -976,6 +1034,20 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(0, result.UnprocessedCount);
             Assert.AreEqual(1, executor.CallCount);
             Assert.AreEqual(root, executor.SaveDirectory);
+            Assert.IsNotNull(executedCharts);
+            CollectionAssert.AreEqual(new[] { first.Chart, second.Chart }, executedCharts.ToArray());
+            Assert.IsNull(executedCharts[0].GetBmsStorageOwner());
+            Assert.IsNotNull(executedSettings);
+            Assert.AreEqual(EncoderType.MP3_LAME, executedSettings.Encoder);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, executedSettings.EncoderSampleRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, executedSettings.EncoderFormat);
+            Assert.AreEqual(AudioNormalization.None, executedSettings.EncoderNormalization);
+            Assert.AreEqual(0.8f, executedSettings.EncoderQuality);
+            Assert.AreEqual(1f, executedSettings.EncoderAmplifier);
+            Assert.AreEqual("%TITLE%", executedSettings.EncodeFileNameFormat);
+            Assert.AreEqual(AudioResamplingQuality.Default, executedSettings.SampleRateConversionQuality);
+            Assert.AreEqual(1, playback.StopCalls);
+            Assert.AreEqual(1, dialogs.MessageCalls);
             Assert.AreEqual("MP3 LAME", dialogs.ProgressLabel.Split('-')[0].Trim());
             Assert.IsTrue(events.IndexOf("picker") < events.IndexOf("playback"));
             Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("progress"));
@@ -1465,9 +1537,34 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
     private static ChartOperationTarget CreateTarget(string path, ChartOperationCapabilities capabilities)
     {
-        var file = new ModelBmsFile { path = path };
-        var chart = new ChartFile(
-            ChartFileKind.Bms,
+        return new ChartOperationTarget(
+            CreateChart(path),
+            null,
+            ChartOperationSourceScope.Library,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            capabilities);
+    }
+
+    private static ChartOperationTarget CreateResolvedTarget(
+        string path,
+        ChartOperationSourceScope sourceScope = ChartOperationSourceScope.Library)
+    {
+        ChartFile chart = CreateChart(path);
+        ChartListSourceRow row = sourceScope == ChartOperationSourceScope.PendingPackage
+            ? ChartListSourceRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart))
+            : ChartListSourceRow.FromChartFile(chart);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target));
+        return target;
+    }
+
+    private static ChartFile CreateChart(string path)
+    {
+        bool bmson = string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase);
+        ModelBmsFile? file = bmson ? null : new ModelBmsFile { path = path };
+        return new ChartFile(
+            bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
             path,
             "hash-" + Path.GetFileNameWithoutExtension(path),
             null,
@@ -1483,14 +1580,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             null,
             file,
             null);
-        return new ChartOperationTarget(
-            chart,
-            null,
-            ChartOperationSourceScope.Library,
-            isOwned: true,
-            isPending: false,
-            isPlaylistMissing: false,
-            capabilities);
     }
 
     private static string CreateRoot()
@@ -1584,10 +1673,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
         internal string SaveDirectory { get; private set; } = null!;
 
-        internal Action<IReadOnlyList<ModelBmsFile>, string, SelectedChartAudioConversionSettingsSnapshot, CancellationToken, Action<SelectedChartAudioConversionFileResult>> ExecuteAction { get; set; } = null!;
+        internal Action<IReadOnlyList<ChartFile>, string, SelectedChartAudioConversionSettingsSnapshot, CancellationToken, Action<SelectedChartAudioConversionFileResult>> ExecuteAction { get; set; } = null!;
 
         public void Execute(
-            IReadOnlyList<ModelBmsFile> bmsFiles,
+            IReadOnlyList<ChartFile> bmsFiles,
             string saveDirectory,
             SelectedChartAudioConversionSettingsSnapshot settings,
             CancellationToken cancellationToken,

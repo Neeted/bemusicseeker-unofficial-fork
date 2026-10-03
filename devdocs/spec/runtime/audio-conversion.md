@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-オフライン変換、外部エンコーダーの起動、音量調整、結果と後片付けを定めます。可聴再生の初期化と所有は[音声実行基盤](audio.md)に従います。
+BMS・bmsonのオフライン変換、外部エンコーダーの起動、音量調整、結果と後片付けを定めます。可聴再生の初期化と所有は[音声実行基盤](audio.md)に従います。
 
 ## 用語
 
@@ -10,17 +10,25 @@
 
 ## 仕様
 
+### 対象譜面と解析
+
+選択したBMS・bmsonのうち、実pathがあり欠落・保留状態ではない対象を、選択順を保って変換します。メニューと実行側で同じ `ConvertToAudio` 能力を確認し、BMS専用の文字コード・IR等の条件をbmsonへ要求しません。出力先選択と開始・取消・結果通知は同じ変換処理を使います。
+
+`PlaybackChart.Load(path)` が通常再生と同じ形式選択・解析を行い、`BMSAutoPlayWriter` が共通音声区間を出力します。bmsonの旧0.21、固定刻み時刻、音切り、up音は[bmson再生仕様](../library/bmson-playback.md)に従います。ファイル名の `%HASH%` とタグコメントには実入力byteのMD5を使い、題名・作者・ジャンル等は再生解析結果から取り、BMSのRANDOM選択をタグのコメントへ残す既存の意味は維持します。bmsonをBMS保存行に偽造しません。
+
 ### 無音の変換用セッション
 
 `NullDevice` は物理的な出力先を使わない変換専用です。内部ミキサーはFloat32・unityで動作し、有限音源末尾の欠落に対する暫定措置として、再生時の選択値に関わらず初期化時から1スレッドに固定します。BASSmix 2.4.13を維持し、設定・読戻しを確認します。根拠と解除条件は[設計判断](../../decisions/audio-library-boundaries.md#並列ミキシングの末尾欠落に対する暫定措置)を参照します。変換はジョブ固有のNONE係数0.16を持ち、再生用DeviceVolumeとmuteを参照・変更しません。SRC品質は[音声実行基盤](audio.md#src品質と並列ミキシング)の共通設定を変換開始時に捕捉します。
 
-`BMSAutoPlayWriter` は譜面再生と同じ事前読込みpipelineを使います。同一曲内のalias pathは一度だけ読み込み・復号し、対応するWAV indexはpath共有済み `BmsAudioResource` を参照します。発音voiceごとに独立cursorを持つ `FloatWaveSource` を作り、発音ごとのPCM複製はしません。明示された非空WAVの入力読取り・復号失敗は正規化絶対pathごとにWARNを記録して省略し、他の音源で変換を続けます。見つからない非空参照も要求pathの読取り失敗として扱い、全要求pathが失敗した場合は譜面単位で失敗します。未定義・空のWAV定義は従来どおり要求せず、正常な0フレーム音源は失敗に数えません。変換の音量・フレーム配置・完成PCMの契約は変えません。
+`BMSAutoPlayWriter` は譜面再生と同じ[事前読込みpipeline](audio.md#譜面の音源事前読込み)を使います。入力read/decode失敗時は既存拡張子順を進み、サブフォルダーの全候補失敗後にbasenameの候補を試します。曲内の同一正規化絶対pathは失敗・成功とも段階間で共有し、一回だけread/decodeします。成功indexはpath共有 `BmsAudioResource` を参照し、voiceは独立cursorの `FloatWaveSource` を使います。全候補失敗参照だけを最終失敗・省略・採用時WARNに集約し、代替成功の途中失敗は警告へ出しません。最初の実入力失敗原因を後続欠落で上書きせず、全候補欠落なら最初の要求先のread原因を保持します。最終失敗が非空で成功resourceがなければ譜面単位で失敗します。未使用・未定義・空定義は要求せず、正常0frame音源は有効です。出力0frame譜面のencoder前拒否とは区別し、変換の音量・frame配置・完成PCMは維持します。
 
 曲を一回だけレンダーして完成PCMをジョブの配列に保持し、同一データを測定・正規化・エンコードします。PCM全体の再コピーや二回レンダー、レベルAPIによる別のデータ消費はしません。長尺では入力PCMと完成PCMのメモリが同時に必要です。任意サイズのストレージ退避は設けず、配列上限超過は失敗します。
 
-`BmsAudioFrameSchedule` がBGM、可視1P/2P、ロングノート開始1P/2Pから解析済み譜面の音声イベントを列挙し、元の `AbsoluteTime` を実効output mixer rateへ一度だけ最近傍・ties-to-evenで量子化します。負時刻はframe 0へclampし、同一WAV index・同一開始frameの衝突は一発音へ正規化します。別indexのaliasは独立voiceとして残ります。`BMSAutoPlayWriter` はRealtimeと同じ不変scheduleと `BmsScheduledAudioMixer` を用いて有限区間を出力します。各発音の出力frame数は復号済みの正確な入力frame数Nから整数演算で `ceil(N×outputRate/inputRate)` とし、区間を `[StartFrame, EndFrameExclusive)` とします。同indexの次の開始frameで先行voiceを切り、区間差だけをレンダーします。総frame数は、全発音の終端と既存 `Duration` を量子化したframe数の最大値です。既存 `Duration` を下限として、欠損音源のイベントやロングノート終点に由来する従来の末尾無音を維持します。量子化・有限長・source格子の異なる整数演算は [`AudioFrameMath`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioFrameMath.cs) に用途別に分けます。
+`BMSAutoPlayWriter` はRealtimeと同じ不変scheduleと `BmsScheduledAudioMixer` を用い、半開の有限区間 `[StartFrame, EndFrameExclusive)` を出力します。BMSのイベント列挙、同WAV index・同開始frameの正規化、次同indexによる打切りは[音声実行基盤](audio.md#bms音声のframe予約)に従います。BMSでは発音終端と既存 `Duration` の量子化frame数の最大を出力長とし、再発音で切られた音も開始＋音源全長を従来の下限に使います。欠損音源のイベントやLN終点に由来する末尾無音も維持します。
 
-最終区間までミキサーから実PCMを取得し、一律のフレーム追加やゼロ埋めでSRCの末尾を補いません。同じ音源の再発音は従来どおり先頭へ戻し、最後の発音までの区間を取得します。タグの時間長は完成PCMの総フレーム数から求め、リアルタイム再生のDurationは変更しません。
+bmsonは[継続発音列の規則](../library/bmson-playback.md#論理境界のframe変換と継続発音列)に従い、同じ再開からの継続ノートをframe化前に一つの連続voiceへまとめます。途中の論理境界を物理EOFとせず、継続ノートの挿入・削除で同じ再開列のPCMや出力frame数を変えません。実PCM全体から決める[物理終端](../library/bmson-playback.md#物理eof曲長seek)を再生とWriterで共有します。後方欠落・正常0frame・空source窓は音声出力長を延長せず、非空voiceだけの終端を使います。非空voiceがなければ出力計画は0frameであり、既存のencoder前拒否を維持します。別の再開と別チャンネルの非空voiceは独立し、BMSのindex排他は適用しません。表示終端・ノート情報とBMSの末尾無音下限は維持します。
+
+最終区間までミキサーから実PCMを取得し、一律のフレーム追加やゼロ埋めでSRCの末尾を補いません。タグの時間長は完成PCMの総フレーム数から求めます。
 
 全体Peakは最大絶対値、RMSは全チャンネル全サンプルの二乗平均平方根です。二乗和はdouble補償加算で求めます。追加増幅Aは有限・非負に限り、NONEは0.16×A、PEAKは0.99/Peak×A、RMSは0.4/RMS×Aです。無音・空入力の測定は0で、無音を維持します。gainはdoubleで計算し、最終適用時にfloat32へ丸めます。
 
@@ -100,6 +108,10 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| BMS・bmsonの変換許可、選択順、保留・消失ファイルの除外と実行への受渡し | [`GridRowResolver`](../../../BeMusicSeeker/ViewModels/ChartList/GridRowResolver.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の変換メニュー、`SelectedChartAudioConversionWorkflowOwner` | [譜面モデルの能力・メニューテスト](../library/chart-model.md#実装とテストの対応)に加え、[`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `Request_FiltersCapabilityAndExistingFilesAcrossChartKindsInSelectionOrder` は実際のresolverから得た対象で形式共通の選択順・ファイル存在確認と両形式の保留拒否を確認し、`RunAsync_AcceptedRoutePreservesCountsSettingsAndTerminalNotificationOrder` はbmsonを先頭にした混在選択を正確な譜面参照のままexecutorへ渡し、設定・件数・再生停止・一回の完了通知の順序を確認する。 |
+| bmsonの共有区間一回・別channelの重なり、EOF尾部・LN・明示up | `PlaybackChart.Load`、`BMSAutoPlayWriter` | [`BMSAutoPlayWriterTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) の `BmsonWriterContinuationInsertionKeepsContinuousPcmAndPhysicalEof` / `BmsonWriterContinuationRunsPreserveRestartAndSamePathChannelOverlap` / `BmsonWriterLongNoteDoesNotCutAudioAndExplicitOrphanUpSoundsAtItsOwnPulse`。出力frameと同rate生成PCMの条件は[bmson再生仕様](../library/bmson-playback.md#実装とテストの対応)を参照する。 |
+| 復号失敗後の代替と直接正常音源の出力frame・PCM一致 | 共通音源ローダー、`BMSAutoPlayWriter` | `BMSAutoPlayWriterTests.WriterFallbackMatchesDirectHealthySourcePcmAndFrames` がBMS・bmson両形式を同じ生成PCMと比較する。 |
+| bmsonの非空voiceだけの音声終端、後方空イベントと有効な再開の区別 | `BmsAudioFrameSchedule.Create`、`BMSAutoPlayer`、`BMSAutoPlayWriter` | `BMSAutoPlayWriterTests.BmsonAudioEndUsesOnlyNonemptyVoicesAcrossLoadPreparationAndWriter` が通常ロード・実準備結果採用・出力WAVを比較し、表示情報と正常0frame受理、0frameエンコード拒否を確認する。 |
 | 形式、引数、品質、タグと拡張子 | [`AudioEncoderCommandFactory`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioEncoderCommandFactory.cs)、[`AudioTagInfo`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioTagInfo.cs) | [`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)、[`AudioEncoderCommandFactoryTests`](../../../BeMusicSeeker.Tests/Playback/AudioEncoderCommandFactoryTests.cs) |
 | 開始・通知・停止・実形式、途中終了と解放の所有 | [`AudioEncoderSession`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioEncoderSession.cs)、[`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`AudioEncoderSessionTests`](../../../BeMusicSeeker.Tests/Playback/AudioEncoderSessionTests.cs)、[`BassAudioWriterTests`](../../../BeMusicSeeker.Tests/Playback/BassAudioWriterTests.cs) |
 | 選択後の出力先消失を再生停止前に拒否し、変換開始時にも再確認 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs)、`BassSelectedChartAudioConversionExecutor` | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) は選択直後の消失時に停止・進捗・通知が行われないこと、停止時に消失した場合にexecutorが拒否することを確認する。 |

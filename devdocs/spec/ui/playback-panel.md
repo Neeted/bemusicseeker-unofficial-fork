@@ -14,7 +14,19 @@
 
 `PlaybackPanelViewModel.PlayerPanelState` が保存された要求状態の正本です。表示は設定を直接読まず、利用可能な面を考慮した `EffectivePlayerPanelState` を使います。`TITLE_SMALL` は小型表示のフラグ、値0の `TITLE_LARGE` は正規の拡大型であり、未初期化ではありません。
 
-表示面は画像とBMSプレイヤーです。プレイヤーを使えない場合は画像を表示しますが、要求状態は書き換えません。小型指定とプレイヤー指定が併存していても、最初のフレームから画像の小型表示になります。
+表示面は画像と内蔵プレイヤーです。プレイヤーを使えない場合は画像を表示しますが、要求状態は書き換えません。小型指定とプレイヤー指定が併存していても、最初のフレームから画像の小型表示になります。
+
+### 共通の再生対象と一覧状態
+
+内蔵再生の選択・キュー・現在曲には共通 `ChartFile` を使います。解析・保存の形式入口から共通モデルへ接続し、次曲・前曲・フォルダ送りは譜面を対象にします。一時配置と終了callbackも、開始時に確定した同じ対象と世代を保持します。外部playerの形式条件は内蔵再生能力から推測しません。
+
+所持カタログを譜面情報の唯一の正本とし、ライブラリ変更時は再生を停止します。`PlaybackPanelViewModel` が現在対象と再生状態を所有します。通常一覧とプレイリスト一覧は `status` getterで元状態の `~PLAYALL` を保持し、種類と実pathの `OrdinalIgnoreCase` 一致時だけ現在の再生bitを重ねます。保存主体・`ChartFile`・一時投影には再生状態を書き戻しません。同対象の複数行と後から実体化する行も同じ現在値を返します。行登録、個別再生通知、別の状態辞書、一覧全件走査は使いません。
+
+準備中は `LOADING` (2)、開始成功と再開は `PLAY` (1)、一時停止は `PAUSE` (4)、停止・開始失敗・対象未設定は `NONE` (0)です。早送り中の `FORWARD` (8) と巻戻し中の `BACKWARD` (16) は現在bitへ加え、操作終了時に方向bitだけ解除します。`PLAYALL=0x1F` です。先読みだけの譜面には状態を付けません。
+
+準備・開始・一時停止・再開・停止・対象変更では既存の非同期UI dispatchを通して `MainChartList.RequestDisplayRefresh` から表の `RefreshDisplay` へ接続します。行集合・順序・選択・スコア・未確定編集を維持してセルの表示値を再評価します。時刻進行だけでは表を更新せず、sessionGateを保持したままUI完了を同期的に待ちません。
+
+題名・字幕・作者は選択対象の共通表示値を使います。表示対象の `DisplayedChart` が変わると画像とバナーを更新します。素材Aから素材B、素材なしへの選曲でも前曲の素材を残さず、素材なしは既定画像とバナー背景なしへ戻します。実開始後のBPM・min/max・total・ノート進行・表示終端は共通再生解析結果を使います。形式固有の表示統計は[bmson再生仕様](../library/bmson-playback.md#共通の再生経路と表示)に従い、音声voice数や他プレイヤーの採点値とは区別します。
 
 ### 初期同期
 
@@ -56,6 +68,8 @@ DataContextが読込み前・読込み中のどちらで設定されても同じ
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 譜面の表示対象変更、素材A→素材B→素材なし | [`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) の `DisplayedChart` 通知と `RefreshArtwork(ChartFile)` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent` は実選曲からcompiled Viewの画像・バナー画素更新と既定画像・背景なしへの復帰を確認する。 |
+| 共通譜面キュー、現在曲表示、再生状態投影、外部playerの能力 | `PlaybackPanelViewModel.NowPlayingChart` / `GetPlaybackStatus`、[`MainChartRowProjectionOwner`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartRowProjectionOwner.cs)、`PlaybackChartQueue` | `PlaybackPanelViewModelTests.PlaybackPanelChartQueueKeepsIdentityStatusAndSingleAdvance` は混在入力を代表として現在対象・ヘッダー・PLAY/PAUSE・一回の送り・旧対象の状態解除と `SCORE_UNSENT` / `SEARCHING` の維持を、`PlaybackPanelDoesNotSendBmsonToAnExternalPlayerWithoutThatCapability` は外部能力の分離を確認する。 |
 | 要求状態と実効状態、初期フレーム、差替え・再読込み、遷移 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) |
 | Ready成功時のPLAY・一回の次候補、一時コピー寿命、停止の終端 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackChartQueue`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackChartQueue.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`InternalReady_StartsNextPreparationBeforeCompletionOrUiPublication`、`TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion`、`FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy`で開始・入力・停止の境界を確認する。[`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)の`PreloadFatal_CloseJoinsPreparationAndNotifiesOnceWithIndependentCleanupFailure`で実内蔵playerの背景故障通知を確認する。 |
 | 停止で表示が失効した後の採用済み準備故障の通知 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`AdoptedPreloadFailure_AfterStopNotifiesOnceWithoutRestarting`でB開始が準備中にStopを受けた後の元原因の一回通知、次へ・停止の終端、自動再開なしと停止表示を確認する。 |

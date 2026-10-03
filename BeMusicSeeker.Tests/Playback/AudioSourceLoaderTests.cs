@@ -455,6 +455,23 @@ public sealed class AudioSourceLoaderTests
     }
 
     [TestMethod]
+    public void FloatWaveSourceFiniteViewKeepsSharedPcmAndIndependentEofAndCursor()
+    {
+        var audio = new DecodedAudio(48000, AudioChannelLayout.CreateStandard(1), new float[] { 0.1f, 0.2f, 0.3f });
+        var finite = new FloatWaveSource(audio, "fixture.wav", endFrame: 2);
+        var whole = new FloatWaveSource(audio, "fixture.wav");
+        Assert.AreEqual(2L, finite.FrameCount);
+        Assert.AreEqual(3L, whole.FrameCount);
+        Assert.AreEqual(88L, finite.TotalLength);
+        byte[] finitePcm = ReadVirtualBytes(finite, 80, 8);
+        CollectionAssert.AreEqual(FloatBytes(new float[] { 0.1f, 0.2f }), finitePcm);
+        CollectionAssert.AreEqual(FloatBytes(new float[] { 0.3f }), ReadVirtualBytes(whole, 88, 4));
+        Assert.IsFalse(finite.Seek(89));
+        Assert.IsTrue(whole.Seek(80));
+        Assert.AreEqual(0.3f, audio.GetSample(2));
+    }
+
+    [TestMethod]
     public void FloatWaveSource_PresentsTheSamePcmWithIndependentByteCursors()
     {
         float[] samples = [1.25f, -1.25f, MathF.ScaleB(1f, -20), 0.5f];

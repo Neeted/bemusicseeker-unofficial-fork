@@ -6814,11 +6814,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     menuItem7.Visibility = Visibility.Collapsed;
                     menuItem7.IsEnabled = false;
                 }
-                if (menuItem19 != null)
-                {
-                    menuItem19.Visibility = Visibility.Collapsed;
-                    menuItem19.IsEnabled = false;
-                }
                 if (menuItemRenameInvalidExt != null)
                 {
                     menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;

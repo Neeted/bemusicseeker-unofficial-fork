@@ -12,6 +12,29 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class NextSongPreloadOwnerTests
 {
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BmsonPreloadDispatchesModernOrLegacyAndKeepsInputFailureUntilAdoption(bool legacy)
+    {
+        using var fixture = new ChartFixture();
+        string path = fixture.Input("next.bmson").Path;
+        File.WriteAllText(path, legacy ? "{\"version\":\"0.21\",\"info\":{\"initBPM\":120},\"soundChannel\":[]}"
+            : "{\"info\":{\"init_bpm\":120},\"sound_channels\":[]}");
+        var owner = new NextSongPreloadOwner((input, token) => PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 0.4f, token));
+        var input = NextSongPreloadInput.Capture(path);
+        PreparedBmsSong prepared = await owner.Request(input);
+        Assert.AreSame(prepared, await owner.TakeAsync(input));
+        Assert.IsNull(prepared.Chart.Bms);
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":0}}");
+        input = NextSongPreloadInput.Capture(path);
+        Task<PreparedBmsSong> failing = owner.Request(input);
+        InvalidBmsonFileException failure = await Assert.ThrowsExceptionAsync<InvalidBmsonFileException>(() => failing);
+        Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
+        Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidBmsonFileException>(() => owner.TakeAsync(input)));
+        Assert.IsNull(await owner.TakeAsync(input));
+    }
+
     [TestMethod]
     public async Task MatchingPreparation_WaitsForTheSameWorkAndTransfersItOnce()
     {

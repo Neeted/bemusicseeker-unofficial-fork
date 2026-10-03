@@ -4,6 +4,8 @@
 
 `Ribbit.BMS.BMSFile` が内蔵再生・音声書出し用に解析する BMS/BME/BML/PMS の数値入力と時刻を定めます。[譜面情報用パーサー](parser-compatibility.md)とは別の経路です。有限値の演算に近似や固定幅の上限を設けず、小節境界で整数 tick を確定します。
 
+bmsonは[専用の再生仕様](bmson-playback.md)に従います。全曲pulseと固定刻み時刻を使うbmsonへの共通化でも、本書のBMS入力・小節境界・同位置制御の規則は変更しません。
+
 本番採用の判断と実譜面比較の根拠は[厳密な有理数によるBMS時刻計算の採用](../../decisions/ribbit-exact-timing-adoption.md)を参照します。
 
 ## 用語

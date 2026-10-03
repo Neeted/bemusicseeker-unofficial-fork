@@ -91,6 +91,7 @@ internal sealed class NextSongPreloadOwner
     /// <summary>通常の入力失敗だけを分類します。parser内部の原因分類はparser自身の契約を使います。</summary>
     internal static bool IsInputFailure(Exception failure) => failure switch
     {
+        Ribbit.BMS.InvalidBmsonFileException => true,
         Ribbit.BMS.BMSFile.InvalidBmsFileException parsed => parsed.IsInputFailure,
         InvalidDataException or IOException or UnauthorizedAccessException => true,
         _ => false

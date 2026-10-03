@@ -7,13 +7,24 @@ using Ribbit.Media.Audio;
 
 namespace Ribbit.BMS;
 
-/// <summary>一つの音声発音を、譜面時刻と量子化後のframeで固定した値です。</summary>
+/// <summary>一つの独立voiceを出力開始・source窓・実出力終端で固定します。BMSの未解決終端は従来規則で算出します。</summary>
+/// <param name="WavIndex">共有PCMのindexです。voice排他の識別とは分けます。</param>
+/// <param name="AbsoluteTime">表示・診断向け整数tick時刻です。bmsonのframe化には使いません。</param>
+/// <param name="StartFrame">絶対曲frameの発音位置です。</param>
+/// <param name="NextSameIndexStartFrame">BMSだけの再発音打切り位置です。</param>
+/// <param name="StableOrder">同frameでの解析順です。</param>
+/// <param name="SourceStartFrame">共有PCM内の絶対開始位置です。</param>
+/// <param name="SourceEndFrame">bmsonの有限source終端です。BMSのnullは元EOFです。</param>
+/// <param name="EndFrame">bmsonで一度解決した実出力終端です。予約・seek・長さ・Writerで共用します。</param>
 internal readonly record struct BmsAudioFrameEvent(
     int WavIndex,
     TimeSpan AbsoluteTime,
     long StartFrame,
     long? NextSameIndexStartFrame,
-    long StableOrder);
+    long StableOrder,
+    long SourceStartFrame = 0,
+    long? SourceEndFrame = null,
+    long? EndFrame = null);
 
 /// <summary>譜面の発音対象を実効sample rateへ一度だけ量子化した変更不能scheduleです。</summary>
 internal sealed class BmsAudioFrameSchedule
@@ -109,6 +120,65 @@ internal sealed class BmsAudioFrameSchedule
         }
 
         return new BmsAudioFrameSchedule(sampleRate, normalized);
+    }
+
+    /// <summary>bmsonの継続列を量子化前に連結し、独立voiceのsource窓と実EOFを一回だけ解決します。実出力のないvoiceは除きます。</summary>
+    internal static BmsAudioFrameSchedule Create(PlaybackChart chart, int sampleRate, IReadOnlyList<BmsAudioResource?> resources)
+    {
+        ArgumentNullException.ThrowIfNull(chart);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+        if (chart.Bms is BMSFile bms) return Create(bms, sampleRate);
+        var resolved = new List<BmsAudioFrameEvent>(chart.AudioEvents.Count);
+        foreach (PlaybackAudioEvent item in CoalesceContinuationRuns(chart.AudioEvents))
+        {
+            long start = item.Start.ToOutputFrame(sampleRate);
+            BmsAudioResource? resource = resources[item.ResourceIndex];
+            long sourceStart = 0, sourceEnd = 0, end = start;
+            if (resource != null)
+            {
+                sourceStart = System.Math.Min(item.SourceStart.ToSourceFrame(resource.Audio.SampleRate), resource.Audio.FrameCount);
+                sourceEnd = item.SourceEnd is PlaybackTime finiteSource
+                    ? System.Math.Min(finiteSource.ToSourceFrame(resource.Audio.SampleRate), resource.Audio.FrameCount)
+                    : resource.Audio.FrameCount;
+                long naturalEnd = checked(start + AudioFrameMath.CeilingOutputFrameCount(
+                    System.Math.Max(0, sourceEnd - sourceStart), resource.Audio.SampleRate, sampleRate));
+                end = item.End is PlaybackTime finiteEnd ? System.Math.Min(naturalEnd, finiteEnd.ToOutputFrame(sampleRate)) : naturalEnd;
+                end = System.Math.Max(start, end);
+            }
+            // 欠落・0frame・空source窓は音声終端を延ばしません。論理イベントはChartに保持します。
+            if (end <= start)
+            {
+                continue;
+            }
+            resolved.Add(new BmsAudioFrameEvent(item.ResourceIndex, item.Start.ToTimeSpan(), start, null,
+                item.StableOrder, sourceStart, sourceEnd, end));
+        }
+        return new BmsAudioFrameSchedule(sampleRate, resolved.OrderBy(item => item.StartFrame)
+            .ThenBy(item => item.StableOrder).ToArray());
+    }
+
+    /// <summary>同じ元channelと再開原点を持つ連続sliceを、空source判定やframe丸めより前にまとめます。</summary>
+    private static IReadOnlyList<PlaybackAudioEvent> CoalesceContinuationRuns(IReadOnlyList<PlaybackAudioEvent> slices)
+    {
+        var runs = new List<PlaybackAudioEvent>(slices.Count);
+        var lastRunByChannel = new Dictionary<int, int>();
+        foreach (PlaybackAudioEvent slice in slices)
+        {
+            if (lastRunByChannel.TryGetValue(slice.ResourceIndex, out int runIndex))
+            {
+                PlaybackAudioEvent run = runs[runIndex];
+                if (run.End is PlaybackTime end && end == slice.Start
+                    && run.SourceEnd is PlaybackTime sourceEnd && sourceEnd == slice.SourceStart
+                    && run.Start - run.SourceStart == slice.Start - slice.SourceStart)
+                {
+                    runs[runIndex] = run with { End = slice.End, SourceEnd = slice.SourceEnd };
+                    continue;
+                }
+            }
+            lastRunByChannel[slice.ResourceIndex] = runs.Count;
+            runs.Add(slice);
+        }
+        return runs;
     }
 
     /// <summary>指定indexの量子化済みイベントをframe昇順で取得します。</summary>

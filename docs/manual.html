@@ -634,7 +634,7 @@ It summarizes the features, behavior, and cautions added or changed in this fork
 <li>Faster initialization, reload, and list display for large libraries</li>
 <li>Fast file enumeration and resource index creation using <code>Everything 1.5 (x64)</code></li>
 <li>Faster install-destination estimation, estimated-destination install, and duplicate folder merging</li>
-<li>bmson management support, though playback is not supported</li>
+<li>bmson management, built-in audio playback, and audio-file conversion</li>
 <li>Standalone mode that does not depend on LR2</li>
 <li>Enhanced LR2 integration, including <code>song.db</code> generation and synchronization</li>
 <li>Portable application packaging</li>
@@ -744,6 +744,9 @@ Table URL import and <code>.bmt</code> output are intended to manage difficulty 
 <h3 id="audio">Audio</h3>
 <p><img alt="Settings Audio" src="img/設定_オーディオ.PNG"/></p>
 <p>Configure playback driver, output device, sample rate, format, buffer size, volume, and related settings. If there is no sound, latency is large, or audio cuts out, check the settings in this tab.</p>
+<p>This page contains Output Settings, Volume, Test, and Advanced Audio Settings in that order. Advanced Audio Settings contains the low-latency option for applicable drivers, buffer size, and resampling quality. Technical diagnostics for capability queries and tests can each be expanded when needed.</p>
+<p>When this page opens, it automatically checks the selected driver and output device. Changing the driver or device resets sample rate and format to <code>Auto</code>; changing the sample rate resets only the format to <code>Auto</code>. These are draft values and do not take effect in settings until you save.</p>
+<p><code>Stop playback and test</code> stops current playback and tests the selected conditions directly, without treating normal-playback fallback as a successful test of those conditions. The test runs outside the UI thread. Until playback and output resources are released, settings controls are disabled and saving, canceling, closing the dialog, and starting another test are unavailable. Capability and test results never write values back to settings.</p>
 <h3 id="recording">Recording</h3>
 <p><img alt="Settings Recording" src="img/設定_録音.PNG"/></p>
 <p>Configure recording format, quality, sample rate, output filename format, encoder location, and related settings. When using external encoders, specify the folder containing the corresponding executable files such as <code>lame.exe</code> or <code>oggenc2.exe</code>.</p>
@@ -1058,7 +1061,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <li><code>Remove entry</code>: In playlist detail, removes the selected row from the playlist.</li>
 <li><code>Delete file</code>: Lets you choose <code>Rename to invalid extension (*.bmx/pmx)</code> or <code>Move to Recycle Bin</code>.</li>
 <li><code>Auto rename folder</code>: Renames the selected chart's folder according to the folder-name format in settings.</li>
-<li><code>Convert to audio file</code>: Outputs the chart playback result as an audio file according to the recording settings in the settings dialog.</li>
+<li><code>Convert to audio file</code>: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.</li>
 </ul>
 <p>When you run <code>Delete file</code> -&gt; <code>Move to Recycle Bin</code> in the normal library, if deleting the selected chart would leave no charts in the target folder, you may be asked to confirm moving the entire folder to the Recycle Bin. In that case, bundled files other than charts will also be moved. Check the target path in the confirmation dialog before executing.</p>
 <p>Screen-specific:</p>
@@ -1130,7 +1133,8 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <h2 id="playback--recording">Playback / Recording</h2>
 <p>You can play a chart by double-clicking it in a list or pressing Enter. Select the player to use on the <code>Playback</code> tab in the settings dialog.</p>
 <p>The built-in player is for simple audio-only preview playback. When using an external player, specify the corresponding executable file.</p>
-<p>bmson is treated as a chart file in the library, but it is currently not supported for playback in the built-in player or for <code>Convert to audio file</code>. It also cannot be passed to a configured external player by the normal playback operation. If you want to play bmson, open it from an external app that supports bmson, for example by using <code>Open with association</code>.</p>
+<p>The built-in player supports BMS / bmson audio playback. It reads bmson 1.0.0 and legacy 0.21, and supports next-chart navigation, pause, and seek in lists containing both BMS and bmson. It plays sound-channel continuations, restarts, and explicit long-note release sounds. BGA, key-press-only sounds, and mine sounds are outside the audio preview. The panel counts notes for preview progress; those counts may differ from game scoring.</p>
+<p><code>Convert to audio file</code> also supports BMS / bmson and uses the recording settings. The selected charts need their audio resources. Built-in playback support does not change the formats supported by a configured external player. To open bmson in an external app, use an operation such as <code>Open with association</code> and choose an app that supports bmson.</p>
 <p>Recording is configured on the <code>Recording</code> tab in the settings dialog, where you set the save format, quality, sample rate, filename format, and encoder location. It is safer to confirm the recording destination and encoding format in advance using a short chart.</p>
 <h2 id="playlists">Playlists</h2>
 <p>In BeMusicSeeker, installed difficulty tables and custom playlists can be managed as <code>playlists</code>. Playlists have a summary view for listing overall ownership status and a detail view for checking individual charts.</p>

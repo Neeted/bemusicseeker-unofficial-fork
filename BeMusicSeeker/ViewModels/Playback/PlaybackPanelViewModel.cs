@@ -49,9 +49,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private volatile bool shutdownStarted;
 
-    private BMSFile nowPlayingBmsFile;
+    private ChartFile nowPlayingBmsFile;
 
-    private BMSFile displayedBmsPlayerFile;
+    private ChartFile displayedBmsPlayerFile;
 
     private int nowPlayingRowIndex = -1;
 
@@ -117,8 +117,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         internal PlaybackStartObservation(
             long generation,
             IBMSPlayer player,
-            BMSFile file,
-            Action<object, EventArgs, long, IBMSPlayer, BMSFile> onExit)
+            ChartFile file,
+            Action<object, EventArgs, long, IBMSPlayer, ChartFile> onExit)
         {
             Generation = generation;
             Player = player;
@@ -130,9 +130,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
         internal IBMSPlayer Player { get; }
 
-        internal BMSFile File { get; }
+        internal ChartFile File { get; }
 
-        internal Action<object, EventArgs, long, IBMSPlayer, BMSFile> OnExit { get; }
+        internal Action<object, EventArgs, long, IBMSPlayer, ChartFile> OnExit { get; }
 
         internal bool StartCompleted { get; set; }
 
@@ -213,7 +213,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     /// <summary>曲開始を直列化し、開始に成功した曲についてだけ次の一件を準備します。</summary>
     private async Task RunPlaybackSelectionAsync(Func<Task> selectAndStart, bool stopIfBusy = false,
-        (long Generation, IBMSPlayer Player, BMSFile File)? naturalExit = null)
+        (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
         // 変更中の入力を予約して後から再生しません。受付済みの開始は変更側の停止が待ちます。
         if (shutdownStarted) { return; }
@@ -232,7 +232,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 {
                     if (acceptedExit.Generation != playbackGeneration
                         || !ReferenceEquals(acceptedExit.Player, bmsPlayer)
-                        || !ReferenceEquals(acceptedExit.File, NowPlayingBmsFile)) { return; }
+                        || !ReferenceEquals(acceptedExit.File, NowPlayingChart)) { return; }
                 }
             }
             if (chartFileOperations.IsActive)
@@ -319,7 +319,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     internal void HandleTableSelection(object row)
     {
-        if (NowPlayingBmsFile == null && GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile bmsFile))
+        if (NowPlayingChart == null && GridRowResolver.TryGetPlaybackChart(row, out ChartFile bmsFile))
         {
             SetBmsPlayerHeader(bmsFile);
         }
@@ -330,7 +330,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     {
         if (shutdownStarted || chartFileOperations.IsActive || rowIndex < 0
             || rowIndex >= playbackQueue.Count
-            || !GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile bmsFile))
+            || !GridRowResolver.TryGetPlaybackChart(row, out ChartFile bmsFile)
+            || (bmsFile.Kind == ChartFileKind.Bmson && !RequirePlayer().SupportsBmson))
         {
             return false;
         }
@@ -372,9 +373,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         });
 
     /// <summary>
-    /// Gets the chart whose playback session is active or being prepared.
+    /// 準備または再生中の現在譜面です。譜面情報を変更せず、再生状態の対象として保持します。
     /// </summary>
-    public BMSFile NowPlayingBmsFile
+#nullable enable annotations
+    internal ChartFile? NowPlayingChart
     {
         get => nowPlayingBmsFile;
         private set
@@ -385,15 +387,17 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
 
             nowPlayingBmsFile = value;
+            PlaybackStatusChanged?.Invoke();
             RaisePropertyChanged(nameof(NowPlayingBmsFile));
+            RaisePropertyChanged(nameof(NowPlayingChart));
             RaisePlaybackStatusPropertiesChanged();
         }
     }
 
     /// <summary>
-    /// Gets the chart whose metadata is displayed by the BMS player header.
+    /// ヘッダーと表示素材の対象譜面です。対象未設定時はnullです。
     /// </summary>
-    public BMSFile DisplayedBmsPlayerFile
+    internal ChartFile? DisplayedChart
     {
         get => displayedBmsPlayerFile;
         private set
@@ -402,15 +406,55 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 displayedBmsPlayerFile = value;
                 RaisePropertyChanged(nameof(DisplayedBmsPlayerFile));
+                RaisePropertyChanged(nameof(DisplayedChart));
             }
         }
     }
 
-    public bool IsPlaying => NowPlayingBmsFile?.status.HasFlag(BMSFile.BMSFileStatus.PLAY) == true;
+    /// <summary>BMS保存主体を必要とする既存呼出元向けの明示的な投影です。bmsonではnullです。</summary>
+    public BMSFile? NowPlayingBmsFile => NowPlayingChart?.GetBmsStorageOwner();
 
-    public bool IsPaused => NowPlayingBmsFile?.status.HasFlag(BMSFile.BMSFileStatus.PAUSE) == true;
+    /// <summary>BMSの既存表示呼出元向けの保存主体です。bmsonと対象未設定時はnullです。</summary>
+    public BMSFile? DisplayedBmsPlayerFile => DisplayedChart?.GetBmsStorageOwner();
+#nullable restore annotations
 
-    public bool IsStoppedOrPaused => NowPlayingBmsFile == null || IsPaused;
+    private ChartFileStatus playbackStatus;
+
+    /// <summary>ボタンbinding用の現行再生bitです。保存・検索・score状態を混在させません。</summary>
+    public int PlaybackStatusValue => (int)playbackStatus;
+
+    private ChartFileStatus PlaybackStatus
+    {
+        get => playbackStatus;
+        set
+        {
+            playbackStatus = value & ChartFileStatus.PLAYALL;
+            PlaybackStatusChanged?.Invoke();
+            RaisePropertyChanged(nameof(PlaybackStatusValue));
+        }
+    }
+
+    /// <summary>対象・再生状態の変化を一覧の表示再評価へ渡します。譜面情報と行には状態を保存しません。</summary>
+    internal event Action PlaybackStatusChanged;
+
+    /// <summary>種類と実pathで現在の対象を照合し、行のstatus読取りへ再生bitだけを渡します。nullはNONEです。</summary>
+#nullable enable annotations
+    internal ChartFileStatus GetPlaybackStatus(ChartFile? chart)
+    {
+        lock (sessionGate)
+        {
+            return chart != null && NowPlayingChart != null && chart.Kind == NowPlayingChart.Kind
+                && string.Equals(chart.Path, NowPlayingChart.Path, StringComparison.OrdinalIgnoreCase)
+                ? playbackStatus : ChartFileStatus.NONE;
+        }
+    }
+#nullable restore annotations
+
+    public bool IsPlaying => NowPlayingChart != null && playbackStatus.HasFlag(ChartFileStatus.PLAY);
+
+    public bool IsPaused => NowPlayingChart != null && playbackStatus.HasFlag(ChartFileStatus.PAUSE);
+
+    public bool IsStoppedOrPaused => NowPlayingChart == null || IsPaused;
 
     public PlayerPanelState PlayerPanelState
     {
@@ -777,7 +821,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 if (clearPlaybackStatus)
                 {
                     ClearCurrentPlaybackStatus();
-                    NowPlayingBmsFile = null;
+                    NowPlayingChart = null;
                     nowPlayingRowIndex = -1;
                 }
                 ApplyPlayerState(preparedState);
@@ -837,25 +881,25 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private Task<bool> TryPlayStart(
         long expectedGeneration,
         string bmsFilePath,
-        Action<object, EventArgs, long, IBMSPlayer, BMSFile> onExitEventHandler,
+        Action<object, EventArgs, long, IBMSPlayer, ChartFile> onExitEventHandler,
         out PlaybackStartObservation observation,
         bool waitForLegacyCompletion = false,
         bool allowPreload = true)
     {
         IBMSPlayer player;
-        BMSFile file;
+        ChartFile file;
         PlaybackStartObservation currentObservation;
         lock (sessionGate)
         {
             player = RequirePlayer();
-            file = NowPlayingBmsFile;
+            file = NowPlayingChart;
             if (shutdownStarted || file == null || expectedGeneration != playbackGeneration)
             {
                 observation = null;
                 return Task.FromResult(false);
             }
 
-            file.status |= BMSFile.BMSFileStatus.LOADING;
+            PlaybackStatus |= ChartFileStatus.LOADING;
             RaisePlaybackStatusPropertiesChanged();
 
             currentObservation = new PlaybackStartObservation(
@@ -878,7 +922,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         bool waitForCompletion)
     {
         IBMSPlayer player = currentObservation.Player;
-        BMSFile file = currentObservation.File;
+        ChartFile file = currentObservation.File;
         long expectedGeneration = currentObservation.Generation;
         Task playStartTask;
         await playerOperationGate.WaitAsync().ConfigureAwait(false);
@@ -907,10 +951,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             if (!playStartTask.IsFaulted && !playStartTask.IsCanceled
                 && expectedGeneration == playbackGeneration
                 && ReferenceEquals(player, bmsPlayer)
-                && ReferenceEquals(file, NowPlayingBmsFile))
+                && ReferenceEquals(file, NowPlayingChart))
             {
-                file.status &= ~BMSFile.BMSFileStatus.LOADING;
-                file.status |= BMSFile.BMSFileStatus.PLAY;
+                PlaybackStatus &= ~ChartFileStatus.LOADING;
+                PlaybackStatus |= ChartFileStatus.PLAY;
                 RaisePlaybackStatusPropertiesChanged();
             }
 
@@ -962,8 +1006,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             lock (sessionGate)
             {
                 if (!IsCurrentPlaybackObservation(observation)) { return false; }
-                observation.File.status &= ~BMSFile.BMSFileStatus.LOADING;
-                observation.File.status |= BMSFile.BMSFileStatus.PLAY;
+                PlaybackStatus &= ~ChartFileStatus.LOADING;
+                PlaybackStatus |= ChartFileStatus.PLAY;
                 RaisePlaybackStatusPropertiesChanged();
             }
         }
@@ -972,7 +1016,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return true;
     }
 
-    private void OnNaturalPlaybackExit(object sender, EventArgs args, long generation, IBMSPlayer player, BMSFile file) =>
+    private void OnNaturalPlaybackExit(object sender, EventArgs args, long generation, IBMSPlayer player, ChartFile file) =>
         ObservePlaybackActionAsync(() => NextCore(sender, args, (generation, player, file)), "PlaybackPanel.NaturalNext")
             .ObserveFault("PlaybackPanel.NaturalNext");
 
@@ -983,14 +1027,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private async Task PrepareNextSongAsync()
     {
         IBMSPlayer player;
-        BMSFile currentFile;
+        ChartFile currentFile;
         int currentIndex;
         long generation;
         PlaybackModeSnapshot modes;
         lock (sessionGate)
         {
             player = bmsPlayer;
-            currentFile = NowPlayingBmsFile;
+            currentFile = NowPlayingChart;
             currentIndex = NowPlayingRowIndex;
             generation = playbackGeneration;
             if (shutdownStarted || currentFile == null || (!IsPlaying && !IsPaused)) { return; }
@@ -998,12 +1042,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         if (player is not INextSongPreloadPlayer preloadPlayer) { return; }
         int index = FindNextPlaybackIndex(currentIndex, currentFile, modes);
-        (int Index, BMSFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay);
+        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, modes.RepeatPlay);
         if (candidate.File == null) { return; }
-        ChartFile chart = candidate.Chart ?? ChartFileProjection.FromBmsFile(candidate.File, includeResourceReferences: false);
+        ChartFile chart = candidate.Chart ?? candidate.File;
         if (NeedsTemporaryInstall(chart)) { return; }
         NextSongPreloadInput input;
-        try { input = NextSongPreloadInput.Capture(candidate.File.path); }
+        try { input = NextSongPreloadInput.Capture(candidate.File.Path); }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) { return; }
 
         await playerOperationGate.WaitAsync().ConfigureAwait(false);
@@ -1012,7 +1056,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             lock (sessionGate)
             {
                 if (shutdownStarted || generation != playbackGeneration
-                    || !ReferenceEquals(currentFile, NowPlayingBmsFile) || !ReferenceEquals(player, bmsPlayer)) { return; }
+                    || !ReferenceEquals(currentFile, NowPlayingChart) || !ReferenceEquals(player, bmsPlayer)) { return; }
             }
             await preloadPlayer.PrepareNextAsync(input,
                 failure => HandlePreloadFailure(generation, player, currentFile, failure)).ConfigureAwait(false);
@@ -1020,13 +1064,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         finally { playerOperationGate.Release(); }
     }
 
-    private void HandlePreloadFailure(long generation, IBMSPlayer player, BMSFile file, Exception failure)
+    private void HandlePreloadFailure(long generation, IBMSPlayer player, ChartFile file, Exception failure)
     {
         // 内蔵playerが準備と現在曲の停止を終えた通知です。遅い通知で新しい曲を停止しません。
         lock (sessionGate)
         {
             if (!shutdownStarted && generation == playbackGeneration
-                && ReferenceEquals(player, bmsPlayer) && ReferenceEquals(file, NowPlayingBmsFile))
+                && ReferenceEquals(player, bmsPlayer) && ReferenceEquals(file, NowPlayingChart))
             {
                 ClearPlaybackStateWithoutExternalCall(closeProcess: false);
             }
@@ -1074,7 +1118,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         bool succeeded,
         Exception failure)
     {
-        Action<object, EventArgs, long, IBMSPlayer, BMSFile> exitCallback = null;
+        Action<object, EventArgs, long, IBMSPlayer, ChartFile> exitCallback = null;
         long exitGeneration = 0;
         object exitSender = null;
         EventArgs exitArgs = null;
@@ -1112,7 +1156,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private void HandlePlaybackExit(PlaybackStartObservation observation, object sender, EventArgs e)
     {
-        Action<object, EventArgs, long, IBMSPlayer, BMSFile> exitCallback = null;
+        Action<object, EventArgs, long, IBMSPlayer, ChartFile> exitCallback = null;
         long exitGeneration = 0;
         lock (sessionGate)
         {
@@ -1149,11 +1193,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return !shutdownStarted && observation != null
             && observation.Generation == playbackGeneration
             && ReferenceEquals(observation.Player, bmsPlayer)
-            && ReferenceEquals(observation.File, NowPlayingBmsFile);
+            && ReferenceEquals(observation.File, NowPlayingChart);
     }
 
     private void InvokePlaybackExitCallback(
-        Action<object, EventArgs, long, IBMSPlayer, BMSFile> exitCallback,
+        Action<object, EventArgs, long, IBMSPlayer, ChartFile> exitCallback,
         object sender,
         EventArgs e,
         long generation,
@@ -1197,12 +1241,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return true;
     }
 
-    private async Task<bool> TryStopPlaybackForGeneration(long generation, BMSFile file)
+    private async Task<bool> TryStopPlaybackForGeneration(long generation, ChartFile file)
     {
         IBMSPlayer playerToClose;
         lock (sessionGate)
         {
-            if (shutdownStarted || generation != playbackGeneration || !ReferenceEquals(file, NowPlayingBmsFile))
+            if (shutdownStarted || generation != playbackGeneration || !ReferenceEquals(file, NowPlayingChart))
             {
                 return false;
             }
@@ -1236,7 +1280,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     internal Task Start(bool forceNewPlay = true) =>
         RunPlaybackSelectionAsync(async () =>
         {
-            if (!forceNewPlay && NowPlayingBmsFile != null)
+            if (!forceNewPlay && NowPlayingChart != null)
             {
                 TogglePause();
                 return;
@@ -1253,7 +1297,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     internal Task Next(object sender = null, EventArgs e = null) => NextCore(sender, e);
 
     private Task NextCore(object sender, EventArgs e,
-        (long Generation, IBMSPlayer Player, BMSFile File)? naturalExit = null) =>
+        (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null) =>
         RunPlaybackSelectionAsync(async () =>
         {
             int index = NowPlayingRowIndex;
@@ -1302,7 +1346,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             else
             {
-                string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
+                string currentFolder = GetPlaybackFolderIdentity(NowPlayingChart, index);
                 index--;
                 if (playbackSettings.RepeatPlay && index == -1)
                 {
@@ -1310,7 +1354,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
                 while (playbackSettings.FolderSkipPlay && index != -1)
                 {
-                    BMSFile candidate = playbackQueue.GetPlaybackFiles(index, includeChart: false).PlayerFile;
+                    ChartFile candidate = playbackQueue.GetPlaybackChart(index);
                     if (index == NowPlayingRowIndex)
                     {
                         break;
@@ -1339,22 +1383,22 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
         });
 
-    private static string GetPlaybackFolderIdentity(BMSFile file, int fallbackIndex)
+    private static string GetPlaybackFolderIdentity(ChartFile file, int fallbackIndex)
     {
-        return !string.IsNullOrWhiteSpace(file?.path) && LongPathFileSystem.FileExists(file.path)
-            ? Path.GetDirectoryName(file.path)
+        return !string.IsNullOrWhiteSpace(file?.Path) && LongPathFileSystem.FileExists(file.Path)
+            ? Path.GetDirectoryName(file.Path)
             : fallbackIndex.ToString();
     }
 
     private int FindNextPlaybackIndex()
     {
         int index;
-        BMSFile file;
+        ChartFile file;
         PlaybackModeSnapshot modes;
         lock (sessionGate)
         {
             index = NowPlayingRowIndex;
-            file = NowPlayingBmsFile;
+            file = NowPlayingChart;
             modes = new PlaybackModeSnapshot(playbackSettings.RepeatPlay, playbackSettings.FolderSkipPlay);
         }
         return FindNextPlaybackIndex(index, file, modes);
@@ -1362,7 +1406,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private readonly record struct PlaybackModeSnapshot(bool RepeatPlay, bool FolderSkipPlay);
 
-    private int FindNextPlaybackIndex(int currentIndex, BMSFile currentFile, PlaybackModeSnapshot modes)
+    private int FindNextPlaybackIndex(int currentIndex, ChartFile currentFile, PlaybackModeSnapshot modes)
     {
         // 行交換は候補探索と並行します。折返しの件数を途中で変えると、
         // 縮小後の一覧を巡回しても開始時のcurrentIndexへ戻れなくなります。
@@ -1377,7 +1421,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         while (modes.FolderSkipPlay && index >= 0 && index < count)
         {
-            BMSFile candidate = playbackQueue.GetPlaybackFiles(index, includeChart: false).PlayerFile;
+            ChartFile candidate = playbackQueue.GetPlaybackChart(index);
             if (index == currentIndex)
             {
                 break;
@@ -1397,22 +1441,23 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return index;
     }
 
-    private (int Index, BMSFile File, ChartFile Chart) FindPlayableChart(
+    private (int Index, ChartFile File, ChartFile Chart) FindPlayableChart(
         int index, bool repeat, object initialRow = null, bool useInitialRow = false)
     {
         int count = playbackQueue.Count;
         for (int remaining = count; remaining > 0 && index >= 0 && index < count; remaining--)
         {
-            BMSFile file;
+            ChartFile file;
             ChartFile chart;
             if (useInitialRow)
             {
-                GridRowResolver.TryGetBmsPlayerFile(initialRow, out file);
-                GridRowResolver.TryGetChartFile(initialRow, out chart);
+                GridRowResolver.TryGetPlaybackChart(initialRow, out file);
+                chart = file;
                 useInitialRow = false;
             }
-            else { (file, chart) = playbackQueue.GetPlaybackFiles(index); }
-            if (file != null && !string.IsNullOrWhiteSpace(file.path) && LongPathFileSystem.FileExists(file.path))
+            else { file = chart = playbackQueue.GetPlaybackChart(index); }
+            if (file != null && (file.Kind != ChartFileKind.Bmson || RequirePlayer().SupportsBmson)
+                && !string.IsNullOrWhiteSpace(file.Path) && LongPathFileSystem.FileExists(file.Path))
             {
                 return (index, file, chart);
             }
@@ -1431,7 +1476,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         int remainingCandidates = playbackQueue.Count;
     ResolveCandidate:
         if (shutdownStarted) { return; }
-        (int Index, BMSFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, initialRow, useInitialRow);
+        (int Index, ChartFile File, ChartFile Chart) candidate = FindPlayableChart(index, playbackSettings.RepeatPlay, initialRow, useInitialRow);
         useInitialRow = false;
         if (candidate.File == null)
         {
@@ -1439,7 +1484,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             return;
         }
         index = candidate.Index;
-        BMSFile bmsFile = candidate.File;
+        ChartFile bmsFile = candidate.File;
         ChartFile playbackChart = candidate.Chart;
 
         long generation = BeginPlayback(bmsFile, index);
@@ -1448,7 +1493,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             return;
         }
         playbackQueue.SelectedIndex = index;
-        playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
+        playbackChart ??= bmsFile;
         string installDestination = playbackChart?.InstallDestination;
         if (NeedsTemporaryInstall(playbackChart))
         {
@@ -1469,7 +1514,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             Task<bool> playStartTask = TryPlayStart(
                 generation,
-                bmsFile.path,
+                bmsFile.Path,
                 OnNaturalPlaybackExit,
                 out observation);
             if (!await playStartTask.ConfigureAwait(false))
@@ -1523,7 +1568,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private async Task StartTemporarilyInstalledChart(
         ChartFile playbackChart,
-        BMSFile bmsFile,
+        ChartFile bmsFile,
         long generation,
         string installDestination)
     {
@@ -1553,19 +1598,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 chartPackage.delete_parent = false;
             }
 
-            string originalPath = bmsFile.path;
+            string originalPath = bmsFile.Path;
+            string workingPath = originalPath;
             Task<bool> playbackStartTask = null;
             PlaybackStartObservation playbackStartObservation = null;
             try
             {
-                while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
+                while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(workingPath))))
                 {
-                    string temporaryName = Path.GetFileNameWithoutExtension(bmsFile.path) + "_" + Path.GetExtension(bmsFile.path);
+                    string temporaryName = Path.GetFileNameWithoutExtension(workingPath) + "_" + Path.GetExtension(workingPath);
                     LongPathFileSystem.MoveFile(
-                        bmsFile.path,
-                        Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName),
+                        workingPath,
+                        Path.Combine(Path.GetDirectoryName(workingPath), temporaryName),
                         overwrite: false);
-                    bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName);
+                    workingPath = Path.Combine(Path.GetDirectoryName(workingPath), temporaryName);
                 }
 
                 List<string> sourceFiles = [];
@@ -1574,6 +1620,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     string[] permittedExtensions =
                     [
                         .. ChartFileKindResolver.BmsExtensions,
+                        ".bmson",
                     .. ChartResourceExtensions.AudioExtensions,
                     .. ChartResourceExtensions.ImageExtensions,
                 ];
@@ -1582,12 +1629,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
                 else
                 {
-                    sourceFiles.Add(bmsFile.path);
+                    sourceFiles.Add(workingPath);
                 }
 
                 using (new temporarilyCopyFiles(sourceFiles, installDestination, 2000))
                 {
-                    string playbackPath = Path.Combine(installDestination, Path.GetFileName(bmsFile.path));
+                    string playbackPath = Path.Combine(installDestination, Path.GetFileName(workingPath));
                     try
                     {
                         playbackStartTask = TryPlayStart(
@@ -1618,13 +1665,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             finally
             {
-                if (!string.Equals(originalPath, bmsFile.path, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(originalPath, workingPath, StringComparison.OrdinalIgnoreCase))
                 {
                     LongPathFileSystem.MoveFile(
-                        bmsFile.path,
+                        workingPath,
                         originalPath,
                         overwrite: false);
-                    bmsFile.path = originalPath;
+                    workingPath = originalPath;
                 }
             }
             if (playbackStartTask != null)
@@ -1656,7 +1703,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>譜面の準備 session を作成する。終了受付後は状態を変更しない。</summary>
-    internal long BeginPlayback(BMSFile bmsFile, int rowIndex)
+    internal long BeginPlayback(BMSFile bmsFile, int rowIndex) => BeginPlayback(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false), rowIndex);
+
+    /// <summary>形式共通の譜面だけを現行選曲として所有します。</summary>
+    internal long BeginPlayback(ChartFile bmsFile, int rowIndex)
     {
         if (bmsFile == null)
         {
@@ -1673,7 +1723,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             ClearCurrentPlaybackStatus();
             playbackGeneration++;
             nowPlayingRowIndex = rowIndex;
-            NowPlayingBmsFile = bmsFile;
+            NowPlayingChart = bmsFile;
+            PlaybackStatus = ChartFileStatus.NONE;
             SetBmsPlayerHeader(bmsFile);
             generation = playbackGeneration;
         }
@@ -1692,7 +1743,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             ClearCurrentPlaybackStatus();
             playbackGeneration++;
-            NowPlayingBmsFile = null;
+            NowPlayingChart = null;
             nowPlayingRowIndex = rowIndex;
         }
     }
@@ -1731,7 +1782,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             playbackGeneration++;
         }
         ClearCurrentPlaybackStatus();
-        NowPlayingBmsFile = null;
+        NowPlayingChart = null;
         nowPlayingRowIndex = -1;
         return playerToClose;
     }
@@ -1775,17 +1826,17 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            if (NowPlayingBmsFile != null)
+            if (NowPlayingChart != null)
             {
                 if (IsPlaying)
                 {
-                    NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.PLAYALL;
-                    NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.PAUSE;
+                    PlaybackStatus &= ~ChartFileStatus.PLAYALL;
+                    PlaybackStatus |= ChartFileStatus.PAUSE;
                 }
                 else if (IsPaused)
                 {
-                    NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.PLAYALL;
-                    NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.PLAY;
+                    PlaybackStatus &= ~ChartFileStatus.PLAYALL;
+                    PlaybackStatus |= ChartFileStatus.PLAY;
                 }
                 RaisePlaybackStatusPropertiesChanged();
             }
@@ -1815,9 +1866,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            if (NowPlayingBmsFile != null)
+            if (NowPlayingChart != null)
             {
-                NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.FORWARD;
+                PlaybackStatus |= ChartFileStatus.FORWARD;
                 RaisePlaybackStatusPropertiesChanged();
             }
             RequirePlayer().FastForwardPlayingBMSfileStart();
@@ -1833,9 +1884,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            if (NowPlayingBmsFile != null)
+            if (NowPlayingChart != null)
             {
-                NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.FORWARD;
+                PlaybackStatus &= ~ChartFileStatus.FORWARD;
                 RaisePlaybackStatusPropertiesChanged();
             }
             RequirePlayer().FastForwardPlayingBMSfileEnd();
@@ -1851,9 +1902,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            if (NowPlayingBmsFile != null)
+            if (NowPlayingChart != null)
             {
-                NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.BACKWARD;
+                PlaybackStatus |= ChartFileStatus.BACKWARD;
                 RaisePlaybackStatusPropertiesChanged();
             }
             RequirePlayer().FastBackwardPlayingBMSfileStart();
@@ -1869,9 +1920,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            if (NowPlayingBmsFile != null)
+            if (NowPlayingChart != null)
             {
-                NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.BACKWARD;
+                PlaybackStatus &= ~ChartFileStatus.BACKWARD;
                 RaisePlaybackStatusPropertiesChanged();
             }
             RequirePlayer().FastBackwardPlayingBMSfileEnd();
@@ -1994,17 +2045,22 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// Updates the BMS player header cache from the currently selected or playing BMS file.
     /// </summary>
     /// <param name="bmsFile">BMS file whose metadata should be displayed.</param>
-    internal void SetBmsPlayerHeader(BMSFile bmsFile)
+    internal void SetBmsPlayerHeader(BMSFile bmsFile) => SetBmsPlayerHeader(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false));
+
+    /// <summary>共通譜面の既存metadataをヘッダーへ接続します。nullは表示対象を解除します。</summary>
+#nullable enable annotations
+    internal void SetBmsPlayerHeader(ChartFile? bmsFile)
     {
-        DisplayedBmsPlayerFile = bmsFile;
-        bool changed = SetHeaderValue(ref bmsPlayerHeaderTitle, GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile))
-            | SetHeaderValue(ref bmsPlayerHeaderSubtitle, GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile))
-            | SetHeaderValue(ref bmsPlayerHeaderArtist, GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile));
+        DisplayedChart = bmsFile;
+        bool changed = SetHeaderValue(ref bmsPlayerHeaderTitle, bmsFile?.RawTitle ?? string.Empty)
+            | SetHeaderValue(ref bmsPlayerHeaderSubtitle, bmsFile?.Subtitle ?? string.Empty)
+            | SetHeaderValue(ref bmsPlayerHeaderArtist, bmsFile?.Artist ?? string.Empty);
         if (changed)
         {
             RaisePlayerHeaderPropertiesChanged();
         }
     }
+#nullable restore annotations
 
     private static bool SetHeaderValue(ref string storage, string value)
     {
@@ -2027,12 +2083,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private void ClearCurrentPlaybackStatus()
     {
-        if (NowPlayingBmsFile == null)
+        if (NowPlayingChart == null)
         {
             return;
         }
 
-        NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.PLAYALL;
+        PlaybackStatus &= ~ChartFileStatus.PLAYALL;
         RaisePlaybackStatusPropertiesChanged();
     }
 
@@ -2180,7 +2236,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             bool isCurrent;
             lock (sessionGate)
             {
-                isCurrent = !shutdownStarted && expectedGeneration == playbackGeneration && NowPlayingBmsFile != null;
+                isCurrent = !shutdownStarted && expectedGeneration == playbackGeneration && NowPlayingChart != null;
             }
             if (isCurrent)
             {

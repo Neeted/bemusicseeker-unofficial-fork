@@ -3038,6 +3038,8 @@ public partial class MainWindowViewModel : ViewModel,
         ChartMutationActivity = childComposition.ChartMutationActivity;
         ChartMutationActivity.ActivityChanged += ChartMutationActivityChanged;
         PlaybackPanel = childComposition.PlaybackPanel;
+        MainChartList.RowProjection.SetPlaybackStatusProvider(PlaybackPanel.GetPlaybackStatus);
+        PlaybackPanel.PlaybackStatusChanged += () => DispatchUiAction(MainChartList.RequestDisplayRefresh);
         ChartFilters = childComposition.ChartFilters;
         LibraryFolderTree = childComposition.LibraryFolderTree;
         LibraryFolderTree.ConfigureDeferredRefreshScheduler(

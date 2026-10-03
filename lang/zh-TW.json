@@ -1014,6 +1014,7 @@
   "Error_InvalidLR2ScoreDbFile": "找不到檔案，或副檔名不是 .db。",
   "Error_InvalidPlayerExecutableFormat": "找不到執行檔，或檔名不是 {0}。",
   "Error_ExecutableNotFound": "找不到執行檔。",
+  "Error_InvalidBmsonInputFormat": "bmson 輸入無效：{0}",
   "Error_BmsFileNotFound": "找不到 BMS 檔案。",
   "Error_InvalidHashFormat": "不是有效的 {0} 雜湊值。",
   "Error_InvalidHashValueFormat": "不是有效的 {0} 雜湊值。值：{1}",

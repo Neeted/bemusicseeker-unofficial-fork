@@ -2354,11 +2354,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
     }
 
+    /// <summary>共有復号PCMと任意の絶対source終端から独立voiceを作ります。開始cursorは予約前に設定します。</summary>
     internal BassAudioPlayer(
         string fileName,
         DecodedAudio source,
         BassAudioSession? expectedSession,
-        IBassMixerSourceNativeBoundary mixerSourceNative)
+        IBassMixerSourceNativeBoundary mixerSourceNative,
+        long? sourceEndFrame = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mixerSourceNative);
@@ -2424,7 +2426,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         bool streamTracked = false;
         try
         {
-            _floatWaveSource = new FloatWaveSource(source, fileName);
+            _floatWaveSource = new FloatWaveSource(source, fileName, sourceEndFrame);
             isEmptySource = _floatWaveSource.IsEmpty;
             _fileProcedures = new FileProcedures
             {
@@ -2473,7 +2475,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
             ChannelInfo sourceInfo = Bass.ChannelGetInfo(_handle);
             long sourceLength = Bass.ChannelGetLength(_handle, PositionFlags.Bytes);
-            long expectedLength = checked(source.FrameCount * source.ChannelCount * sizeof(float));
+            long expectedLength = checked(_floatWaveSource.FrameCount * source.ChannelCount * sizeof(float));
             bool unavailableEmptyLength = isEmptySource && sourceLength == -1;
             if ((sourceInfo.Flags & (BassFlags.Float | BassFlags.Decode)) != (BassFlags.Float | BassFlags.Decode)
                 || sourceInfo.Frequency != source.SampleRate
@@ -2490,7 +2492,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     Bass.LastError,
                     "The float WAVE source format or finite length does not match its decoded PCM.");
             }
-            Duration = TimeSpan.FromSeconds((double)source.FrameCount / source.SampleRate);
+            Duration = TimeSpan.FromSeconds((double)_floatWaveSource.FrameCount / source.SampleRate);
             Volume = DefaultVolume;
             playState = PlayState.Stopped;
         }

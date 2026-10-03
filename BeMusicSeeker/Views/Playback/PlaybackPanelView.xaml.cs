@@ -113,9 +113,9 @@ public partial class PlaybackPanelView : UserControl
             useTransitions: false);
         ResetPanelImage();
         ApplyEmptyArtwork(showDefaultImage: dataContext != null);
-        if (playbackPanel?.DisplayedBmsPlayerFile != null)
+        if (playbackPanel?.DisplayedChart != null)
         {
-            RefreshArtwork(playbackPanel.DisplayedBmsPlayerFile);
+            RefreshArtwork(playbackPanel.DisplayedChart);
         }
     }
 
@@ -215,10 +215,9 @@ public partial class PlaybackPanelView : UserControl
         {
             ResetPanelImage();
         }
-        if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedBmsPlayerFile)
-            && expectedPanel.DisplayedBmsPlayerFile != null)
+        if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedChart))
         {
-            RefreshArtwork(expectedPanel.DisplayedBmsPlayerFile);
+            RefreshArtwork(expectedPanel.DisplayedChart);
         }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.UsesUbMplay)
             || e.PropertyName == nameof(PlaybackPanelViewModel.UsesLr2Body)
@@ -389,7 +388,12 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerImage.Effect as BlurEffect
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
-    public void RefreshArtwork(BMSFile bmsFile)
+    /// <summary>BMSの既存呼出元を形式共通の表示素材へ投影します。</summary>
+    public void RefreshArtwork(BMSFile bmsFile) => RefreshArtwork(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false));
+
+    /// <summary>選曲中・再生中の共通譜面からstagefileとbannerを表示し、前曲の素材を残しません。</summary>
+#nullable enable annotations
+    internal void RefreshArtwork(ChartFile? bmsFile)
     {
         if (bmsFile == null)
         {
@@ -399,7 +403,7 @@ public partial class PlaybackPanelView : UserControl
         WriteableBitmap stage = null;
         try
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.stagefile) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.stagefile);
+            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Stagefile) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Stagefile);
             if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
                 using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
@@ -410,7 +414,7 @@ public partial class PlaybackPanelView : UserControl
         catch { gridBMSPlayerImage.Source = PanelImage; }
         try
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.banner) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.banner);
+            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Banner) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Banner);
             ImageSource banner = null;
             if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
@@ -426,6 +430,7 @@ public partial class PlaybackPanelView : UserControl
         }
         gridBMSPlayerControlsBanner.BorderThickness = gridBMSPlayerControlsBanner.Background == null ? new Thickness(0) : new Thickness(1, 0, 1, 0);
     }
+#nullable restore annotations
 
     private void ApplyEmptyArtwork(bool showDefaultImage)
     {

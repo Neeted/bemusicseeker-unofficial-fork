@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Models;
 
 public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INotifyPropertyChanged, INextSongPreloadPlayer
 {
+    /// <summary>内蔵parserと音声経路はbmsonを受理します。</summary>
+    public bool SupportsBmson => true;
+
     private readonly IPlayerSettingsGateway playerSettingsGateway;
 
     private readonly IAudioPlaybackRuntime audioPlaybackRuntime;
@@ -98,12 +101,12 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         this.exitEventDispatcher = exitEventDispatcher;
         this.outputReadyTimeout = outputReadyTimeout ?? TimeSpan.FromSeconds(10);
         this.autoPlayerFactory = autoPlayerFactory
-            ?? new Func<string, BMSAutoPlayer>(path => new BMSAutoPlayer(new Ribbit.BMS.BMSFile(path)));
+            ?? new Func<string, BMSAutoPlayer>(path => new BMSAutoPlayer(PlaybackChart.Load(path)));
         preload = new NextSongPreloadOwner(songPreparation ?? ((input, token) =>
         {
             Ribbit.Media.Audio.BassAudioSession session = BmsAudioResourceLoader.CaptureActiveSession();
             token.ThrowIfCancellationRequested();
-            var chart = new Ribbit.BMS.BMSFile(input.Path);
+            var chart = PlaybackChart.Load(input.Path);
             return PreparedBmsSong.Prepare(chart, Ribbit.Media.BassAudioPlayer.DefaultVolume, token, session);
         }));
         _playbackThreadAction = CreatePlaybackThreadAction();
@@ -579,14 +582,14 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             MaxVoices = audioPlaybackRuntime.MaxVoices;
             NoteDensity = (int)(_player?.NoteDensity ?? 0.0);
             NoteDensityMax = (int)(_player?.NoteDensityMax ?? 0.0);
-            Bpm = (int)(_player?.Bms.Bpm?.ToDouble() ?? 0.0);
-            MinBpm = (int)(_player?.Bms.MinBpm?.ToDouble() ?? 0.0);
-            MaxBpm = (int)(_player?.Bms.MaxBpm?.ToDouble() ?? 0.0);
-            Total = _player?.Bms.Total ?? 0.0;
+            Bpm = (int)(_player?.Chart.DisplayBpm ?? 0.0);
+            MinBpm = (int)(_player?.Chart.DisplayMinBpm ?? 0.0);
+            MaxBpm = (int)(_player?.Chart.DisplayMaxBpm ?? 0.0);
+            Total = _player?.Chart.Total ?? 0.0;
             Combo = _player?.Combo ?? 0;
-            Notes = _player?.Bms.TotalNoteCount ?? 0;
+            Notes = _player?.Chart.TotalNoteCount ?? 0;
             Measure = _player?.CurrentMeasure ?? 0;
-            LastMeasure = _player?.Bms.Measures.LastIndex ?? 0;
+            LastMeasure = _player?.Chart.LastMeasure ?? 0;
             releasedPlayer = _player;
             _player = null;
             _fastForwarding = false;
@@ -748,13 +751,13 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                     NoteDensity = (int)bMSAutoPlayer.NoteDensity;
                     NoteDensityMax = (int)bMSAutoPlayer.NoteDensityMax;
                     Bpm = (int)bMSAutoPlayer.CurrentBpm;
-                    MinBpm = (int)(bMSAutoPlayer.Bms.MinBpm?.ToDouble() ?? 0.0);
-                    MaxBpm = (int)(bMSAutoPlayer.Bms.MaxBpm?.ToDouble() ?? 0.0);
-                    Total = bMSAutoPlayer.Bms.Total ?? 0.0;
+                    MinBpm = (int)(bMSAutoPlayer.Chart.DisplayMinBpm);
+                    MaxBpm = (int)(bMSAutoPlayer.Chart.DisplayMaxBpm);
+                    Total = bMSAutoPlayer.Chart.Total;
                     Combo = bMSAutoPlayer.Combo;
-                    Notes = bMSAutoPlayer.Bms.TotalNoteCount;
+                    Notes = bMSAutoPlayer.Chart.TotalNoteCount;
                     Measure = bMSAutoPlayer.CurrentMeasure;
-                    LastMeasure = bMSAutoPlayer.Bms.Measures.LastIndex;
+                    LastMeasure = bMSAutoPlayer.Chart.LastMeasure;
                     if (Duration == TimeSpan.Zero)
                     {
                         throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);

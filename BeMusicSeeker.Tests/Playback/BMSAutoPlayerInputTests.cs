@@ -1,12 +1,15 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using NextSongPreloadInput = BeMusicSeeker.Models.NextSongPreloadInput;
+using NextSongPreloadOwner = BeMusicSeeker.Models.NextSongPreloadOwner;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
@@ -22,6 +25,210 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class BMSAutoPlayerInputTests
 {
+    [DataTestMethod]
+    [DataRow(false, 0)]
+    [DataRow(false, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 0)]
+    [DataRow(true, 1)]
+    [DataRow(true, 2)]
+    public void AudioFallbackUsesFirstDecodedCandidateAndKeepsItsPcm(bool bmson, int successfulCandidate)
+    {
+        using var directory = new TemporaryDirectory();
+        string[] names = ["tone.wav", "tone.ogg", "tone.mp3"];
+        for (int index = 0; index < names.Length; index++)
+        {
+            // コンテナー判定はsignatureの契約なので、拡張子候補ごとに異なる小さいWAVEを使います。
+            byte[] wave = BuildPcmWave(frameCount: index + 1);
+            BinaryPrimitives.WriteInt16LittleEndian(wave.AsSpan(44), (short)(8192 * (index + 1)));
+            File.WriteAllBytes(directory.File(names[index]), index < successfulCandidate ? [1, 2, 3] : wave);
+        }
+        using var player = new BMSAutoPlayer(CreateFallbackChart(directory, bmson, "tone.mp3"));
+        player.LoadResources();
+        BmsAudioResource resource = player.AudioResourcesByIndex.Single(item => item != null)
+            ?? throw new AssertFailedException("The fallback source is missing.");
+        Assert.AreEqual(directory.File(names[successfulCandidate]), resource.Path);
+        Assert.AreEqual(successfulCandidate + 1L, resource.Audio.FrameCount);
+        Assert.AreEqual(44100, resource.Audio.SampleRate);
+        Assert.AreEqual(0.25f * (successfulCandidate + 1), resource.Audio.GetSample(0), 0f);
+        Assert.AreEqual(0, player.OmittedAudioSources.Count);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AudioFallbackExhaustsSubdirectoryBeforeBasenameCandidates(bool bmson)
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(directory.File("sub"));
+        File.WriteAllBytes(directory.File("sub/tone.wav"), [1, 2, 3]);
+        File.WriteAllBytes(directory.File("sub/tone.ogg"), [4, 5, 6]);
+        File.WriteAllBytes(directory.File("sub/tone.mp3"), BuildPcmWave(3));
+        File.WriteAllBytes(directory.File("tone.wav"), BuildPcmWave(4));
+        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(5));
+        PlaybackChart chart = CreateFallbackChart(directory, bmson, "sub/tone.wav");
+        BmsAudioResourceLoadResult first = BmsAudioResourceLoader.Load(chart, directory.File(""), 1f);
+        Assert.AreEqual(Path.GetFullPath(directory.File("sub/tone.mp3")), first.ResourcesByIndex.Single(item => item != null)?.Path);
+        File.WriteAllBytes(directory.File("sub/tone.mp3"), [7, 8, 9]);
+        BmsAudioResourceLoadResult rescued = BmsAudioResourceLoader.Load(chart, directory.File(""), 1f);
+        Assert.AreEqual(directory.File("tone.wav"), rescued.ResourcesByIndex.Single(item => item != null)?.Path);
+        File.WriteAllBytes(directory.File("tone.wav"), [1, 2, 3]);
+        BmsAudioResourceLoadResult next = BmsAudioResourceLoader.Load(chart, directory.File(""), 1f);
+        Assert.AreEqual(directory.File("tone.ogg"), next.ResourcesByIndex.Single(item => item != null)?.Path);
+        Assert.AreEqual(0, next.Failures.Count);
+    }
+
+    [TestMethod]
+    public void AudioFallbackReadFailureContinuesToNextCandidate()
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("tone.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(2));
+        PlaybackChart chart = CreateFallbackChart(directory, false, "tone.wav");
+        using (var locked = new FileStream(directory.File("tone.wav"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            BmsAudioResourceLoadResult result = BmsAudioResourceLoader.Load(chart, directory.File(""), 1f);
+            Assert.AreEqual(directory.File("tone.ogg"), result.ResourcesByIndex[1]?.Path);
+            Assert.AreEqual(0, result.Failures.Count);
+        }
+    }
+
+    [TestMethod]
+    public void AudioFallbackSharesSuccessAndFailurePathsAcrossCandidateStages()
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(directory.File("sub"));
+        File.WriteAllBytes(directory.File("tone.wav"), [1, 2, 3]);
+        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(3));
+        WriteChart(directory.File("chart.bms"), "#WAV01 sub/tone.wav\n#WAV02 ./TONE.WAV\n#00011:0102\n");
+        var reads = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var decodes = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        BmsAudioResourceLoadResult result = BmsAudioResourceLoader.Load(PlaybackChart.Load(directory.File("chart.bms")), directory.File(""), 1f,
+            readInput: path => { reads.AddOrUpdate(path, 1, (_, count) => count + 1); return AudioInputFile.Read(path); },
+            decode: (input, session) => { decodes.AddOrUpdate(input.Path, 1, (_, count) => count + 1); return AudioSourceLoader.Decode(input, session); });
+        Assert.IsTrue(reads.Values.All(count => count == 1));
+        Assert.AreEqual(1, reads[directory.File("tone.wav")]);
+        Assert.AreEqual(1, reads[directory.File("tone.ogg")]);
+        Assert.AreEqual(1, decodes[directory.File("tone.wav")]);
+        Assert.AreEqual(1, decodes[directory.File("tone.ogg")]);
+        Assert.AreSame(result.ResourcesByIndex[1], result.ResourcesByIndex[2]);
+        Assert.IsTrue(string.Equals(directory.File("tone.ogg"), result.ResourcesByIndex[1]?.Path, StringComparison.OrdinalIgnoreCase));
+        Assert.AreEqual(0, result.Failures.Count);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AudioFallbackFatalReadOrDecodeFailureNeverTriesHealthyAlternative(bool duringDecode)
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("tone.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(2));
+        PlaybackChart chart = CreateFallbackChart(directory, false, "tone.wav");
+        BassAudioSession session = BmsAudioResourceLoader.CaptureActiveSession();
+        int streams = session.OwnedStreamCount;
+        foreach (Exception cause in new Exception[] { new OutOfMemoryException(), new DllNotFoundException(),
+            new InvalidOperationException("session/device"), new AudioSourceFatalException("release"), new Exception("unknown") })
+        {
+            AudioInputFile? held = null;
+            int alternatives = 0;
+            AudioSourceFatalException fatal = Assert.ThrowsException<AudioSourceFatalException>(() => BmsAudioResourceLoader.Load(chart, directory.File(""), 1f,
+                readInput: path =>
+                {
+                    if (path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase)) Interlocked.Increment(ref alternatives);
+                    if (!duringDecode) throw cause;
+                    return held = AudioInputFile.Read(path);
+                }, decode: (input, activeSession) =>
+                {
+                    _ = AudioSourceLoader.Decode(input, activeSession);
+                    throw cause;
+                }));
+            Assert.IsTrue(ContainsCause(fatal, cause));
+            Assert.AreEqual(0, alternatives);
+            Assert.AreEqual(streams, session.OwnedStreamCount);
+            if (held != null) Assert.ThrowsException<ObjectDisposedException>(() => held.OpenReadView());
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioFallbackCancellationDuringDecodeJoinsAndReleasesInputAndDecoder()
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("tone.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(2));
+        PlaybackChart chart = CreateFallbackChart(directory, false, "tone.wav");
+        BassAudioSession session = BmsAudioResourceLoader.CaptureActiveSession();
+        int streams = session.OwnedStreamCount;
+        using var cancellation = new CancellationTokenSource();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<AudioInputFile>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<BmsAudioResourceLoadResult> loading = Task.Run(() => BmsAudioResourceLoader.Load(chart, directory.File(""), 1f, cancellation.Token, session,
+            decode: (input, activeSession) =>
+            {
+                DecodedAudio audio = AudioSourceLoader.Decode(input, activeSession);
+                entered.TrySetResult(input);
+                release.Wait();
+                return audio;
+            }));
+        try
+        {
+            Task first = await Task.WhenAny(entered.Task, loading);
+            if (ReferenceEquals(first, loading)) await loading;
+            AudioInputFile held = await entered.Task;
+            cancellation.Cancel();
+            Assert.IsFalse(loading.IsCompleted);
+            release.Set();
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => loading);
+            Assert.ThrowsException<ObjectDisposedException>(() => held.OpenReadView());
+            Assert.AreEqual(streams, session.OwnedStreamCount);
+            Assert.AreSame(session, BassAudioPlayer.ActiveSession);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            release.Set();
+            try { await loading; } catch (OperationCanceledException) { }
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task NextSongFallbackPreparationAdoptsDecodedResultAfterInputsDisappear(bool bmson)
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("tone.wav"), [1, 2, 3]);
+        File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(2));
+        PlaybackChart chart = CreateFallbackChart(directory, bmson, "tone.wav");
+        var input = NextSongPreloadInput.Capture(chart.Path);
+        var owner = new NextSongPreloadOwner((request, token) => PreparedBmsSong.Prepare(PlaybackChart.Load(request.Path), 1f, token));
+        try
+        {
+            PreparedBmsSong expected = await owner.Request(input);
+            File.Delete(chart.Path);
+            File.Delete(directory.File("tone.wav"));
+            File.Delete(directory.File("tone.ogg"));
+            PreparedBmsSong prepared = await owner.TakeAsync(input) ?? throw new AssertFailedException("Missing prepared fallback.");
+            Assert.AreSame(expected, prepared);
+            using var player = new BMSAutoPlayer(prepared.Chart);
+            player.AdoptPreparedSong(prepared);
+            Assert.AreEqual(directory.File("tone.ogg"), player.AudioResourcesByIndex.Single(item => item != null)?.Path);
+            Assert.AreEqual(0, player.OmittedAudioSources.Count);
+        }
+        finally { await owner.InvalidateAsync(); }
+    }
+
+    private static bool ContainsCause(Exception failure, Exception cause) => ReferenceEquals(failure, cause)
+        || (failure is AggregateException aggregate && aggregate.InnerExceptions.Any(item => ContainsCause(item, cause)))
+        || (failure.InnerException is Exception inner && ContainsCause(inner, cause));
+
+    private static PlaybackChart CreateFallbackChart(TemporaryDirectory directory, bool bmson, string resource)
+    {
+        string path = directory.File(bmson ? "chart.bmson" : "chart.bms");
+        if (bmson) File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"" + resource + "\",\"notes\":[{\"y\":0}]}]}");
+        else WriteChart(path, "#BPM 120\n#WAV01 " + resource + "\n#00011:01\n");
+        return PlaybackChart.Load(path);
+    }
     [TestInitialize]
     public void InitializeAudioRuntime()
     {
@@ -37,6 +244,31 @@ public sealed class BMSAutoPlayerInputTests
         BassAudioRuntime.Shutdown();
     }
 
+    [TestMethod]
+    public void BmsonPreparationKeepsSharedPcmAndParsedSlicesAfterInputsDisappear()
+    {
+        using var directory = new TemporaryDirectory();
+        string path = directory.File("chart.bmson");
+        string wave = directory.File("used.ogg");
+        File.WriteAllBytes(directory.File("used.wav"), [1, 2, 3]);
+        File.WriteAllBytes(wave, BuildPcmWave(frameCount: 2205));
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"used.wav\",\"notes\":[{\"y\":0}]},{\"name\":\"used.wav\",\"notes\":[{\"y\":0}]}]}");
+        var chart = PlaybackChart.Load(path);
+        BassAudioSession session = BmsAudioResourceLoader.CaptureActiveSession();
+        int streams = session.OwnedStreamCount;
+        var prepared = PreparedBmsSong.Prepare(chart, 0.1f, expectedSession: session);
+        File.Delete(wave);
+        File.Delete(path);
+        using var player = new BMSAutoPlayer(prepared.Chart);
+        player.AdoptPreparedSong(prepared);
+        Assert.AreSame(chart, player.Chart);
+        Assert.IsNull(player.Bms);
+        Assert.AreSame(player.AudioResourcesByIndex[0], player.AudioResourcesByIndex[1]);
+        Assert.AreEqual(2, player.AudioSchedule.Events.Count);
+        Assert.AreEqual(streams, session.OwnedStreamCount);
+        Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
+    }
+
     [DataTestMethod]
     [DataRow(44100)]
     [DataRow(48000)]
@@ -47,7 +279,8 @@ public sealed class BMSAutoPlayerInputTests
         {
             using var directory = new TemporaryDirectory();
             string path = directory.File("chart.bms");
-            string wave = directory.File("used.wav");
+            string wave = directory.File("used.ogg");
+            File.WriteAllBytes(directory.File("used.wav"), [1, 2, 3]);
             File.WriteAllBytes(wave, BuildPcmWave(frameCount: 2205));
             WriteChart(path, "#BPM 400\n#RANDOM 2\n#IF 1\n#WAV01 used.wav\n#WAV02 ./USED.WAV\n#00011:0102\n#ENDIF\n#IF 2\n#WAV01 absent.wav\n#00011:01\n#ENDIF\n#ENDRANDOM\n");
             var chart = new BMSFile(path, new Queue<int>([1]));
@@ -102,8 +335,10 @@ public sealed class BMSAutoPlayerInputTests
     public void PreparedSong_DefersOmissionWarningsUntilAdoption()
     {
         using var directory = new TemporaryDirectory();
-        WriteChart(directory.File("chart.bms"), "#WAV01 missing.wav\n#WAV02 used.wav\n#00111:0102\n");
+        WriteChart(directory.File("chart.bms"), "#WAV01 missing.wav\n#WAV02 used.wav\n#WAV03 rescued.wav\n#00111:010203\n");
         File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
+        File.WriteAllBytes(directory.File("rescued.wav"), [1, 2, 3]);
+        File.WriteAllBytes(directory.File("rescued.ogg"), BuildPcmWave(2));
         _ = NLogWrapper.GetLogger(nameof(BMSAutoPlayer));
         LoggingConfiguration? originalConfiguration = LogManager.Configuration;
         var warnings = new MemoryTarget { Layout = "${message}" };
@@ -119,6 +354,7 @@ public sealed class BMSAutoPlayerInputTests
             player.AdoptPreparedSong(prepared);
             Assert.AreEqual(1, warnings.Logs.Count);
             Assert.AreEqual(1, player.OmittedAudioSources.Count);
+            Assert.AreEqual(directory.File("rescued.ogg"), player.AudioResourcesByIndex[3]?.Path);
         }
         finally { LogManager.Configuration = originalConfiguration; }
     }
@@ -130,13 +366,16 @@ public sealed class BMSAutoPlayerInputTests
         File.WriteAllBytes(directory.File("unused-broken.wav"), [0x01, 0x02, 0x03]);
         File.WriteAllBytes(directory.File("used.wav"), BuildPcmWave());
         File.WriteAllBytes(directory.File("broken.wav"), [0x04, 0x05, 0x06]);
+        File.WriteAllBytes(directory.File("rescued.wav"), [1, 2, 3]);
+        File.WriteAllBytes(directory.File("rescued.mp3"), BuildPcmWave(3));
         WriteChart(directory.File("chart.bms"),
             "#WAV01 unused-broken.wav\n"
             + "#WAV02 used.wav\n"
             + "#WAV03 missing.wav\n"
             + "#WAV04 broken.wav\n"
             + "#WAV05 ./BROKEN.WAV\n"
-            + "#00111:02030405\n");
+            + "#WAV06 rescued.wav\n"
+            + "#00111:0203040506\n");
         var player = new TestBMSAutoPlayer(new BMSFile(directory.File("chart.bms")));
         _ = NLogWrapper.GetLogger(nameof(BMSAutoPlayer));
         LoggingConfiguration? originalConfiguration = LogManager.Configuration;
@@ -154,6 +393,7 @@ public sealed class BMSAutoPlayerInputTests
             Assert.IsNull(player.GetAudioResource(3), "A missing explicit source is omitted after its read failure.");
             Assert.IsNull(player.GetAudioResource(4));
             Assert.IsNull(player.GetAudioResource(5));
+            Assert.AreEqual(directory.File("rescued.mp3"), player.GetAudioResource(6)?.Path);
             Assert.AreEqual(2, player.OmittedAudioSources.Count);
             CollectionAssert.AreEquivalent(
                 new[]
@@ -220,6 +460,25 @@ public sealed class BMSAutoPlayerInputTests
     }
 
     [TestMethod]
+    public void AudioFallbackAllFailedKeepsFirstExistingDecodeCauseAfterLaterMissingCandidates()
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(directory.File("sub"));
+        File.WriteAllBytes(directory.File("sub/tone.ogg"), [1, 2, 3]);
+        PlaybackChart chart = CreateFallbackChart(directory, true, "sub/tone.wav");
+        BmsAudioResourceLoadResult result = BmsAudioResourceLoader.Load(chart, directory.File(""), 1f);
+        Assert.AreEqual(1, result.Failures.Count);
+        var cause = (AudioSourceLoadException)result.Failures[0].Exception;
+        Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, cause.Stage);
+        Assert.AreEqual(Path.GetFullPath(directory.File("sub/tone.ogg")), result.Failures[0].NormalizedPath);
+        using var player = new BMSAutoPlayer(chart);
+        InvalidDataException failure = Assert.ThrowsException<InvalidDataException>(() => player.LoadResources());
+        Assert.IsInstanceOfType<AudioSourceLoadException>(failure.InnerException);
+        Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, ((AudioSourceLoadException)failure.InnerException).Stage);
+        Assert.AreEqual(0, player.OmittedAudioSources.Count);
+    }
+
+    [TestMethod]
     public void LoadResources_UndefinedAndEmptyWavDefinitionsDoNotRequestFiles()
     {
         using var directory = new TemporaryDirectory();
@@ -248,6 +507,7 @@ public sealed class BMSAutoPlayerInputTests
             0,
             _ => 0f);
         File.Copy(wave.Path, directory.File("empty.wav"));
+        File.WriteAllBytes(directory.File("empty.ogg"), BuildPcmWave(3));
         WriteChart(
             directory.File("chart.bms"),
             "#WAV02 empty.wav\n#00111:02\n");

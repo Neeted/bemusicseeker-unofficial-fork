@@ -14,6 +14,10 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class MainChartRowProjectionOwner
 {
     private readonly Dictionary<string, ChartFileTransientState> transientStatesByKey = new(StringComparer.Ordinal);
+    private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
+    /// <summary>現在の再生状態の読取り口を、表示行の生成時へ直接渡します。</summary>
+    internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
+
     private int chartInfoVersion;
     private int scoreSnapshotVersion;
 
@@ -34,6 +38,7 @@ internal sealed class MainChartRowProjectionOwner
             return;
         }
         row.SetChartTransientStateProvider(GetTransientState);
+        row.SetPlaybackStatusProvider(playbackStatusProvider);
         row.SetChartInfoProjectionProvider(chart => ResolveChartInfo(library, chart));
         row.SetResourceHealthProjectionProvider(candidate => ResolveResourceHealth(library, candidate));
         row.SetPlaylistReferenceDisplayProvider(candidate => ResolvePlaylistReferenceDisplay(library, candidate?.Chart));
@@ -79,6 +84,7 @@ internal sealed class MainChartRowProjectionOwner
         {
             row?.SetResourceHealthProjectionProvider(candidate => ResolveResourceHealth(library, candidate));
         }
+        row?.SetPlaybackStatusProvider(playbackStatusProvider);
         row?.SetChartInfoProjectionProvider(chart => ResolveChartInfo(library, chart));
         row?.SetPlaylistReferenceDisplayProvider(candidate => ResolvePlaylistReferenceDisplay(library, candidate?.Chart));
         return row;
@@ -185,7 +191,7 @@ internal sealed class MainChartRowProjectionOwner
         LR2SongDBExtended.chart_info entryChartInfo,
         LibraryChartRef resolvedChartRef)
     {
-        return new PlaylistDetailSourceRow(
+        var row = new PlaylistDetailSourceRow(
             entry,
             resolvedChart,
             scoreSnapshot,
@@ -194,18 +200,16 @@ internal sealed class MainChartRowProjectionOwner
             GetTransientState,
             chart => ResolveChartInfo(library, chart),
             resolvedChartRef);
+        row.PlaybackStatusProvider = playbackStatusProvider;
+        return row;
     }
 
     internal ChartFileTransientState GetTransientState(ChartFile chart, bool includeWarningSnapshot)
     {
         string key = ChartFileRuntimeStateKey.Create(chart);
-        if (string.IsNullOrWhiteSpace(key)
-            || !transientStatesByKey.TryGetValue(key, out ChartFileTransientState state)
-            || state == null)
-        {
-            return ChartFileTransientState.Empty;
-        }
-        return includeWarningSnapshot ? state : state.WithoutWarnings();
+        ChartFileTransientState state = !string.IsNullOrWhiteSpace(key) && transientStatesByKey.TryGetValue(key, out ChartFileTransientState found) && found != null
+            ? (includeWarningSnapshot ? found : found.WithoutWarnings()) : ChartFileTransientState.Empty;
+        return state;
     }
 
     internal void UpdateTransientStates(IEnumerable<ChartFile> charts, bool forceInstallDestinationProjection = false)

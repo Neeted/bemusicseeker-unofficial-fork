@@ -14,8 +14,11 @@ internal sealed class FloatWaveSource
     private readonly bool hasIdentityChannelOrder;
     private long position;
 
-    /// <summary>簡潔なWAVEヘッダーを作成し、PCM本体は唯一の音声データとして保持します。</summary>
-    internal FloatWaveSource(DecodedAudio audio, string path)
+    /// <summary>共有PCMを複写せず、任意の有限終端までを独立cursorのWAVEとして公開します。</summary>
+    /// <param name="audio">path単位で共有する復号PCMです。</param>
+    /// <param name="path">失敗診断に使う入力pathです。</param>
+    /// <param name="endFrame">絶対source終端です。nullは元のEOFを維持します。</param>
+    internal FloatWaveSource(DecodedAudio audio, string path, long? endFrame = null)
     {
         this.audio = audio ?? throw new ArgumentNullException(nameof(audio));
         ChannelLayout = audio.ChannelLayout.ToWaveOrder(out sourceChannelIndexesInWaveOrder);
@@ -29,9 +32,11 @@ internal sealed class FloatWaveSource
             }
         }
 
-        long dataLength = audio.PcmByteCount;
+        FrameCount = endFrame ?? audio.FrameCount;
+        if (FrameCount < 0 || FrameCount > audio.FrameCount) throw new ArgumentOutOfRangeException(nameof(endFrame));
+        long dataLength = checked(FrameCount * audio.ChannelCount * sizeof(float));
         long riffLength = checked(HeaderLength - 8L + dataLength);
-        if (dataLength > uint.MaxValue || riffLength > uint.MaxValue || audio.FrameCount > uint.MaxValue)
+        if (dataLength > uint.MaxValue || riffLength > uint.MaxValue || FrameCount > uint.MaxValue)
         {
             throw new AudioSourceLoadException(
                 AudioSourceLoadStage.CreateBassSource,
@@ -53,6 +58,7 @@ internal sealed class FloatWaveSource
         header = CreateHeader(
             audio,
             ChannelLayout,
+            FrameCount,
             checked((uint)dataLength),
             checked((uint)riffLength),
             checked((ushort)blockAlign),
@@ -63,7 +69,10 @@ internal sealed class FloatWaveSource
     internal long TotalLength { get; }
 
     /// <summary>復号されたPCMが0フレームかを取得します。</summary>
-    internal bool IsEmpty => audio.FrameCount == 0;
+    internal bool IsEmpty => FrameCount == 0;
+
+    /// <summary>共有PCMの開始から仮想EOFまでのframe数です。slice本体は複製しません。</summary>
+    internal long FrameCount { get; }
 
     /// <summary>BASS が読む WAVE 順に並べたチャンネル配置を取得します。</summary>
     internal AudioChannelLayout ChannelLayout { get; }
@@ -74,7 +83,7 @@ internal sealed class FloatWaveSource
     internal long GetOutputFrameCount(int outputSampleRate)
     {
         return AudioFrameMath.CeilingOutputFrameCount(
-            audio.FrameCount,
+            FrameCount,
             audio.SampleRate,
             outputSampleRate);
     }
@@ -193,6 +202,7 @@ internal sealed class FloatWaveSource
     private static byte[] CreateHeader(
         DecodedAudio audio,
         AudioChannelLayout channelLayout,
+        long frameCount,
         uint dataLength,
         uint riffLength,
         ushort blockAlign,
@@ -226,7 +236,7 @@ internal sealed class FloatWaveSource
         bytes[59] = 0x71;
         WriteFourCc(bytes, 60, "fact");
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(64), 4);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(68), checked((uint)audio.FrameCount));
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(68), checked((uint)frameCount));
         WriteFourCc(bytes, 72, "data");
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(76), dataLength);
         return bytes;

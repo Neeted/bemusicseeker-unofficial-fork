@@ -1,4 +1,5 @@
 using System;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -13,14 +14,11 @@ internal interface IPlaybackChartQueue
 
     object GetRow(int index);
 
-    /// <summary>候補判定に必要なfileを行の寿命内に解決し、workerへproviderを渡しません。フォルダ判定だけなら譜面projectionを省略できます。</summary>
-    (BeMusicSeeker.Models.BMSFile PlayerFile, BeMusicSeeker.Models.ChartFile Chart) GetPlaybackFiles(int index, bool includeChart = true)
+    /// <summary>選曲候補の共通譜面を行の寿命内に取得します。</summary>
+    ChartFile GetPlaybackChart(int index)
     {
-        object row = GetRow(index);
-        GridRowResolver.TryGetBmsPlayerFile(row, out BeMusicSeeker.Models.BMSFile playerFile);
-        BeMusicSeeker.Models.ChartFile chart = null;
-        if (includeChart) { GridRowResolver.TryGetChartFile(row, out chart); }
-        return (playerFile, chart);
+        GridRowResolver.TryGetPlaybackChart(GetRow(index), out ChartFile chart);
+        return chart;
     }
 }
 
@@ -61,17 +59,14 @@ internal sealed class MainChartListPlaybackQueue : IPlaybackChartQueue
     {
         lock (rowGate) { return replacing || index < 0 || index >= chartList.Rows.Count ? null : chartList.Rows[index]; }
     }
-    /// <summary>差替え開始との短い排他内でprojectionを確定し、破棄後のprovider参照を防ぎます。</summary>
-    public (BeMusicSeeker.Models.BMSFile PlayerFile, BeMusicSeeker.Models.ChartFile Chart) GetPlaybackFiles(int index, bool includeChart = true)
+    /// <summary>交換中のproviderへ再アクセスせず、形式共通の選曲候補を取得します。</summary>
+    public ChartFile GetPlaybackChart(int index)
     {
         lock (rowGate)
         {
-            if (replacing || index < 0 || index >= chartList.Rows.Count) { return (null, null); }
-            object row = chartList.Rows[index];
-            GridRowResolver.TryGetBmsPlayerFile(row, out BeMusicSeeker.Models.BMSFile playerFile);
-            BeMusicSeeker.Models.ChartFile chart = null;
-            if (includeChart) { GridRowResolver.TryGetChartFile(row, out chart); }
-            return (playerFile, chart);
+            if (replacing || index < 0 || index >= chartList.Rows.Count) return null;
+            GridRowResolver.TryGetPlaybackChart(chartList.Rows[index], out ChartFile chart);
+            return chart;
         }
     }
 

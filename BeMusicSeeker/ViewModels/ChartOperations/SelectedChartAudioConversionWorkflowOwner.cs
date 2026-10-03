@@ -17,7 +17,7 @@ using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using ModelBmsFile = BeMusicSeeker.Models.BMSFile;
+using ModelChartFile = BeMusicSeeker.Models.ChartFile;
 using RibbitBmsAutoPlayWriter = Ribbit.BMS.BMSAutoPlayWriter;
 
 namespace BeMusicSeeker.ViewModels;
@@ -31,7 +31,7 @@ internal interface ISelectedChartAudioConversionPlaybackPort
 internal interface ISelectedChartAudioConversionExecutor
 {
     void Execute(
-        IReadOnlyList<ModelBmsFile> bmsFiles,
+        IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
@@ -73,7 +73,6 @@ internal sealed class SelectedChartAudioConversionRequest
     {
         Targets = (targets ?? [])
             .Where(target => target?.HasCapability(ChartOperationCapabilities.ConvertToAudio) == true
-                && ChartFileKindResolver.IsBmsChartFile(target.Chart)
                 && !string.IsNullOrWhiteSpace(target.Chart.Path)
                 && LongPathFileSystem.FileExists(target.Chart.Path))
             .ToArray();
@@ -329,9 +328,8 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     0);
             }
 
-            IReadOnlyList<ModelBmsFile> bmsFiles = request.Targets
-                .Select(target => target.Chart.GetBmsStorageOwner())
-                .Where(ChartFileKindResolver.IsBmsChartFile)
+            IReadOnlyList<ModelChartFile> bmsFiles = request.Targets
+                .Select(target => target.Chart)
                 .ToArray();
             if (bmsFiles.Count == 0)
             {
@@ -581,7 +579,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         CancellationTokenSource operationCancellation,
         UiProgressContext context,
         Func<int> completedCountProvider,
-        IReadOnlyList<ModelBmsFile> bmsFiles)
+        IReadOnlyList<ModelChartFile> bmsFiles)
     {
         while (!conversionTask.IsCompleted)
         {
@@ -593,7 +591,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     "[{0}/{1}] {2}",
                     Math.Min(completedCount + 1, bmsFiles.Count),
                     bmsFiles.Count,
-                    bmsFiles[Math.Min(completedCount, bmsFiles.Count - 1)].path);
+                    bmsFiles[Math.Min(completedCount, bmsFiles.Count - 1)].Path);
             }
             catch (ProgressDialogCancellationExcpetion)
             {
@@ -707,7 +705,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
     }
 
     public void Execute(
-        IReadOnlyList<ModelBmsFile> bmsFiles,
+        IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
@@ -750,9 +748,9 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             EncoderType encoder = settings.Encoder;
             int index = 0;
             int totalCount = bmsFiles.Count;
-            foreach (ModelBmsFile bmsFile in bmsFiles)
+            foreach (ModelChartFile bmsFile in bmsFiles)
             {
-                currentFileName = bmsFile.path;
+                currentFileName = bmsFile.Path;
                 if (cancellationToken.IsCancellationRequested)
                 {
                     break;
@@ -765,15 +763,15 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                 try
                 {
                     index++;
-                    var source = new Ribbit.BMS.BMSFile(bmsFile.path);
+                    var source = Ribbit.BMS.PlaybackChart.Load(bmsFile.Path);
                     string fileName = new Dictionary<string, string>
                     {
                         ["%ARTIST%"] = ((source.Artist.Trim() ?? string.Empty) + " " + (source.Subartist?.Trim() ?? string.Empty)).Trim(),
                         ["%TITLE%"] = ((source.Title.Trim() ?? string.Empty) + " " + (source.Subtitle?.Trim() ?? string.Empty)).Trim(),
                         ["%GENRE%"] = source.Genre.Trim() ?? string.Empty,
                         ["%NO%"] = index.ToString().PadLeft(Math.Max(2, totalCount.ToString().Length), '0'),
-                        ["%FILE%"] = Path.GetFileName(bmsFile.path),
-                        ["%HASH%"] = source.Md5
+                        ["%FILE%"] = Path.GetFileName(bmsFile.Path),
+                        ["%HASH%"] = source.Hash
                     }
                         .Aggregate(settings.EncodeFileNameFormat, (current, replacement) => current.Replace(replacement.Key, replacement.Value))
                         .NaturalNormalizationForFileName()
@@ -812,7 +810,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                 catch (Exception ex)
                 {
                     fileException = ex;
-                    TryLogConversionSecondaryFailure("file", bmsFile.path, ex);
+                    TryLogConversionSecondaryFailure("file", bmsFile.Path, ex);
                 }
                 finally
                 {
@@ -827,7 +825,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                             fatalFileException,
                             fileException,
                             disposeException);
-                        TryLogConversionSecondaryFailure("writer disposal", bmsFile.path, disposeException);
+                        TryLogConversionSecondaryFailure("writer disposal", bmsFile.Path, disposeException);
                     }
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
@@ -841,7 +839,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
 
                 terminalFileResult = null;
                 bool canContinue = CompleteFile(
-                    bmsFile.path,
+                    bmsFile.Path,
                     fileException,
                     tryReleaseEncoder,
                     fileResult =>

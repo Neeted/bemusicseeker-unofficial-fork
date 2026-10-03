@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -62,6 +66,131 @@ public sealed class MainWindowPlaybackWpfTests
                 Assert.AreSame(row, activatedRows[0].Row);
             },
             playbackTerminal: playbackTerminal);
+    }
+
+    [TestMethod]
+    public void PlaybackStateChangesRefreshLoadedTableWithoutReplacingRowsOrCommittingEditor()
+    {
+        string path = Path.GetTempFileName();
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PlaybackPanelViewModelTests.PreloadBmsPlayer
+        {
+            SupportsBmson = true,
+            Ready = ready.Task,
+            Completion = completion.Task
+        };
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                (viewModel, window) => TestUiDispatcherHost.RunWindowTest(scope =>
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "replace-player");
+                    ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song { path = path, title = "Bmson" });
+                    PlaylistDetailRow first = viewModel.MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
+                        null, new BMSTableEntry { memo = "original" }, chart,
+                        new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true }, null, null).CreateViewRow();
+                    PlaylistDetailRow duplicate = viewModel.MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
+                        null, new BMSTableEntry(), chart, null, null, null).CreateViewRow();
+                    var rows = new List<object> { first, duplicate };
+                    viewModel.MainChartList.Rows = rows;
+                    viewModel.MainChartList.SelectedIndex = -1;
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    ChartFileStatus expected = ChartFileStatus.NONE;
+                    var rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int evaluationCount = 0;
+                    int refreshCount = 0;
+                    EventHandler refresh = (_, _) => refreshCount++;
+                    EventHandler<MainChartListCellEditBeginningEventArgs> allowEdit = (_, request) => request.Accepted = true;
+                    viewModel.MainChartList.DisplayRefreshRequested += refresh;
+                    viewModel.MainChartList.CellEditBeginningRequested += allowEdit;
+                    var layout = new CustomTableColumnSettings.ColumnLayout { Width = 120, Visibility = Visibility.Visible };
+                    table.Columns =
+                    [
+                        new CustomTableColumn("Memo", "Memo", layout, 0, null, TextAlignment.Left,
+                            row => ((PlaylistDetailRow)row).memo, editPropertyName: "memo"),
+                        new CustomTableColumn("State", "State", layout, 1, null, TextAlignment.Left, row =>
+                        {
+                            evaluationCount++;
+                            ChartFileStatus status = ((PlaylistDetailRow)row).status & ChartFileStatus.PLAYALL;
+                            if (ReferenceEquals(row, first) && status == expected) rendered.TrySetResult();
+                            return status.ToString();
+                        })
+                    ];
+                    Task? start = null;
+                    try
+                    {
+                        // compiled内容をLoadedにし、shellのContentRenderedによる本番起動初期化は開始しません。
+                        object content = window.Content;
+                        window.Content = null;
+                        var host = new Window { Content = content, DataContext = viewModel, Width = 1000, Height = 700 };
+                        scope.ShowAndWaitForContentRendered(host);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "initial-table-render");
+                        table.HandleKeyDown(Key.Down, ModifierKeys.None);
+                        Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                        TextBox editor = FindVisualChildren<TextBox>(table).Single();
+                        editor.Text = "uncommitted";
+                        int selectedIndex = table.SelectedIndex;
+                        expected = ChartFileStatus.LOADING;
+                        rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        start = viewModel.PlaybackPanel.StartAtIndex(0);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(player.StartObserved.Task, "preparing-start");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "loading-table-render");
+                        expected = ChartFileStatus.PLAY;
+                        rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        ready.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "ready-start");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "playing-table-render");
+                        foreach (ChartFileStatus status in new[] { ChartFileStatus.PAUSE, ChartFileStatus.PLAY })
+                        {
+                            expected = status;
+                            rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            viewModel.PlaybackPanel.TogglePause();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "pause-resume-table-render");
+                            Assert.AreEqual(status, duplicate.status & ChartFileStatus.PLAYALL);
+                        }
+                        TestUiDispatcherHost.Drain();
+                        int evaluationsBeforeTime = evaluationCount;
+                        int refreshesBeforeTime = refreshCount;
+                        player.CurrentTime = TimeSpan.FromSeconds(1);
+                        player.Raise(nameof(IBMSPlayer.CurrentTime));
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(evaluationsBeforeTime, evaluationCount);
+                        Assert.AreEqual(refreshesBeforeTime, refreshCount);
+                        expected = ChartFileStatus.NONE;
+                        rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "stop-playback");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "stopped-table-render");
+                        Assert.AreSame(rows, viewModel.MainChartList.Rows);
+                        Assert.AreSame(rows, table.ItemsSource);
+                        Assert.AreEqual(212, first.score);
+                        Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, first.status);
+                        Assert.AreSame(first, rows[0]);
+                        Assert.AreSame(duplicate, rows[1]);
+                        Assert.AreEqual(selectedIndex, table.SelectedIndex);
+                        Assert.AreEqual("original", first.memo);
+                        Assert.AreSame(editor, FindVisualChildren<TextBox>(table).Single());
+                        Assert.AreEqual("uncommitted", editor.Text);
+                    }
+                    finally
+                    {
+                        ready.TrySetResult();
+                        completion.TrySetResult();
+                        if (start != null) TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "start-cleanup");
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "stop-cleanup");
+                        viewModel.MainChartList.DisplayRefreshRequested -= refresh;
+                        viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
+                    }
+                }));
+        }
+        finally
+        {
+            ready.TrySetResult();
+            completion.TrySetResult();
+            File.Delete(path);
+        }
     }
 
     private static IReadOnlyList<T> FindVisualChildren<T>(DependencyObject root)

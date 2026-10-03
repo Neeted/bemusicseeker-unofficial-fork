@@ -3408,6 +3408,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Error_ExecutableNotFound" xml:space="preserve">
     <value>実行ファイルが見つかりません。</value>
   </data>
+  <data name="Error_InvalidBmsonInputFormat" xml:space="preserve">
+    <value>bmson 入力が不正です: {0}</value>
+  </data>
   <data name="Error_BmsFileNotFound" xml:space="preserve">
     <value>BMS ファイルが見つかりません。</value>
   </data>

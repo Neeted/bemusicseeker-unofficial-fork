@@ -497,6 +497,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         // 120 BPMで小節前半が1秒、EXBPM後の四分小節と192刻みSTOPが各0.25秒・1秒、
         // 残り四分小節が0.25秒。次小節は長さ0.5なので0.5秒、その中点は2.75秒です。
+        Assert.IsNotNull(writer.Bms);
         Assert.AreEqual(TimeSpan.FromSeconds(1), writer.Bms.Measures[0].ExBpm.Single().AbsoluteTime);
         Assert.AreEqual(TimeSpan.FromMilliseconds(1250), writer.Bms.Measures[0].Stop.Single().AbsoluteTime);
         Assert.AreEqual(TimeSpan.FromSeconds(3), writer.Bms.Duration);
@@ -1359,6 +1360,85 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 scheduler.ExecuteAll();
             }
             player.DisposeAudioSourcesAfterUse();
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(60000L, 2, 60000, 12000)]
+    [DataRow(72000L, 2, 72000, 24000)]
+    [DataRow(144000L, 1, 0, 96000)]
+    public void BmsonSeekRestoresEveryOverlappingRestartRunAtItsSourceOffset(long seekFrame, int activeVoices, int oldSourceFrame, int newSourceFrame)
+    {
+        using var directory = new TemporaryDirectory();
+        float[] samples = BuildRampSamples(144000, 1f / 1000000f);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, samples));
+        string path = directory.File("seek.bmson");
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":[{\"y\":0},{\"y\":240,\"c\":true},{\"y\":480},{\"y\":720,\"c\":true}]}]}");
+        using var player = new BMSAutoPlayer(PlaybackChart.Load(path));
+        player.LoadResources();
+        Assert.AreEqual(TimeSpan.FromSeconds(4), player.MusicDuration);
+        using var scheduler = new BmsRealtimeAudioScheduler(player.AudioSchedule, player.AudioResourcesByIndex,
+            player.ResourceSession, new BassMixerSourceNativeBoundary(), player.Duration, seekFrame, 1f, 3);
+        var renderer = new AudioPcmRenderer(player.ResourceSession.MixerHandle, 48000, 2);
+        float[] output = new float[64 * 2];
+        Assert.AreEqual(64, renderer.ReadFrames(output, 64).FramesRead);
+        float expected = samples[newSourceFrame * 2] + (activeVoices == 2 ? samples[oldSourceFrame * 2] : 0f);
+        Assert.AreEqual(expected * BassAudioPlayer.DefaultVolume, output[0], 1e-6f);
+        Assert.AreEqual(activeVoices, scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount);
+    }
+
+    [DataTestMethod]
+    [DataRow(93L, 1, 101L)]
+    [DataRow(919L, 0, 0L)]
+    public void BmsonSeekAfterContinuationUsesTheRunOriginAndHalfOpenPhysicalEof(long seekFrame, int activeVoices, long sourceFrame)
+    {
+        Assert.IsTrue(BassAudioPlayer.Free(ownedSession));
+        ownedSession = null;
+        BassAudioRuntime.Shutdown();
+        BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_44100Hz;
+        BassAudioWriter.InitializeOwnedSession(out ownedSession);
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, BuildRampSamples(1000, 1f / 10000f)));
+        string path = directory.File("fractional-seek.bmson");
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":2,\"c\":true}]}]}");
+        using var player = new BMSAutoPlayer(PlaybackChart.Load(path));
+        player.LoadResources();
+        Assert.AreEqual(919L, player.AudioSchedule.Events.Single().EndFrame);
+        var native = new RecordingScheduledNativeBoundary();
+        using var scheduler = new BmsRealtimeAudioScheduler(player.AudioSchedule, player.AudioResourcesByIndex,
+            player.ResourceSession, native, player.Duration, seekFrame, 1f, 3);
+        CollectionAssert.AreEqual(activeVoices == 0 ? Array.Empty<long>() : new[] { sourceFrame * 2 * sizeof(float) },
+            native.SnapshotSourcePositions());
+        if (activeVoices != 0)
+        {
+            var renderer = new AudioPcmRenderer(player.ResourceSession.MixerHandle, 44100, 2);
+            Assert.AreEqual(1, renderer.ReadFrames(new float[2], 1).FramesRead);
+        }
+        Assert.AreEqual(activeVoices, scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount);
+    }
+
+    [TestMethod]
+    public void BmsonSeekRestoresBothRestartRunsFromTheirOwnOrigins()
+    {
+        using var directory = new TemporaryDirectory();
+        float[] samples = BuildRampSamples(48000, 1f / 1000000f);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, samples));
+        string path = directory.File("restart-seek.bmson");
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":[{\"y\":0},{\"y\":60,\"c\":true},{\"y\":120},{\"y\":180,\"c\":true}]}]}");
+        using var player = new BMSAutoPlayer(PlaybackChart.Load(path));
+        player.LoadResources();
+        var native = new RecordingScheduledNativeBoundary();
+        using var scheduler = new BmsRealtimeAudioScheduler(player.AudioSchedule, player.AudioResourcesByIndex,
+            player.ResourceSession, native, player.Duration, 24000, 1f, 3);
+        CollectionAssert.AreEqual(new long[] { 24000 * 2 * sizeof(float), 12000 * 2 * sizeof(float) }, native.SnapshotSourcePositions());
+        var renderer = new AudioPcmRenderer(player.ResourceSession.MixerHandle, 48000, 2);
+        float[] output = new float[64 * 2];
+        Assert.AreEqual(64, renderer.ReadFrames(output, 64).FramesRead);
+        Assert.AreEqual(2, scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount);
+        for (int frame = 0; frame < 64; frame++)
+        {
+            Assert.AreEqual((samples[(24000 + frame) * 2] + samples[(12000 + frame) * 2]) * BassAudioPlayer.DefaultVolume,
+                output[frame * 2], 1e-6f);
         }
     }
 
@@ -2496,6 +2576,15 @@ public sealed class BmsRealtimeAudioSchedulerTests
         private readonly object sync = new();
         private readonly BassMixerSourceNativeBoundary inner = new();
         private readonly Dictionary<int, (long StartBytes, bool Resumed)> reservations = new();
+        private readonly List<long> sourcePositions = new();
+
+        internal long[] SnapshotSourcePositions()
+        {
+            lock (sync)
+            {
+                return sourcePositions.ToArray();
+            }
+        }
 
         internal ScheduledVoiceReservation[] SnapshotReservations()
         {
@@ -2561,8 +2650,18 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         public bool FreeStream(int sourceHandle) => inner.FreeStream(sourceHandle);
 
-        public bool SetPosition(int sourceHandle, long position, PositionFlags mode) =>
-            inner.SetPosition(sourceHandle, position, mode);
+        public bool SetPosition(int sourceHandle, long position, PositionFlags mode)
+        {
+            bool result = inner.SetPosition(sourceHandle, position, mode);
+            if (result)
+            {
+                lock (sync)
+                {
+                    sourcePositions.Add(position);
+                }
+            }
+            return result;
+        }
 
         public Errors GetError() => inner.GetError();
     }

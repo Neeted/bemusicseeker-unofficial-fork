@@ -331,11 +331,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                     continue;
                 }
 
-                long sourceOutputFrames = resource.GetOutputFrameCount(sampleRate);
-                long naturalEnd = checked(audioEvent.StartFrame + sourceOutputFrames);
-                long endFrame = audioEvent.NextSameIndexStartFrame is long nextStart
-                    ? System.Math.Min(naturalEnd, nextStart)
-                    : naturalEnd;
+                long endFrame = GetEndFrame(audioEvent, resource);
                 if (endFrame <= audioEvent.StartFrame)
                 {
                     continue;
@@ -350,7 +346,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                         GetMixerFrameIfRepresentable(currentSongFrame),
                         null);
                 }
-                pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, 0));
+                pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
             }
 
             PrepareAndCommit(pending);
@@ -380,44 +376,21 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
             segmentStartMixerFrame = segmentMixerFrame;
 
             var pending = new List<PendingVoice>();
-            foreach (IGrouping<int, BmsAudioFrameEvent> group in schedule.Events.GroupBy(item => item.WavIndex))
+            // BMSでは次の同index発音で打切り済み、bmsonでは同channelのEOF tailも重なります。
+            // 最後のpriorだけを選ばず、半開区間に含まれるすべての独立voiceを復元します。
+            foreach (BmsAudioFrameEvent activeEvent in schedule.Events)
             {
-                if ((uint)group.Key >= (uint)resourcesByIndex.Count)
+                if (activeEvent.StartFrame >= segmentStartSongFrame) break;
+                if ((uint)activeEvent.WavIndex >= (uint)resourcesByIndex.Count)
+                    throw CreateFailure("resource index", activeEvent, 0, currentMixerFrame: null);
+                BmsAudioResource? resource = resourcesByIndex[activeEvent.WavIndex];
+                if (resource == null || resource.IsEmpty) continue;
+                long endFrame = GetEndFrame(activeEvent, resource);
+                if (segmentStartSongFrame < endFrame)
                 {
-                    BmsAudioFrameEvent invalid = group.First();
-                    throw CreateFailure("resource index", invalid, 0, currentMixerFrame: null);
-                }
-                BmsAudioResource? resource = resourcesByIndex[group.Key];
-                if (resource == null || resource.IsEmpty)
-                {
-                    continue;
-                }
-
-                BmsAudioFrameEvent? prior = null;
-                foreach (BmsAudioFrameEvent audioEvent in group)
-                {
-                    if (audioEvent.StartFrame >= segmentStartSongFrame)
-                    {
-                        break;
-                    }
-                    prior = audioEvent;
-                }
-                if (prior is BmsAudioFrameEvent activeEvent)
-                {
-                    long endFrame = GetEndFrame(activeEvent, resource);
-                    if (activeEvent.StartFrame < segmentStartSongFrame && segmentStartSongFrame < endFrame)
-                    {
-                        long sourceFrame = AudioFrameMath.SourceFrameFromMixerFrames(
-                            segmentStartSongFrame - activeEvent.StartFrame,
-                            resource.Audio.SampleRate,
-                            sampleRate);
-                        pending.Add(new PendingVoice(
-                            activeEvent,
-                            resource,
-                            segmentStartSongFrame,
-                            endFrame,
-                            sourceFrame));
-                    }
+                    long sourceFrame = checked(activeEvent.SourceStartFrame + AudioFrameMath.SourceFrameFromMixerFrames(
+                        segmentStartSongFrame - activeEvent.StartFrame, resource.Audio.SampleRate, sampleRate));
+                    pending.Add(new PendingVoice(activeEvent, resource, segmentStartSongFrame, endFrame, sourceFrame));
                 }
             }
 
@@ -438,7 +411,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                 long endFrame = GetEndFrame(audioEvent, resource);
                 if (endFrame > audioEvent.StartFrame)
                 {
-                    pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, 0));
+                    pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
                 }
             }
 
@@ -690,7 +663,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
             {
                 PendingVoice voice = pending[pendingIndex];
                 failedVoice = voice;
-                var player = new BassAudioPlayer(voice.Resource.Path, voice.Resource.Audio, session, native);
+                var player = new BassAudioPlayer(voice.Resource.Path, voice.Resource.Audio, session, native, voice.Event.SourceEndFrame);
                 createdPlayers.Add(player);
                 long startMixerFrame = checked(originMixerFrame + voice.PlaybackStartSongFrame);
                 long endMixerFrame = checked(originMixerFrame + voice.EndSongFrame);
@@ -746,6 +719,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
 
     private long GetEndFrame(BmsAudioFrameEvent audioEvent, BmsAudioResource resource)
     {
+        if (audioEvent.EndFrame is long resolvedEnd) return resolvedEnd;
         long naturalEnd = checked(audioEvent.StartFrame + resource.GetOutputFrameCount(sampleRate));
         return audioEvent.NextSameIndexStartFrame is long nextStart
             ? System.Math.Min(naturalEnd, nextStart)

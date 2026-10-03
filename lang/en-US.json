@@ -1014,6 +1014,7 @@
   "Error_InvalidLR2ScoreDbFile": "The file was not found or does not have the .db extension.",
   "Error_InvalidPlayerExecutableFormat": "The executable was not found or is not {0}.",
   "Error_ExecutableNotFound": "The executable was not found.",
+  "Error_InvalidBmsonInputFormat": "Invalid bmson input: {0}",
   "Error_BmsFileNotFound": "The BMS file was not found.",
   "Error_InvalidHashFormat": "The value is not a valid {0} hash.",
   "Error_InvalidHashValueFormat": "The value is not a valid {0} hash. Value: {1}",

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.BMS;
+using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
@@ -11,6 +12,41 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsAudioFrameScheduleTests
 {
+    [TestMethod]
+    public void BmsonContinuationRunsKeepIndependentChannelsAtCollidingOutputFrames()
+    {
+        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":16000},\"sound_channels\":[{\"name\":\"same.wav\",\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":3,\"c\":true}]},{\"name\":\"same.wav\",\"notes\":[{\"y\":1}]}]}");
+        var resource = new BmsAudioResource("same.wav", new DecodedAudio(32000, AudioChannelLayout.CreateBassOutput(1), new float[10]), 1);
+        var schedule = BmsAudioFrameSchedule.Create(chart, 32000, new[] { resource, resource });
+        CollectionAssert.AreEqual(new long[] { 0, 0, 1 }, chart.AudioEvents.Where(item => item.ResourceIndex == 0)
+            .Select(item => item.SourceStart.ToSourceFrame(32000)).ToArray());
+        Assert.AreEqual(2, schedule.Events.Count);
+        CollectionAssert.AreEqual(new[] { 0, 1 }, schedule.Events.Select(item => item.WavIndex).ToArray());
+        CollectionAssert.AreEqual(new long[] { 0, 0 }, schedule.Events.Select(item => item.StartFrame).ToArray());
+        Assert.IsTrue(schedule.Events.All(item => item.SourceStartFrame == 0 && item.SourceEndFrame == 10 && item.EndFrame == 10));
+        Assert.IsTrue(schedule.Events.All(item => item.NextSameIndexStartFrame == null));
+    }
+
+    [DataTestMethod]
+    [DataRow(44100, 48000, 91L, 100L, 101L)]
+    [DataRow(48000, 44100, 99L, 92L, 92L)]
+    public void BmsonContinuationRunResolvesPhysicalEofWithoutExtendingAtLaterLogicalNotes(int sourceRate, int outputRate, long sourceStart, long start, long end)
+    {
+        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":2,\"c\":true}]}]}");
+        var resource = new BmsAudioResource("test.wav", new DecodedAudio(sourceRate, AudioChannelLayout.CreateBassOutput(1), new float[checked((int)sourceStart + 1)]), 1);
+        var schedule = BmsAudioFrameSchedule.Create(chart, outputRate, new[] { resource });
+        Assert.AreEqual(3, chart.AudioEvents.Count);
+        Assert.AreEqual(sourceStart, chart.AudioEvents[1].SourceStart.ToSourceFrame(sourceRate));
+        Assert.AreEqual(start, chart.AudioEvents[1].Start.ToOutputFrame(outputRate));
+        Assert.AreEqual(1, schedule.Events.Count);
+        Assert.AreEqual(0L, schedule.Events[0].SourceStartFrame);
+        Assert.AreEqual(0L, schedule.Events[0].StartFrame);
+        Assert.AreEqual(sourceStart + 1, schedule.Events[0].SourceEndFrame);
+        Assert.AreEqual(end, schedule.Events[0].EndFrame);
+        var missing = BmsAudioFrameSchedule.Create(chart, outputRate, new BmsAudioResource?[] { null });
+        Assert.AreEqual(0, missing.Events.Count);
+    }
+
     [TestMethod]
     public void RequiredIndicesComeOnlyFromTheFiveAudioGroups()
     {

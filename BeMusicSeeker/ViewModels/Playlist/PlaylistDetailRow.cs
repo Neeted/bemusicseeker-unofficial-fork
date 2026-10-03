@@ -11,7 +11,7 @@ namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
 /// プレイリスト詳細表示の一覧行です。
-/// 表示値は source snapshot から複製し、所持 BMS の再生状態は保存主体の現在値を反映します。
+/// 表示値は source snapshot から複製し、所持 BMS・bmson の再生状態は共通の再生管理主体の現在値をstatus getterだけへ重ねます。
 /// playlist 編集に必要な一部プロパティだけを更新可能にします。
 /// </summary>
 internal sealed class PlaylistDetailRow : NotificationObject
@@ -29,6 +29,10 @@ internal sealed class PlaylistDetailRow : NotificationObject
     private string memoValue;
 
     private readonly ChartFileStatus projectedStatus;
+    private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
+
+    /// <summary>現在の再生ownerをstatus getterだけへ接続し、Chartと編集値を変更しません。</summary>
+    internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
 
     /// <summary>
     /// 元の playlist エントリです。
@@ -121,9 +125,12 @@ internal sealed class PlaylistDetailRow : NotificationObject
     public double? scoreDifficulty { get; }
 
     /// <summary>
-    /// 譜面の現在状態です。所持 BMS の再生状態は保存主体から読み、投影由来の状態を保ちます。
+    /// 譜面の現在状態です。接続された共通の再生管理主体から BMS・bmson の再生状態を読み、再生以外の投影状態を保ちます。
     /// </summary>
-    public ChartFileStatus status => BmsStorageOwner == null
+    public ChartFileStatus status => (SourceStatus & ~ChartFileStatus.PLAYALL)
+        | (playbackStatusProvider?.Invoke(Chart) ?? ChartFileStatus.NONE);
+
+    private ChartFileStatus SourceStatus => BmsStorageOwner == null
         ? projectedStatus
         : ChartFileStatusMapper.FromBmsFileStatus(BmsStorageOwner.status)
             | (projectedStatus & ~ChartFileStatus.PLAYALL);

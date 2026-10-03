@@ -10,17 +10,21 @@ internal sealed class PreparedBmsSong
 {
     private BmsAudioResourceLoadResult? resources;
 
-    private PreparedBmsSong(BMSFile chart, BmsAudioResourceLoadResult resources)
+    private PreparedBmsSong(PlaybackChart chart, BmsAudioResourceLoadResult resources)
     {
         Chart = chart;
         this.resources = resources;
     }
 
     /// <summary>音源の選択に使用した解析済み譜面です。採用時に再解析しません。</summary>
-    internal BMSFile Chart { get; }
+    internal PlaybackChart Chart { get; }
 
     /// <summary>通常読込みと先読みで同じ音源探索・復号を行います。native出力を作成しません。</summary>
     internal static PreparedBmsSong Prepare(BMSFile chart, float gain, CancellationToken cancellationToken = default,
+        BassAudioSession? expectedSession = null) => Prepare(PlaybackChart.FromBms(chart), gain, cancellationToken, expectedSession);
+
+    /// <summary>形式共通の解析済み譜面を復号し、一回採用できる結果を返します。</summary>
+    internal static PreparedBmsSong Prepare(PlaybackChart chart, float gain, CancellationToken cancellationToken = default,
         BassAudioSession? expectedSession = null)
     {
         cancellationToken.ThrowIfCancellationRequested();

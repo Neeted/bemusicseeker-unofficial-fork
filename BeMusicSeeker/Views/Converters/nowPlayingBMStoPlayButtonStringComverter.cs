@@ -11,7 +11,7 @@ internal class nowPlayingBMStoPlayButtonStringComverter : IValueConverter
     {
         try
         {
-            if (((BMSFile.BMSFileStatus)value).HasFlag(BMSFile.BMSFileStatus.PLAY))
+            if (((BMSFile.BMSFileStatus)System.Convert.ToInt32(value, culture)).HasFlag(BMSFile.BMSFileStatus.PLAY))
             {
                 return "pause";
             }

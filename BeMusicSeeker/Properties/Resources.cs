@@ -2546,6 +2546,9 @@ public class Resources
     /// <summary>実行ファイルが見つかりません。</summary>
     public static string Error_ExecutableNotFound => ResourceManager.GetString("Error_ExecutableNotFound", resourceCulture);
 
+    /// <summary>不正な bmson 入力を示すメッセージです。{0} は対象ファイルの実pathです。</summary>
+    public static string Error_InvalidBmsonInputFormat => ResourceManager.GetString("Error_InvalidBmsonInputFormat", resourceCulture);
+
     /// <summary>BMS ファイルが見つかりません。</summary>
     public static string Error_BmsFileNotFound => ResourceManager.GetString("Error_BmsFileNotFound", resourceCulture);
 

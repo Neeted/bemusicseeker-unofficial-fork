@@ -1014,6 +1014,7 @@
   "Error_InvalidLR2ScoreDbFile": "Le fichier est introuvable ou ne possède pas l’extension .db.",
   "Error_InvalidPlayerExecutableFormat": "L’exécutable est introuvable ou ne correspond pas à {0}.",
   "Error_ExecutableNotFound": "L’exécutable est introuvable.",
+  "Error_InvalidBmsonInputFormat": "Entrée bmson non valide : {0}",
   "Error_BmsFileNotFound": "Le fichier BMS est introuvable.",
   "Error_InvalidHashFormat": "La valeur n’est pas un hachage {0} valide.",
   "Error_InvalidHashValueFormat": "La valeur n’est pas un hachage {0} valide. Valeur : {1}",

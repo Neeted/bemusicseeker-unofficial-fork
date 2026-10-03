@@ -7,6 +7,9 @@ namespace BeMusicSeeker.Models;
 
 internal interface IBMSPlayer : INotifyPropertyChanged
 {
+    /// <summary>このplayerがbmsonの実pathを受理する能力です。未確認の外部playerへ内蔵能力を推測しません。</summary>
+    bool SupportsBmson => false;
+
     string ExePath { get; set; }
 
     TimeSpan Duration { get; }
