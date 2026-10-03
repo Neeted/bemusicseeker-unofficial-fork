@@ -55,4 +55,6 @@
 
 検証の標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行回数、時間制限、失敗時の扱いは[テスト検証](devdocs/spec/development/testing.md)を正本とします。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
+Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `Functional` / `Full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
+
 画面確認では、リポジトリ内の正確な実行ファイルを指定し、インストール版を誤って起動しません。確認後は対象プロセスと操作セッションを終了します。起動方法と中断時の扱いは[画面確認](devdocs/spec/development/testing.md#画面確認)を参照します。

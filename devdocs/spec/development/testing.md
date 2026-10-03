@@ -16,6 +16,8 @@
 
 PowerShell 7から、リポジトリのルートで実行します。
 
+標準入口はWindows上で使います。Linuxで実装を変更した場合は、[Linuxの構築手順](../../setup-linux.md)に従い、変更に関連する既存テストのうちLinuxで実行可能なものを実行し、Windows向けクロスビルドの成功も確認します。実行した範囲・結果と、Linuxで実行できないテスト・未実施のWindows検証を明示して報告します。Linuxの結果を `Functional` / `Full` の成功へ置き換えません。
+
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~対象のテスト名'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
