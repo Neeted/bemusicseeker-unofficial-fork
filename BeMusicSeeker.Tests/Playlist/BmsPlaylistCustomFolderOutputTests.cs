@@ -223,7 +223,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
@@ -293,7 +292,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 () => config,
-                null,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -1744,7 +1742,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => CreateLr2Config(lr2RootPath, bmsRoot),
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
@@ -1904,7 +1901,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 () => config,
-                null,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -2297,7 +2293,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
@@ -2381,7 +2376,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 lr2ConfigProvider,
-                null,
                 null,
                 null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
@@ -2586,7 +2580,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             }
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -2801,7 +2794,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 () => config,
-                null,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),

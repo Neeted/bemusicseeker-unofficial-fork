@@ -1,0 +1,5648 @@
+{
+  "player": {
+    "id": "nakt",
+    "name": "nakt",
+    "lastModified": 0
+  },
+  "rating": {
+    "theta": -0.18823981285095215,
+    "playerStarRating": 6.6
+  },
+  "recommendationCount": 654,
+  "reverseRecommendationCount": 57,
+  "recommendations": [
+    {
+      "entryType": "chart",
+      "name": "Imperishable Night 2006 -SP ANOTHER-",
+      "hash": "dcb93d8d9c3e0386afb721fc55821c4b",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 57.86
+    },
+    {
+      "entryType": "chart",
+      "name": "☆ twinklesky ☆ _12 虎のANOTHER",
+      "hash": "3284c41bf372f18adcd1da097aa7e342",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.85
+    },
+    {
+      "entryType": "chart",
+      "name": "Red-rize 'B172 mix' // 7keys Afother",
+      "hash": "809e83d6ebf5b98a761fae5361c9c4fd",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 37.42
+    },
+    {
+      "entryType": "chart",
+      "name": "Red-rize 'B172 mix' // 7keys Afother",
+      "hash": "809e83d6ebf5b98a761fae5361c9c4fd",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 48.6
+    },
+    {
+      "entryType": "chart",
+      "name": "妖晶零弐 -Ω-",
+      "hash": "cdd882a55d73c4c6876504b66026f982",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 67.05
+    },
+    {
+      "entryType": "chart",
+      "name": "Quark",
+      "hash": "d6b485999d498560213aa45b0cd6c6b7",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 32.74
+    },
+    {
+      "entryType": "chart",
+      "name": "Quark",
+      "hash": "d6b485999d498560213aa45b0cd6c6b7",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 41.1
+    },
+    {
+      "entryType": "chart",
+      "name": "Liberte-SuperSaw Epic mix- -ANOTHER-",
+      "hash": "90709c02ee7092b30907df62ed3bed40",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 23.11
+    },
+    {
+      "entryType": "chart",
+      "name": "Rosario -another story- (busy)",
+      "hash": "cda748c5f9c545bce00eff8673cc12ea",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 27.76
+    },
+    {
+      "entryType": "chart",
+      "name": "Rosario -another story- (busy)",
+      "hash": "cda748c5f9c545bce00eff8673cc12ea",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 33.86
+    },
+    {
+      "entryType": "chart",
+      "name": "A BEAUTIFUL SKY -OB style- AFOTHER",
+      "hash": "2365be1596874951d4efd2e85ae04deb",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 24.33
+    },
+    {
+      "entryType": "chart",
+      "name": "cadence [29Another]",
+      "hash": "065b4491c016292247d76a9847b72b3e",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 34.44
+    },
+    {
+      "entryType": "chart",
+      "name": "Party 4U (AFOTHER)",
+      "hash": "a832f562a5edf913c31062a49577bd3e",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 33.24
+    },
+    {
+      "entryType": "chart",
+      "name": "wilis -SABUN-",
+      "hash": "1401d3144ec27c3c14a00588a45aec15",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.46
+    },
+    {
+      "entryType": "chart",
+      "name": "Ultramarine [Ultra(7)]",
+      "hash": "89719530f80d426750633ac820089bcf",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 43.11
+    },
+    {
+      "entryType": "chart",
+      "name": "Ultramarine [Ultra(7)]",
+      "hash": "89719530f80d426750633ac820089bcf",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 52.3
+    },
+    {
+      "entryType": "chart",
+      "name": "Cosmoscape  [kei another]",
+      "hash": "6aa8bf3963ecd60a2a06535e23b67ba4",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.61
+    },
+    {
+      "entryType": "chart",
+      "name": "Cosmoscape  [kei another]",
+      "hash": "6aa8bf3963ecd60a2a06535e23b67ba4",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 52.51
+    },
+    {
+      "entryType": "chart",
+      "name": "SEPIA -EX色-",
+      "hash": "b252c955763ccc430d7b085977e72cdd",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 34.22
+    },
+    {
+      "entryType": "chart",
+      "name": "SEPIA -EX色-",
+      "hash": "b252c955763ccc430d7b085977e72cdd",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 46.08
+    },
+    {
+      "entryType": "chart",
+      "name": "Mirai (busy)",
+      "hash": "5dad50b54d761072328248937a230374",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 37.55
+    },
+    {
+      "entryType": "chart",
+      "name": "aliceblue (Radio Edit) (SP EX++)",
+      "hash": "10e32182c81f2c4fafbe18946c75b04f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 22.8
+    },
+    {
+      "entryType": "chart",
+      "name": "FELYS (虎のANOTHER)",
+      "hash": "becd8745316f7e0e339e839fd308ec39",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 46.57
+    },
+    {
+      "entryType": "chart",
+      "name": "happy century 虎のANOTHER",
+      "hash": "c7042fa76dd68f3761676f917909fd4e",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.23
+    },
+    {
+      "entryType": "chart",
+      "name": "J2U (crazy remix 7AFOTHER)",
+      "hash": "c4f19c2c3ff120c992b4d224de7d951c",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 26.88
+    },
+    {
+      "entryType": "chart",
+      "name": "J2U (crazy remix 7AFOTHER)",
+      "hash": "c4f19c2c3ff120c992b4d224de7d951c",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 48.24
+    },
+    {
+      "entryType": "chart",
+      "name": "Jade Star [alternative]",
+      "hash": "faac4cbd630b2a01b8da4f3f40ba89b4",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 49.17
+    },
+    {
+      "entryType": "chart",
+      "name": "Jade Star [alternative]",
+      "hash": "faac4cbd630b2a01b8da4f3f40ba89b4",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 59.03
+    },
+    {
+      "entryType": "chart",
+      "name": "旧地獄街道を行く ～反逆のパルスィ～ [MANIAC]",
+      "hash": "ba08b17833c353184fb8c42412985b5b",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 21.89
+    },
+    {
+      "entryType": "chart",
+      "name": "白の魔法の光",
+      "hash": "6598afc64d626f7efb90ef6a6d940823",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 23.63
+    },
+    {
+      "entryType": "chart",
+      "name": "白の魔法の光",
+      "hash": "6598afc64d626f7efb90ef6a6d940823",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 33.92
+    },
+    {
+      "entryType": "chart",
+      "name": "Over the Sky [ANOTHER7]",
+      "hash": "f5f190bb896df1a2aff18805241a9987",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 38.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Over the Sky [ANOTHER7]",
+      "hash": "f5f190bb896df1a2aff18805241a9987",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 53.88
+    },
+    {
+      "entryType": "chart",
+      "name": "x-Aria -虎之another-",
+      "hash": "7d3202d40015e007c19ae0c8101e3895",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 34.55
+    },
+    {
+      "entryType": "chart",
+      "name": "Bird Sprite -D.K.R. mix- (afother)",
+      "hash": "5fce130519a3e2ba005e5886af9a83d5",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 61.87
+    },
+    {
+      "entryType": "chart",
+      "name": "before... [7key/AFOTHER]",
+      "hash": "6f5191238a207f05643a84d50adcc030",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 28.42
+    },
+    {
+      "entryType": "chart",
+      "name": "before... [7key/AFOTHER]",
+      "hash": "6f5191238a207f05643a84d50adcc030",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 73.63
+    },
+    {
+      "entryType": "chart",
+      "name": "Xecus [Maniac]",
+      "hash": "8696632a6260cac1ee2d2ef94e23c762",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.42
+    },
+    {
+      "entryType": "chart",
+      "name": "Xecus [Maniac]",
+      "hash": "8696632a6260cac1ee2d2ef94e23c762",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 36.27
+    },
+    {
+      "entryType": "chart",
+      "name": "少女の舞葬",
+      "hash": "0f482e2dc1badd465ed871c8d91267b3",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.7
+    },
+    {
+      "entryType": "chart",
+      "name": "少女の舞葬",
+      "hash": "0f482e2dc1badd465ed871c8d91267b3",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 47.17
+    },
+    {
+      "entryType": "chart",
+      "name": "LOVE☆BEAM (orange summer mix)",
+      "hash": "98083b227b3ba1663a8ab0c75dd62e9a",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.06
+    },
+    {
+      "entryType": "chart",
+      "name": "LOVE☆BEAM (orange summer mix)",
+      "hash": "98083b227b3ba1663a8ab0c75dd62e9a",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 33.91
+    },
+    {
+      "entryType": "chart",
+      "name": "LOVE☆BEAM (orange summer mix)",
+      "hash": "98083b227b3ba1663a8ab0c75dd62e9a",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 61.2
+    },
+    {
+      "entryType": "chart",
+      "name": "舞姫 ～buki～  [7key AFOTHER]",
+      "hash": "0676d42c5eb08932d96a941b0a0a341e",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 47.34
+    },
+    {
+      "entryType": "chart",
+      "name": "A c i - L - A",
+      "hash": "88fa1f2205bccce696cf78bbe15f5917",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.66
+    },
+    {
+      "entryType": "chart",
+      "name": "shooting_moon (Phantasm)",
+      "hash": "c19a730224ae0636cd42ebe93b4b1e13",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 24.58
+    },
+    {
+      "entryType": "chart",
+      "name": "Angelic layer -Heavenly7-",
+      "hash": "17102eac11c4f695d5c926142aaf1b64",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 26.1
+    },
+    {
+      "entryType": "chart",
+      "name": "アズール リミックス -damepo7-",
+      "hash": "de32b7a4c93d8e144468360f292bfa19",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 30.44
+    },
+    {
+      "entryType": "chart",
+      "name": "ひつぎとふたご ～狂気ノ宴～",
+      "hash": "50b6f903b6cbeb0487414003f486c7a4",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 23.02
+    },
+    {
+      "entryType": "chart",
+      "name": "亡き皇女の為のセプテット [BEGINNER]",
+      "hash": "cd2ec8fad5363e2b8a58e13e47992759",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 36.97
+    },
+    {
+      "entryType": "chart",
+      "name": "スプラッシュコード－０６ [ANOTHER7]",
+      "hash": "9b265e43a7667f024559287c43eda865",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 38.14
+    },
+    {
+      "entryType": "chart",
+      "name": "Red-rize 'B172 mix' // 7keys ManiaQ",
+      "hash": "16ba482fa9b065554ed813a35a3ed623",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 37.95
+    },
+    {
+      "entryType": "chart",
+      "name": "Last! Least! Regrets!! (AFOTHER)",
+      "hash": "ad53eb592cefab1c484b4c8ef2433d27",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 29.88
+    },
+    {
+      "entryType": "chart",
+      "name": "Astrograph -damepo7-",
+      "hash": "482c2a1670136e8c2f2820b066b1f55d",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 30.24
+    },
+    {
+      "entryType": "chart",
+      "name": "桜華月 ウルトラセブン",
+      "hash": "3f4b5bde1500d2f3718a6b26fb604b84",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 41.23
+    },
+    {
+      "entryType": "chart",
+      "name": "人身事故で停止",
+      "hash": "c569481923194f107186148d48584351",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 22.34
+    },
+    {
+      "entryType": "chart",
+      "name": "G.N. [N]",
+      "hash": "35f74b0f698843207ecb34c2f38f0656",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 22.7
+    },
+    {
+      "entryType": "chart",
+      "name": "どうか私を殺して下さい",
+      "hash": "3fe6019fc689ecd066ce0e1f643e76e4",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 50.75
+    },
+    {
+      "entryType": "chart",
+      "name": "斧と盾 [7key_hard]",
+      "hash": "3e699cf8d82f85a0217fbbdc6ffa5735",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.36
+    },
+    {
+      "entryType": "chart",
+      "name": "A c i - L - A",
+      "hash": "8fd0614318cb81d988de5c7f613abe27",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 25.72
+    },
+    {
+      "entryType": "chart",
+      "name": "夜桜 -桜吹雪-",
+      "hash": "14de370aec9a15a49d033b6f9bca7761",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 23.78
+    },
+    {
+      "entryType": "chart",
+      "name": "夜桜 -桜吹雪-",
+      "hash": "14de370aec9a15a49d033b6f9bca7761",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 31.91
+    },
+    {
+      "entryType": "chart",
+      "name": "夜桜 -桜吹雪-",
+      "hash": "14de370aec9a15a49d033b6f9bca7761",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 64.19
+    },
+    {
+      "entryType": "chart",
+      "name": "藍煉の人形 -EX-",
+      "hash": "8a44bc0604c6804e19b3854636f6a514",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 34.72
+    },
+    {
+      "entryType": "chart",
+      "name": "夢人形 -Extra dream-",
+      "hash": "e31b4a50d7aa493f7746c6a17f2b3069",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 52.8
+    },
+    {
+      "entryType": "chart",
+      "name": "Angelic layer  ～Reincarnation～",
+      "hash": "a1a91080d47424493ee301726ef3aaeb",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 35.76
+    },
+    {
+      "entryType": "chart",
+      "name": "Angelic layer  ～Reincarnation～",
+      "hash": "a1a91080d47424493ee301726ef3aaeb",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 49.46
+    },
+    {
+      "entryType": "chart",
+      "name": "Angelic layer -ANOTHER-",
+      "hash": "36fd786d7331e34ae9896e5a954cef2b",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 59.5
+    },
+    {
+      "entryType": "chart",
+      "name": "Angelic layer -ANOTHER-",
+      "hash": "36fd786d7331e34ae9896e5a954cef2b",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 73.28
+    },
+    {
+      "entryType": "chart",
+      "name": "5.1.1(ReMix) [Afother]",
+      "hash": "bc0ee1edce32dfdbf10a5733bbcff27d",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 52.03
+    },
+    {
+      "entryType": "chart",
+      "name": "Air -MANIAQ-",
+      "hash": "1e69627c0ca4628b67f731bc36423875",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.89
+    },
+    {
+      "entryType": "chart",
+      "name": "Air -MANIAQ-",
+      "hash": "1e69627c0ca4628b67f731bc36423875",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 40.81
+    },
+    {
+      "entryType": "chart",
+      "name": "REspEcT-B.A.U MIX- EX",
+      "hash": "5d16320ae4dbf25972da9e9770838787",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.68
+    },
+    {
+      "entryType": "chart",
+      "name": "REspEcT-B.A.U MIX- EX",
+      "hash": "5d16320ae4dbf25972da9e9770838787",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 33.73
+    },
+    {
+      "entryType": "chart",
+      "name": "Exit (another7)",
+      "hash": "1da468b7747759763183cdc798bc2b2a",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 26.08
+    },
+    {
+      "entryType": "chart",
+      "name": "Exit (another7)",
+      "hash": "1da468b7747759763183cdc798bc2b2a",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 36.99
+    },
+    {
+      "entryType": "chart",
+      "name": "桜華月 (A3)",
+      "hash": "3e75b72bf37c843681c2f883b3ff8aea",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 35.32
+    },
+    {
+      "entryType": "chart",
+      "name": "Angel dust [7key//Maniac]",
+      "hash": "695a7b261e23b22cf0b1b8c8f4626635",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 22.27
+    },
+    {
+      "entryType": "chart",
+      "name": "Love's Rebirth '06 -7another-",
+      "hash": "1a1ca14aededce99bd136da649fbec7a",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.57
+    },
+    {
+      "entryType": "chart",
+      "name": "Love's Rebirth '06 -7another-",
+      "hash": "1a1ca14aededce99bd136da649fbec7a",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 31.29
+    },
+    {
+      "entryType": "chart",
+      "name": "Love's Rebirth '06 -7another-",
+      "hash": "1a1ca14aededce99bd136da649fbec7a",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 62.3
+    },
+    {
+      "entryType": "chart",
+      "name": "dance in the dark [7key-EX]",
+      "hash": "4c07bb3a1e2850da12e2d307da1946de",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 50.72
+    },
+    {
+      "entryType": "chart",
+      "name": "少女の檻 'Last Night, Last Dancing.",
+      "hash": "86ab3e02a8a3fb5c1c88cf5180098889",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 43.27
+    },
+    {
+      "entryType": "chart",
+      "name": "Air -AFOTHER-",
+      "hash": "eb025ebb0c8a8ff5f39e1ebce1c2d08b",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 36.82
+    },
+    {
+      "entryType": "chart",
+      "name": "Vlll -Lachesis- [Another]",
+      "hash": "6f31b8a4c7bfea296a279cc7f7839e58",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 55.52
+    },
+    {
+      "entryType": "chart",
+      "name": "Romancing Sa･Ga3 ラストバトル RockArrange (AFOTHER)",
+      "hash": "c6fc5f03682ec9692edfdad9d9d0f793",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 20.98
+    },
+    {
+      "entryType": "chart",
+      "name": "エピトゥリカの祀 [MANIAC]",
+      "hash": "8efab01d8676841446492c7265f292ee",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.16
+    },
+    {
+      "entryType": "chart",
+      "name": "不思議の国のアリス -ALITHER-",
+      "hash": "f708dc063a6035d46437fb5a7559d683",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.57
+    },
+    {
+      "entryType": "chart",
+      "name": "不思議の国のアリス -ALITHER-",
+      "hash": "f708dc063a6035d46437fb5a7559d683",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 39.52
+    },
+    {
+      "entryType": "chart",
+      "name": "あめふりこねこ (AFOTHER)",
+      "hash": "069168f580c8fc4255cb0d2e54bbd6b2",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 28.69
+    },
+    {
+      "entryType": "chart",
+      "name": "あめふりこねこ (AFOTHER)",
+      "hash": "069168f580c8fc4255cb0d2e54bbd6b2",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 46.17
+    },
+    {
+      "entryType": "chart",
+      "name": "x-Aria -afother-",
+      "hash": "1d90de062e1fe4c5216c290d1592e062",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 27.37
+    },
+    {
+      "entryType": "chart",
+      "name": "Love's Rebirth '06 -7another-",
+      "hash": "62dd371c9d7d99976bca1c829b9d0a78",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 24.31
+    },
+    {
+      "entryType": "chart",
+      "name": "Love's Rebirth '06 -7another-",
+      "hash": "62dd371c9d7d99976bca1c829b9d0a78",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 52.27
+    },
+    {
+      "entryType": "chart",
+      "name": "Flowers (802 edit)",
+      "hash": "6d166aa5fe3f6c1ae6c172499acc23e8",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 31.02
+    },
+    {
+      "entryType": "chart",
+      "name": "HE is an Energizer (7keys sarather)",
+      "hash": "d558a4602d484ad00b857c1d62fd79f8",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 21.64
+    },
+    {
+      "entryType": "chart",
+      "name": "OAA-γ [EX]",
+      "hash": "0d3a46449ead1eaccd5f6a71c0a1983b",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 26.34
+    },
+    {
+      "entryType": "chart",
+      "name": "OAA-γ [EX]",
+      "hash": "0d3a46449ead1eaccd5f6a71c0a1983b",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 60.23
+    },
+    {
+      "entryType": "chart",
+      "name": "Trinity [Maniac]",
+      "hash": "836945b0010aede1bd65e792e7fe1489",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 34.65
+    },
+    {
+      "entryType": "chart",
+      "name": "Trinity [Maniac]",
+      "hash": "836945b0010aede1bd65e792e7fe1489",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 51.79
+    },
+    {
+      "entryType": "chart",
+      "name": "eve solstice mix -kuso-",
+      "hash": "799baceaff9186227b4e8a8121d14eb0",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 49.62
+    },
+    {
+      "entryType": "chart",
+      "name": "LABO (ANOTHER)",
+      "hash": "ad266f295b7788bbd2ef925575e272a2",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 43.23
+    },
+    {
+      "entryType": "chart",
+      "name": "am Ende -Wiedersehen-",
+      "hash": "f6fdaacfebba19ef84fe0cbca3ef56a9",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 30.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Beyond The Alice (Phantasm7)",
+      "hash": "36117c301ea545fac1e6bfda998ef1dc",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 26
+    },
+    {
+      "entryType": "chart",
+      "name": "I believe -EX-",
+      "hash": "1fb7a1e8196f4776d376447810b59689",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 39.92
+    },
+    {
+      "entryType": "chart",
+      "name": "orbit (7keyA mania of mania mix)",
+      "hash": "953b0d07bf520c0bb2226d44508c5721",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 46.14
+    },
+    {
+      "entryType": "chart",
+      "name": "orbit （瑠野亜's edition） [MANIAC]",
+      "hash": "2f2a6e1e63fc87424e938db2d274a29f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 28.38
+    },
+    {
+      "entryType": "chart",
+      "name": "景色の境界 -EX-",
+      "hash": "3d44b0266fa568fc13a6b497141e9fb5",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.52
+    },
+    {
+      "entryType": "chart",
+      "name": "紅染十三番街道",
+      "hash": "3f888106b7739c64f692d0e0d7eb862e",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 50.19
+    },
+    {
+      "entryType": "chart",
+      "name": "竹取はっぴー -AIRTHER-",
+      "hash": "57eb9b7751dcde63c1a1d3e50e38c491",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 47.44
+    },
+    {
+      "entryType": "chart",
+      "name": "PuppyMill (Another)",
+      "hash": "b352417fb670cec510e79004c575ef6e",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 31.03
+    },
+    {
+      "entryType": "chart",
+      "name": "SEPIA -MANIAQ-",
+      "hash": "d63175f66ac9233c8de25b60ed8a1b7c",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 27.83
+    },
+    {
+      "entryType": "chart",
+      "name": "ビッグブリッヂの死闘 -EX-",
+      "hash": "fcb2d964d462bf38a090d2dfa6af5c9f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 35.97
+    },
+    {
+      "entryType": "chart",
+      "name": "ブクレシュティの人形師 -Hな人-",
+      "hash": "c2ac802983ea02860d72b154b95bb89f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 31.5
+    },
+    {
+      "entryType": "chart",
+      "name": "約束 -HappyHyperStarmiX- (AFOTHER)",
+      "hash": "bab0827b5e0c419e9260051447310ce7",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 36.58
+    },
+    {
+      "entryType": "chart",
+      "name": "Party 4U (MANIAQ)",
+      "hash": "18adfdab3665478691bcb38f9413daaf",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 27.43
+    },
+    {
+      "entryType": "chart",
+      "name": "★LittlE HearTs★ (AFOTHER)",
+      "hash": "393260af90f9df91eef6f44947986b30",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 45.91
+    },
+    {
+      "entryType": "chart",
+      "name": "Fate/fete (MANIAC)",
+      "hash": "d79f68eeb1dcd10f52e8e8891928ea1f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 31.05
+    },
+    {
+      "entryType": "chart",
+      "name": "ラス・リグ (---)",
+      "hash": "e626a58c3b6caa56181fb9ae6914e211",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 29.62
+    },
+    {
+      "entryType": "chart",
+      "name": "Ruins Ray (Assaultics)",
+      "hash": "0ab6999effc611d47054060217acdab8",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 28.5
+    },
+    {
+      "entryType": "chart",
+      "name": "月と狼と砂糖菓子",
+      "hash": "55c96ddf8ff57268a85709bd917f0159",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 25.01
+    },
+    {
+      "entryType": "chart",
+      "name": "duty",
+      "hash": "d063d3666b36cc14b176cd4438487dee",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 57.69
+    },
+    {
+      "entryType": "chart",
+      "name": "duty",
+      "hash": "d063d3666b36cc14b176cd4438487dee",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 81.22
+    },
+    {
+      "entryType": "chart",
+      "name": "duty",
+      "hash": "d063d3666b36cc14b176cd4438487dee",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.11
+    },
+    {
+      "entryType": "chart",
+      "name": "Bird Sprite -D.K.R. mix- (maniaq)",
+      "hash": "1d9129225c58c52126e17ca2425f4046",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 34.06
+    },
+    {
+      "entryType": "chart",
+      "name": "Plasma Strike (small-boss7)",
+      "hash": "9231d374ad83470ac856401fac855888",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.24
+    },
+    {
+      "entryType": "chart",
+      "name": "Plasma Strike (small-boss7)",
+      "hash": "9231d374ad83470ac856401fac855888",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 41.77
+    },
+    {
+      "entryType": "chart",
+      "name": "subconsciousness - another+ -",
+      "hash": "4ec61c1d81b50a31f028ba4693e0ddba",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 58.39
+    },
+    {
+      "entryType": "chart",
+      "name": "subconsciousness - another+ -",
+      "hash": "4ec61c1d81b50a31f028ba4693e0ddba",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 67.09
+    },
+    {
+      "entryType": "chart",
+      "name": "subconsciousness - another+ -",
+      "hash": "4ec61c1d81b50a31f028ba4693e0ddba",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 88.85
+    },
+    {
+      "entryType": "chart",
+      "name": "Endless Dream -Maniac-",
+      "hash": "a48ef1f79944580c238e5bed04bd7360",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.19
+    },
+    {
+      "entryType": "chart",
+      "name": "la noche (end of mix)",
+      "hash": "0297acfbb8be061caef1f327c0ea4316",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.52
+    },
+    {
+      "entryType": "chart",
+      "name": "la noche (end of mix)",
+      "hash": "0297acfbb8be061caef1f327c0ea4316",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 83.45
+    },
+    {
+      "entryType": "chart",
+      "name": "carnot (EX)",
+      "hash": "7c89f4d47ea58e95be6c9d12135aeaba",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 27.45
+    },
+    {
+      "entryType": "chart",
+      "name": "world devoid of you (fairydust radio edit // SP MANIAC)",
+      "hash": "94307aa7bc3ee92de1798563ad03fc42",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 24.1
+    },
+    {
+      "entryType": "chart",
+      "name": "world devoid of you (fairydust radio edit // SP MANIAC)",
+      "hash": "94307aa7bc3ee92de1798563ad03fc42",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 50.47
+    },
+    {
+      "entryType": "chart",
+      "name": "Odin [Black_Another]",
+      "hash": "4aba61fa46780f110362e11d076807c1",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 33.54
+    },
+    {
+      "entryType": "chart",
+      "name": "Odin [Black_Another]",
+      "hash": "4aba61fa46780f110362e11d076807c1",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 47.42
+    },
+    {
+      "entryType": "chart",
+      "name": "Absurd Gaff [Another]",
+      "hash": "adec1bcc37806f155cdae08d873c9f77",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 35.49
+    },
+    {
+      "entryType": "chart",
+      "name": "Extinction and reproduction [SP Ex]",
+      "hash": "a9304e2d4257c8d91165cb92b3d67a9c",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 40.78
+    },
+    {
+      "entryType": "chart",
+      "name": "Extinction and reproduction [SP Ex]",
+      "hash": "a9304e2d4257c8d91165cb92b3d67a9c",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 53.06
+    },
+    {
+      "entryType": "chart",
+      "name": "Super Mario Brothers Main Theme [29Another]",
+      "hash": "2d7477eed67b34291140d50425f58a40",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 45.04
+    },
+    {
+      "entryType": "chart",
+      "name": "Super Mario Brothers Main Theme [29Another]",
+      "hash": "2d7477eed67b34291140d50425f58a40",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 49.53
+    },
+    {
+      "entryType": "chart",
+      "name": "Super Mario Brothers Main Theme [29Another]",
+      "hash": "2d7477eed67b34291140d50425f58a40",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 80.91
+    },
+    {
+      "entryType": "chart",
+      "name": "marine snow",
+      "hash": "3e10bd402d5a0df48d81ec1a055941b4",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 31.31
+    },
+    {
+      "entryType": "chart",
+      "name": "Fantasmagoria -隙間-",
+      "hash": "4f094b61576d4e1df6d1043097b64693",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 21.72
+    },
+    {
+      "entryType": "chart",
+      "name": "- JUPITER - [ANOTHER++]",
+      "hash": "b420590bd67864a71eb4c90b0b803993",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.86
+    },
+    {
+      "entryType": "chart",
+      "name": "- JUPITER - [ANOTHER++]",
+      "hash": "b420590bd67864a71eb4c90b0b803993",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 27.32
+    },
+    {
+      "entryType": "chart",
+      "name": "モリオンの姫 [INSANE]",
+      "hash": "c54c1db625302b890e94a67e1b0ee32d",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.54
+    },
+    {
+      "entryType": "chart",
+      "name": "モリオンの姫 [INSANE]",
+      "hash": "c54c1db625302b890e94a67e1b0ee32d",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 39.5
+    },
+    {
+      "entryType": "chart",
+      "name": "Satori ～3rd EyEs (bms edit) [ANOTHER]",
+      "hash": "f832dea52b1b943d74ea91d466d3cb9c",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 37.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Messier 333 (ANOTHER7)",
+      "hash": "33ae18837ec81491c38b9acccda8b16d",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 25.39
+    },
+    {
+      "entryType": "chart",
+      "name": "LEthAl wEApOn (ANOTHER7)",
+      "hash": "b34625d8bf3c225f18ef663c9dbe242e",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 29.21
+    },
+    {
+      "entryType": "chart",
+      "name": "Dream Rocket* [for Rea'ju]",
+      "hash": "9a802d829114988fa78264f428a660f4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 91.63
+    },
+    {
+      "entryType": "chart",
+      "name": "Dream Rocket* [for Rea'ju]",
+      "hash": "9a802d829114988fa78264f428a660f4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 95.44
+    },
+    {
+      "entryType": "chart",
+      "name": "Dream Rocket* [for Rea'ju]",
+      "hash": "9a802d829114988fa78264f428a660f4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.16
+    },
+    {
+      "entryType": "chart",
+      "name": "Remilia ～吸血鬼の為の協奏曲 [ANOTHER]",
+      "hash": "96b73a3e654e56bccfbe31a9ba6c6c2b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 43.13
+    },
+    {
+      "entryType": "chart",
+      "name": "Auston (7another)",
+      "hash": "0101e50118aec35ba9a1ba9bb50a40d9",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 31.13
+    },
+    {
+      "entryType": "chart",
+      "name": "rainy beauty [ANOTER+]",
+      "hash": "00f1ab5a4e5af6ea457bb2435eb5a01f",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.68
+    },
+    {
+      "entryType": "chart",
+      "name": "T.S : Terminal Strike",
+      "hash": "bafe9b1adf26cd0c2973061ba48557cf",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 23.97
+    },
+    {
+      "entryType": "chart",
+      "name": "Wicked plot [N]",
+      "hash": "0241e9d1a9133d060f4a1832fe19642f",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 30.78
+    },
+    {
+      "entryType": "chart",
+      "name": "子午線の祀り [マナの剣]",
+      "hash": "0617af63ed768fcf1b21a15030d48043",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 21.32
+    },
+    {
+      "entryType": "chart",
+      "name": "子午線の祀り [マナの剣]",
+      "hash": "0617af63ed768fcf1b21a15030d48043",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 28.72
+    },
+    {
+      "entryType": "chart",
+      "name": "銀の風 [7keyANOTHER+]",
+      "hash": "b93a0519f93b27ee900b7b8fcc3ab86f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 24.69
+    },
+    {
+      "entryType": "chart",
+      "name": "Crescent Edge MX",
+      "hash": "9fdfab4195ae214781c9b9356e995aa4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 35.87
+    },
+    {
+      "entryType": "chart",
+      "name": "Crescent Edge MX",
+      "hash": "9fdfab4195ae214781c9b9356e995aa4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 47.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Crescent Edge MX",
+      "hash": "9fdfab4195ae214781c9b9356e995aa4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.28
+    },
+    {
+      "entryType": "chart",
+      "name": "Pure Ruby -JUNK7-",
+      "hash": "d1877ad5dc0134b27eb0238da5721eed",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 61.25
+    },
+    {
+      "entryType": "chart",
+      "name": "Another Sky  [7key/Ex]",
+      "hash": "8cc18e4a42b7dc1b7eaa7d15e7ea4570",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.05
+    },
+    {
+      "entryType": "chart",
+      "name": "Another Sky  [7key/Ex]",
+      "hash": "8cc18e4a42b7dc1b7eaa7d15e7ea4570",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 39.92
+    },
+    {
+      "entryType": "chart",
+      "name": "ting ting [XRATED]",
+      "hash": "b0eaa048c119f95e66675ea44c4ba1da",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 58.9
+    },
+    {
+      "entryType": "chart",
+      "name": "ZENITHALIZE -LUMINOUS-",
+      "hash": "a6738157b2dc1689bea1f6123660d723",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 65.11
+    },
+    {
+      "entryType": "chart",
+      "name": "Her Majesty [Another+]",
+      "hash": "151c0d2bb94ab56dfb753410ae70598e",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 30.89
+    },
+    {
+      "entryType": "chart",
+      "name": "Her Majesty [Another+]",
+      "hash": "151c0d2bb94ab56dfb753410ae70598e",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 41.77
+    },
+    {
+      "entryType": "chart",
+      "name": "Aihana(Radio Edit) [SADISTIC]",
+      "hash": "afa33f93acddb818ea4db22cfd188376",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 35.91
+    },
+    {
+      "entryType": "chart",
+      "name": "Durandal -Magical Freezing- (Radio Edit) [PLANET]",
+      "hash": "032b0582871a07c604d8cba171f95797",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 31.46
+    },
+    {
+      "entryType": "chart",
+      "name": "感情の摩天楼～PandoraBox",
+      "hash": "7d4fc1dcc7f2672cab64da04ca4966f7",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 53.49
+    },
+    {
+      "entryType": "chart",
+      "name": "oceanbird [benefic7]",
+      "hash": "042b7b3b607695a66fa8bdd8f0d618fc",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 32.36
+    },
+    {
+      "entryType": "chart",
+      "name": "oceanbird [benefic7]",
+      "hash": "042b7b3b607695a66fa8bdd8f0d618fc",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 37.78
+    },
+    {
+      "entryType": "chart",
+      "name": "oceanbird [benefic7]",
+      "hash": "042b7b3b607695a66fa8bdd8f0d618fc",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 65.83
+    },
+    {
+      "entryType": "chart",
+      "name": "The Panorama [EX]",
+      "hash": "2d4c2770b3a9e63e86bbe978ea968a3f",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 30.72
+    },
+    {
+      "entryType": "chart",
+      "name": "The Panorama [EX]",
+      "hash": "2d4c2770b3a9e63e86bbe978ea968a3f",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 39.92
+    },
+    {
+      "entryType": "chart",
+      "name": "Faith. [SP Lunatic]",
+      "hash": "c2caa544ab35519f727510ba30de8961",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 43.82
+    },
+    {
+      "entryType": "chart",
+      "name": "Faith. [SP Lunatic]",
+      "hash": "c2caa544ab35519f727510ba30de8961",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 61.56
+    },
+    {
+      "entryType": "chart",
+      "name": "volcanic -vaporize-",
+      "hash": "0f3837b9461a613dddf26a31e82f0084",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.66
+    },
+    {
+      "entryType": "chart",
+      "name": "volcanic -vaporize-",
+      "hash": "0f3837b9461a613dddf26a31e82f0084",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 28.81
+    },
+    {
+      "entryType": "chart",
+      "name": "Cinderella Story -SP AMETHER-",
+      "hash": "b4d4c3a0ab148e9d3962adc5d1d98128",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 29.7
+    },
+    {
+      "entryType": "chart",
+      "name": "覚醒フィールド -A.T.フィールド-",
+      "hash": "610531ec78ecfcaf6824192c5abe8372",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 20.01
+    },
+    {
+      "entryType": "chart",
+      "name": "SIREN OF DAWN [Another+]",
+      "hash": "6558c37837065d4703510819959a9fc6",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 30.76
+    },
+    {
+      "entryType": "chart",
+      "name": "Here we go！ (TM edit)",
+      "hash": "70f45b780cecfe58b725437eda743d47",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 25.02
+    },
+    {
+      "entryType": "chart",
+      "name": "Here we go！ (TM edit)",
+      "hash": "70f45b780cecfe58b725437eda743d47",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 28.82
+    },
+    {
+      "entryType": "chart",
+      "name": "Ascension to Heaven [EXPART]",
+      "hash": "211b351c15f36087eeff6367995792e7",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 22.69
+    },
+    {
+      "entryType": "chart",
+      "name": "Alicia [SP Black-A]",
+      "hash": "927e36c8fb022ece2d999774cdbd01c1",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 49.5
+    },
+    {
+      "entryType": "chart",
+      "name": "織姫 -VEGA-",
+      "hash": "c27de5c753fcd90b1d471f589e027399",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 25.92
+    },
+    {
+      "entryType": "chart",
+      "name": "織姫 -VEGA-",
+      "hash": "c27de5c753fcd90b1d471f589e027399",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 35.96
+    },
+    {
+      "entryType": "chart",
+      "name": "春色小径 ～ Colorful Path -lunatic7-",
+      "hash": "7e6e23e4a5e0642ce9f1fcb6078a3347",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.73
+    },
+    {
+      "entryType": "chart",
+      "name": "春色小径 ～ Colorful Path -lunatic7-",
+      "hash": "7e6e23e4a5e0642ce9f1fcb6078a3347",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 31.38
+    },
+    {
+      "entryType": "chart",
+      "name": "Flesvelka MX",
+      "hash": "c26f57884500cc9259ac4ac3d447939e",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 35.84
+    },
+    {
+      "entryType": "chart",
+      "name": "Flesvelka MX",
+      "hash": "c26f57884500cc9259ac4ac3d447939e",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 50.12
+    },
+    {
+      "entryType": "chart",
+      "name": "Cosmic Raid [Extreme]",
+      "hash": "e49958dad991aad4925403ff67d1f34f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 33.8
+    },
+    {
+      "entryType": "chart",
+      "name": "Romancecar (Kukan Junkyu Edit) [7keys Another*]",
+      "hash": "27135a2dd5d98bddb4a9453bca9487c5",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 28.91
+    },
+    {
+      "entryType": "chart",
+      "name": "死腐乃美「彼岸花」第二～空虚偽心～赤紅 [Lycoris]",
+      "hash": "73a1c3d6d0b80d0ea035077f83cf9618",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 37.48
+    },
+    {
+      "entryType": "chart",
+      "name": "ERIS [yumether]",
+      "hash": "cfbf1406aed383c0bfbe09b325c5cb46",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.06
+    },
+    {
+      "entryType": "chart",
+      "name": "Halcyon [PLANETUNE]",
+      "hash": "0a42f6e6ac736e6f500c6342810fd637",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Red -reduction division- [NANATHER]",
+      "hash": "625db11cae1e9db588828dd43c56ec54",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 25.23
+    },
+    {
+      "entryType": "chart",
+      "name": "Red -reduction division- [NANATHER]",
+      "hash": "625db11cae1e9db588828dd43c56ec54",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 32.49
+    },
+    {
+      "entryType": "chart",
+      "name": "Red -reduction division- [NANATHER]",
+      "hash": "625db11cae1e9db588828dd43c56ec54",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 67.23
+    },
+    {
+      "entryType": "chart",
+      "name": "AXION [INSANE]",
+      "hash": "e5c37ffef1401274cfc59110df6b0b86",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 36.86
+    },
+    {
+      "entryType": "chart",
+      "name": "DEEP MARINE STRIKER -DEEP SINKER-",
+      "hash": "fc97d57fde3693e23d39ff2caaa19392",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 33.83
+    },
+    {
+      "entryType": "chart",
+      "name": "Canon (blazing summer mix) [EXTRA]",
+      "hash": "4b2ef6fdb08c645bf82e5ee1c78737ae",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 93.05
+    },
+    {
+      "entryType": "chart",
+      "name": "Canon (blazing summer mix) [EXTRA]",
+      "hash": "4b2ef6fdb08c645bf82e5ee1c78737ae",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 96.11
+    },
+    {
+      "entryType": "chart",
+      "name": "Canon (blazing summer mix) [EXTRA]",
+      "hash": "4b2ef6fdb08c645bf82e5ee1c78737ae",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.53
+    },
+    {
+      "entryType": "chart",
+      "name": "エストポリス伝記II ～バトル#2～ (SP BLACK ANOTHER)",
+      "hash": "df43c2e410faacba3e58276de9e200ed",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 41.19
+    },
+    {
+      "entryType": "chart",
+      "name": "エストポリス伝記II ～バトル#2～ (SP BLACK ANOTHER)",
+      "hash": "df43c2e410faacba3e58276de9e200ed",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 53.55
+    },
+    {
+      "entryType": "chart",
+      "name": "エストポリス伝記II ～バトル#2～ (SP BLACK ANOTHER)",
+      "hash": "df43c2e410faacba3e58276de9e200ed",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 86.68
+    },
+    {
+      "entryType": "chart",
+      "name": "Love & Justice [AFOTHER]",
+      "hash": "7c774b8922f87de19ab72e96d996726c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 27.45
+    },
+    {
+      "entryType": "chart",
+      "name": "Love & Justice [AFOTHER]",
+      "hash": "7c774b8922f87de19ab72e96d996726c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 54.56
+    },
+    {
+      "entryType": "chart",
+      "name": "Love & Justice [AFOTHER]",
+      "hash": "7c774b8922f87de19ab72e96d996726c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 92.43
+    },
+    {
+      "entryType": "chart",
+      "name": "Beatrice [MANIAC]",
+      "hash": "64f67cb5e24408f00f85e06c25117a32",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 44.79
+    },
+    {
+      "entryType": "chart",
+      "name": "PEACE BREAKER [ANOTHER]",
+      "hash": "0c65f3ac5bbd647977a64d51ef90d2ac",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.79
+    },
+    {
+      "entryType": "chart",
+      "name": "Gun to Childhead",
+      "hash": "b3125dad9faddd06386110933be53143",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 24.32
+    },
+    {
+      "entryType": "chart",
+      "name": "Lasting Dream (FOOLISH)",
+      "hash": "bd3fb257fbbb8ea5d7639744eaa83f10",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 39.12
+    },
+    {
+      "entryType": "chart",
+      "name": "fragment of tears [ANOTHER]",
+      "hash": "df84cff13642ddc8903fccaeb36c92f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 65.4
+    },
+    {
+      "entryType": "chart",
+      "name": "fragment of tears [ANOTHER]",
+      "hash": "df84cff13642ddc8903fccaeb36c92f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 77.01
+    },
+    {
+      "entryType": "chart",
+      "name": "fragment of tears [ANOTHER]",
+      "hash": "df84cff13642ddc8903fccaeb36c92f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.65
+    },
+    {
+      "entryType": "chart",
+      "name": "Parousia [HARD]",
+      "hash": "37663e91190ce4a0b502def7155df58e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 74.44
+    },
+    {
+      "entryType": "chart",
+      "name": "Parousia [HARD]",
+      "hash": "37663e91190ce4a0b502def7155df58e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 87.17
+    },
+    {
+      "entryType": "chart",
+      "name": "Parousia [HARD]",
+      "hash": "37663e91190ce4a0b502def7155df58e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.45
+    },
+    {
+      "entryType": "chart",
+      "name": "Parousia [ANOTHER]",
+      "hash": "ee21ce9f5b84794c69e64e6d6d27caed",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 30.24
+    },
+    {
+      "entryType": "chart",
+      "name": "conflict [EX-HARD]",
+      "hash": "15e44dfea14cb6812f7fcb56a3a0c409",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.52
+    },
+    {
+      "entryType": "chart",
+      "name": "conflict [EX-HARD]",
+      "hash": "15e44dfea14cb6812f7fcb56a3a0c409",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 45.08
+    },
+    {
+      "entryType": "chart",
+      "name": "SOLROS [MX]",
+      "hash": "f872dd65dd08638b06d80470a3233fb9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 58.04
+    },
+    {
+      "entryType": "chart",
+      "name": "SOLROS [MX]",
+      "hash": "f872dd65dd08638b06d80470a3233fb9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 78.07
+    },
+    {
+      "entryType": "chart",
+      "name": "SOLROS [MX]",
+      "hash": "f872dd65dd08638b06d80470a3233fb9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.12
+    },
+    {
+      "entryType": "chart",
+      "name": "Ocean Memory [Rea'du]",
+      "hash": "cc117d0521097efbfc5bb461a168ccf0",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 49.35
+    },
+    {
+      "entryType": "chart",
+      "name": "Ocean Memory [Rea'du]",
+      "hash": "cc117d0521097efbfc5bb461a168ccf0",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 58.21
+    },
+    {
+      "entryType": "chart",
+      "name": "地球塔デヴォーション",
+      "hash": "34e09ddf69ae8bdca128db1cc39d163a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 66.81
+    },
+    {
+      "entryType": "chart",
+      "name": "地球塔デヴォーション",
+      "hash": "34e09ddf69ae8bdca128db1cc39d163a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 85.24
+    },
+    {
+      "entryType": "chart",
+      "name": "地球塔デヴォーション",
+      "hash": "34e09ddf69ae8bdca128db1cc39d163a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.82
+    },
+    {
+      "entryType": "chart",
+      "name": "煉獄-Purgatorium- [HYPER]",
+      "hash": "d77e97b6e6ab2aec290dc3c03f286b8c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.96
+    },
+    {
+      "entryType": "chart",
+      "name": "煉獄-Purgatorium- [HYPER]",
+      "hash": "d77e97b6e6ab2aec290dc3c03f286b8c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 46.23
+    },
+    {
+      "entryType": "chart",
+      "name": "煉獄-Purgatorium- [HYPER]",
+      "hash": "d77e97b6e6ab2aec290dc3c03f286b8c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 87.15
+    },
+    {
+      "entryType": "chart",
+      "name": "HOOKER [7_ex]",
+      "hash": "6a553647cc798708db899fd4048504db",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 80.92
+    },
+    {
+      "entryType": "chart",
+      "name": "HOOKER [7_ex]",
+      "hash": "6a553647cc798708db899fd4048504db",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 91.7
+    },
+    {
+      "entryType": "chart",
+      "name": "HOOKER [7_ex]",
+      "hash": "6a553647cc798708db899fd4048504db",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.56
+    },
+    {
+      "entryType": "chart",
+      "name": "ETERNAL DRAIN 「第一話 発狂譜面」",
+      "hash": "d5ecbbdae844eecbc4bfd88e32a595d4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 55.33
+    },
+    {
+      "entryType": "chart",
+      "name": "Leviathan (SP HEXAEMERON+)",
+      "hash": "5ee91f76ddb49e84dd12b71e17683ace",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 38.49
+    },
+    {
+      "entryType": "chart",
+      "name": "性的猟奇的無意味 [7key_EX]",
+      "hash": "b52bc7cf1874ff2700ca0879bd75e9df",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 49.58
+    },
+    {
+      "entryType": "chart",
+      "name": "Candy & Baguette [SP INSANE]",
+      "hash": "c0d7baaaeb1b0ba9b17b94b587d2fb70",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 48.61
+    },
+    {
+      "entryType": "chart",
+      "name": "Blue Dragoon [Another]",
+      "hash": "474d8a4bdeaf5ef464fd236b8bbef516",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 49.49
+    },
+    {
+      "entryType": "chart",
+      "name": "Ophelia [HARD]",
+      "hash": "b49ba42bd9877bbdede9c0c2fe89bc60",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 20.25
+    },
+    {
+      "entryType": "chart",
+      "name": "KISS CANDY FLAVOR [HARDEST]",
+      "hash": "447a0f246986d7173bec5392e63207f8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 23.06
+    },
+    {
+      "entryType": "chart",
+      "name": "KISS CANDY FLAVOR [HARDEST]",
+      "hash": "447a0f246986d7173bec5392e63207f8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 79.22
+    },
+    {
+      "entryType": "chart",
+      "name": "Act Beloved [SP EX]",
+      "hash": "c2f261b49b205530fc5547fe56059ef6",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 43.37
+    },
+    {
+      "entryType": "chart",
+      "name": "天上のポリスルイン [HARDEST]",
+      "hash": "4a899af4d05eeb55a497c94329668098",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 32.1
+    },
+    {
+      "entryType": "chart",
+      "name": "Childie Sharp [HyperWeapon]",
+      "hash": "d431f5779ff511480101f4612cebbfd4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 48.8
+    },
+    {
+      "entryType": "chart",
+      "name": "Childie Sharp [HyperWeapon]",
+      "hash": "d431f5779ff511480101f4612cebbfd4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 62.93
+    },
+    {
+      "entryType": "chart",
+      "name": "Childie Sharp [HyperWeapon]",
+      "hash": "d431f5779ff511480101f4612cebbfd4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.3
+    },
+    {
+      "entryType": "chart",
+      "name": "天叢雲剣 [Maniac]",
+      "hash": "f9e26ca79a88891e801173e3b9a172d1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 20.03
+    },
+    {
+      "entryType": "chart",
+      "name": "Freja [SP ANOTHER]",
+      "hash": "332caa24984ce2ec3923577fb661ecfa",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 36.07
+    },
+    {
+      "entryType": "chart",
+      "name": "Freja [SP ANOTHER]",
+      "hash": "332caa24984ce2ec3923577fb661ecfa",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 60.25
+    },
+    {
+      "entryType": "chart",
+      "name": "Freja [SP ANOTHER]",
+      "hash": "332caa24984ce2ec3923577fb661ecfa",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 89.91
+    },
+    {
+      "entryType": "chart",
+      "name": "Ladymade corestar (7 MAIN+)",
+      "hash": "246a443bc377f25424df0bc0c7535405",
+      "currentClearLamp": "easy",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.83
+    },
+    {
+      "entryType": "chart",
+      "name": "The Island of Albatross [EXTRA]",
+      "hash": "27f5204ebce1673e61fdb75494ad51e5",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 59.24
+    },
+    {
+      "entryType": "chart",
+      "name": "幽雅に咲かせ、墨染の桜 [NORMAL-]",
+      "hash": "0c61170e3248970455f78eaf39fcccad",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 52.22
+    },
+    {
+      "entryType": "chart",
+      "name": "Cynthia (7-EX)",
+      "hash": "256e192ba917897e91f4db1e691423f4",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 52.56
+    },
+    {
+      "entryType": "chart",
+      "name": "beyond the limit -7keyex-",
+      "hash": "90a79d4f80445e6465cc3b6b4af3a86a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 24.65
+    },
+    {
+      "entryType": "chart",
+      "name": "beyond the limit -7keyex-",
+      "hash": "90a79d4f80445e6465cc3b6b4af3a86a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 37.58
+    },
+    {
+      "entryType": "chart",
+      "name": "beyond the limit -7keyex-",
+      "hash": "90a79d4f80445e6465cc3b6b4af3a86a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 85.64
+    },
+    {
+      "entryType": "chart",
+      "name": "F -Extra-",
+      "hash": "b745fe72b232f5ce1e4d28e92faa9097",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 40.41
+    },
+    {
+      "entryType": "chart",
+      "name": "F -Extra-",
+      "hash": "b745fe72b232f5ce1e4d28e92faa9097",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 53.43
+    },
+    {
+      "entryType": "chart",
+      "name": "F -Extra-",
+      "hash": "b745fe72b232f5ce1e4d28e92faa9097",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 90.5
+    },
+    {
+      "entryType": "chart",
+      "name": "omega iii - beyond the flare (7kitty)",
+      "hash": "68ee8fa4e9ce7876465bbf308157ab86",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 20.53
+    },
+    {
+      "entryType": "chart",
+      "name": "omega iii - beyond the flare (7kitty)",
+      "hash": "68ee8fa4e9ce7876465bbf308157ab86",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 25.55
+    },
+    {
+      "entryType": "chart",
+      "name": "omega iii - beyond the flare (7kitty)",
+      "hash": "68ee8fa4e9ce7876465bbf308157ab86",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 69.26
+    },
+    {
+      "entryType": "chart",
+      "name": "Pangaea [air mix]",
+      "hash": "6dc3b133f3dd786ecc9c2cfcc9f97a5f",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.74
+    },
+    {
+      "entryType": "chart",
+      "name": "Velaciela -damepo7-",
+      "hash": "1b47012854d7aa623632b0be4fce0871",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 51.88
+    },
+    {
+      "entryType": "chart",
+      "name": "witchcraft -EX7-",
+      "hash": "d13183e9e216265d60f05dd974c8a79b",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 45.01
+    },
+    {
+      "entryType": "chart",
+      "name": "sensitive (虎のANOTHER)",
+      "hash": "8f5c7c585c944c9b98e0baad01e98519",
+      "currentClearLamp": "normal",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 65.73
+    },
+    {
+      "entryType": "chart",
+      "name": "G e n g a o z o _ A F O",
+      "hash": "ec83546f7399d6230807a7bc66d0ac66",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 29.52
+    },
+    {
+      "entryType": "chart",
+      "name": "G e n g a o z o _ A F O",
+      "hash": "ec83546f7399d6230807a7bc66d0ac66",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 44.09
+    },
+    {
+      "entryType": "chart",
+      "name": "G e n g a o z o _ A F O",
+      "hash": "ec83546f7399d6230807a7bc66d0ac66",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 81.32
+    },
+    {
+      "entryType": "chart",
+      "name": "G e n g a o z o _ E X",
+      "hash": "aeb2dd0707f26b1a61f6874bfd99e804",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 39.74
+    },
+    {
+      "entryType": "chart",
+      "name": "G e n g a o z o _ E X",
+      "hash": "aeb2dd0707f26b1a61f6874bfd99e804",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 48.55
+    },
+    {
+      "entryType": "chart",
+      "name": "G e n g a o z o _ E X",
+      "hash": "aeb2dd0707f26b1a61f6874bfd99e804",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 80.51
+    },
+    {
+      "entryType": "chart",
+      "name": "AutumnBreeze (kei-another)",
+      "hash": "107a84c4c683d3e76816cc77267adda2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 39.96
+    },
+    {
+      "entryType": "chart",
+      "name": "AutumnBreeze (kei-another)",
+      "hash": "107a84c4c683d3e76816cc77267adda2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 55.57
+    },
+    {
+      "entryType": "chart",
+      "name": "AutumnBreeze (kei-another)",
+      "hash": "107a84c4c683d3e76816cc77267adda2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.18
+    },
+    {
+      "entryType": "chart",
+      "name": "sensitive (AFOTHER)",
+      "hash": "78459a4cb7bcbece4722c835621e1bdf",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 28.99
+    },
+    {
+      "entryType": "chart",
+      "name": "sensitive (AFOTHER)",
+      "hash": "78459a4cb7bcbece4722c835621e1bdf",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 82.4
+    },
+    {
+      "entryType": "chart",
+      "name": "platinum garden -another7+-",
+      "hash": "871564b6b2600dce1978f90828d79d30",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.23
+    },
+    {
+      "entryType": "chart",
+      "name": "BABYLON [7ANOTHER+]",
+      "hash": "4c4ec305de0dd40bc5d2f709f1bd1497",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 21.2
+    },
+    {
+      "entryType": "chart",
+      "name": "カーテンコール [Encore]",
+      "hash": "1ed817c52973073f8a5045f25a45217f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 31.17
+    },
+    {
+      "entryType": "chart",
+      "name": "カーテンコール [Encore]",
+      "hash": "1ed817c52973073f8a5045f25a45217f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 37.48
+    },
+    {
+      "entryType": "chart",
+      "name": "カーテンコール [Encore]",
+      "hash": "1ed817c52973073f8a5045f25a45217f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 89.05
+    },
+    {
+      "entryType": "chart",
+      "name": "MANIERA (SABOTHER)",
+      "hash": "5db7f37819b57ba62a8661fd12851be0",
+      "currentClearLamp": "failed",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 30.06
+    },
+    {
+      "entryType": "chart",
+      "name": "Moon phase Encounter (月面旅行)",
+      "hash": "94557620e6e20bb58f9df44d58243636",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 79.27
+    },
+    {
+      "entryType": "chart",
+      "name": "DESIRE DRIVE (LLS HARDCORE REMIX) [SEIRYU ANOTHER]",
+      "hash": "e0d284d13b043cff5d691dab0a7b7315",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 23.43
+    },
+    {
+      "entryType": "chart",
+      "name": "DESIRE DRIVE (LLS HARDCORE REMIX) [SEIRYU ANOTHER]",
+      "hash": "e0d284d13b043cff5d691dab0a7b7315",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 72.68
+    },
+    {
+      "entryType": "chart",
+      "name": "RiZE UP (Dif)",
+      "hash": "94c62c30416de132cb9c1d894a3ce0cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 82.08
+    },
+    {
+      "entryType": "chart",
+      "name": "RiZE UP (Dif)",
+      "hash": "94c62c30416de132cb9c1d894a3ce0cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 88.33
+    },
+    {
+      "entryType": "chart",
+      "name": "RiZE UP (Dif)",
+      "hash": "94c62c30416de132cb9c1d894a3ce0cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.82
+    },
+    {
+      "entryType": "chart",
+      "name": "L99 (BGA Remake) -EX-",
+      "hash": "9806e791ab961bcc142e8f57873d9b1e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 39.63
+    },
+    {
+      "entryType": "chart",
+      "name": "linear umbra [SP-RX INSANE]",
+      "hash": "7922a11129861d4eb6aa9b95565e8145",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 44.63
+    },
+    {
+      "entryType": "chart",
+      "name": "linear umbra [SP-RX INSANE]",
+      "hash": "7922a11129861d4eb6aa9b95565e8145",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 55.91
+    },
+    {
+      "entryType": "chart",
+      "name": "linear umbra [SP-RX INSANE]",
+      "hash": "7922a11129861d4eb6aa9b95565e8145",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.46
+    },
+    {
+      "entryType": "chart",
+      "name": "雪月夜鐘 -Monsther-",
+      "hash": "4ffc2e2369740ac9d44da39cea5e0224",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 58.47
+    },
+    {
+      "entryType": "chart",
+      "name": "雪月夜鐘 -Monsther-",
+      "hash": "4ffc2e2369740ac9d44da39cea5e0224",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 70.06
+    },
+    {
+      "entryType": "chart",
+      "name": "雪月夜鐘 -Monsther-",
+      "hash": "4ffc2e2369740ac9d44da39cea5e0224",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.12
+    },
+    {
+      "entryType": "chart",
+      "name": "Black Lair [INSANE]",
+      "hash": "7300591ce85f888fbefe6984dc4938c3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 23.31
+    },
+    {
+      "entryType": "chart",
+      "name": "Black Lair [INSANE]",
+      "hash": "7300591ce85f888fbefe6984dc4938c3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 75.43
+    },
+    {
+      "entryType": "chart",
+      "name": "High-Priestess [HYPER]",
+      "hash": "3004d49607ce6fe08e572169a7bd61c2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 43.43
+    },
+    {
+      "entryType": "chart",
+      "name": "High-Priestess [HYPER]",
+      "hash": "3004d49607ce6fe08e572169a7bd61c2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 63.75
+    },
+    {
+      "entryType": "chart",
+      "name": "High-Priestess [HYPER]",
+      "hash": "3004d49607ce6fe08e572169a7bd61c2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 93.41
+    },
+    {
+      "entryType": "chart",
+      "name": "ΔΔ [Another+]",
+      "hash": "e1a065d9370e0948f80fd0959d977000",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 49.87
+    },
+    {
+      "entryType": "chart",
+      "name": "ΔΔ [Another+]",
+      "hash": "e1a065d9370e0948f80fd0959d977000",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 74.07
+    },
+    {
+      "entryType": "chart",
+      "name": "ΔΔ [Another+]",
+      "hash": "e1a065d9370e0948f80fd0959d977000",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.36
+    },
+    {
+      "entryType": "chart",
+      "name": "月と狼と砂糖菓子 -Cookie-",
+      "hash": "0c1dac05f554b061e011bb0f8b879418",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 31.48
+    },
+    {
+      "entryType": "chart",
+      "name": "月と狼と砂糖菓子 -Cookie-",
+      "hash": "0c1dac05f554b061e011bb0f8b879418",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 62.3
+    },
+    {
+      "entryType": "chart",
+      "name": "月と狼と砂糖菓子 -Cookie-",
+      "hash": "0c1dac05f554b061e011bb0f8b879418",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 93.7
+    },
+    {
+      "entryType": "chart",
+      "name": "HAELEQUIN",
+      "hash": "3c9e6197ca0dbf5bba3cd1b83603643d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 25
+    },
+    {
+      "entryType": "chart",
+      "name": "Aeventyr [MX]",
+      "hash": "dfda2cdf3527b470e8951ba285d6bc28",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 81.1
+    },
+    {
+      "entryType": "chart",
+      "name": "Aeventyr [MX]",
+      "hash": "dfda2cdf3527b470e8951ba285d6bc28",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 90.17
+    },
+    {
+      "entryType": "chart",
+      "name": "Aeventyr [MX]",
+      "hash": "dfda2cdf3527b470e8951ba285d6bc28",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.83
+    },
+    {
+      "entryType": "chart",
+      "name": "Valedict",
+      "hash": "a69797e5735be285a032d519788f2424",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 80.25
+    },
+    {
+      "entryType": "chart",
+      "name": "Valedict",
+      "hash": "a69797e5735be285a032d519788f2424",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 92.81
+    },
+    {
+      "entryType": "chart",
+      "name": "Valedict",
+      "hash": "a69797e5735be285a032d519788f2424",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.15
+    },
+    {
+      "entryType": "chart",
+      "name": "Lieselotte [INSANE]",
+      "hash": "dd09b41665fc3944098a62a1d7dbfd95",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 35.79
+    },
+    {
+      "entryType": "chart",
+      "name": "Lieselotte [INSANE]",
+      "hash": "dd09b41665fc3944098a62a1d7dbfd95",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 65.82
+    },
+    {
+      "entryType": "chart",
+      "name": "Lieselotte [INSANE]",
+      "hash": "dd09b41665fc3944098a62a1d7dbfd95",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.55
+    },
+    {
+      "entryType": "chart",
+      "name": "Master of GENOCIDE [ANOTHER7]",
+      "hash": "fb05cc2e1da34361d75d001590360667",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.27
+    },
+    {
+      "entryType": "chart",
+      "name": "Master of GENOCIDE [ANOTHER7]",
+      "hash": "fb05cc2e1da34361d75d001590360667",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 73.78
+    },
+    {
+      "entryType": "chart",
+      "name": "res extensa [ANOTHER]",
+      "hash": "62e9b22c47db89eb2abb59c80635a506",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 57.54
+    },
+    {
+      "entryType": "chart",
+      "name": "Bohemian Chic [SP INSANE]",
+      "hash": "40fd51732eda5299c74b484343e13cf7",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 53.42
+    },
+    {
+      "entryType": "chart",
+      "name": "HAELEQUIN [EX]",
+      "hash": "d70b69449d39959609c20cc95230ff20",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 30.83
+    },
+    {
+      "entryType": "chart",
+      "name": "HAELEQUIN [EX]",
+      "hash": "d70b69449d39959609c20cc95230ff20",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 36.64
+    },
+    {
+      "entryType": "chart",
+      "name": "HAELEQUIN [EX]",
+      "hash": "d70b69449d39959609c20cc95230ff20",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 77.9
+    },
+    {
+      "entryType": "chart",
+      "name": "Toki [ClockWise]",
+      "hash": "8f0d978c82050ba902d9247792aab764",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 86.23
+    },
+    {
+      "entryType": "chart",
+      "name": "Toki [ClockWise]",
+      "hash": "8f0d978c82050ba902d9247792aab764",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 90.25
+    },
+    {
+      "entryType": "chart",
+      "name": "Toki [ClockWise]",
+      "hash": "8f0d978c82050ba902d9247792aab764",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.19
+    },
+    {
+      "entryType": "chart",
+      "name": "宇宙のMI'Sキッチン [EX7]",
+      "hash": "5a40b21fe42ee18317d36dfc1aa860e8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 27.41
+    },
+    {
+      "entryType": "chart",
+      "name": "宇宙のMI'Sキッチン [EX7]",
+      "hash": "5a40b21fe42ee18317d36dfc1aa860e8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 79.69
+    },
+    {
+      "entryType": "chart",
+      "name": "Ray of Moonlight [BGA ON]",
+      "hash": "b271ed8ceff2e397773c8bda982f2cc9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 64.53
+    },
+    {
+      "entryType": "chart",
+      "name": "Ray of Moonlight [BGA ON]",
+      "hash": "b271ed8ceff2e397773c8bda982f2cc9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 74.22
+    },
+    {
+      "entryType": "chart",
+      "name": "Ray of Moonlight [BGA ON]",
+      "hash": "b271ed8ceff2e397773c8bda982f2cc9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.44
+    },
+    {
+      "entryType": "chart",
+      "name": "Gamegame (bms edit -Lanother-)",
+      "hash": "aaffdf6c3fd3731cfb577b9375381c57",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 25.26
+    },
+    {
+      "entryType": "chart",
+      "name": "Gamegame (bms edit -Lanother-)",
+      "hash": "aaffdf6c3fd3731cfb577b9375381c57",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 72.86
+    },
+    {
+      "entryType": "chart",
+      "name": "BB BLOW (7key another)",
+      "hash": "956fc170981b450f6f2dace30aa36d01",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 80.53
+    },
+    {
+      "entryType": "chart",
+      "name": "BB BLOW (7key another)",
+      "hash": "956fc170981b450f6f2dace30aa36d01",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 91.12
+    },
+    {
+      "entryType": "chart",
+      "name": "BB BLOW (7key another)",
+      "hash": "956fc170981b450f6f2dace30aa36d01",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.93
+    },
+    {
+      "entryType": "chart",
+      "name": "P-ChicK-ParK(・◇・) [ANOTHER+]",
+      "hash": "7c90596d7b62e4e6f29efc28c11cceef",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 20.81
+    },
+    {
+      "entryType": "chart",
+      "name": "Everblue [7key Sabother]",
+      "hash": "728c45910c9d38dbe9986c56817c9dc1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 64.65
+    },
+    {
+      "entryType": "chart",
+      "name": "Everblue [7key Sabother]",
+      "hash": "728c45910c9d38dbe9986c56817c9dc1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 72.59
+    },
+    {
+      "entryType": "chart",
+      "name": "Everblue [7key Sabother]",
+      "hash": "728c45910c9d38dbe9986c56817c9dc1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 92.12
+    },
+    {
+      "entryType": "chart",
+      "name": "Fading Star [HARD]",
+      "hash": "3347b6bf84ec962945eb40ebbfcda607",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 76.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Fading Star [HARD]",
+      "hash": "3347b6bf84ec962945eb40ebbfcda607",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 82.39
+    },
+    {
+      "entryType": "chart",
+      "name": "Fading Star [HARD]",
+      "hash": "3347b6bf84ec962945eb40ebbfcda607",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.39
+    },
+    {
+      "entryType": "chart",
+      "name": "Central Nucleus [HARDEST]",
+      "hash": "582c55cacb18f0cc5938125e322799cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 22.45
+    },
+    {
+      "entryType": "chart",
+      "name": "Daydreamer [SABOTHER]",
+      "hash": "b434f05743be892a5ae11b37607f5d4f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 20.79
+    },
+    {
+      "entryType": "chart",
+      "name": "Daydreamer [SABOTHER]",
+      "hash": "b434f05743be892a5ae11b37607f5d4f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 62.17
+    },
+    {
+      "entryType": "chart",
+      "name": "Kronos (EX)",
+      "hash": "b11eeaaafc6188387c940a2a04c706ff",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 58.78
+    },
+    {
+      "entryType": "chart",
+      "name": "Kronos (EX)",
+      "hash": "b11eeaaafc6188387c940a2a04c706ff",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 71.02
+    },
+    {
+      "entryType": "chart",
+      "name": "Kronos (EX)",
+      "hash": "b11eeaaafc6188387c940a2a04c706ff",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.45
+    },
+    {
+      "entryType": "chart",
+      "name": "Re: Shinin' Queen -Hi-",
+      "hash": "1dfc524ea3cbb8ee4f8e40a999718641",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 80.88
+    },
+    {
+      "entryType": "chart",
+      "name": "Re: Shinin' Queen -Hi-",
+      "hash": "1dfc524ea3cbb8ee4f8e40a999718641",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 89.11
+    },
+    {
+      "entryType": "chart",
+      "name": "Re: Shinin' Queen -Hi-",
+      "hash": "1dfc524ea3cbb8ee4f8e40a999718641",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.74
+    },
+    {
+      "entryType": "chart",
+      "name": "サンバランド [POROTHER]",
+      "hash": "6adf517d2e190d09fcfbc010536087f8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 48.32
+    },
+    {
+      "entryType": "chart",
+      "name": "サンバランド [POROTHER]",
+      "hash": "6adf517d2e190d09fcfbc010536087f8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 66.62
+    },
+    {
+      "entryType": "chart",
+      "name": "サンバランド [POROTHER]",
+      "hash": "6adf517d2e190d09fcfbc010536087f8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.44
+    },
+    {
+      "entryType": "chart",
+      "name": "Mario Paint (Time Regression Mix for BMS) [ANOTHER]",
+      "hash": "f0181f1361959bba0f71fe689d3c0714",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 82.32
+    },
+    {
+      "entryType": "chart",
+      "name": "Mario Paint (Time Regression Mix for BMS) [ANOTHER]",
+      "hash": "f0181f1361959bba0f71fe689d3c0714",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 89.4
+    },
+    {
+      "entryType": "chart",
+      "name": "Mario Paint (Time Regression Mix for BMS) [ANOTHER]",
+      "hash": "f0181f1361959bba0f71fe689d3c0714",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.75
+    },
+    {
+      "entryType": "chart",
+      "name": "花鳥風月 [Crystal]",
+      "hash": "d20af55eadba90dd06647272af3ae75b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 31.15
+    },
+    {
+      "entryType": "chart",
+      "name": "花鳥風月 [Crystal]",
+      "hash": "d20af55eadba90dd06647272af3ae75b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 46.27
+    },
+    {
+      "entryType": "chart",
+      "name": "花鳥風月 [Crystal]",
+      "hash": "d20af55eadba90dd06647272af3ae75b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.12
+    },
+    {
+      "entryType": "chart",
+      "name": "PCM (7 another)",
+      "hash": "dbfda884e3408cc0f956a491df6346a4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 68.66
+    },
+    {
+      "entryType": "chart",
+      "name": "PCM (7 another)",
+      "hash": "dbfda884e3408cc0f956a491df6346a4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 77.48
+    },
+    {
+      "entryType": "chart",
+      "name": "PCM (7 another)",
+      "hash": "dbfda884e3408cc0f956a491df6346a4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.43
+    },
+    {
+      "entryType": "chart",
+      "name": "点、線、面、立体 [SP ANOTHER+]",
+      "hash": "36611f2dbd11d859463efb6b4df59823",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 87.55
+    },
+    {
+      "entryType": "chart",
+      "name": "点、線、面、立体 [SP ANOTHER+]",
+      "hash": "36611f2dbd11d859463efb6b4df59823",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 94.03
+    },
+    {
+      "entryType": "chart",
+      "name": "点、線、面、立体 [SP ANOTHER+]",
+      "hash": "36611f2dbd11d859463efb6b4df59823",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.21
+    },
+    {
+      "entryType": "chart",
+      "name": "Calamity Fortune [ANOTHER]",
+      "hash": "50e42dfba8741b1909d7714ee7cf1846",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.5
+    },
+    {
+      "entryType": "chart",
+      "name": "Calamity Fortune [ANOTHER]",
+      "hash": "50e42dfba8741b1909d7714ee7cf1846",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 82.39
+    },
+    {
+      "entryType": "chart",
+      "name": "Calamity Fortune [F]",
+      "hash": "1b72e8f6439a698e78f94be16470b789",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 65.66
+    },
+    {
+      "entryType": "chart",
+      "name": "Calamity Fortune [F]",
+      "hash": "1b72e8f6439a698e78f94be16470b789",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 77.32
+    },
+    {
+      "entryType": "chart",
+      "name": "Calamity Fortune [F]",
+      "hash": "1b72e8f6439a698e78f94be16470b789",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.59
+    },
+    {
+      "entryType": "chart",
+      "name": "Elina (feat. Reislaufer) [HARD]",
+      "hash": "6d5b9c4409daada59c8968f9129cb789",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 91.22
+    },
+    {
+      "entryType": "chart",
+      "name": "Elina (feat. Reislaufer) [HARD]",
+      "hash": "6d5b9c4409daada59c8968f9129cb789",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 94.61
+    },
+    {
+      "entryType": "chart",
+      "name": "Elina (feat. Reislaufer) [HARD]",
+      "hash": "6d5b9c4409daada59c8968f9129cb789",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.37
+    },
+    {
+      "entryType": "chart",
+      "name": "rough [7key,Another]",
+      "hash": "877f4a37193f789cf1dee377c3774282",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 45.15
+    },
+    {
+      "entryType": "chart",
+      "name": "rough [7key,Another]",
+      "hash": "877f4a37193f789cf1dee377c3774282",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 61.85
+    },
+    {
+      "entryType": "chart",
+      "name": "rough [7key,Another]",
+      "hash": "877f4a37193f789cf1dee377c3774282",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.54
+    },
+    {
+      "entryType": "chart",
+      "name": "S [ANOTHER]",
+      "hash": "5d6abb820987e25c784c49501bf9246a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 36.08
+    },
+    {
+      "entryType": "chart",
+      "name": "Debut -SABOTHER-",
+      "hash": "e899a442afc91c738f8c666a91c3ce17",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 37.33
+    },
+    {
+      "entryType": "chart",
+      "name": "Debut -SABOTHER-",
+      "hash": "e899a442afc91c738f8c666a91c3ce17",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 54.01
+    },
+    {
+      "entryType": "chart",
+      "name": "Debut -SABOTHER-",
+      "hash": "e899a442afc91c738f8c666a91c3ce17",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 93.52
+    },
+    {
+      "entryType": "chart",
+      "name": "Supernova [Another+]",
+      "hash": "daf6f6a9a70bfe2b8926df38331215fc",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 77.24
+    },
+    {
+      "entryType": "chart",
+      "name": "Supernova [Another+]",
+      "hash": "daf6f6a9a70bfe2b8926df38331215fc",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 86.88
+    },
+    {
+      "entryType": "chart",
+      "name": "Supernova [Another+]",
+      "hash": "daf6f6a9a70bfe2b8926df38331215fc",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.07
+    },
+    {
+      "entryType": "chart",
+      "name": "JULIAN 'for B.O.F. 2009' [SP-RX INSANE]",
+      "hash": "9f03d0a2965b56338d6fa975777662be",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 87.37
+    },
+    {
+      "entryType": "chart",
+      "name": "JULIAN 'for B.O.F. 2009' [SP-RX INSANE]",
+      "hash": "9f03d0a2965b56338d6fa975777662be",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 93.04
+    },
+    {
+      "entryType": "chart",
+      "name": "JULIAN 'for B.O.F. 2009' [SP-RX INSANE]",
+      "hash": "9f03d0a2965b56338d6fa975777662be",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.03
+    },
+    {
+      "entryType": "chart",
+      "name": "Black Lair [SPADA]",
+      "hash": "f53a088f7dcf4a14e5fb27fbd627e573",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 75.39
+    },
+    {
+      "entryType": "chart",
+      "name": "HAPPY☆LUCKY☆BABY [Blissful]",
+      "hash": "a3013463601c7ef7ee9c90ed911a872a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 31.42
+    },
+    {
+      "entryType": "chart",
+      "name": "VALLISTA [SP-RX ANOTHER]",
+      "hash": "7f4cc6d51435b913729aaf1e44ea8601",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 61.52
+    },
+    {
+      "entryType": "chart",
+      "name": "THE ONE [EX]",
+      "hash": "40ce36b144f2274fdefe82edcb68aaf4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 27.77
+    },
+    {
+      "entryType": "chart",
+      "name": "THE ONE [EX]",
+      "hash": "40ce36b144f2274fdefe82edcb68aaf4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 35.42
+    },
+    {
+      "entryType": "chart",
+      "name": "THE ONE [EX]",
+      "hash": "40ce36b144f2274fdefe82edcb68aaf4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 87.29
+    },
+    {
+      "entryType": "chart",
+      "name": "8th:Planet [SP ANOTHER+]",
+      "hash": "3083bf3ed23942c307172ef8a7553707",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 65.44
+    },
+    {
+      "entryType": "chart",
+      "name": "8th:Planet [SP ANOTHER+]",
+      "hash": "3083bf3ed23942c307172ef8a7553707",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 78.04
+    },
+    {
+      "entryType": "chart",
+      "name": "8th:Planet [SP ANOTHER+]",
+      "hash": "3083bf3ed23942c307172ef8a7553707",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.9
+    },
+    {
+      "entryType": "chart",
+      "name": "fragments J-CoreRemix[HeavyRain]",
+      "hash": "5cbaf8e1f88b4371ec1e3bae52d7eb95",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 80.02
+    },
+    {
+      "entryType": "chart",
+      "name": "fragments J-CoreRemix[HeavyRain]",
+      "hash": "5cbaf8e1f88b4371ec1e3bae52d7eb95",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 86.57
+    },
+    {
+      "entryType": "chart",
+      "name": "fragments J-CoreRemix[HeavyRain]",
+      "hash": "5cbaf8e1f88b4371ec1e3bae52d7eb95",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.75
+    },
+    {
+      "entryType": "chart",
+      "name": "Luv 5 Dancer [EXHAUST]",
+      "hash": "2941c7e5ef09640b30fb9d3ca6293bb0",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 44.05
+    },
+    {
+      "entryType": "chart",
+      "name": "Lambda Driver [ANOTHER+]",
+      "hash": "dbefc24c03e843b88cb1a1436b10638a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 26.71
+    },
+    {
+      "entryType": "chart",
+      "name": "Neural Network [Append]",
+      "hash": "79e79237a4aabd8d47d44ab85af98fb2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 82.68
+    },
+    {
+      "entryType": "chart",
+      "name": "Doppelganger [ANOTHER]",
+      "hash": "d37ba8a0d317f3d39a1c6e2d5b369390",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 40.39
+    },
+    {
+      "entryType": "chart",
+      "name": "Doppelganger [ANOTHER]",
+      "hash": "d37ba8a0d317f3d39a1c6e2d5b369390",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 88.62
+    },
+    {
+      "entryType": "chart",
+      "name": "事象の地平 [F]",
+      "hash": "803c62f33ba287df9364d94e0b0f3a2f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 28.97
+    },
+    {
+      "entryType": "chart",
+      "name": "Ravers Rave Anthem II [nova]",
+      "hash": "17b960734f2acdced87e31474e723fba",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 65.05
+    },
+    {
+      "entryType": "chart",
+      "name": "特効薬はカニピラフ (KANITHER)",
+      "hash": "b28382b886c8f6d8249e4ad1bde22622",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 56.05
+    },
+    {
+      "entryType": "chart",
+      "name": "特効薬はカニピラフ (KANITHER)",
+      "hash": "b28382b886c8f6d8249e4ad1bde22622",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 66.85
+    },
+    {
+      "entryType": "chart",
+      "name": "特効薬はカニピラフ (KANITHER)",
+      "hash": "b28382b886c8f6d8249e4ad1bde22622",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.1
+    },
+    {
+      "entryType": "chart",
+      "name": "STAGER [7_Success]",
+      "hash": "d67e55f35737d07bdb1b6e574ab8b47c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 53.05
+    },
+    {
+      "entryType": "chart",
+      "name": "STAGER [7_Success]",
+      "hash": "d67e55f35737d07bdb1b6e574ab8b47c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 71.95
+    },
+    {
+      "entryType": "chart",
+      "name": "STAGER [7_Success]",
+      "hash": "d67e55f35737d07bdb1b6e574ab8b47c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.98
+    },
+    {
+      "entryType": "chart",
+      "name": "Caelumize [SP Cloudy]",
+      "hash": "8f45b0c970e183550ebfdddc5db8472c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 78.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Caelumize [SP Cloudy]",
+      "hash": "8f45b0c970e183550ebfdddc5db8472c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 86.07
+    },
+    {
+      "entryType": "chart",
+      "name": "Caelumize [SP Cloudy]",
+      "hash": "8f45b0c970e183550ebfdddc5db8472c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.54
+    },
+    {
+      "entryType": "chart",
+      "name": "平衡世界 [Another+]",
+      "hash": "5c1b6d4fab17625da43100cc09223bc8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 21.66
+    },
+    {
+      "entryType": "chart",
+      "name": "平衡世界 [Another+]",
+      "hash": "5c1b6d4fab17625da43100cc09223bc8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 34.92
+    },
+    {
+      "entryType": "chart",
+      "name": "平衡世界 [Another+]",
+      "hash": "5c1b6d4fab17625da43100cc09223bc8",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 92.55
+    },
+    {
+      "entryType": "chart",
+      "name": "cold planet [F]",
+      "hash": "9e637c1676c1a5c4c7c2fda3b8d6b115",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 72.48
+    },
+    {
+      "entryType": "chart",
+      "name": "cold planet [F]",
+      "hash": "9e637c1676c1a5c4c7c2fda3b8d6b115",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 78.93
+    },
+    {
+      "entryType": "chart",
+      "name": "cold planet [F]",
+      "hash": "9e637c1676c1a5c4c7c2fda3b8d6b115",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.35
+    },
+    {
+      "entryType": "chart",
+      "name": "DESPERATE -fatal-",
+      "hash": "0ae6aad252b54324e739a245c9efaacc",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 36.99
+    },
+    {
+      "entryType": "chart",
+      "name": "DESPERATE -fatal-",
+      "hash": "0ae6aad252b54324e739a245c9efaacc",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 44.36
+    },
+    {
+      "entryType": "chart",
+      "name": "DESPERATE -fatal-",
+      "hash": "0ae6aad252b54324e739a245c9efaacc",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 85.25
+    },
+    {
+      "entryType": "chart",
+      "name": "愛と煩悩と輪廻と常識の極彩世界 [皿と乱打と階段と縦連の同時押世界]",
+      "hash": "4377e154655b3d277b1c65b77d98cf1c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 66.44
+    },
+    {
+      "entryType": "chart",
+      "name": "L.D.(Rock Arrange Ver.) [HARD]",
+      "hash": "f6f7774325fbaad9bdeef271faa755e6",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 22.93
+    },
+    {
+      "entryType": "chart",
+      "name": "L.D.(Rock Arrange Ver.) [HARD]",
+      "hash": "f6f7774325fbaad9bdeef271faa755e6",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 88.02
+    },
+    {
+      "entryType": "chart",
+      "name": "Shade of Gloria [F]",
+      "hash": "8a77e0361ff3521b17371efa3519b053",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 21.76
+    },
+    {
+      "entryType": "chart",
+      "name": "Meteor Lights [JUDGMENT]",
+      "hash": "cefb4735c26f9488438021b4d7fdca31",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 62.79
+    },
+    {
+      "entryType": "chart",
+      "name": "ちんこ音頭2012 [sabunnn]",
+      "hash": "06eba6331a168ae1ba596c58e5d235cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 38.87
+    },
+    {
+      "entryType": "chart",
+      "name": "心壊のアガルマトフィリア [F]",
+      "hash": "7d377912d100c7209098959f77c33808",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 67.33
+    },
+    {
+      "entryType": "chart",
+      "name": "-+ [dy/dx]",
+      "hash": "acb00af62ad22c34ab21828853bd2915",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 30.04
+    },
+    {
+      "entryType": "chart",
+      "name": "-+ [dy/dx]",
+      "hash": "acb00af62ad22c34ab21828853bd2915",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 42.27
+    },
+    {
+      "entryType": "chart",
+      "name": "-+ [dy/dx]",
+      "hash": "acb00af62ad22c34ab21828853bd2915",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 93.92
+    },
+    {
+      "entryType": "chart",
+      "name": "樟葉(remix) [F]",
+      "hash": "e4dd8090d701a8048cd9662258a4cf0d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 26.29
+    },
+    {
+      "entryType": "chart",
+      "name": "ClowN CrowN [sLunatic]",
+      "hash": "e514f86e5cd07295acc776f71b28ebd9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.19
+    },
+    {
+      "entryType": "chart",
+      "name": "Blooming [7key Feeling]",
+      "hash": "62f6543036ffb0390c0abeb2af6ecb25",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 39.56
+    },
+    {
+      "entryType": "chart",
+      "name": "fragments J-CoreRemix [E]",
+      "hash": "0b0d6d21968d624327b46f9546713b24",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 42.32
+    },
+    {
+      "entryType": "chart",
+      "name": "fragments J-CoreRemix [E]",
+      "hash": "0b0d6d21968d624327b46f9546713b24",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 50.41
+    },
+    {
+      "entryType": "chart",
+      "name": "fragments J-CoreRemix [E]",
+      "hash": "0b0d6d21968d624327b46f9546713b24",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 90.97
+    },
+    {
+      "entryType": "chart",
+      "name": "Ultimate Weapon [F]",
+      "hash": "7654f5b9a8b74de4fff9969a2e3b5331",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 24.9
+    },
+    {
+      "entryType": "chart",
+      "name": "FRANTIC☆ARCADE [otogamER]",
+      "hash": "b34c6c3d5616e64a352f5c95ebc5b1f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 20.05
+    },
+    {
+      "entryType": "chart",
+      "name": "FRANTIC☆ARCADE [otogamER]",
+      "hash": "b34c6c3d5616e64a352f5c95ebc5b1f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 25.78
+    },
+    {
+      "entryType": "chart",
+      "name": "FRANTIC☆ARCADE [otogamER]",
+      "hash": "b34c6c3d5616e64a352f5c95ebc5b1f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 76.46
+    },
+    {
+      "entryType": "chart",
+      "name": "GIN TONIC FLAVOR [aspER7]",
+      "hash": "73e45d6f82b6d69bad566cdddca277cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 40.33
+    },
+    {
+      "entryType": "chart",
+      "name": "GIN TONIC FLAVOR [aspER7]",
+      "hash": "73e45d6f82b6d69bad566cdddca277cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 43.58
+    },
+    {
+      "entryType": "chart",
+      "name": "GIN TONIC FLAVOR [aspER7]",
+      "hash": "73e45d6f82b6d69bad566cdddca277cf",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 72.76
+    },
+    {
+      "entryType": "chart",
+      "name": "PrayStation [HARD]",
+      "hash": "c830eec2185e22e777a8dd91456eb659",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 57.45
+    },
+    {
+      "entryType": "chart",
+      "name": "PrayStation [HARD]",
+      "hash": "c830eec2185e22e777a8dd91456eb659",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 71.76
+    },
+    {
+      "entryType": "chart",
+      "name": "PrayStation [HARD]",
+      "hash": "c830eec2185e22e777a8dd91456eb659",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.07
+    },
+    {
+      "entryType": "chart",
+      "name": "PLASTIC GIRLS (ft. Seorryang) [Stripe]",
+      "hash": "95f4d061d6e1f817a5e959d29565014c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 50.63
+    },
+    {
+      "entryType": "chart",
+      "name": "PLASTIC GIRLS (ft. Seorryang) [Stripe]",
+      "hash": "95f4d061d6e1f817a5e959d29565014c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 61.51
+    },
+    {
+      "entryType": "chart",
+      "name": "PLASTIC GIRLS (ft. Seorryang) [Stripe]",
+      "hash": "95f4d061d6e1f817a5e959d29565014c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.56
+    },
+    {
+      "entryType": "chart",
+      "name": "sola [Fi]",
+      "hash": "1dcbfb836809f09a0a83ee1271950d1a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 78.13
+    },
+    {
+      "entryType": "chart",
+      "name": "彼女の言い分 -ﾋﾟｺﾋﾟｺedit- [だって～でも]",
+      "hash": "4f6ef5ebb09e27396384d62f95a0bf05",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 24.72
+    },
+    {
+      "entryType": "chart",
+      "name": "彼女の言い分 -ﾋﾟｺﾋﾟｺedit- [だって～でも]",
+      "hash": "4f6ef5ebb09e27396384d62f95a0bf05",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 72.11
+    },
+    {
+      "entryType": "chart",
+      "name": "B.B.K.K.B.K.K. (toidi)",
+      "hash": "efc091e69eab86605c5d2694b113e9f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 70.65
+    },
+    {
+      "entryType": "chart",
+      "name": "B.B.K.K.B.K.K. (toidi)",
+      "hash": "efc091e69eab86605c5d2694b113e9f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 79.56
+    },
+    {
+      "entryType": "chart",
+      "name": "B.B.K.K.B.K.K. (toidi)",
+      "hash": "efc091e69eab86605c5d2694b113e9f9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.19
+    },
+    {
+      "entryType": "chart",
+      "name": "NewGamePlus [Good old game]",
+      "hash": "1b4566b508cb58387480a0406d87cb1b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 89.95
+    },
+    {
+      "entryType": "chart",
+      "name": "NewGamePlus [Good old game]",
+      "hash": "1b4566b508cb58387480a0406d87cb1b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 96.15
+    },
+    {
+      "entryType": "chart",
+      "name": "NewGamePlus [Good old game]",
+      "hash": "1b4566b508cb58387480a0406d87cb1b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.76
+    },
+    {
+      "entryType": "chart",
+      "name": "雪解け色フラワーズ [Defrost]",
+      "hash": "6f4d00fd3c20579595a6f9368b4b1fa5",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 60.6
+    },
+    {
+      "entryType": "chart",
+      "name": "雪解け色フラワーズ [Defrost]",
+      "hash": "6f4d00fd3c20579595a6f9368b4b1fa5",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 71.38
+    },
+    {
+      "entryType": "chart",
+      "name": "雪解け色フラワーズ [Defrost]",
+      "hash": "6f4d00fd3c20579595a6f9368b4b1fa5",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.63
+    },
+    {
+      "entryType": "chart",
+      "name": "Unexpected rewind [Messiah]",
+      "hash": "91412a5634bab06d077370f781db6709",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 20.67
+    },
+    {
+      "entryType": "chart",
+      "name": "88D [小さい]",
+      "hash": "d61d98bc51cd104b1d916a034ff1e271",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 53.46
+    },
+    {
+      "entryType": "chart",
+      "name": "88D [小さい]",
+      "hash": "d61d98bc51cd104b1d916a034ff1e271",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 68.47
+    },
+    {
+      "entryType": "chart",
+      "name": "88D [小さい]",
+      "hash": "d61d98bc51cd104b1d916a034ff1e271",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.22
+    },
+    {
+      "entryType": "chart",
+      "name": "Amusing Night Party. [Panic]",
+      "hash": "a68c7692822a21ea43944733eab36c2c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 78.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Amusing Night Party. [Panic]",
+      "hash": "a68c7692822a21ea43944733eab36c2c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 86.31
+    },
+    {
+      "entryType": "chart",
+      "name": "Amusing Night Party. [Panic]",
+      "hash": "a68c7692822a21ea43944733eab36c2c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.99
+    },
+    {
+      "entryType": "chart",
+      "name": "to Firmament [F]",
+      "hash": "1f011a85f85d3d08018f95bef5017d2d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.27
+    },
+    {
+      "entryType": "chart",
+      "name": "Lucifer",
+      "hash": "e039116cb3a00a7b6e489eaf16a77a3f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 46.92
+    },
+    {
+      "entryType": "chart",
+      "name": "夢、幻。 [7_cloudy]",
+      "hash": "7dbe2a38e7bb2b2611cf0fc6b8b7cc2c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 44
+    },
+    {
+      "entryType": "chart",
+      "name": "ベストフレンド［smiling］",
+      "hash": "d353c5f0a6075ff60d3d5c34a1636e05",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 65.39
+    },
+    {
+      "entryType": "chart",
+      "name": "ベストフレンド［smiling］",
+      "hash": "d353c5f0a6075ff60d3d5c34a1636e05",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 71.19
+    },
+    {
+      "entryType": "chart",
+      "name": "ベストフレンド［smiling］",
+      "hash": "d353c5f0a6075ff60d3d5c34a1636e05",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.39
+    },
+    {
+      "entryType": "chart",
+      "name": "Crossover (Chain mix)",
+      "hash": "8104bc6b3580ec33e2f8a425488f0d5f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 86.07
+    },
+    {
+      "entryType": "chart",
+      "name": "Crossover (Chain mix)",
+      "hash": "8104bc6b3580ec33e2f8a425488f0d5f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 92.29
+    },
+    {
+      "entryType": "chart",
+      "name": "Crossover (Chain mix)",
+      "hash": "8104bc6b3580ec33e2f8a425488f0d5f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.19
+    },
+    {
+      "entryType": "chart",
+      "name": "Hybrid Intermission -Hy Speed Remix- [DHMO]",
+      "hash": "9519fdbc51a79e42b444e050b7d36e50",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.25
+    },
+    {
+      "entryType": "chart",
+      "name": "Hybrid Intermission -Hy Speed Remix- [DHMO]",
+      "hash": "9519fdbc51a79e42b444e050b7d36e50",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 86.01
+    },
+    {
+      "entryType": "chart",
+      "name": "ヨッシーアイランド 「クッパ」 [7KEYS SPECIAL]",
+      "hash": "a772cef82596dc1c20bb60ac6b9dfcec",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 20.77
+    },
+    {
+      "entryType": "chart",
+      "name": "Dandelion Sparkle!! [FB]",
+      "hash": "188ac44b91c8f97436dd74b2d6825f2e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.05
+    },
+    {
+      "entryType": "chart",
+      "name": "symbolic gear [fk7]",
+      "hash": "5cd6956a9991f6b45cd31098642e394f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 36.59
+    },
+    {
+      "entryType": "chart",
+      "name": "世界殺戮ブラッドローズ [ROSEBATTLER]",
+      "hash": "7c69451a4164a960f34406001c08d83c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 80.55
+    },
+    {
+      "entryType": "chart",
+      "name": "Scorpion Dance [INSANE]",
+      "hash": "92534ba8547ae6943dc5a99b7ddd0728",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 87.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Scorpion Dance [INSANE]",
+      "hash": "92534ba8547ae6943dc5a99b7ddd0728",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 91.83
+    },
+    {
+      "entryType": "chart",
+      "name": "Scorpion Dance [INSANE]",
+      "hash": "92534ba8547ae6943dc5a99b7ddd0728",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.3
+    },
+    {
+      "entryType": "chart",
+      "name": "BRILLIANT STAR ～煌星の雫～ [WHITE ANOTHER]",
+      "hash": "f2f6269ad0b75ef7ab7066f524826c4c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 77.55
+    },
+    {
+      "entryType": "chart",
+      "name": "BRILLIANT STAR ～煌星の雫～ [WHITE ANOTHER]",
+      "hash": "f2f6269ad0b75ef7ab7066f524826c4c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 84.73
+    },
+    {
+      "entryType": "chart",
+      "name": "BRILLIANT STAR ～煌星の雫～ [WHITE ANOTHER]",
+      "hash": "f2f6269ad0b75ef7ab7066f524826c4c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.77
+    },
+    {
+      "entryType": "chart",
+      "name": "Poison AND÷OR Affection [INSANE]",
+      "hash": "51245af100f24264cf3df0bc5523ca27",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 45.93
+    },
+    {
+      "entryType": "chart",
+      "name": "Poison AND÷OR Affection [INSANE]",
+      "hash": "51245af100f24264cf3df0bc5523ca27",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 71.78
+    },
+    {
+      "entryType": "chart",
+      "name": "Poison AND÷OR Affection [INSANE]",
+      "hash": "51245af100f24264cf3df0bc5523ca27",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.27
+    },
+    {
+      "entryType": "chart",
+      "name": "Altale [INSANE]",
+      "hash": "9ca663f162a70b7c8c3819cd1c18708a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 40.58
+    },
+    {
+      "entryType": "chart",
+      "name": "恋の2-4-11(BMS Edit) -改-",
+      "hash": "a664ac5ffe78777c1eae005a3c4bd66c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 72.7
+    },
+    {
+      "entryType": "chart",
+      "name": "恋の2-4-11(BMS Edit) -改-",
+      "hash": "a664ac5ffe78777c1eae005a3c4bd66c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 82.75
+    },
+    {
+      "entryType": "chart",
+      "name": "恋の2-4-11(BMS Edit) -改-",
+      "hash": "a664ac5ffe78777c1eae005a3c4bd66c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.45
+    },
+    {
+      "entryType": "chart",
+      "name": "Blink [SP BLACK ANOTHER]",
+      "hash": "5f6f1c5d3fca5edba8edd537d9927c61",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 69.08
+    },
+    {
+      "entryType": "chart",
+      "name": "Blink [SP BLACK ANOTHER]",
+      "hash": "5f6f1c5d3fca5edba8edd537d9927c61",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 90.62
+    },
+    {
+      "entryType": "chart",
+      "name": "Blink [SP BLACK ANOTHER]",
+      "hash": "5f6f1c5d3fca5edba8edd537d9927c61",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.75
+    },
+    {
+      "entryType": "chart",
+      "name": "Alien Artifact [Append]",
+      "hash": "fd08126997e80d59cbc19904da322f3e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 21.2
+    },
+    {
+      "entryType": "chart",
+      "name": "Funny Funky Freaky [HARD]",
+      "hash": "1d82eca9a7f34560149864ca2094ab64",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 30
+    },
+    {
+      "entryType": "chart",
+      "name": "Funny Funky Freaky [HARD]",
+      "hash": "1d82eca9a7f34560149864ca2094ab64",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 40.06
+    },
+    {
+      "entryType": "chart",
+      "name": "Funny Funky Freaky [HARD]",
+      "hash": "1d82eca9a7f34560149864ca2094ab64",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.95
+    },
+    {
+      "entryType": "chart",
+      "name": "Scorpion Dance [XERTHER]",
+      "hash": "bd0e8759e479663d7e8314d2b6e1dab3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 37.69
+    },
+    {
+      "entryType": "chart",
+      "name": "kindly breeze [ELITHER]",
+      "hash": "27b11d9858364cbc87459e6099403d6a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 66.02
+    },
+    {
+      "entryType": "chart",
+      "name": "kindly breeze [ELITHER]",
+      "hash": "27b11d9858364cbc87459e6099403d6a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 79.72
+    },
+    {
+      "entryType": "chart",
+      "name": "kindly breeze [ELITHER]",
+      "hash": "27b11d9858364cbc87459e6099403d6a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.18
+    },
+    {
+      "entryType": "chart",
+      "name": "私のヒトミ [Na]",
+      "hash": "47de06762f16d164426e3197c5de967c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 49.55
+    },
+    {
+      "entryType": "chart",
+      "name": "TURNDOWN [F]",
+      "hash": "2371263af3b0d644fba62526c9f49481",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 44.67
+    },
+    {
+      "entryType": "chart",
+      "name": "TURNDOWN [F]",
+      "hash": "2371263af3b0d644fba62526c9f49481",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 52.96
+    },
+    {
+      "entryType": "chart",
+      "name": "TURNDOWN [F]",
+      "hash": "2371263af3b0d644fba62526c9f49481",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 92.1
+    },
+    {
+      "entryType": "chart",
+      "name": "Merry-Go-Round [El Dorado]",
+      "hash": "27adc9d365ff31d58e1497b5d3ffba5d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 28.35
+    },
+    {
+      "entryType": "chart",
+      "name": "Back 2 Oldskool [Dead Or Alive]",
+      "hash": "cecc71ad38606af7f5282859d4be2287",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 75.54
+    },
+    {
+      "entryType": "chart",
+      "name": "ヒメタイプ [F]",
+      "hash": "0e0619de679eb29af0ec907673e13d18",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 29.43
+    },
+    {
+      "entryType": "chart",
+      "name": "Dstorv [false_fix]",
+      "hash": "8a8a6c2f3511eb0876a6c9a2027d7bbe",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 46.69
+    },
+    {
+      "entryType": "chart",
+      "name": "Dstorv [false_fix]",
+      "hash": "8a8a6c2f3511eb0876a6c9a2027d7bbe",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 58.1
+    },
+    {
+      "entryType": "chart",
+      "name": "Dstorv [false_fix]",
+      "hash": "8a8a6c2f3511eb0876a6c9a2027d7bbe",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.62
+    },
+    {
+      "entryType": "chart",
+      "name": "CYCLONE [EX]",
+      "hash": "db5d1639dec6cbebecf70a2c52b3683b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 88.32
+    },
+    {
+      "entryType": "chart",
+      "name": "CYCLONE [EX]",
+      "hash": "db5d1639dec6cbebecf70a2c52b3683b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 92.6
+    },
+    {
+      "entryType": "chart",
+      "name": "CYCLONE [EX]",
+      "hash": "db5d1639dec6cbebecf70a2c52b3683b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.69
+    },
+    {
+      "entryType": "chart",
+      "name": "PUPA [LAPITHER]",
+      "hash": "284fd8fdf21f963359aca222b9872c92",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 62.51
+    },
+    {
+      "entryType": "chart",
+      "name": "スペクトラム -maniac-",
+      "hash": "b4ef3643a901f65df18faf2ebb58254c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 48.76
+    },
+    {
+      "entryType": "chart",
+      "name": "Dance Doll Dream [puppet]",
+      "hash": "276170e35b66b083f61efbda3be4380a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 46.49
+    },
+    {
+      "entryType": "chart",
+      "name": "Dance Doll Dream [puppet]",
+      "hash": "276170e35b66b083f61efbda3be4380a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 52.03
+    },
+    {
+      "entryType": "chart",
+      "name": "Dance Doll Dream [puppet]",
+      "hash": "276170e35b66b083f61efbda3be4380a",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 88.01
+    },
+    {
+      "entryType": "chart",
+      "name": "先手必勝戦闘機 鳳 -上昇-",
+      "hash": "028b622244e442ec44db82606d00c3ba",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 90.91
+    },
+    {
+      "entryType": "chart",
+      "name": "マジョリテへの憧れとミノリテの矜持",
+      "hash": "e622fd31351179f596f91f3b365dc2d6",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 29.65
+    },
+    {
+      "entryType": "chart",
+      "name": "ロリキート [タイポグラフィ]",
+      "hash": "38769dc4d7de5e24a149e8f12fb75c6b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 87.72
+    },
+    {
+      "entryType": "chart",
+      "name": "僕たちの旅とエピローグ。",
+      "hash": "e5de5ecec3da46cf9beb08fe103b2e3d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 64.3
+    },
+    {
+      "entryType": "chart",
+      "name": "僕たちの旅とエピローグ。",
+      "hash": "e5de5ecec3da46cf9beb08fe103b2e3d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 86.62
+    },
+    {
+      "entryType": "chart",
+      "name": "僕たちの旅とエピローグ。",
+      "hash": "e5de5ecec3da46cf9beb08fe103b2e3d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.08
+    },
+    {
+      "entryType": "chart",
+      "name": "Rainy [Runother]",
+      "hash": "af4a2231ed7c21fe28f5c9353775be39",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 74.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Snowdrop [nova]",
+      "hash": "6bc7b3d28c0ce3645a4498ac36a38285",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 33.59
+    },
+    {
+      "entryType": "chart",
+      "name": "Espresso Shots [convert]",
+      "hash": "758dcee38a5931b3fb0d0a61feddb324",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 60.95
+    },
+    {
+      "entryType": "chart",
+      "name": "Espresso Shots [convert]",
+      "hash": "758dcee38a5931b3fb0d0a61feddb324",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 75.1
+    },
+    {
+      "entryType": "chart",
+      "name": "Espresso Shots [convert]",
+      "hash": "758dcee38a5931b3fb0d0a61feddb324",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.39
+    },
+    {
+      "entryType": "chart",
+      "name": "Musica de Aves [windmill]",
+      "hash": "c962ec11100d6174dbbe8ef052315dac",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 91.42
+    },
+    {
+      "entryType": "chart",
+      "name": "年中夢中な好奇心 [ExHard]",
+      "hash": "e950a7d9e069faf884757a8f141d6f4b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 21.39
+    },
+    {
+      "entryType": "chart",
+      "name": "年中夢中な好奇心 [ExHard]",
+      "hash": "e950a7d9e069faf884757a8f141d6f4b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 27.78
+    },
+    {
+      "entryType": "chart",
+      "name": "年中夢中な好奇心 [ExHard]",
+      "hash": "e950a7d9e069faf884757a8f141d6f4b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 81.67
+    },
+    {
+      "entryType": "chart",
+      "name": "UnFaked phantOm [EXTRA]",
+      "hash": "b46b23fa8e2ad96e02763f687bb5a494",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 41.53
+    },
+    {
+      "entryType": "chart",
+      "name": "Starry Fate (Dif)",
+      "hash": "d93d26ea51b78bc9b000b24aae30eabd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 58.35
+    },
+    {
+      "entryType": "chart",
+      "name": "Starry Fate (Dif)",
+      "hash": "d93d26ea51b78bc9b000b24aae30eabd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 67.85
+    },
+    {
+      "entryType": "chart",
+      "name": "Starry Fate (Dif)",
+      "hash": "d93d26ea51b78bc9b000b24aae30eabd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.16
+    },
+    {
+      "entryType": "chart",
+      "name": "GOODMEN [踏十里駅から徒歩10分]",
+      "hash": "fcfb1f5c4f41de1c401e6edd9e1841cb",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 25.53
+    },
+    {
+      "entryType": "chart",
+      "name": "GOODMEN [踏十里駅から徒歩10分]",
+      "hash": "fcfb1f5c4f41de1c401e6edd9e1841cb",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 84.24
+    },
+    {
+      "entryType": "chart",
+      "name": "Homura [AKEMI]",
+      "hash": "d6189186dfd1a1e9029fa5a9e7e16441",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 60.81
+    },
+    {
+      "entryType": "chart",
+      "name": "JUMMER (HARD+)",
+      "hash": "425e92c471171139ca49b05bd60ca5a9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 21.48
+    },
+    {
+      "entryType": "chart",
+      "name": "JUMMER (HARD+)",
+      "hash": "425e92c471171139ca49b05bd60ca5a9",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 81.74
+    },
+    {
+      "entryType": "chart",
+      "name": "Trahison [E]",
+      "hash": "19fbf62d711282d81208f97f7135e2a2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 71.22
+    },
+    {
+      "entryType": "chart",
+      "name": "スーパーイザナギオブジェクト [Li]",
+      "hash": "eb4c2697459be3508e1aa2c8a9218dca",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 44.74
+    },
+    {
+      "entryType": "chart",
+      "name": "アナログ横丁 [nova]",
+      "hash": "2479d75935c4664238040ec31244da94",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 74.55
+    },
+    {
+      "entryType": "chart",
+      "name": "アナログ横丁 [nova]",
+      "hash": "2479d75935c4664238040ec31244da94",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 78.33
+    },
+    {
+      "entryType": "chart",
+      "name": "アナログ横丁 [nova]",
+      "hash": "2479d75935c4664238040ec31244da94",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 93.58
+    },
+    {
+      "entryType": "chart",
+      "name": "Lucid Dreaming [ExHard]",
+      "hash": "215ddf8b7907896693a6b6e4163d02d1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 88.04
+    },
+    {
+      "entryType": "chart",
+      "name": "Lucid Dreaming [ExHard]",
+      "hash": "215ddf8b7907896693a6b6e4163d02d1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 94.17
+    },
+    {
+      "entryType": "chart",
+      "name": "Lucid Dreaming [ExHard]",
+      "hash": "215ddf8b7907896693a6b6e4163d02d1",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.43
+    },
+    {
+      "entryType": "chart",
+      "name": "ウィリアム・テル第4部「スイス軍隊の行進」 -MANIAC-",
+      "hash": "fbab5865a5cbb55dc038cb95255bb565",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 63.06
+    },
+    {
+      "entryType": "chart",
+      "name": "Harmony (*｡> × <｡*人) ☆ﾟ.*･｡ﾟ",
+      "hash": "350d06e51618cebbd037afcf762fb699",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 76.61
+    },
+    {
+      "entryType": "chart",
+      "name": "SHI☆O☆KA☆RA [Splatoon]",
+      "hash": "bfceeca4a9248fa59596f14845d4fa45",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 31.67
+    },
+    {
+      "entryType": "chart",
+      "name": "SHI☆O☆KA☆RA [Splatoon]",
+      "hash": "bfceeca4a9248fa59596f14845d4fa45",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 43.35
+    },
+    {
+      "entryType": "chart",
+      "name": "SHI☆O☆KA☆RA [Splatoon]",
+      "hash": "bfceeca4a9248fa59596f14845d4fa45",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.66
+    },
+    {
+      "entryType": "chart",
+      "name": "At the edge of dreams (FIERCE)",
+      "hash": "d1cfc8ef3449aceb6475f8929582410e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 55.54
+    },
+    {
+      "entryType": "chart",
+      "name": "FirmamenT",
+      "hash": "516b1bf998ce51fac3414987af262bc3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 31.38
+    },
+    {
+      "entryType": "chart",
+      "name": "FirmamenT",
+      "hash": "516b1bf998ce51fac3414987af262bc3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 47.96
+    },
+    {
+      "entryType": "chart",
+      "name": "FirmamenT",
+      "hash": "516b1bf998ce51fac3414987af262bc3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 96.43
+    },
+    {
+      "entryType": "chart",
+      "name": "Engine [SP Insane]",
+      "hash": "5e3711f2f576f3929156c9594b87efac",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 25.49
+    },
+    {
+      "entryType": "chart",
+      "name": "Engine [SP Insane]",
+      "hash": "5e3711f2f576f3929156c9594b87efac",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 36.62
+    },
+    {
+      "entryType": "chart",
+      "name": "Engine [SP Insane]",
+      "hash": "5e3711f2f576f3929156c9594b87efac",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 91.29
+    },
+    {
+      "entryType": "chart",
+      "name": "Metatron [YHWH]",
+      "hash": "832a7a12d7c830e0eea307250450a78f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 23.55
+    },
+    {
+      "entryType": "chart",
+      "name": "沈んだ思い出、打ち上げて [Epic_fix]",
+      "hash": "5bbd795fa683990831933094d6762764",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 22.52
+    },
+    {
+      "entryType": "chart",
+      "name": "沈んだ思い出、打ち上げて [Epic_fix]",
+      "hash": "5bbd795fa683990831933094d6762764",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 85.56
+    },
+    {
+      "entryType": "chart",
+      "name": "Strahv -Encore-",
+      "hash": "8faa0fc06a989fdb3f153e38ac7efddd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 76.96
+    },
+    {
+      "entryType": "chart",
+      "name": "Granblaze 【Sympho】",
+      "hash": "53e35cbc5fe25e489482d30c324c83e3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 51.59
+    },
+    {
+      "entryType": "chart",
+      "name": "MilK [Low Fat]",
+      "hash": "64e3148d9b0d0bec242b026af08f1125",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 72.5
+    },
+    {
+      "entryType": "chart",
+      "name": "MilK [Low Fat]",
+      "hash": "64e3148d9b0d0bec242b026af08f1125",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 77.57
+    },
+    {
+      "entryType": "chart",
+      "name": "MilK [Low Fat]",
+      "hash": "64e3148d9b0d0bec242b026af08f1125",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.5
+    },
+    {
+      "entryType": "chart",
+      "name": "suffruti [BLOODY FATE]",
+      "hash": "a718de9a2cd2f88deafbd40f5929abb4",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 62.25
+    },
+    {
+      "entryType": "chart",
+      "name": "Eisenschweif (SP Wahnsinnig)",
+      "hash": "3c58f7c2e28bedf002aa1a29c8c86f1b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 42.25
+    },
+    {
+      "entryType": "chart",
+      "name": "YASAKANI [神璽鏡剣 陰ノ勾玉]",
+      "hash": "e9c44c196575967b34ebd7720e487c9f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 53.16
+    },
+    {
+      "entryType": "chart",
+      "name": "Danse de Romani [Professional]",
+      "hash": "3791d42c00cdfa135df3779eb0f78505",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 55.84
+    },
+    {
+      "entryType": "chart",
+      "name": "Smiling '+(人'v`●)+'",
+      "hash": "1f124e82ed629196b6503d3eaef7de31",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 55.82
+    },
+    {
+      "entryType": "chart",
+      "name": "Flicker [E]",
+      "hash": "b16cddd6f8e015e8dcbd39be925fb13d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 27.68
+    },
+    {
+      "entryType": "chart",
+      "name": "Flicker [E]",
+      "hash": "b16cddd6f8e015e8dcbd39be925fb13d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 36.04
+    },
+    {
+      "entryType": "chart",
+      "name": "Flicker [E]",
+      "hash": "b16cddd6f8e015e8dcbd39be925fb13d",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.35
+    },
+    {
+      "entryType": "chart",
+      "name": "クロートーと星の観測者 [MANIAC]",
+      "hash": "4c1ca130592c2b0d1bd0b55cceb94f5c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 28.52
+    },
+    {
+      "entryType": "chart",
+      "name": "MASAMUNE [三日月]",
+      "hash": "7aee705ad2b6e16eb7d50d29dca5acb2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 27.25
+    },
+    {
+      "entryType": "chart",
+      "name": "MASAMUNE [三日月]",
+      "hash": "7aee705ad2b6e16eb7d50d29dca5acb2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 34.65
+    },
+    {
+      "entryType": "chart",
+      "name": "MASAMUNE [三日月]",
+      "hash": "7aee705ad2b6e16eb7d50d29dca5acb2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 91.53
+    },
+    {
+      "entryType": "chart",
+      "name": "After Burner [Departure]",
+      "hash": "2f5fc9140ade63e7f5f74d427567dac2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 38.58
+    },
+    {
+      "entryType": "chart",
+      "name": "Stargazer [流星雨が降る夜に]",
+      "hash": "66e1cf445cd971c7501a613010020a85",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 24.4
+    },
+    {
+      "entryType": "chart",
+      "name": "square and breaks -collapse-",
+      "hash": "eb4944ba424cd3f220b368fdaec14cd3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 32.68
+    },
+    {
+      "entryType": "chart",
+      "name": "square and breaks -collapse-",
+      "hash": "eb4944ba424cd3f220b368fdaec14cd3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 44.98
+    },
+    {
+      "entryType": "chart",
+      "name": "square and breaks -collapse-",
+      "hash": "eb4944ba424cd3f220b368fdaec14cd3",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 95.36
+    },
+    {
+      "entryType": "chart",
+      "name": "Castorpollux [MANIAQ]",
+      "hash": "6ad75b7e4b0f829990f78a1388bd1727",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 24.53
+    },
+    {
+      "entryType": "chart",
+      "name": "タイヨウパラダイス(Lemon beads J-core bootleg) [Les Deux Chattes]",
+      "hash": "457555d37245e9c3e593b68239ab66ff",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 65.25
+    },
+    {
+      "entryType": "chart",
+      "name": "タイヨウパラダイス(Lemon beads J-core bootleg) [Les Deux Chattes]",
+      "hash": "457555d37245e9c3e593b68239ab66ff",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 79.56
+    },
+    {
+      "entryType": "chart",
+      "name": "タイヨウパラダイス(Lemon beads J-core bootleg) [Les Deux Chattes]",
+      "hash": "457555d37245e9c3e593b68239ab66ff",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.84
+    },
+    {
+      "entryType": "chart",
+      "name": "ミルキーベリー・スウィートタイム [Eb]",
+      "hash": "f9fe3ae19a3f9d0db64b1984fe767182",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 73.07
+    },
+    {
+      "entryType": "chart",
+      "name": "Reason of being [K.S-ANOTHER]",
+      "hash": "544d0e8e41d181845ca4a879121ca203",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 74.97
+    },
+    {
+      "entryType": "chart",
+      "name": "Reason of being [K.S-ANOTHER]",
+      "hash": "544d0e8e41d181845ca4a879121ca203",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 83.77
+    },
+    {
+      "entryType": "chart",
+      "name": "Reason of being [K.S-ANOTHER]",
+      "hash": "544d0e8e41d181845ca4a879121ca203",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.85
+    },
+    {
+      "entryType": "chart",
+      "name": "RE:START [ZOI]",
+      "hash": "17775d41a0c8f73e098f062c1595d57b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 84.21
+    },
+    {
+      "entryType": "chart",
+      "name": "RE:START [ZOI]",
+      "hash": "17775d41a0c8f73e098f062c1595d57b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 88.05
+    },
+    {
+      "entryType": "chart",
+      "name": "RE:START [ZOI]",
+      "hash": "17775d41a0c8f73e098f062c1595d57b",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 98.53
+    },
+    {
+      "entryType": "chart",
+      "name": "DataErr0r [ZOI]",
+      "hash": "8632a98a865d46a850e4cfbea7225109",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 65.2
+    },
+    {
+      "entryType": "chart",
+      "name": "All is fair in Rage [ZOI]",
+      "hash": "0a936586307bd61cfed822c007659f3f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 35.32
+    },
+    {
+      "entryType": "chart",
+      "name": "All is fair in Rage [ZOI]",
+      "hash": "0a936586307bd61cfed822c007659f3f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 43.49
+    },
+    {
+      "entryType": "chart",
+      "name": "All is fair in Rage [ZOI]",
+      "hash": "0a936586307bd61cfed822c007659f3f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 94.43
+    },
+    {
+      "entryType": "chart",
+      "name": "Shooting Silver Bullet [EX]",
+      "hash": "609b08143caadb1a167783f889c7997e",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 29.53
+    },
+    {
+      "entryType": "chart",
+      "name": "Dai-katsugeki〔AMAZE Remix〕 [ZOI]",
+      "hash": "d70e2549e841819708d279d2478bb1e2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 22.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Dai-katsugeki〔AMAZE Remix〕 [ZOI]",
+      "hash": "d70e2549e841819708d279d2478bb1e2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 26.8
+    },
+    {
+      "entryType": "chart",
+      "name": "Dai-katsugeki〔AMAZE Remix〕 [ZOI]",
+      "hash": "d70e2549e841819708d279d2478bb1e2",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 64.54
+    },
+    {
+      "entryType": "chart",
+      "name": "YAKUI [Benzene]",
+      "hash": "a56ddb2169246817fb7527363fb9c687",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 23.18
+    },
+    {
+      "entryType": "chart",
+      "name": "YAKUI [Benzene]",
+      "hash": "a56ddb2169246817fb7527363fb9c687",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 32.5
+    },
+    {
+      "entryType": "chart",
+      "name": "YAKUI [Benzene]",
+      "hash": "a56ddb2169246817fb7527363fb9c687",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 88.11
+    },
+    {
+      "entryType": "chart",
+      "name": "LOVE THIS MOMENT [ManiaK]",
+      "hash": "f65b070acae8ca398715a7892b3649cd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 39.58
+    },
+    {
+      "entryType": "chart",
+      "name": "LOVE THIS MOMENT [ManiaK]",
+      "hash": "f65b070acae8ca398715a7892b3649cd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 48.36
+    },
+    {
+      "entryType": "chart",
+      "name": "LOVE THIS MOMENT [ManiaK]",
+      "hash": "f65b070acae8ca398715a7892b3649cd",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.33
+    },
+    {
+      "entryType": "chart",
+      "name": "Jasmine Tea Girl [ZOI]",
+      "hash": "0c41df3152a1c03341729aaacae2bcec",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 78.95
+    },
+    {
+      "entryType": "chart",
+      "name": "Jasmine Tea Girl [ZOI]",
+      "hash": "0c41df3152a1c03341729aaacae2bcec",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 86.51
+    },
+    {
+      "entryType": "chart",
+      "name": "Jasmine Tea Girl [ZOI]",
+      "hash": "0c41df3152a1c03341729aaacae2bcec",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 99.28
+    },
+    {
+      "entryType": "chart",
+      "name": "CO5M1C R4ILR0AD [ON3 M0RE 3XTR4]",
+      "hash": "efae90d527a71d753ea7ad2847ec2006",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 46.24
+    },
+    {
+      "entryType": "chart",
+      "name": "Precious!!! [7key,Bonus]",
+      "hash": "6300dfafb5c57ba753a9133f37ad890c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "hard",
+      "recommendationProbabilityPercent": 36.29
+    },
+    {
+      "entryType": "chart",
+      "name": "Precious!!! [7key,Bonus]",
+      "hash": "6300dfafb5c57ba753a9133f37ad890c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 52.05
+    },
+    {
+      "entryType": "chart",
+      "name": "Precious!!! [7key,Bonus]",
+      "hash": "6300dfafb5c57ba753a9133f37ad890c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 97.44
+    },
+    {
+      "entryType": "chart",
+      "name": "Theme of ULTIMATE IRIS",
+      "hash": "61dd748dff2112c2bf3f8291a9662571",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 32.15
+    },
+    {
+      "entryType": "chart",
+      "name": "Theme of ULTIMATE IRIS",
+      "hash": "61dd748dff2112c2bf3f8291a9662571",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 91.54
+    },
+    {
+      "entryType": "chart",
+      "name": "Another [transcend]",
+      "hash": "e4f4a8ba879869391b18bfd6d3e8744f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "easy",
+      "recommendationProbabilityPercent": 82.62
+    },
+    {
+      "entryType": "course",
+      "name": "GENOSIDE 2018 段位認定 発狂五段",
+      "hash": "00000000002000000000000000005190e9fc0fbbde68bfd10f2d289751a1fc6a3a500560e6ace69e08b51736ff1be0ca8a8019d432ab4dd9bde4e65faf1b663f7fd4d1b5a767fd97343129157782a95f",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 25.71
+    },
+    {
+      "entryType": "course",
+      "name": "GENOSIDE 2018 段位認定 発狂四段",
+      "hash": "0000000000200000000000000000519047de06762f16d164426e3197c5de967ca718de9a2cd2f88deafbd40f5929abb45077cd14b4759d0e8d61e854eac4e88ac87682922d1b87622b34fe7a7ffba52c",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 36.82
+    },
+    {
+      "entryType": "course",
+      "name": "GENOSIDE 2018 段位認定 発狂三段",
+      "hash": "0000000000200000000000000000519019fbf62d711282d81208f97f7135e2a23791d42c00cdfa135df3779eb0f78505b46b23fa8e2ad96e02763f687bb5a494efae90d527a71d753ea7ad2847ec2006",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 69.7
+    },
+    {
+      "entryType": "course",
+      "name": "GENOSIDE 2018 段位認定 発狂二段",
+      "hash": "00000000002000000000000000005190d70e2549e841819708d279d2478bb1e25e3711f2f576f3929156c9594b87efaca56ddb2169246817fb7527363fb9c687cefb4735c26f9488438021b4d7fdca31",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 82.44
+    },
+    {
+      "entryType": "course",
+      "name": "GENOSIDE 2018 段位認定 発狂初段",
+      "hash": "00000000002000000000000000005190f872dd65dd08638b06d80470a3233fb91b72e8f6439a698e78f94be16470b7892371263af3b0d644fba62526c9f494818a8a6c2f3511eb0876a6c9a2027d7bbe",
+      "currentClearLamp": "noPlay",
+      "targetClearLamp": "normal",
+      "recommendationProbabilityPercent": 88.46
+    }
+  ],
+  "reverseRecommendations": [
+    {
+      "entryType": "chart",
+      "name": "X (AFOTHER)",
+      "hash": "29b52b51223c4372ad94c9f78ddeb945",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 36.1
+    },
+    {
+      "entryType": "chart",
+      "name": "冥界帰航 (ANOTHER)",
+      "hash": "d4e2c4132b93b6bc1048c0cbf29cd318",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 37.69
+    },
+    {
+      "entryType": "chart",
+      "name": "searoad tracks =side blue=",
+      "hash": "6322a76fcbcb7660381b1fc89e8d5f4d",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 36.76
+    },
+    {
+      "entryType": "chart",
+      "name": "cadence [29Another]",
+      "hash": "065b4491c016292247d76a9847b72b3e",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 47.06
+    },
+    {
+      "entryType": "chart",
+      "name": "★SweeT DiscoverY★ (虎のANOTHER)",
+      "hash": "a1552410ea80470cf77732bdcb8ab232",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 14.81
+    },
+    {
+      "entryType": "chart",
+      "name": "wilis -SABUN-",
+      "hash": "1401d3144ec27c3c14a00588a45aec15",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 35.97
+    },
+    {
+      "entryType": "chart",
+      "name": "★SweeT DiscoverY★ (AFOTHER)",
+      "hash": "87b137ad26eb67ffd0c171d7b2f5a245",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 17.86
+    },
+    {
+      "entryType": "chart",
+      "name": "Mirai (busy)",
+      "hash": "5dad50b54d761072328248937a230374",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 49.02
+    },
+    {
+      "entryType": "chart",
+      "name": "道しるべ -Lunatic-",
+      "hash": "aa06a78f286d7bf6ab6e7bb01c5be95f",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 32.23
+    },
+    {
+      "entryType": "chart",
+      "name": "Eclisse [29Another]",
+      "hash": "7850a7c5a36681106e68e1cd0603af21",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 28.86
+    },
+    {
+      "entryType": "chart",
+      "name": "ROTTELER'S HOME 'seven eduardo edit'",
+      "hash": "3b1720173791f15ecf42647887e8ec98",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 47.01
+    },
+    {
+      "entryType": "chart",
+      "name": "☆ さくらなみきのかぜ ☆ foon7",
+      "hash": "1e1f27bbd80ddfc4e690d3c52c60321e",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 17.83
+    },
+    {
+      "entryType": "chart",
+      "name": "アズール ",
+      "hash": "24de0f65402e47ecdcd933a51ba83dc0",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 40.01
+    },
+    {
+      "entryType": "chart",
+      "name": "亡き皇女の為のセプテット [BEGINNER]",
+      "hash": "cd2ec8fad5363e2b8a58e13e47992759",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 46.65
+    },
+    {
+      "entryType": "chart",
+      "name": "theme of Maia -maniac-",
+      "hash": "bbddc2d9fec5b477bb1d61f30b43dff5",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 43.98
+    },
+    {
+      "entryType": "chart",
+      "name": "SEPIA -AFOTHER-",
+      "hash": "ecdc82b1ea1c53ddc38845206a9e703d",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 23.8
+    },
+    {
+      "entryType": "chart",
+      "name": "斧と盾 [7key_hard]",
+      "hash": "3e699cf8d82f85a0217fbbdc6ffa5735",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 40.46
+    },
+    {
+      "entryType": "chart",
+      "name": "Lunatic of the Full-Moon (---)",
+      "hash": "e30ff61541bc46fea30b81b3f37c60e2",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 20.34
+    },
+    {
+      "entryType": "chart",
+      "name": "Lostlove - maniac -",
+      "hash": "0468806684f8f0846affdd79500960c8",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 18.68
+    },
+    {
+      "entryType": "chart",
+      "name": "prohibition of world (dear a box given allll.)",
+      "hash": "98b3fbf0f75497bfeba05a0027254809",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 35.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Atomic Bomb [㌧に捧げる譜面]",
+      "hash": "50a15e4aa167047ee505d409ac3ea4f5",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 42.8
+    },
+    {
+      "entryType": "chart",
+      "name": "ピアノ協奏曲第1番 月光条例",
+      "hash": "8142dedfec7ba92ac0a2f72d562a6caa",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 11.63
+    },
+    {
+      "entryType": "chart",
+      "name": "dreamy traveler [NIGHTMARE7]",
+      "hash": "9d96062e99f3cc079d9e93fff7a4a597",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 9.28
+    },
+    {
+      "entryType": "chart",
+      "name": "暁月～蒼い夢 夢うつつ (kuso edition)",
+      "hash": "ce6d09b7c9f542c2730c4bed54042b9b",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 11.31
+    },
+    {
+      "entryType": "chart",
+      "name": "Colorful Sunday (7keys:EX)",
+      "hash": "f46bb3084cb8601ec5c72a4314ed4813",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 36.82
+    },
+    {
+      "entryType": "chart",
+      "name": "Free Hand zero [ANOTHER]",
+      "hash": "59e5557b7ef269952917476f83859ab0",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 49.75
+    },
+    {
+      "entryType": "chart",
+      "name": "The Beautiful Sunset of That Day(Radio Edit) -ANOTHER-",
+      "hash": "32f22137537102f89ba8e689fa349de8",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 31.15
+    },
+    {
+      "entryType": "chart",
+      "name": "☆ twinklesky ☆ _13 AFOTHER",
+      "hash": "902ca210c0059883a4a90cd28360cb71",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 41.22
+    },
+    {
+      "entryType": "chart",
+      "name": "ブクレシュティの人形師 -GILEX-",
+      "hash": "4793a0e153c21ce5e311fdec5b4ac811",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 47.23
+    },
+    {
+      "entryType": "chart",
+      "name": "STEPPING WIND -Wake Full Style-",
+      "hash": "f0ff4dd81f42aa84e479508304ed25a4",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 42.85
+    },
+    {
+      "entryType": "chart",
+      "name": "ピアノ協奏曲第１番'蠍火'（なんでも吸い込むピンク色のための）",
+      "hash": "32197897cf8ad00f7765b0a52a14b2a8",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 13.52
+    },
+    {
+      "entryType": "chart",
+      "name": "夕凪の丘 -Ex-",
+      "hash": "9caad6823f42c3234a9dfd50c4426596",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 33.27
+    },
+    {
+      "entryType": "chart",
+      "name": "theme of Maia [29Another]",
+      "hash": "2ce093dffc92f27e00055b5143ceb319",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 1.19
+    },
+    {
+      "entryType": "chart",
+      "name": "That's the style!! (7key:Maniac)",
+      "hash": "360060b4a045e6cb3e002bc779d8a221",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 45.28
+    },
+    {
+      "entryType": "chart",
+      "name": "DTD Emperor [ANOTHER]",
+      "hash": "67bc996815b98296a44fe0f802a6115d",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 39.81
+    },
+    {
+      "entryType": "chart",
+      "name": "Mirage Garden [ANOTHER]",
+      "hash": "1917bf8c0d922d003b498f42950e3936",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 39.98
+    },
+    {
+      "entryType": "chart",
+      "name": "ピアノ狂騒曲第壱番「滅宴」 (another7)",
+      "hash": "9b071bd60d1d3ed5f441e77e40a25630",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 48.81
+    },
+    {
+      "entryType": "chart",
+      "name": "DRAGONLADY (7keyEX)",
+      "hash": "ad6180fee0369366d933472ad6080ec4",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 39.72
+    },
+    {
+      "entryType": "chart",
+      "name": "Vorota [sLUNATIC]",
+      "hash": "e37d03dc1487200f376a52c491326ada",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 41.77
+    },
+    {
+      "entryType": "chart",
+      "name": "AltMirrorBell Another",
+      "hash": "0d1a3240230a854d05877f0d523a1409",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 39.09
+    },
+    {
+      "entryType": "chart",
+      "name": "AltMirrorBell MX",
+      "hash": "0c5b4261b5478dbe117e7bd3a6add4b9",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 30.2
+    },
+    {
+      "entryType": "chart",
+      "name": "Magical Love Words (Maniac)",
+      "hash": "91f9dc675a8f646808b2834441ca423f",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 47.6
+    },
+    {
+      "entryType": "chart",
+      "name": "Ordeal",
+      "hash": "07398cdfa167bdd0ab4c70ad29756247",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 30.81
+    },
+    {
+      "entryType": "chart",
+      "name": "斬 -名刀斗璃流（糞七）v1.1-",
+      "hash": "ee57853aa2cf82e353cbcbd75f808c20",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 19.01
+    },
+    {
+      "entryType": "chart",
+      "name": ".357 Magnum [Another]",
+      "hash": "3c8063cac832c21238f9f592c851765b",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 44.24
+    },
+    {
+      "entryType": "chart",
+      "name": "Pokemon battle imaging - No.3",
+      "hash": "4f74d9086f3192b79494cd54d98b8f7b",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 40.13
+    },
+    {
+      "entryType": "chart",
+      "name": "Caixa D' Aqua",
+      "hash": "35888c4aeed8af4fd85f7a32d168ee58",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 19.11
+    },
+    {
+      "entryType": "chart",
+      "name": "The Lady Is A Trump [ANOTHER]",
+      "hash": "afc2ca303065298c51f43f249e26ebff",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 32.04
+    },
+    {
+      "entryType": "chart",
+      "name": "Destined Marionette -ALIEN WORLD-",
+      "hash": "f84bde5b8bfe885ca9c7793e0fdf04aa",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 39.41
+    },
+    {
+      "entryType": "chart",
+      "name": "覚醒フィールド -A.T.フィールド-",
+      "hash": "610531ec78ecfcaf6824192c5abe8372",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 33.75
+    },
+    {
+      "entryType": "chart",
+      "name": "More Selfish -fickle-",
+      "hash": "6f100b3d018d06249af4b44768ff8a44",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 44.5
+    },
+    {
+      "entryType": "chart",
+      "name": "code : endymion [FRS Mk.1]",
+      "hash": "139d149523b80b8d3c16d79694b5ed4e",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 9.42
+    },
+    {
+      "entryType": "chart",
+      "name": "Romancecar (Kukan Junkyu Edit) [7keys Another*]",
+      "hash": "27135a2dd5d98bddb4a9453bca9487c5",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 44.32
+    },
+    {
+      "entryType": "chart",
+      "name": "Ereshkigal (ANOTHER)",
+      "hash": "642b5393587c2adeaaafaaaff5fc167c",
+      "clearLamp": "easy",
+      "recommendationProbabilityPercent": 35.8
+    },
+    {
+      "entryType": "chart",
+      "name": "ERIS （Another+）",
+      "hash": "cd78da88201c01afb934bcba55f955cb",
+      "clearLamp": "normal",
+      "recommendationProbabilityPercent": 11.72
+    },
+    {
+      "entryType": "chart",
+      "name": "幽雅に咲かせ、墨染の桜 [biginner]",
+      "hash": "f46034e8469b32eecd73f8465d035519",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 35.08
+    },
+    {
+      "entryType": "chart",
+      "name": "FREEDOM DiVE [k 7]",
+      "hash": "6822719f05ecb918d7ffd6382428651f",
+      "clearLamp": "hard",
+      "recommendationProbabilityPercent": 41.56
+    }
+  ]
+}

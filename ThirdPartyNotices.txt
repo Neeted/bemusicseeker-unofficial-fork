@@ -275,6 +275,18 @@ Redistribution Notes:
 - Verified as 100% Free for commercial and personal use by the author.
 
 ================================================================================
+21) Walkure offline model and GRM calculation
+================================================================================
+Status: GREEN
+Component: Embedded recommendation-model-entries.json, recommendation-star-rating-mapping.json,
+           ported GRM calculation, and fixed test observations/report
+Copyright: Copyright (c) 2026 walkure.net
+License: MIT
+Source: https://github.com/naktazdim/walkure-offline/tree/3836d501cd05da8fd8fd4fdc1881b3115399c55b
+License Text: third_party/licenses/21-Walkure-MIT.txt
+Redistribution Notes: Retain the copyright notice and complete MIT license with the model and fixtures.
+
+================================================================================
 Action summary for GitHub release readiness
 ================================================================================
 Blockers that must be addressed immediately (RED):

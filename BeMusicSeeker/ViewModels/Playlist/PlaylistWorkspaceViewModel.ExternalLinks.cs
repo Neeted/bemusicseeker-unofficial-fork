@@ -6,6 +6,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>表の編集・再読込みと、内蔵表のページを開かないメニュー可否を捕捉します。</summary>
     internal PlaylistTableContextMenuAvailability CapturePlaylistTableContextMenuAvailability(BMSTable table)
     {
         return new PlaylistTableContextMenuAvailability(
@@ -25,9 +26,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool CanOpenPlaylistTablePage(BMSTable table)
     {
-        return table?.Page_url != null || table?.GetAbsoluteHeaderUrl() != null;
+        return TryResolvePlaylistTablePageUri(table, out _);
     }
 
+    /// <summary>外部で開けるページURIを返します。内蔵表にはページを提供しません。</summary>
     internal bool TryResolvePlaylistTablePageUri(BMSTable table, out Uri uri)
     {
         uri = null;
@@ -42,30 +44,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             return true;
         }
 
-        string value = candidate.ToString();
-        if (value.StartsWith("bmseeker:table.estimation"))
-        {
-            uri = new Uri("http://walkure.net/hakkyou/bms.html");
-            return true;
-        }
-        if (value.StartsWith("bmseeker:table.recommended"))
-        {
-            int lr2Id = GetPlaylistLibraryLr2Id();
-            if (lr2Id == 0)
-            {
-                return false;
-            }
-            uri = new Uri(
-                "http://walkure.net/hakkyou/recommended_mypage.html?playerid="
-                + lr2Id);
-            return true;
-        }
         return false;
     }
 
+    /// <summary>サマリーの外部URIをブラウザーへ渡します。内蔵表URIは開きません。</summary>
     internal Task OpenPlaylistSummaryUriAsync(Uri uri)
     {
-        if (uri == null || !uri.IsAbsoluteUri)
+        if (uri == null || !uri.IsAbsoluteUri || uri.Scheme == "bmseeker")
         {
             return Task.CompletedTask;
         }
@@ -83,6 +68,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         });
     }
 
+    /// <summary>開ける外部表のページをブラウザーへ渡し、内蔵表では false を返します。</summary>
     internal bool OpenPlaylistTablePage(BMSTable table)
     {
         if (!TryResolvePlaylistTablePageUri(table, out Uri uri))
@@ -94,10 +80,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         return true;
     }
 
-    private int GetPlaylistLibraryLr2Id()
-    {
-        return getPlaylistLibrary()?.LR2ID ?? 0;
-    }
+
 }
 
 internal sealed class PlaylistTableContextMenuAvailability

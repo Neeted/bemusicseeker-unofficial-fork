@@ -55,6 +55,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Playlist Lamp Viewer](#playlist-lamp-viewer)
     - [Managing beatoraja Difficulty Tables](#managing-beatoraja-difficulty-tables)
     - [Import External Playlist](#import-external-playlist)
+    - [Built-in Difficulty Estimates and Recommendations](#built-in-difficulty-estimates-and-recommendations)
     - [Playlist Properties](#playlist-properties)
     - [Custom Folder Output](#custom-folder-output)
     - [URL1/URL2 Completion](#url1url2-completion)
@@ -329,7 +330,7 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | Message Display | Show confirmation message on diff install | ON | Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination. |
 | Message Display | Show confirmation before installing as new | ON | Confirms before installing a pending package with no destination as new. A configured destination always requires confirmation, even when this is OFF. |
 | Message Display | Show a confirmation message when merging or cleaning up in “Duplicate file check” | ON | Shows a confirmation before duplicate-file-check operations that merge folders or clean up same-folder duplicate-hash charts. |
-| Message Display | Show Recommend update messages | ON | Shows a notification when recommendation information is updated. |
+| Message Display | Show Recommend update messages | ON | Shows a notification when a recommendation update is applied and the estimated skill changes. |
 | Initialization | Scan BMS files and component files at startup | ON | Check owned-file changes on startup. When OFF, reload the library manually before using install-destination estimation. |
 | Initialization | Do not check playlist updates at startup | OFF | Skips external playlist update checks on startup. Reload playlists manually if needed. |
 | Initialization | Set initial selection to Install > Pending at startup | ON | Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup. |
@@ -778,6 +779,26 @@ In `Load from URL`, you can enter destination URIs across multiple lines. If you
 
 Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary `STATUS` column.
 
+### Built-in Difficulty Estimates and Recommendations
+
+The built-in difficulty estimates and recommendations integrate [Walkure Offline](https://github.com/naktazdim/walkure-offline/), the offline version of [Walkure's Insane BMS difficulty estimates and recommendations](http://walkure.net/hakkyou/index.html). No internet connection, LR2 player ID, or score upload is required.
+
+Right-click the playlist tree root and choose `Import` → `Load built-in difficulty estimates and recommendations`.
+
+Difficulty estimates have four types: EASY, NORMAL, HARD, and FC. To view each difficulty's star rating, right-click the chart list's column header and enable the `ENTRY LEVEL` column.
+
+Recommendations use the LR2 or beatoraja player and score database selected in `General` settings. Targets above the current lamp with at least a 20% clear probability appear under EASY, NORMAL, HARD, or FC, sorted by probability within each group. A chart can have multiple targets. The star rating in the table name is estimated player skill; the clear probability (%) is shown in the same `ENTRY LEVEL` column.
+
+| Recommendation type | Records used for estimation |
+| --- | --- |
+| Standard | Actual play records; unplayed charts are excluded. |
+| Treat unplayed as FAILED | Fills unplayed model charts with FAILED, including charts outside your library. |
+| Treat FAILED as unplayed | Excludes FAILED records and uses EASY or better records. |
+
+All three types can be registered together. Reload the relevant tables after playing. Recommendation names are generated from the type and estimated skill on every reload, replacing any manual name. Display symbols, output settings, and memos are retained.
+
+Turn on `Show Recommend update messages` to see the new skill and signed change when estimated skill changes after a reload.
+
 ### Playlist Properties
 
 Right-click a playlist and open `Properties` to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.
@@ -1215,7 +1236,11 @@ Ordinary user folders and manually selected source archives are not deleted by `
 
 #### Cannot Retrieve Data from External Services
 
-Ranking caches, IR, recommendations, difficulty estimates, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.
+Ranking caches, IR, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.
+
+#### Cannot Generate Recommendations
+
+Check that the player and score database selected in `General` settings are correct and that the score database is accessible, then reload the relevant table.
 
 #### Playlist `STATUS` Fails
 

@@ -219,7 +219,6 @@ internal static class PlaylistWorkspaceFixtureFactory
             null,
             null,
             null,
-            null,
             () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
             () => new BeatorajaBmtOptionsSnapshot(),
             () => new CustomFolderOutputSettingsSnapshot(),

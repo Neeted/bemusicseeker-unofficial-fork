@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -6785,6 +6786,83 @@ public partial class BMSLibrary : ObservableObject
     private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
     {
         return row != null && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
+    }
+
+    /// <summary>
+    /// 取得開始時に選択設定を捕捉し、UI 外で既存 reader を一回呼びます。
+    /// 接続解放後にモデル対象へ射影し、全譜面の表示スコアや IR の状態を変更しません。
+    /// </summary>
+    internal Task<WalkureScoreInput> ReadRecommendationScoresAsync(CancellationToken cancellationToken)
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ScoreTableLoadResult loaded = initializationService.LoadScoreTable(dbGateway, options);
+            cancellationToken.ThrowIfCancellationRequested();
+            ImmutableDictionary<string, WalkureLamp>.Builder scores = ImmutableDictionary.CreateBuilder<string, WalkureLamp>(StringComparer.OrdinalIgnoreCase);
+            WalkureRecommendationModel model = WalkureRecommendationModel.Bundled;
+            if (loaded.Status == ScoreTableLoadStatus.Loaded)
+            {
+                if (loaded.ActiveScoreSource == ActiveScoreSource.Lr2)
+                {
+                    foreach (BMSScore score in loaded.Scores)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (model.EntriesByMd5.ContainsKey(score.hash) && NormalizeRecommendationLamp(score.clear) is WalkureLamp lamp)
+                        {
+                            scores[score.hash] = lamp;
+                        }
+                    }
+                }
+                else if (loaded.ActiveScoreSource == ActiveScoreSource.Beatoraja)
+                {
+                    PlaylistLibraryResolveIndexSnapshot index = GetPlaylistLibraryResolveIndexSnapshot(cancellationToken, out _, out _);
+                    var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (WalkureModelEntry entry in model.Entries.Where(entry => !entry.IsCourse))
+                    {
+                        string sha256 = index?.ResolveChartForPlaylistHash(entry.Md5, null)?.Sha256;
+                        if (!string.IsNullOrWhiteSpace(sha256))
+                        {
+                            hashes[entry.Md5] = sha256;
+                        }
+                    }
+                    string[] missing = model.Entries.Where(entry => !entry.IsCourse && !hashes.ContainsKey(entry.Md5))
+                        .Select(entry => entry.Md5).ToArray();
+                    foreach ((string md5, LR2SongDBExtended.chart_info info) in LoadChartInfosByMd5(missing))
+                    {
+                        if (!string.IsNullOrWhiteSpace(info.sha256))
+                        {
+                            hashes[md5] = info.sha256;
+                        }
+                    }
+
+                    foreach (WalkureModelEntry entry in model.Entries)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (entry.IsCourse)
+                        {
+                            continue;
+                        }
+
+                        if (hashes.TryGetValue(entry.Md5, out string sha256)
+                            && loaded.BeatorajaScoresBySha256.TryGetValue(sha256, out BMSScore score)
+                            && NormalizeRecommendationLamp(score.clear) is WalkureLamp lamp)
+                        {
+                            scores[entry.Md5] = lamp;
+                        }
+                    }
+                }
+            }
+            return new WalkureScoreInput(loaded.Status, scores.ToImmutable(), loaded.FailureMessage);
+        }, cancellationToken);
+    }
+
+    /// <summary>NO PLAY は観測せず、無効・ASSIST は FAILED として、既存ランプの意味を正規化します。</summary>
+    internal static WalkureLamp? NormalizeRecommendationLamp(ClearType clear)
+    {
+        int lamp = ClearTypeStorageConverter.ToLr2Value(clear);
+        return lamp is >= 1 and <= 5 ? (WalkureLamp)lamp : null;
     }
 
     internal Func<BmtSongHashResolveRequest, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()

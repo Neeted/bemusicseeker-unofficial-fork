@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -129,4 +130,26 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ? "Playlist summary sync enable confirmation"
                 : "Playlist summary sync disable confirmation");
     }
+
+    private async Task<bool> ConfirmPlaylistWorkspaceDialogAsync(
+        UiConfirmationRequest request,
+        string routeName)
+    {
+        UiDialogResult result = await playlistWorkspaceDialogService.ConfirmAsync(request)
+            .ConfigureAwait(true);
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " returned no dialog result.");
+        }
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.IsPositive,
+            _ => throw new InvalidOperationException(
+                routeName + " could not be displayed (" + result.Status + ").",
+                result.Exception)
+        };
+    }
+
 }

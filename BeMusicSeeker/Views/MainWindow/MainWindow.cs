@@ -989,7 +989,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private static void PresentPlaylistOperationNotifications(
+    /// <summary>プレイリスト操作の通知を既存の注入済み表示窓口へ渡し、表示失敗を呼出元へ伝えます。</summary>
+    private void PresentPlaylistOperationNotifications(
         PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
         string routeName)
     {
@@ -1006,7 +1007,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
                 _ => MessageBoxImage.None,
             };
-            ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
+            ShowPlaylistWorkspaceUiMessage(notification.Message, notification.Caption, icon, routeName);
         }
     }
 
@@ -1974,20 +1975,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             MessageBoxResult.OK);
     }
 
+    /// <summary>同期設定変更の既存確認を注入済み窓口へ渡し、表示不能を例外にして肯定結果だけを受理します。</summary>
     private void MainWindow_PlaylistPropertyExternalSyncConfirmationRequested(
         object sender,
         PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
     {
-        MessageBoxResult result = UiDialogRoute.ShowMessageBox(
-            this,
+        UiDialogResult result = playlistWorkspaceDialogService.ConfirmAsync(new UiConfirmationRequest(
             request.Enable
                 ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
                 : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Exclamation,
-            MessageBoxResult.None);
-        request.Confirmed = result is MessageBoxResult.OK or MessageBoxResult.Yes;
+            MessageBoxResult.None,
+            owner: this)).GetAwaiter().GetResult();
+        UiDialogRoute.ThrowIfNotShown(result, "playlist property external sync confirmation");
+        request.Confirmed = result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes;
     }
 
     private void MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
@@ -4844,8 +4847,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>
-    /// プレイリストルートのコンテキストメニュー「Walkure/難易度表を読み込む」に関するメニュー項目（各難易度表単位）のアクション。
-    /// MenuItemのTagプロパティに格納されたURLへアクセスし、プレイリスト情報を非同期で追加・登録します。
+    /// プレイリストルートのコンテキストメニュー「内蔵の難度推定表・リコメンドから読み込む」に関するメニュー項目（各難易度表単位）のアクション。
+    /// MenuItem の Tag に格納された URI を既存の取込みキューへ受理します。
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
     {
@@ -4855,23 +4858,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             playlistWorkspaceTerminals.CollectionImport
                 .TryEnqueueBuiltInExternalPlaylistImport((string)menuItem.Tag);
         }
-    }
-
-    /// <summary>
-    /// プレイリストルートのコンテキストメニューから「Walkureのおすすめフォルダ」関連のテーブル読み込みが選択された場合の処理。
-    /// LR2IDの設定状況のチェックや、更新モード/閲覧モードに応じたユーザー確認ダイアログを挟んだ後、非同期で登録処理へ進みます。
-    /// </summary>
-    private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is not MainWindowViewModel viewModel
-            || viewModel.PlaylistWorkspace == null
-            || sender is not MenuItem menuItem)
-        {
-            return;
-        }
-        await viewModel.PlaylistWorkspace
-            .EnqueueRecommendedPlaylistImportAsync((string)menuItem.Tag)
-            .LoggingAndPropagate("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
     }
 
     /// <summary>
@@ -5019,7 +5005,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>
     /// テーブル階層コンテキストメニュー「配布ページを開く」実行時の処理。
     /// BMSTableに設定されたURL (Page_url または Header_url) を標準ブラウザ等で開きます。
-    /// 特殊スキーム（Walkure難易度表等）の場合は専用のURLへ変換してブラウザ起動します。
+    /// 内蔵表のページを開く操作は利用できません。
     /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
     {

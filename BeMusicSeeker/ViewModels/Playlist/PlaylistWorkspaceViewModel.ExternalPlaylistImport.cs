@@ -24,6 +24,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         return EnqueueExternalPlaylistBMSTableImports([source.url]);
     }
 
+    /// <summary>内蔵表のURIを既存の取込みキューへ受理します。生成完了はキューの終端通知で確認します。</summary>
+    /// <param name="rawTag">種類・推薦方針を指定するメニューのURI。</param>
+    /// <returns>準備待ちも含め、要求を受理した場合は true。</returns>
     internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)
     {
         Uri uri = new(rawTag);

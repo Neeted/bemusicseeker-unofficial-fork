@@ -68,7 +68,6 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
             null,
             null,
             null,
-            null,
             () => new PlaylistUrlCompletionOptionsSnapshot(),
             () => options,
             () => new CustomFolderOutputSettingsSnapshot());

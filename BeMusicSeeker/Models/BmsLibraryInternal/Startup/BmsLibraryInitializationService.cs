@@ -2257,6 +2257,10 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
+    /// <summary>選択したスコアDBを読み直し、接続を解放して読取り結果を返します。</summary>
+    /// <param name="dbGateway">LR2スコアDBの読取り窓口。</param>
+    /// <param name="options">選択したbeatoraja設定と既存読取り設定。未指定ならLR2を使います。</param>
+    /// <returns>未設定・正常読取り（空DBを含む）・失敗を区別した結果。別ソースへ代替しません。</returns>
     public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options = null)
     {
         if (dbGateway == null)
@@ -2276,6 +2280,10 @@ internal sealed class BmsLibraryInitializationService
         if (options?.UseBeatorajaScoreDb == true)
         {
             result.ActiveScoreSource = ActiveScoreSource.Beatoraja;
+            if (string.IsNullOrWhiteSpace(options.BeatorajaScoreDbPath))
+            {
+                return result;
+            }
             if (!IsBeatorajaScoreDbEnabled(options))
             {
                 result.Status = ScoreTableLoadStatus.Failed;

@@ -646,19 +646,19 @@ public partial class BMSPlaylist : ObservableObject
         => libraryBindings ?? throw new InvalidOperationException("Typed library bindings are unavailable for callback-based playlist construction.");
 
     /// <summary>
-    /// Initializes a playlist with typed capabilities from one concrete library.
+    /// 一つの所有ライブラリの型付き能力でプレイリストを構成します。
     /// </summary>
-    /// <param name="libraryBindings">The exact library capability binding.</param>
-    /// <param name="_lr2SongDB">The song database path.</param>
-    /// <param name="getLR2Config">The LR2 configuration provider.</param>
-    /// <param name="_lr2ScoreDB">The optional LR2 score database path.</param>
-    /// <param name="playlistUrlCompletionOptionsProvider">The playlist URL completion options provider.</param>
-    /// <param name="beatorajaBmtOptionsProvider">The beatoraja BMT options provider.</param>
-    /// <param name="customFolderOutputSettingsProvider">The custom-folder output settings provider.</param>
-    /// <param name="applicationPathSnapshot">The application path snapshot.</param>
-    /// <param name="uiScheduler">The UI scheduler.</param>
-    /// <param name="playlistUrlCompletionTsvContentFetcher">Optional TSV completion fetcher.</param>
-    /// <param name="playlistUrlCompletionStellaContentFetcher">Optional Stella completion fetcher.</param>
+    /// <param name="libraryBindings">所有ライブラリの能力。</param>
+    /// <param name="_lr2SongDB">曲DBのパス。</param>
+    /// <param name="getLR2Config">LR2設定の取得能力。</param>
+    /// <param name="_lr2ScoreDB">任意のLR2スコアDBパス。</param>
+    /// <param name="playlistUrlCompletionOptionsProvider">プレイリストURL補完設定の取得能力。</param>
+    /// <param name="beatorajaBmtOptionsProvider">beatoraja BMT設定の取得能力。</param>
+    /// <param name="customFolderOutputSettingsProvider">カスタムフォルダ出力設定の取得能力。</param>
+    /// <param name="applicationPathSnapshot">アプリケーションのパス設定。</param>
+    /// <param name="uiScheduler">UIスケジューラー。</param>
+    /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
+    /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string _lr2SongDB,
@@ -675,7 +675,6 @@ public partial class BMSPlaylist : ObservableObject
             _lr2SongDB,
             getLR2Config,
             _lr2ScoreDB,
-            RequireLibraryBindings(libraryBindings).GetBmsScores,
             RequireLibraryBindings(libraryBindings).CreateBeatorajaBmtSongHashResolver,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
@@ -691,29 +690,28 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// Initializes a playlist with explicitly supplied persistence and mutation
-    /// capabilities.  This constructor is used by focused test compositions and
-    /// keeps the production library binding out of the playlist owner.
+    /// 明示した保存・変更能力でプレイリストを構成します。
+    /// 独立したテスト構成では推薦用スコアの読取り能力も明示でき、
+    /// 通常の所有ライブラリへの接続をテストの構成へ混入させません。
     /// </summary>
-    /// <param name="_lr2SongDB">The song database path.</param>
-    /// <param name="getLR2Config">The LR2 configuration provider.</param>
-    /// <param name="_lr2ScoreDB">The optional LR2 score database path.</param>
-    /// <param name="getBMSScores">The BMS score provider.</param>
-    /// <param name="getBeatorajaBmtSongHashResolver">The beatoraja hash resolver factory.</param>
-    /// <param name="playlistUrlCompletionOptionsProvider">The playlist URL completion options provider.</param>
-    /// <param name="beatorajaBmtOptionsProvider">The beatoraja BMT options provider.</param>
-    /// <param name="customFolderOutputSettingsProvider">The custom-folder output settings provider.</param>
-    /// <param name="applicationPathSnapshot">The application path snapshot.</param>
-    /// <param name="uiScheduler">The UI scheduler.</param>
-    /// <param name="lr2PlaylistFolderSynchronization">The LR2 playlist-folder synchronization port.</param>
-    /// <param name="tryBeginMutationLease">The nonblocking process-wide file mutation lease provider. The second argument controls whether a busy warning may be shown.</param>
-    /// <param name="playlistUrlCompletionTsvContentFetcher">Optional TSV completion fetcher.</param>
-    /// <param name="playlistUrlCompletionStellaContentFetcher">Optional Stella completion fetcher.</param>
+    /// <param name="_lr2SongDB">曲DBのパス。</param>
+    /// <param name="getLR2Config">LR2設定の取得能力。</param>
+    /// <param name="_lr2ScoreDB">任意のLR2スコアDBパス。</param>
+    /// <param name="getBeatorajaBmtSongHashResolver">beatoraja出力のハッシュ照合能力を作る関数。</param>
+    /// <param name="playlistUrlCompletionOptionsProvider">プレイリストURL補完設定の取得能力。</param>
+    /// <param name="beatorajaBmtOptionsProvider">beatoraja BMT設定の取得能力。</param>
+    /// <param name="customFolderOutputSettingsProvider">カスタムフォルダ出力設定の取得能力。</param>
+    /// <param name="applicationPathSnapshot">アプリケーションのパス設定。</param>
+    /// <param name="uiScheduler">UIスケジューラー。</param>
+    /// <param name="lr2PlaylistFolderSynchronization">LR2プレイリストフォルダの同期能力。</param>
+    /// <param name="tryBeginMutationLease">プロセス共通の非待機の変更権取得能力。第二引数でビジー通知の可否を指定します。</param>
+    /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
+    /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
+    /// <param name="recommendationScoreReader">テスト等の独立構成で使う選択スコアの読取り能力。通常構成では所有ライブラリへ接続します。</param>
     internal BMSPlaylist(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
-        Func<List<BMSScore>> getBMSScores,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
@@ -723,7 +721,8 @@ public partial class BMSPlaylist : ObservableObject
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         Func<string, bool, LibraryFileMutationLease> tryBeginMutationLease,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
-        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
     {
         if (_lr2SongDB == null)
         {
@@ -784,10 +783,7 @@ public partial class BMSPlaylist : ObservableObject
             () => shutdownCoordinator.IsRequested);
         PlaylistExternalSyncOwner externalSyncOwnerLocal = null;
         recommendedTableOwner = new PlaylistRecommendedTableOwner(
-            _lr2ScoreDB,
-            getBMSScores ?? (() => null),
-            (uri, cancellationToken) => externalSyncOwnerLocal.LoadExternalTableAsync(uri, cancellationToken: cancellationToken),
-            new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
+            recommendationScoreReader ?? (cancellationToken => LibraryBindings.ReadRecommendationScoresAsync(cancellationToken)),
             operationNotificationOwner,
             this.customFolderOutputSettingsProvider);
         externalSyncOwnerLocal = new PlaylistExternalSyncOwner(

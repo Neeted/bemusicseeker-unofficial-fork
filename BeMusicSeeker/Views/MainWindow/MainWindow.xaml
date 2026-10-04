@@ -308,8 +308,9 @@
             <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_normal, Mode=OneWay}" Tag="bmseeker:table.estimation?type=normal" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
             <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_hard, Mode=OneWay}" Tag="bmseeker:table.estimation?type=hard" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
             <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Insane_estimation_table_fc, Mode=OneWay}" Tag="bmseeker:table.estimation?type=fc" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
-            <MenuItem Tag="bmseeker:table.recommended?mode=readonly" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_read_only, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick" />
-            <MenuItem Tag="bmseeker:table.recommended?mode=update" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_automatic_update, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick" />
+            <MenuItem Tag="bmseeker:table.recommended" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_standard, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
+            <MenuItem Tag="bmseeker:table.recommended?base=failed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_unplayed_as_failed, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
+            <MenuItem Tag="bmseeker:table.recommended?failed=noplay" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recommended_failed_as_unplayed, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
           </MenuItem>
         </MenuItem>
         <Separator />

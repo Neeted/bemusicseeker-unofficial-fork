@@ -755,11 +755,8 @@ public class Resources
 
     public static string Msg_settings_apply_blocked_during_initialization => ResourceManager.GetString("Msg_settings_apply_blocked_during_initialization", resourceCulture);
 
-    public static string Msg_load_recommended_tables_error => ResourceManager.GetString("Msg_load_recommended_tables_error", resourceCulture);
 
-    public static string Msg_load_recommended_tables_readonly_mode => ResourceManager.GetString("Msg_load_recommended_tables_readonly_mode", resourceCulture);
 
-    public static string Msg_load_recommended_tables_update_mode => ResourceManager.GetString("Msg_load_recommended_tables_update_mode", resourceCulture);
 
     public static string Msg_manual_installation => ResourceManager.GetString("Msg_manual_installation", resourceCulture);
 
@@ -1027,9 +1024,7 @@ public class Resources
 
     public static string Property => ResourceManager.GetString("Property", resourceCulture);
 
-    public static string Recommended_automatic_update => ResourceManager.GetString("Recommended_automatic_update", resourceCulture);
 
-    public static string Recommended_read_only => ResourceManager.GetString("Recommended_read_only", resourceCulture);
 
     public static string Record => ResourceManager.GetString("Record", resourceCulture);
 
@@ -1728,31 +1723,35 @@ public class Resources
     public static string Error_UnsupportedType => ResourceManager.GetString("Error_UnsupportedType", resourceCulture);
 
 
-    public static string Error_ScoreDBConnectionFailed => ResourceManager.GetString("Error_ScoreDBConnectionFailed", resourceCulture);
 
 
-    public static string Error_LR2IDOrScoreDBFailed => ResourceManager.GetString("Error_LR2IDOrScoreDBFailed", resourceCulture);
 
 
-    public static string Warn_RecommendUpdateFailed => ResourceManager.GetString("Warn_RecommendUpdateFailed", resourceCulture);
 
 
-    public static string Warn_RecommendFetchFailed => ResourceManager.GetString("Warn_RecommendFetchFailed", resourceCulture);
 
 
-    public static string Error_RecommendFetchFailed => ResourceManager.GetString("Error_RecommendFetchFailed", resourceCulture);
 
+
+    /// <summary>内蔵推薦方針の表示名です。</summary>
+    public static string Recommended_standard => ResourceManager.GetString("Recommended_standard", resourceCulture);
+
+    /// <summary>内蔵推薦方針の表示名です。</summary>
+    public static string Recommended_unplayed_as_failed => ResourceManager.GetString("Recommended_unplayed_as_failed", resourceCulture);
+
+    /// <summary>内蔵推薦方針の表示名です。</summary>
+    public static string Recommended_failed_as_unplayed => ResourceManager.GetString("Recommended_failed_as_unplayed", resourceCulture);
 
     public static string RecommendFormat => ResourceManager.GetString("RecommendFormat", resourceCulture);
 
 
+    /// <summary>新実力値と増減の二つの引数だけを表示する、実力更新通知本文です。</summary>
     public static string Recommend_SkillUpdatedMessage => ResourceManager.GetString("Recommend_SkillUpdatedMessage", resourceCulture);
 
 
     public static string Recommend_SkillUpdatedTitle => ResourceManager.GetString("Recommend_SkillUpdatedTitle", resourceCulture);
 
 
-    public static string Error_LocalScoreDataNotFetched => ResourceManager.GetString("Error_LocalScoreDataNotFetched", resourceCulture);
 
 
     public static string Warn_CustomFolderOutputFailed => ResourceManager.GetString("Warn_CustomFolderOutputFailed", resourceCulture);
@@ -2701,5 +2700,17 @@ public class Resources
 
     /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
     public static string Confirm_NewPackageInstall => ResourceManager.GetString("Confirm_NewPackageInstall", resourceCulture);
+
+    /// <summary>スコアDBが設定されていません。一般設定でプレイヤーとスコアDBを選択してください。</summary>
+    public static string Error_RecommendationScoreNotConfigured => ResourceManager.GetString("Error_RecommendationScoreNotConfigured", resourceCulture);
+
+    /// <summary>選択中のスコアDBを読み込めませんでした。</summary>
+    public static string Error_RecommendationScoreReadFailed => ResourceManager.GetString("Error_RecommendationScoreReadFailed", resourceCulture);
+
+    /// <summary>モデルに一致するプレイ記録がありません。</summary>
+    public static string Error_RecommendationNoObservations => ResourceManager.GetString("Error_RecommendationNoObservations", resourceCulture);
+
+    /// <summary>プレイ記録から実力を推定できませんでした。</summary>
+    public static string Error_RecommendationRatingFailed => ResourceManager.GetString("Error_RecommendationRatingFailed", resourceCulture);
 
 }

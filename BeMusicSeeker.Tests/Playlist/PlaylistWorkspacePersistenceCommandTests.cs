@@ -1454,7 +1454,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(),
@@ -1820,7 +1819,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot
                 {
@@ -2179,7 +2177,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => outputSettings,
@@ -2299,7 +2296,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -2591,7 +2587,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
         BMSPlaylist playlist = new TestBmsPlaylist(
             songDbPath,
-            null,
             null,
             null,
             null,

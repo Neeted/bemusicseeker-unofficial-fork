@@ -148,16 +148,21 @@ internal sealed class PlaylistExternalSyncOwner
     }
 
     /// <summary>
-    /// 外部表を非同期に取得し、HTTP 本文・参照元表・取得待機へ取消しを伝播します。
+    /// 外部表の通信または内蔵表のローカル計算へ取消しを伝播し、完成した表を返します。
     /// </summary>
     /// <param name="pageUri">外部表の取得元。</param>
     /// <param name="baseTable">ローカル設定を引き継ぐ既存表。</param>
     /// <param name="cancellationToken">取得と取得待機を取り消すトークン。</param>
     /// <returns>取得が完了した表。取得失敗・取消しは呼出し元へ伝播します。</returns>
-    internal async Task<BMSTable> LoadExternalTableAsync(
+    internal Task<BMSTable> LoadExternalTableAsync(
         Uri pageUri,
         BMSTable baseTable = null,
         CancellationToken cancellationToken = default)
+        => LoadExternalTableCoreAsync(pageUri, baseTable, cancellationToken, null);
+
+    private async Task<BMSTable> LoadExternalTableCoreAsync(
+        Uri pageUri, BMSTable baseTable, CancellationToken cancellationToken,
+        Lazy<Task<WalkureScoreInput>> scoreCapture)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (pageUri == null || !pageUri.IsAbsoluteUri)
@@ -166,7 +171,7 @@ internal sealed class PlaylistExternalSyncOwner
         }
         if (pageUri.Scheme == "bmseeker")
         {
-            return await recommendedTableOwner.LoadWalkureTableAsync(pageUri, baseTable, cancellationToken).ConfigureAwait(false);
+            return await recommendedTableOwner.LoadWalkureTableAsync(pageUri, baseTable, cancellationToken, scoreCapture).ConfigureAwait(false);
         }
 
         Uri originalPageUri = pageUri;
@@ -250,6 +255,14 @@ internal sealed class PlaylistExternalSyncOwner
         }
     }
 
+    /// <summary>複数表を取得します。内蔵推薦は一操作内で同じfreshなスコア結果・失敗を共有します。</summary>
+    /// <param name="targets">取得元URIを持つ対象表。</param>
+    /// <param name="inheritLocalTableProperties">既存表のローカル設定を生成結果へ引き継ぐか。</param>
+    /// <param name="progressCallback">表ごとの進捗通知先。</param>
+    /// <param name="reason">ログと後処理へ渡す理由。</param>
+    /// <param name="cancellationToken">取得待機・原入力読取り・計算を取り消すトークン。</param>
+    /// <param name="schedulePlaylistUrlCompletionRefresh">独立したURL補完の更新を予約するか。</param>
+    /// <returns>各対象の取得結果。個別の失敗を成功表へ置き換えません。</returns>
     internal async Task<List<PlaylistExternalTableLoadResult>> LoadExternalTableSnapshotsAsync(
         IEnumerable<BMSTable> targets,
         bool inheritLocalTableProperties,
@@ -268,6 +281,7 @@ internal sealed class PlaylistExternalSyncOwner
             })];
         int completedTableCount = 0;
         var results = new PlaylistExternalTableLoadResult[targetSnapshot.Count];
+        Lazy<Task<WalkureScoreInput>> scoreCapture = recommendedTableOwner.CreateScoreCapture(cancellationToken);
         InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
         {
             IsActive = targetSnapshot.Count > 0,
@@ -292,10 +306,10 @@ internal sealed class PlaylistExternalSyncOwner
                     CurrentTableName = table.name,
                     CurrentUri = uri
                 }, reason);
-                BMSTable externalTable = await LoadExternalTableAsync(
+                BMSTable externalTable = await LoadExternalTableCoreAsync(
                     uri,
                     inheritLocalTableProperties ? table : null,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken, scoreCapture).ConfigureAwait(false);
                 results[index] = new PlaylistExternalTableLoadResult
                 {
                     SourceTable = table,
@@ -360,7 +374,8 @@ internal sealed class PlaylistExternalSyncOwner
     }
 
     /// <summary>
-    /// 指定した外部プレイリストを並列取得して正本へ反映し、永続化された対象の派生出力を返却前に batch 収束させます。
+    /// 指定した外部プレイリストを並列取得して正本へ反映し、永続化された対象の派生出力を返却前に一括で収束させます。
+    /// 内蔵推薦は一操作内の原入力を共有し、実力変化の通知は反映成功後に行います。
     /// </summary>
     /// <param name="targets">再取得対象。</param>
     /// <param name="syncResultCallback">table 単位の取得結果を通知する callback。</param>
@@ -403,6 +418,7 @@ internal sealed class PlaylistExternalSyncOwner
                     return uri != null && uri.IsAbsoluteUri;
                 })];
             int completedTableCount = 0;
+            Lazy<Task<WalkureScoreInput>> scoreCapture = recommendedTableOwner.CreateScoreCapture(cancellationToken);
             List<PlaylistReloadTargetResult> results = [];
             object resultLock = new();
             InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
@@ -439,7 +455,8 @@ internal sealed class PlaylistExternalSyncOwner
                             cancellationToken,
                             requireCurrentTargetForApply,
                             allowUriOverride: uriProvider != null,
-                            publishReferenceReceipt: publishReferenceReceipts).ConfigureAwait(false);
+                            publishReferenceReceipt: publishReferenceReceipts,
+                            scoreCapture: scoreCapture).ConfigureAwait(false);
                         lock (resultLock)
                         {
                             results.Add(result);
@@ -914,7 +931,8 @@ internal sealed class PlaylistExternalSyncOwner
         CancellationToken cancellationToken,
         bool requireCurrentTargetForApply = true,
         bool allowUriOverride = false,
-        bool publishReferenceReceipt = false)
+        bool publishReferenceReceipt = false,
+        Lazy<Task<WalkureScoreInput>> scoreCapture = null)
     {
         BMSTable newTable = table;
         List<BMSTableEntry> oldEntriesSnapshot = null;
@@ -927,6 +945,7 @@ internal sealed class PlaylistExternalSyncOwner
         string sourceStateFingerprint = string.Empty;
         Uri sourceUri = null;
         Exception failure = null;
+        string previousOrgName = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -935,6 +954,7 @@ internal sealed class PlaylistExternalSyncOwner
             using (table.ReaderWriterLock.GetWriterGuard())
             {
                 sourceEntriesRevision = table.PlaylistEntriesRevision;
+                previousOrgName = table.org_name;
                 sourceLastUpdate = table.last_update;
                 sourceStateFingerprint = PlaylistAggregatePersistenceOwner.CreateReloadSourceFingerprint(table);
                 sourceUri = table.Page_url ?? table.Header_url;
@@ -944,7 +964,7 @@ internal sealed class PlaylistExternalSyncOwner
                 throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                     "Playlist reload request no longer matches the active playlist source URI.");
             }
-            BMSTable reloadedTable = await LoadExternalTableAsync(uri, table, cancellationToken).ConfigureAwait(false);
+            BMSTable reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             using (table.ReaderWriterLock.GetWriterGuard())
             {
@@ -1032,6 +1052,8 @@ internal sealed class PlaylistExternalSyncOwner
                     syncResultCallback,
                     PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated),
                     reason);
+                InvokeResidualAction(() => recommendedTableOwner.NotifyAppliedSkillChange(previousOrgName, newTable),
+                    reason + ":skill-change", newTable?.name);
             }
         }
         catch (PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException ex)

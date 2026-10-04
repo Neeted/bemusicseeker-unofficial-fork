@@ -47,6 +47,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="TestData\Walkure\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="TestData\archives\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

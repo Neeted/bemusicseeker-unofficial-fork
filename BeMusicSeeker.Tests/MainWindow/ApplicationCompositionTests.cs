@@ -77,7 +77,6 @@ public sealed class ApplicationCompositionTests
             Assert.AreSame(
                 library.Lr2PlaylistFolderSynchronization,
                 bindings.Lr2PlaylistFolderSynchronization);
-            CollectionAssert.AreEqual(library.GetBMSScores(), bindings.GetBmsScores());
 
             var request = new BmtSongHashResolveRequest
             {
@@ -1127,7 +1126,6 @@ public sealed class ApplicationCompositionTests
             string bmtPath = Path.Combine(tempDirectory, "beatoraja", "table.json");
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,

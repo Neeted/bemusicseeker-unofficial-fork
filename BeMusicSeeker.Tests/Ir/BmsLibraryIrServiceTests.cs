@@ -458,6 +458,53 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, result.BeatorajaScoresBySha256.Count);
     }
 
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void LoadScoreTable_EmptySelectedDatabaseIsLoaded(bool beatoraja)
+    {
+        using var env = TempIrEnvironment.Create();
+        using (var db = new SQLiteConnection(env.ScoreDbPath))
+        {
+            db.RunInTransaction(() =>
+            {
+                if (beatoraja)
+                {
+                    db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                }
+                else
+                {
+                    db.CreateTable<BMSScore>();
+                    db.CreateTable<LR2ScoreDB.player>();
+                    db.Insert(new LR2ScoreDB.player { id = "player", irid = 0 });
+                }
+            });
+        }
+        var service = new BmsLibraryInitializationService();
+        ScoreTableLoadResult result = service.LoadScoreTable(env.CreateGateway(), new BmsLibraryOptionsSnapshot
+        {
+            UseBeatorajaScoreDb = beatoraja,
+            BeatorajaScoreDbPath = beatoraja ? env.ScoreDbPath : null
+        });
+        Assert.AreEqual(ScoreTableLoadStatus.Loaded, result.Status);
+        Assert.AreEqual(0, result.Scores.Count + result.BeatorajaScoresBySha256.Count);
+        using var writeAfterRead = new SQLiteConnection(env.ScoreDbPath);
+        writeAfterRead.Execute("CREATE TABLE released_connection (value INTEGER)");
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void LoadScoreTable_NoSelectedDatabaseIsNotConfigured(bool beatoraja)
+    {
+        using var env = TempIrEnvironment.Create();
+        var service = new BmsLibraryInitializationService();
+        ScoreTableLoadResult result = service.LoadScoreTable(new BmsLibraryDbGateway(env.SongDbPath, null),
+            new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = beatoraja });
+        Assert.AreEqual(ScoreTableLoadStatus.NotConfigured, result.Status);
+        Assert.AreEqual(0, result.Scores.Count + result.BeatorajaScoresBySha256.Count);
+    }
+
     [TestMethod]
     public void RefreshRankingScoresFromCache_UnchangedXmlAppliesDbRowWithoutUpsert()
     {

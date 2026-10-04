@@ -35,6 +35,7 @@ public class PlaylistSummaryRow
 
     public double OwnedRatio { get; set; }
 
+    /// <summary>ブラウザーで開ける表ページのURIです。内蔵表などページがない場合は null です。</summary>
     public Uri LinkUri { get; set; }
 
     public Uri HeaderUri { get; set; }

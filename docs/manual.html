@@ -557,6 +557,7 @@ hr {
 <li class="toc-level-4"><a href="#hash-output-and-stopping-output">Hash Output and Stopping Output</a></li>
 </ul></details></li>
 <li class="toc-level-3"><a href="#import-external-playlist">Import External Playlist</a></li>
+<li class="toc-level-3"><a href="#built-in-difficulty-estimates-and-recommendations">Built-in Difficulty Estimates and Recommendations</a></li>
 <li class="toc-level-3"><a href="#playlist-properties">Playlist Properties</a></li>
 <li class="toc-level-3"><details open><summary><a href="#custom-folder-output">Custom Folder Output</a></summary><ul>
 <li class="toc-level-4"><a href="#setup-flow">Setup Flow</a></li>
@@ -616,6 +617,7 @@ hr {
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#playlists--external-sites">Playlists / External Sites</a></summary><ul>
 <li class="toc-level-4"><a href="#cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</a></li>
+<li class="toc-level-4"><a href="#cannot-generate-recommendations">Cannot Generate Recommendations</a></li>
 <li class="toc-level-4"><a href="#playlist-status-fails">Playlist STATUS Fails</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#lr2-integration">LR2 Integration</a></summary><ul>
@@ -712,6 +714,7 @@ hr {
 <li><a href="#playlist-lamp-viewer">Playlist Lamp Viewer</a></li>
 <li><a href="#managing-beatoraja-difficulty-tables">Managing beatoraja Difficulty Tables</a></li>
 <li><a href="#import-external-playlist">Import External Playlist</a></li>
+<li><a href="#built-in-difficulty-estimates-and-recommendations">Built-in Difficulty Estimates and Recommendations</a></li>
 <li><a href="#playlist-properties">Playlist Properties</a></li>
 <li><a href="#custom-folder-output">Custom Folder Output</a></li>
 <li><a href="#url1url2-completion">URL1/URL2 Completion</a></li>
@@ -1032,7 +1035,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Message Display</td>
 <td>Show Recommend update messages</td>
 <td>ON</td>
-<td>Shows a notification when recommendation information is updated.</td>
+<td>Shows a notification when a recommendation update is applied and the estimated skill changes.</td>
 </tr>
 <tr>
 <td>Initialization</td>
@@ -1473,6 +1476,35 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Import menus such as external table lists and recommend tables <strong>do not close when you click a single item, so you can select and import multiple tables in sequence.</strong></p>
 <p>In <code>Load from URL</code>, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target, and external loading plus post-registration work are processed in batches. If a playlist with the same name already exists, that URL is skipped and the result dialog shows the skipped count and names after processing finishes.</p>
 <p>Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary <code>STATUS</code> column.</p>
+<h3 id="built-in-difficulty-estimates-and-recommendations">Built-in Difficulty Estimates and Recommendations</h3>
+<p>The built-in difficulty estimates and recommendations integrate <a href="https://github.com/naktazdim/walkure-offline/">Walkure Offline</a>, the offline version of <a href="http://walkure.net/hakkyou/index.html">Walkure's Insane BMS difficulty estimates and recommendations</a>. No internet connection, LR2 player ID, or score upload is required.</p>
+<p>Right-click the playlist tree root and choose <code>Import</code> → <code>Load built-in difficulty estimates and recommendations</code>.</p>
+<p>Difficulty estimates have four types: EASY, NORMAL, HARD, and FC. To view each difficulty's star rating, right-click the chart list's column header and enable the <code>ENTRY LEVEL</code> column.</p>
+<p>Recommendations use the LR2 or beatoraja player and score database selected in <code>General</code> settings. Targets above the current lamp with at least a 20% clear probability appear under EASY, NORMAL, HARD, or FC, sorted by probability within each group. A chart can have multiple targets. The star rating in the table name is estimated player skill; the clear probability (%) is shown in the same <code>ENTRY LEVEL</code> column.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Recommendation type</th>
+<th>Records used for estimation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Standard</td>
+<td>Actual play records; unplayed charts are excluded.</td>
+</tr>
+<tr>
+<td>Treat unplayed as FAILED</td>
+<td>Fills unplayed model charts with FAILED, including charts outside your library.</td>
+</tr>
+<tr>
+<td>Treat FAILED as unplayed</td>
+<td>Excludes FAILED records and uses EASY or better records.</td>
+</tr>
+</tbody>
+</table></div>
+<p>All three types can be registered together. Reload the relevant tables after playing. Recommendation names are generated from the type and estimated skill on every reload, replacing any manual name. Display symbols, output settings, and memos are retained.</p>
+<p>Turn on <code>Show Recommend update messages</code> to see the new skill and signed change when estimated skill changes after a reload.</p>
 <h3 id="playlist-properties">Playlist Properties</h3>
 <p>Right-click a playlist and open <code>Properties</code> to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.</p>
 <p>Properties such as the playlist name and folder settings are saved in the in-app DB even in standalone mode. Only in LR2 linked mode is LR2 custom folder output also updated after saving.</p>
@@ -1866,7 +1898,9 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>Ordinary user folders and manually selected source archives are not deleted by <code>Remove from list</code> alone. To delete actual files, use <code>Delete file</code> -&gt; <code>Move to Recycle bin</code> from the context menu. However, if the package was created in BeMusicSeeker-managed temporary storage by URL import or a similar flow, removing it from Pending may also delete the temporary source files.</p>
 <h3 id="playlists--external-sites">Playlists / External Sites</h3>
 <h4 id="cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</h4>
-<p>Ranking caches, IR, recommendations, difficulty estimates, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.</p>
+<p>Ranking caches, IR, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.</p>
+<h4 id="cannot-generate-recommendations">Cannot Generate Recommendations</h4>
+<p>Check that the player and score database selected in <code>General</code> settings are correct and that the score database is accessible, then reload the relevant table.</p>
 <h4 id="playlist-status-fails">Playlist <code>STATUS</code> Fails</h4>
 <p>The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for <code>STATUS</code> in the playlist summary, or <code>playlist_reload_target_failed</code> in <code>log/application.log</code>.</p>
 <p>When beatoraja Table URL import restores a table from cache, <code>STATUS</code> still shows the retrieval result for the original URL. Import success and external-sync failure can therefore appear together.</p>

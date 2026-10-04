@@ -9,7 +9,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Net;
 
@@ -166,7 +165,7 @@ public sealed class AppHttpClientTests
     [DataRow("GetStringAsync", true)]
     [DataRow("PostFormAsync", true)]
     [TestCategory("Http")]
-    public async Task RecommendedHttpAdapter_ExternalCancellationTerminatesPendingResponse(string operation, bool cancelBeforeBodyPrefix)
+    public async Task BufferedRequests_ExternalCancellationTerminatesPendingResponse(string operation, bool cancelBeforeBodyPrefix)
     {
         using var cancellation = new CancellationTokenSource();
         var server = new SingleRequestHttpServer([65, 66], holdBody: true, holdBodyPrefix: cancelBeforeBodyPrefix);
@@ -257,12 +256,11 @@ public sealed class AppHttpClientTests
 
     private static Task<string> StartBufferedRequest(AppHttpClient client, Uri address, string operation, CancellationToken cancellationToken = default)
     {
-        var adapter = new AppPlaylistRecommendedTableHttpClient(client);
         var form = new NameValueCollection { { "name", "test" } };
         return operation switch
         {
-            "GetStringAsync" => adapter.GetStringAsync(address, cancellationToken),
-            "PostFormAsync" => adapter.PostFormAsync(address, form, cancellationToken),
+            "GetStringAsync" => client.GetStringAsync(address, cancellationToken: cancellationToken),
+            "PostFormAsync" => client.PostFormAsync(address, form, cancellationToken: cancellationToken),
             "GetString" => StartSynchronousRequest(() => client.GetString(address)),
             "PostForm" => StartSynchronousRequest(() => client.PostForm(address, form)),
             "PostString" => StartSynchronousRequest(() => client.PostString(address, "body", "text/plain")),

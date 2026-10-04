@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -27,6 +28,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -35,6 +37,143 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
+
+    [DataTestMethod]
+    [DataRow("All", false)]
+    [DataRow("All", true)]
+    [DataRow("Single", false)]
+    [DataRow("Single", true)]
+    [DataRow("Property", false)]
+    [DataRow("Property", true)]
+    [TestCategory("Playlist")]
+    public void RecommendationReload_ThreeEntriesPublishAutomaticNamesAndPresentOnlyNumericSkillChanges(
+        string entry, bool sameSkill)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+            TaskCompletionSource<object?> skillDisplayed = NewCompletion();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
+                recommendationScoreReader: _ => Task.FromResult(ReadWalkureInput("standard")),
+                configureSettings: settings => settings.ShowRecommUpdatedMsg = true,
+                messagePresenter: (owner, request) =>
+                {
+                    displayed.Add((owner, request));
+                    if (request.Caption == Resources.Recommend_SkillUpdatedTitle && request.Icon == MessageBoxImage.Information)
+                    {
+                        skillDisplayed.TrySetResult(null);
+                    }
+                    return new ThemedMessageBoxResponse(
+                        request.Button == MessageBoxButton.YesNo ? MessageBoxResult.Yes : MessageBoxResult.OK,
+                        closedWithoutSelection: false);
+                });
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> deferredCompletion = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+            EventHandler<PlaylistExternalSyncCompletionEventArgs> syncCompleted = (_, request) =>
+            {
+                if (request.FromReloadTables) { deferredCompletion.TrySetResult(request); }
+            };
+            workspace.PlaylistExternalSyncCompleted += syncCompleted;
+            Task? operation = null;
+            PlaylistPropertyDialogViewModel? property = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                Task<BMSTable> initialLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri("bmseeker:table.recommended"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialLoad, "recommendation-fixture-load");
+                BMSTable original = initialLoad.GetAwaiter().GetResult();
+                original.playlist_id = fixture.Table.playlist_id;
+                original.name = "Manual name ★999";
+                original.org_name = sameSkill ? "旧方針 ★6.6" : "旧方針 ★3.87";
+                original.header_sha256 = null;
+                original.data_sha256 = null;
+                original.last_update = new DateTime(2024, 6, 1, 10, 20, 30);
+                original.is_bmt_output = false;
+                if (entry == "Property") { original.DisableExternalSync(); } else { original.EnableExternalSync(); }
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([original]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(original);
+                displayed.Clear();
+                operation = ApplyEntryAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "recommendation-entry-terminal");
+
+                double skill = ReadWalkureCase("standard")["rating"]!.Value<double>("playerStarRating");
+                string expectedName = string.Format(Resources.RecommendFormat, Resources.Recommended_standard,
+                    skill.ToString("F2", CultureInfo.InvariantCulture));
+                BMSTable active = fixture.Playlist.BMSTables.Single();
+                Assert.AreEqual(expectedName, active.name);
+                Assert.AreEqual(expectedName, active.org_name);
+                Assert.AreEqual(original.last_update, active.last_update);
+                var repository = new PlaylistPersistenceRepository(Path.Combine(fixture.Root, "song.db"));
+                BMSTable persisted = repository.LoadPlaylistHeaders().Single();
+                Assert.AreEqual(expectedName, persisted.name);
+                Assert.AreEqual(expectedName, persisted.org_name);
+                Assert.AreEqual(original.last_update, persisted.last_update);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.header_sha256));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.data_sha256));
+
+                // 実際に接続されたツリーのコンテナーと表示名を観測する。
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                MaterializeTreeItems(playlistRoot);
+                var tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(active) as TreeViewItem;
+                Assert.IsNotNull(tableItem);
+                Assert.IsTrue(FindDescendants<TextBlock>(tableItem!).Any(block => block.Text == expectedName));
+                (Window Owner, UiMessageRequest Request)[] skillMessages = displayed.Where(call => call.Request.Caption == Resources.Recommend_SkillUpdatedTitle
+                    && call.Request.Icon == MessageBoxImage.Information).ToArray();
+                Assert.AreEqual(sameSkill ? 0 : 1, skillMessages.Length);
+                if (!sameSkill)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(skillDisplayed.Task, "recommendation-message-presenter");
+                    Assert.AreSame(fixture.Window, skillMessages[0].Owner);
+                    Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, skill.ToString("F2"),
+                        (skill - 3.87).ToString(" (+#0.00); (-#0.00);")), skillMessages[0].Request.MessageBoxText);
+                }
+
+                async Task ApplyEntryAsync()
+                {
+                    switch (entry)
+                    {
+                        case "All":
+                            await fixture.ViewModel.ReloadTablesAsync();
+                            // 全体入口の完了後にも動く遅延同期の終端まで待つ。
+                            PlaylistExternalSyncCompletionEventArgs completed = await deferredCompletion.Task;
+                            Assert.IsTrue(completed.Succeeded);
+                            Assert.IsFalse(completed.WasSkipped);
+                            break;
+                        case "Single":
+                            await workspace.ResyncPlaylistTableAsync(original);
+                            break;
+                        case "Property":
+                            property = await workspace.OpenPropertyDialogAsync(original);
+                            Assert.IsNotNull(property);
+                            property!.is_external_sync = true;
+                            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await property.SaveAndApplyAsync());
+                            break;
+                        default: throw new AssertFailedException("Unknown entry.");
+                    }
+                }
+            }
+            catch (Exception exception) { primaryFailure = exception; throw; }
+            finally
+            {
+                try
+                {
+                    if (operation != null)
+                    {
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "recommendation-entry-drain"); }
+                        catch when (primaryFailure != null) { }
+                    }
+                    if (property != null)
+                    {
+                        workspace.ClosePropertyDialog(property);
+                        property.Dispose();
+                    }
+                    workspace.PlaylistExternalSyncCompleted -= syncCompleted;
+                    fixture.Close();
+                }
+                catch when (primaryFailure != null) { }
+            }
+        });
+    }
 
     [TestMethod]
     public void MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup()
@@ -643,14 +782,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             (_, window) =>
             {
                 var rootMenu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
-                using HwndSource menuHost = new(new HwndSourceParameters("PlaylistImportMenuHierarchyTest")
-                {
-                    Width = 640,
-                    Height = 480,
-                    PositionX = 0,
-                    PositionY = 0
-                });
-                menuHost.RootVisual = rootMenu;
+                MaterializeMenuItems(rootMenu);
                 MenuItem collectionMenu = FindMenuItem(
                     rootMenu,
                     "treeViewPlaylistRootContextMenuItemLoadPlaylistCollection");
@@ -660,7 +792,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 MenuItem parentItem = GetOrGenerateMenuItem(collectionMenu, parent);
                 Assert.IsNotNull(parentItem);
                 Assert.IsFalse(parentItem.StaysOpenOnClick);
-                parentItem.IsSubmenuOpen = true;
                 MaterializeMenuItems(parentItem);
 
                 BMSTableSimple leaf = parent.Children.Single();
@@ -676,15 +807,20 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 MenuItem builtInMenu = FindMenuItem(
                     rootMenu,
                     "treeViewPlaylistRootContextMenuItemLoadWalkureTable");
-                MenuItem builtInLeaf = builtInMenu.Items
-                    .OfType<MenuItem>()
-                    .First(item => item.Tag is string);
-                string rawTag = (string)builtInLeaf.Tag;
-
-                RoutedEventArgs builtInArgs = RaiseMenuClick(builtInLeaf);
-                Assert.IsTrue(builtInArgs.Handled);
-                Assert.AreEqual(1, builtInTags.Count);
-                Assert.AreEqual(rawTag, builtInTags[0]);
+                MenuItem[] builtInLeaves = builtInMenu.Items.OfType<MenuItem>().ToArray();
+                CollectionAssert.AreEquivalent(new[]
+                {
+                    "bmseeker:table.estimation?type=easy", "bmseeker:table.estimation?type=normal",
+                    "bmseeker:table.estimation?type=hard", "bmseeker:table.estimation?type=fc",
+                    "bmseeker:table.recommended", "bmseeker:table.recommended?base=failed",
+                    "bmseeker:table.recommended?failed=noplay"
+                }, builtInLeaves.Select(item => (string)item.Tag).ToArray());
+                foreach (MenuItem builtInLeaf in builtInLeaves)
+                {
+                    RoutedEventArgs args = RaiseMenuClick(builtInLeaf);
+                    Assert.IsTrue(args.Handled);
+                }
+                CollectionAssert.AreEqual(builtInLeaves.Select(item => (string)item.Tag).ToArray(), builtInTags);
             },
             playlistWorkspaceTerminals: CreateTerminals(collectionImport: importTerminal));
     }
@@ -2040,13 +2176,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private static UiDialogCoordinator CreateActualRouteDialogService(
         TestWindowPresentationScope windowTest,
         ModalPreparationRecorder modalPreparation,
-        Func<bool>? closeNextMessage = null)
+        Func<bool>? closeNextMessage = null,
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null)
     {
         ArgumentNullException.ThrowIfNull(windowTest);
         ArgumentNullException.ThrowIfNull(modalPreparation);
-        return new UiDialogCoordinator(
-            new UiDialogOwnerResolver(),
-            dialogWindow =>
+        Func<Window, IDisposable> modalScope = dialogWindow =>
             {
                 // UiDialogCoordinator invokes this modal scope after creating and owning the
                 // child, immediately before ShowDialog. Keep the real coordinator route while
@@ -2087,7 +2222,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     }
                     activeModalScope.Dispose();
                 });
-            });
+            };
+        return messagePresenter == null
+            ? new UiDialogCoordinator(new UiDialogOwnerResolver(), modalScope)
+            : new UiDialogCoordinator(new UiDialogOwnerResolver(), modalScope, messagePresenter);
     }
 
     private static MainWindowForegroundTerminal CreateForegroundTerminal(
@@ -2114,7 +2252,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private static ActualMainWindowFixture CreateActualMainWindowFixture(
         TestWindowPresentationScope windowTest,
         MainWindowForegroundTerminal? foregroundTerminal = null,
-        Func<bool>? closeNextMessage = null)
+        Func<bool>? closeNextMessage = null,
+        Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null,
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null,
+        Action<Settings>? configureSettings = null)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -2144,12 +2285,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             IsLR2BackupEnabled = false,
             RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
         };
+        configureSettings?.Invoke(settings);
         var lifetime = new RecordingApplicationLifetime();
         var modalPreparation = new ModalPreparationRecorder();
         UiDialogCoordinator actualRouteDialogService = CreateActualRouteDialogService(
             windowTest,
             modalPreparation,
-            closeNextMessage);
+            closeNextMessage, messagePresenter);
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -2161,7 +2303,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, recommendationScoreReader: recommendationScoreReader);
         var table = new BMSTable
         {
             playlist_id = 1,

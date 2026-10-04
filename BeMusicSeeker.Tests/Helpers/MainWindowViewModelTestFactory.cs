@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -44,20 +45,22 @@ internal static class MainWindowViewModelTestFactory
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
     }
 
+    /// <summary>専用設定と任意のスコア読取りを接続した実プレイリストを作成します。</summary>
     internal static TestBmsPlaylist CreatePlaylist(
         string songDbPath,
         Settings settings,
-        Func<LR2Config>? getLr2Config = null)
+        Func<LR2Config>? getLr2Config = null,
+        Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null)
     {
         return new TestBmsPlaylist(
             songDbPath,
             getLr2Config: getLr2Config,
             scoreDbPath: null,
-            getBmsScores: null,
             getBeatorajaBmtSongHashResolver: null,
             playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
             beatorajaBmtOptionsProvider: () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
-            customFolderOutputSettingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
+            customFolderOutputSettingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
+            recommendationScoreReader: recommendationScoreReader);
     }
 
     internal static MainWindowViewModel CreateMainWindowViewModelForTest(

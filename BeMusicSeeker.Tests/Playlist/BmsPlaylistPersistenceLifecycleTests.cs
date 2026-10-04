@@ -174,7 +174,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     null,
                     null,
                     null,
-                    null,
                     () => new PlaylistUrlCompletionOptionsSnapshot(),
                     () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
                     () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
@@ -1172,7 +1171,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 LR2CustomFolderOutputBaseDirRootType = outputBase
             };
             playlist = new TestBmsPlaylist(
-                dbPath, () => config, null, null, null,
+                dbPath, () => config, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => settings,
@@ -1374,7 +1373,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 () => config,
-                null,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -1603,7 +1601,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => config,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => repairSettings,
@@ -1705,7 +1702,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 () => config,
-                null,
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),

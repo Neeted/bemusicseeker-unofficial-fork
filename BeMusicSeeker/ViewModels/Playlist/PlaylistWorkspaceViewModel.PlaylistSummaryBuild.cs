@@ -78,10 +78,11 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// Builds raw summary rows and publishes the fresh filtered and sorted result owned by this workspace.
+    /// 新しいサマリー行を構築し、この画面が所有する絞込み・ソート結果を公開します。
+    /// ページのない内蔵表にはブラウザーで開くリンクを作りません。
     /// </summary>
-    /// <param name="runAsync">Whether to run the build on the task pool.</param>
-    /// <returns>The accepted data generation, or zero when the workspace cannot start a build.</returns>
+    /// <param name="runAsync">スレッドプールで構築するか。</param>
+    /// <returns>受理したデータ世代。開始できなければ 0。</returns>
     internal long RebuildPlaylistSummaryView(bool runAsync = true)
     {
         if (!TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest))
@@ -343,7 +344,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 OwnedCharts = ownedCharts,
                 MissingCharts = totalCharts - ownedCharts,
                 OwnedRatio = totalCharts == 0 ? 0.0 : (double)ownedCharts * 100.0 / totalCharts,
-                LinkUri = table.Page_url ?? table.GetAbsoluteHeaderUrl(),
+                LinkUri = TryResolvePlaylistTablePageUri(table, out Uri pageUri) ? pageUri : null,
                 HeaderUri = table.GetAbsoluteHeaderUrl(),
                 DataUri = table.GetAbsoluteDataUrl(),
                 IsExternalSync = table.is_external_sync,

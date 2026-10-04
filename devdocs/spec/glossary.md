@@ -15,7 +15,7 @@
 | カタログ | 管理対象の譜面とフォルダの正本。ファイルの実在確認やリソース逆引きとは別の役割。 | catalog、`OwnedChartCollectionState` |
 | 所持譜面 | カタログ上で管理される譜面。未実行の導入予約や推定先だけでは所持としない。 | owned chart |
 | パッケージ | 導入・保留・移動などで扱う譜面と関連ファイルのまとまり。 | package、`ChartPackage` |
-| リコメンド | Walkure（walkure.net）が個人のクリア状況から、ランプを更新できそうな譜面を提示する固有機能。一般的な「おすすめ」と区別する。 | Recommend、リコメンド、`PlaylistRecommendedTableOwner` |
+| リコメンド | 同梱Walkureモデルと選択中のローカルスコアから、ランプを更新できそうな譜面を提示する機能。一般的な「おすすめ」と区別する。 | Recommend、リコメンド、`PlaylistRecommendedTableOwner` |
 | 保留 | 導入先未確定などの理由で、通常の所持譜面として導入していない状態。 | pending |
 | リソース | 譜面が参照する音声・画像などのファイル。WPFリソースや翻訳リソースとは区別する。 | WAV、BMP、BGA、resource |
 | 構成ファイル | BMS 譜面と同じ導入単位で扱う音声・画像などの関連ファイル。アプリケーションの設定ファイルとは区別する。 | component file、関連ファイル |

@@ -212,7 +212,6 @@ internal static class PlaylistWorkspaceTestPorts
             null,
             null,
             null,
-            null,
             () => new PlaylistUrlCompletionOptionsSnapshot(),
             () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
             () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },

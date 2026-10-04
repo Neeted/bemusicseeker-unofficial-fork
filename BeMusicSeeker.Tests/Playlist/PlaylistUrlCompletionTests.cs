@@ -291,7 +291,6 @@ public sealed class PlaylistUrlCompletionTests
                 null,
                 null,
                 null,
-                null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
@@ -358,7 +357,6 @@ public sealed class PlaylistUrlCompletionTests
                 null,
                 null,
                 null,
-                null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
@@ -421,7 +419,6 @@ public sealed class PlaylistUrlCompletionTests
             };
             var playlist = new TestBmsPlaylist(
                 tempDbPath,
-                null,
                 null,
                 null,
                 null,

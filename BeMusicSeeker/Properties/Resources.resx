@@ -215,9 +215,6 @@ LR2 連携:
   <data name="Folder" xml:space="preserve">
     <value>フォルダ</value>
   </data>
-  <data name="Recommended_automatic_update" xml:space="preserve">
-    <value>リコメンド (自動更新)</value>
-  </data>
   <data name="PlaylistProp_folder_prefix" xml:space="preserve">
     <value>フォルダ接頭辞: </value>
   </data>
@@ -255,20 +252,13 @@ LR2 連携:
     <value>ヘッダーファイルを保存</value>
   </data>
   <data name="Load_from_insane_estimation_table" xml:space="preserve">
-    <value>発狂BMS難度推定表から読み込む</value>
+    <value>内蔵の難度推定表・リコメンドから読み込む</value>
   </data>
   <data name="Backup" xml:space="preserve">
     <value>バックアップ</value>
   </data>
   <data name="Reinstall_to_estimation" xml:space="preserve">
     <value>推定先に再インストール</value>
-  </data>
-  <data name="Msg_load_recommended_tables_readonly_mode" xml:space="preserve">
-    <value> のリコメンドを取得します
-
-読み込み専用でリコメンドを取得します
-クリア状況が変化した場合はブックマークレット等で更新してください
-続行しますか？</value>
   </data>
   <data name="Browse" xml:space="preserve">
     <value>参照</value>
@@ -946,17 +936,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Tooltip_image_file" xml:space="preserve">
     <value>イメージファイル</value>
   </data>
-  <data name="Msg_load_recommended_tables_update_mode" xml:space="preserve">
-    <value> のリコメンドを取得し自動更新します
-
-ローカルとLR2IRに保存されているクリア状況を送信し取得します
-FAILED等を意図的に送信していない場合は注意してください
-
-LR2IRにスコアやクリアが自動送信されるわけではありません
-問題が生じた場合はブックマークレット等で更新してください
-
-続行しますか？</value>
-  </data>
   <data name="FilePath_songDB" xml:space="preserve">
     <value>song.db パス: </value>
   </data>
@@ -1231,9 +1210,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Tooltip_play" xml:space="preserve">
     <value>再生中</value>
-  </data>
-  <data name="Recommended_read_only" xml:space="preserve">
-    <value>リコメンド (読み込みのみ)</value>
   </data>
   <data name="Record_setting_gain" xml:space="preserve">
     <value>追加ゲイン:</value>
@@ -1831,9 +1807,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Backup_lr2backup_optimize" xml:space="preserve">
     <value>LR2のバックアップと最適化</value>
-  </data>
-  <data name="Msg_load_recommended_tables_error" xml:space="preserve">
-    <value>LR2スコアDBに接続されていないためこの機能は利用できません</value>
   </data>
   <data name="Json_file_exts" xml:space="preserve">
     <value>JSONファイル(*.json)|*.json</value>
@@ -2715,37 +2688,14 @@ Everything を使用している場合は、楽曲フォルダが Everything 1.5
   <data name="Error_UnsupportedType" xml:space="preserve">
     <value>非対応のtypeです {0}</value>
   </data>
-  <data name="Error_ScoreDBConnectionFailed" xml:space="preserve">
-    <value>スコアDB接続に失敗しました</value>
-  </data>
-  <data name="Error_LR2IDOrScoreDBFailed" xml:space="preserve">
-    <value>LR2IDの取得またはスコアDB接続に失敗しました</value>
-  </data>
-  <data name="Warn_RecommendUpdateFailed" xml:space="preserve">
-    <value>リコメンドの更新に失敗しました
-{0}</value>
-  </data>
-  <data name="Warn_RecommendFetchFailed" xml:space="preserve">
-    <value>リコメンドの取得に失敗しました
-{0}</value>
-  </data>
-  <data name="Error_RecommendFetchFailed" xml:space="preserve">
-    <value>リコメンドの取得に失敗しました</value>
-  </data>
   <data name="RecommendFormat" xml:space="preserve">
-    <value>リコメンド {0} ★{1}</value>
+    <value>{0} ★{1}</value>
   </data>
   <data name="Recommend_SkillUpdatedMessage" xml:space="preserve">
-    <value>あなたの実力: ★{0}{1}
-(更新: {2})
-
-(このメッセージは[Ctrl]+[C]でコピーできます)</value>
+    <value>あなたの実力: ★{0}{1}</value>
   </data>
   <data name="Recommend_SkillUpdatedTitle" xml:space="preserve">
     <value>リコメンドが更新されました</value>
-  </data>
-  <data name="Error_LocalScoreDataNotFetched" xml:space="preserve">
-    <value>ローカルスコアデータが取得されていません</value>
   </data>
   <data name="Warn_CustomFolderOutputFailed" xml:space="preserve">
     <value>カスタムフォルダの出力に失敗しました。
@@ -3597,5 +3547,26 @@ uBMplayが正常に動作するか確認してください。</value>
 推定されたインストール先は使用せず、新規インストール先へ導入します。
 リソース不足などの WARNING がある場合も、その状態のままインストールされます。
 続行しますか？</value>
+  </data>
+  <data name="Recommended_standard" xml:space="preserve">
+    <value>リコメンド (標準)</value>
+  </data>
+  <data name="Recommended_unplayed_as_failed" xml:space="preserve">
+    <value>リコメンド (未プレイをFAILED扱い)</value>
+  </data>
+  <data name="Recommended_failed_as_unplayed" xml:space="preserve">
+    <value>リコメンド (FAILEDを未プレイ扱い)</value>
+  </data>
+  <data name="Error_RecommendationScoreNotConfigured" xml:space="preserve">
+    <value>スコアDBが設定されていません。一般設定でプレイヤーとスコアDBを選択してください。</value>
+  </data>
+  <data name="Error_RecommendationScoreReadFailed" xml:space="preserve">
+    <value>選択中のスコアDBを読み込めませんでした。</value>
+  </data>
+  <data name="Error_RecommendationNoObservations" xml:space="preserve">
+    <value>モデルに一致するプレイ記録がありません。</value>
+  </data>
+  <data name="Error_RecommendationRatingFailed" xml:space="preserve">
+    <value>プレイ記録から実力を推定できませんでした。</value>
   </data>
 </root>
