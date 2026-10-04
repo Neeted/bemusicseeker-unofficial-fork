@@ -833,12 +833,12 @@
         <Path x:Name="CollapsedGlyph"
               Width="6"
               Height="10"
-              Fill="{DynamicResource App.TextBrush}"
+              Fill="{TemplateBinding Foreground}"
               Data="M 0 0 L 6 5 L 0 10 Z" />
         <Path x:Name="ExpandedGlyph"
               Width="10"
               Height="6"
-              Fill="{DynamicResource App.TextBrush}"
+              Fill="{TemplateBinding Foreground}"
               Data="M 0 0 L 5 6 L 10 0 Z"
               Visibility="Collapsed" />
         <ContentPresenter Grid.Column="1"
@@ -1254,6 +1254,9 @@
 
   <Style x:Key="App.Canonical.ExpanderHeaderToggleStyle" TargetType="{x:Type ToggleButton}" BasedOn="{x:Null}">
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ExpanderHeaderToggleTemplate}" />
