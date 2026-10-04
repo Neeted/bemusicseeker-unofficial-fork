@@ -16,6 +16,14 @@
 
 表示面は画像と内蔵プレイヤーです。プレイヤーを使えない場合は画像を表示しますが、要求状態は書き換えません。小型指定とプレイヤー指定が併存していても、最初のフレームから画像の小型表示になります。
 
+### 外部プレーヤーのホスト
+
+`ExternalPlayerHwndHost` はWPFの `HwndHost` として、自プロセスのUIスレッド上に標準STATICクラスの黒い子HWNDを一つ所有します。WPFウィンドウへの接続で生成され、初期状態が `Collapsed` でも `ContentRendered` 後には有効です。`PlayerHostHandle` は生成済みハンドルを返し、取得時の遅延生成は行いません。通常の初期化完了通知から `MainWindow` が非ゼロの親HWNDを外部プレーヤーへ接続します。
+
+画像と再生面の切替、Overlay表示、`Unloaded` と切離し・再接続では同じHWNDを保持します。終了は既存のシェル終了管理主体によるプレーヤー終了の実完了を待ち、最終 `MainWindow.Closed` からUIスレッド上でホストを解放します。ネイティブ生成・破棄の失敗は例外として伝えます。
+
+外部プレーヤーは物理587×256ピクセルです。XAMLの予約領域は `MinWidth=587`、`Height=256`、`MaxHeight=256` DIPとし、中央・下端へ配置します。ホストの配置は各軸について、WPFから渡された `finalSize` と物理寸法を実行時DPI倍率でDIPへ換算した値の小さい方を返します。小型でも固定の予約寸法を維持し、親の可用領域とは区別します。空ホストの位置とサイズは `HwndHost` が同期します。通常テストは実行時DPIで確認し、異なるDPIの実モニターにおける描画・入力は実機確認の範囲です。
+
 ### 共通の再生対象と一覧状態
 
 内蔵再生の選択・キュー・現在曲には共通 `ChartFile` を使います。解析・保存の形式入口から共通モデルへ接続し、次曲・前曲・フォルダ送りは譜面を対象にします。一時配置と終了callbackも、開始時に確定した同じ対象と世代を保持します。外部playerの形式条件は内蔵再生能力から推測しません。
@@ -71,6 +79,9 @@ DataContextが読込み前・読込み中のどちらで設定されても同じ
 | 譜面の表示対象変更、素材A→素材B→素材なし | [`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) の `DisplayedChart` 通知と `RefreshArtwork(ChartFile)` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent` は実選曲からcompiled Viewの画像・バナー画素更新と既定画像・背景なしへの復帰を確認する。 |
 | 共通譜面キュー、現在曲表示、再生状態投影、外部playerの能力 | `PlaybackPanelViewModel.NowPlayingChart` / `GetPlaybackStatus`、[`MainChartRowProjectionOwner`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartRowProjectionOwner.cs)、`PlaybackChartQueue` | `PlaybackPanelViewModelTests.PlaybackPanelChartQueueKeepsIdentityStatusAndSingleAdvance` は混在入力を代表として現在対象・ヘッダー・PLAY/PAUSE・一回の送り・旧対象の状態解除と `SCORE_UNSENT` / `SEARCHING` の維持を、`PlaybackPanelDoesNotSendBmsonToAnExternalPlayerWithoutThatCapability` は外部能力の分離を確認する。 |
 | 要求状態と実効状態、初期フレーム、差替え・再読込み、遷移 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) |
+| 初期Collapsedでの子HWND生成、UIスレッド・プロセス所有 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、`PlaybackPanelView.PlayerHostHandle` | `PlaybackPanelViewModelTests.PlaybackPanelView_CompiledTreeMaterializesCurrentSurfaceAndHeader` は `ContentRendered` 後の継承 `Handle`、親、PID・TIDを確認する。 |
+| 面切替・Overlay・切離しと再接続での寿命、物理寸法と予約領域 | `ExternalPlayerHwndHost.ArrangeOverride`、[`PlaybackPanelView.xaml`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml) | `PlaybackPanelViewModelTests.PlaybackPanelView_PlayerSurfaceAndOverlayPreserveHostAndPhysicalLayout` は実再生入口から面切替・Overlay・拡大型の中央下端配置と実行時DPIでの物理寸法、小型の要求・実効状態と再読込み時の即時同期・同じHWNDの生存を確認する。`PlaybackPanelView_SameViewModelStateChangesUseTransitionsAndReloadSynchronizesImmediately` は切離し・再接続の寿命と遷移を確認する。固定寸法より小さい `finalSize` の本番到達は確認しておらず、min式は実装レビューで確認する。 |
+| 通常初期化完了からのホスト接続、プレーヤー終了待ちと最終解放 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) の `MainWindowRenderedInitializationAttachesCreatedPlaybackHost` は `ContentRendered` を入口とする接続を、`MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose` は終了gate保留中のUI応答・HWND生存と最終Closed後の無効化を確認する。 |
 | Ready成功時のPLAY・一回の次候補、一時コピー寿命、停止の終端 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackChartQueue`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackChartQueue.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`InternalReady_StartsNextPreparationBeforeCompletionOrUiPublication`、`TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion`、`FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy`で開始・入力・停止の境界を確認する。[`AudioContractsTests`](../../../BeMusicSeeker.Tests/Playback/AudioContractsTests.cs)の`PreloadFatal_CloseJoinsPreparationAndNotifiesOnceWithIndependentCleanupFailure`で実内蔵playerの背景故障通知を確認する。 |
 | 停止で表示が失効した後の採用済み準備故障の通知 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`AdoptedPreloadFailure_AfterStopNotifiesOnceWithoutRestarting`でB開始が準備中にStopを受けた後の元原因の一回通知、次へ・停止の終端、自動再開なしと停止表示を確認する。 |
 | 手動送り待ちの後に残った旧曲の自然終了 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)の`NaturalExit_QueuedBehindManualNextDoesNotAdvanceTheReplacementSong`でA候補解決中に手動・自然終了・手動を受け付け、A・B・Cだけを開始することを確認する。 |

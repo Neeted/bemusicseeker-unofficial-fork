@@ -12,7 +12,7 @@
 
 ### 実行基盤
 
-.NET 10 / C# 14、`net10.0-windows`、x64を使います。画面はWPFを中心に、Windows Formsのホストも含みます。MVVMにはLivetCask、保存にはSQLite、ファイル検索にはEverything SDK 3とのネイティブ連携を使います。音声はManagedBassとlibogg/libvorbisを静的リンクしたプロセス所有のnative bridge、ログはNLog、アーカイブはSevenZipExtractorが担当します。依存バージョンの宣言を正本とし、本書に依存一覧を複製しません。
+.NET 10 / C# 14、`net10.0-windows`、x64を使います。画面はWPFとWin32の子ウィンドウホストで構成します。MVVMにはLivetCask、保存にはSQLite、ファイル検索にはEverything SDK 3とのネイティブ連携を使います。音声はManagedBassとlibogg/libvorbisを静的リンクしたプロセス所有のnative bridge、ログはNLog、アーカイブはSevenZipExtractorが担当します。依存バージョンの宣言を正本とし、本書に依存一覧を複製しません。
 
 ### 層と責務
 
@@ -96,6 +96,8 @@ flowchart TB
 
 ### ネイティブ連携
 
+外部プレーヤーの埋込み面は、`PlaybackPanelView` の専用 `ExternalPlayerHwndHost` がUIスレッド上で所有するWin32子ウィンドウです。WPFへの接続で生成し、プレーヤー終了の実完了後の最終 `MainWindow.Closed` で解放します。表示・寿命・物理寸法は[再生パネル](../ui/playback-panel.md#外部プレーヤーのホスト)に従います。
+
 Everythingを利用できる通常走査は `EBridge_ScanChartAndResources` を使い、譜面相対のリソースキーと逆引き用の情報も受け取ります。Everythingを利用できない場合には規定の管理側走査を使いますが、古いネイティブABIや契約不一致を互換経路で救済しません。入力の完全性と識別規則は[データと索引](data-and-indexes.md)を参照します。
 
 ### 配布の構成
@@ -122,6 +124,7 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 | --- | --- | --- |
 | 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |
 | 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker/BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
+| WPFとWin32による外部プレーヤーの接続・寿命 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [再生パネルの対応表](../ui/playback-panel.md#実装とテストの対応)の初期生成・接続・終了待ちを確認する。 |
 | 機能ごとの責務・起動・変更 | 各領域の管理主体 | [起動](../runtime/startup.md)、[ライブラリ変更](../library/mutations.md)、[画面](../ui/README.md)の対応表で確認する。 |
 
 ## 関連資料

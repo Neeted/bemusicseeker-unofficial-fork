@@ -12,6 +12,7 @@ using System.Windows.Data;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -381,17 +382,118 @@ public sealed class MainWindowViewHostTests
         }
     }
 
-    // U3-T1/T2/T3: 実 Close から入り、同期 player 待機中も UI と終了順序を守る。
+    private static Settings CreatePlaybackHostSettings(string directory)
+    {
+        var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
+            PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config")));
+        settings.OperationModeLR2DB = false;
+        settings.BMSRootPath = directory;
+        settings.StandaloneBmsRootPaths = directory;
+        settings.BMSInstallDir = directory;
+        settings.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        settings.EnablePlaylistUrlCompletion = false;
+        settings.ScanBmsFilesOnStartup = false;
+        settings.SkipInitPlaylistLoad = true;
+        settings.UseBeatorajaScoreDb = false;
+        settings.EnableBeatorajaBmtOutput = false;
+        settings.UseExternalPanelImage = false;
+        settings.UsePlayeruBMplay = false;
+        settings.UsePlayerLR2body = false;
+        settings.UsePlayerBMIIDXView = false;
+        settings.IsLR2BackupEnabled = false;
+        settings.Save();
+        string songDbPath = Path.Combine(directory, "song.db");
+        StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        return settings;
+    }
+
+    private static MainWindowViewModel CreatePlaybackHostViewModel(ApplicationComposition composition, Settings settings, string directory)
+    {
+        string songDbPath = Path.Combine(directory, "song.db");
+        var library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+        return new MainWindowViewModel(composition, new FixedStartupLibraryFactory(library, playlist));
+    }
+
+    private static void ShowPlaybackHostMainWindow(TestWindowPresentationScope scope, MainWindow window)
+    {
+        // 保存配置の復元がLoadedの画面外配置を後から更新するため、既存MainWindow表示テストと同じRender入口で再配置します。
+        RoutedEventHandler position = (_, _) => window.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            window.Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth * 4d + 4096d;
+            window.Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight * 4d + 4096d;
+        }));
+        window.Loaded += position;
+        try { scope.ShowAndWaitForContentRendered(window); }
+        finally { window.Loaded -= position; }
+    }
+
+    [TestMethod]
+    public void MainWindowRenderedInitializationAttachesCreatedPlaybackHost()
+    {
+        using var directory = new TestTemporaryDirectory("main-window-playback-host");
+        Settings settings = CreatePlaybackHostSettings(directory.Path);
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            MainWindowViewModel? viewModel = null;
+            MainWindow? window = null;
+            bool closed = false;
+            bool hadResource = Application.Current.Resources.Contains("vm");
+            object? previous = hadResource ? Application.Current.Resources["vm"] : null;
+            var player = new FakeBmsPlayer();
+            var lifetime = new RecordingApplicationLifetime();
+            try
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new PersistentSettingsEditSession(settings),
+                    defaultBmsPlayerFactory: () => player,
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                Application.Current.Resources["vm"] = viewModel;
+                window = new MainWindow(viewModel);
+                window.Closed += (_, _) => closed = true;
+                Assert.IsFalse(viewModel.IsInitializationCompleted);
+                Assert.IsFalse(player.HostAttached.Task.IsCompleted);
+                ShowPlaybackHostMainWindow(scope, window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(player.HostAttached.Task, "rendered-playback-host-attachment");
+                Assert.IsTrue(viewModel.IsInitializationCompleted);
+                PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(window, "playbackPanelView");
+                var host = (ExternalPlayerHwndHost)playbackView.FindName("externalPlayerHost");
+                Assert.AreEqual(Visibility.Collapsed, host.Visibility);
+                ExternalPlayerHostObservation.AssertOwnedChild(host.Handle, window);
+                Assert.IsNotNull(player.WindowHost);
+                Assert.AreEqual(host.Handle, player.WindowHost.ParentHandle.NativeValue);
+                window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "rendered-playback-host-shutdown");
+                window.Close();
+                Assert.IsTrue(closed);
+            }
+            finally
+            {
+                CleanupViewHost(window, closed, viewModel, hadResource, previous);
+            }
+        });
+    }
+
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose(bool prepareForUpdate)
     {
-        Settings settings = CreateSettings(279d, false, 23d, 25d, 13d);
+        using var directory = new TestTemporaryDirectory("main-window-player-drain");
+        Settings settings = CreatePlaybackHostSettings(directory.Path);
+        settings.TreeViewWidth = 279d;
+        settings.StartupSelectInstallPending = false;
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
@@ -428,11 +530,23 @@ public sealed class MainWindowViewHostTests
             try
             {
                 Ribbit.Media.Audio.BassAudioRuntime.Initialize();
-                viewModel = CreateComposition(session, lifetime).CreateMainWindowViewModel();
+                var startupPlayer = new FakeBmsPlayer();
+                var composition = new ApplicationComposition(
+                    settingsEditSession: session,
+                    defaultBmsPlayerFactory: () => startupPlayer,
+                    uiScheduler: new WpfUiScheduler(() => dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 Application.Current.Resources["vm"] = viewModel;
                 window = new MainWindow(viewModel);
                 window.Closed += (_, _) => closed = true;
+                ShowPlaybackHostMainWindow(scope, window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(startupPlayer.HostAttached.Task, "player-drain-initialization");
+                PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(window, "playbackPanelView");
+                IntPtr hostHandle = playbackView.PlayerHostHandle;
+                ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "attach-player");
                 GetNamedElement<ColumnDefinition>(window, "gridColumn0").Width = new GridLength(359d);
                 if (prepareForUpdate)
@@ -451,6 +565,7 @@ public sealed class MainWindowViewHostTests
                             Assert.AreEqual(0, session.SaveCount);
                             Assert.AreEqual(0, lifetime.RequestShutdownCount);
                             Assert.IsFalse(closed);
+                            Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(hostHandle));
                             Assert.IsFalse(viewModel.PlaybackPanel.NextCommand.CanExecute, "終了開始後は次の再生操作を受け付けない。");
                             Assert.IsFalse(viewModel.PlaybackPanel.StartCommand.CanExecute);
                             Task first = viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync();
@@ -482,6 +597,7 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
                 window.Close();
                 Assert.IsTrue(closed);
+                Assert.IsFalse(ExternalPlayerHostObservation.IsWindow(hostHandle));
                 Assert.AreEqual(1, player.CloseProcessCount);
                 Assert.AreEqual(1, session.SaveCount);
             }
@@ -1033,7 +1149,7 @@ public sealed class MainWindowViewHostTests
         return true;
     }
 
-    private sealed class FakeBmsPlayer : IBMSPlayer
+    private sealed class FakeBmsPlayer : IBMSPlayer, IExternalWindowPlayer
     {
         private readonly Action? onClose;
 
@@ -1063,6 +1179,14 @@ public sealed class MainWindowViewHostTests
         public int Measure { get; set; }
         public int LastMeasure { get; set; }
         public int CloseProcessCount { get; private set; }
+        internal IExternalPlayerWindowHost? WindowHost { get; private set; }
+        internal TaskCompletionSource HostAttached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void AttachWindowHost(IExternalPlayerWindowHost windowHost)
+        {
+            WindowHost = windowHost;
+            HostAttached.TrySetResult();
+        }
 
         public void CloseProcess()
         {

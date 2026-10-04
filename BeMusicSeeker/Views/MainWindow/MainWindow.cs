@@ -697,7 +697,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playbackPanelView.PlayerHostHandle));
+            IntPtr playerHostHandle = playbackPanelView.PlayerHostHandle;
+            if (playerHostHandle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("The external player host has not been created.");
+            }
+            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playerHostHandle));
             playbackPanelView.EnsureSelectedSurfaceAvailable();
         };
         if (Dispatcher.CheckAccess())
@@ -1634,6 +1639,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
+        playbackPanelView.DisposePlayerHost();
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.Dispose();

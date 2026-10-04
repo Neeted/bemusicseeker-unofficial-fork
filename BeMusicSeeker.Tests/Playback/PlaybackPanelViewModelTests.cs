@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Forms.Integration;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
@@ -2564,6 +2563,7 @@ public sealed class PlaybackPanelViewModelTests
                 }
                 finally
                 {
+                    view.DisposePlayerHost();
                     window.Content = null;
                     window.Close();
                     Directory.Delete(directory, recursive: true);
@@ -2606,7 +2606,10 @@ public sealed class PlaybackPanelViewModelTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
-                var playerHost = (WindowsFormsHost)view.FindName("windowsFormsHost");
+                var playerHost = (ExternalPlayerHwndHost)view.FindName("externalPlayerHost");
+                Assert.AreEqual(Visibility.Collapsed, playerHost.Visibility);
+                ExternalPlayerHostObservation.AssertOwnedChild(playerHost.Handle, window);
+                Assert.AreEqual(playerHost.Handle, view.PlayerHostHandle);
                 var artwork = (Image)view.FindName("gridBMSPlayerImage");
                 var playButton = (Button)view.FindName("buttonBMSPlayerControlsPlayAndPauseButton");
                 var title = (TextBlock)view.FindName("gridBMSPlayerControlsTitle");
@@ -2624,8 +2627,101 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally
             {
+                (window.Content as PlaybackPanelView)?.DisposePlayerHost();
                 window.Content = null;
                 window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_PlayerSurfaceAndOverlayPreserveHostAndPhysicalLayout()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string path = Path.GetTempFileName();
+            var player = new FakeBmsPlayer();
+            var rows = new MainChartListViewModel { Rows = new List<object> { new TestBmsFile(path) } };
+            var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+                new InMemoryPlaybackSettingsStore { UsesBmiIdxView = true }, new FakePlaybackDialogService(),
+                _ => Assert.Fail("再生開始に失敗しました。"), new ChartFileOperationSynchronizer());
+            var view = new PlaybackPanelView { DataContext = panel };
+            var window = new Window { Content = view, Width = 800d, Height = 400d, WindowStyle = WindowStyle.None };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                var host = (ExternalPlayerHwndHost)view.FindName("externalPlayerHost");
+                IntPtr handle = host.Handle;
+                ExternalPlayerHostObservation.AssertOwnedChild(handle, window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.StartAtIndex(0), "external-surface-start");
+                panel.PlayerPanelState = PlayerPanelState.BMS_PLAYER;
+                FlushRenderQueue(window);
+                Assert.AreEqual(Visibility.Visible, host.Visibility);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+                Assert.AreEqual(587d, host.MinWidth);
+                Assert.AreEqual(256d, host.Height);
+                Assert.AreEqual(256d, host.MaxHeight);
+                Assert.AreEqual(HorizontalAlignment.Center, host.HorizontalAlignment);
+                Assert.AreEqual(VerticalAlignment.Bottom, host.VerticalAlignment);
+                DpiScale dpi = VisualTreeHelper.GetDpi(host);
+                Console.WriteLine($"再生ホスト検証DPI: x={dpi.DpiScaleX}, y={dpi.DpiScaleY}");
+                Rect rectangle = ExternalPlayerHostObservation.GetRectangle(handle);
+                Assert.AreEqual(587d, rectangle.Width, 1d);
+                Assert.AreEqual(256d, rectangle.Height, 1d);
+                Assert.AreEqual(587d, host.RenderSize.Width * dpi.DpiScaleX, 1d);
+                Assert.AreEqual(256d, host.RenderSize.Height * dpi.DpiScaleY, 1d);
+                var body = (Grid)view.FindName("gridBMSPlayerBody");
+                Point bodyOrigin = body.PointToScreen(new Point());
+                Assert.AreEqual(bodyOrigin.X + body.ActualWidth * dpi.DpiScaleX / 2d, rectangle.X + rectangle.Width / 2d, 1d);
+                Assert.AreEqual(bodyOrigin.Y + body.ActualHeight * dpi.DpiScaleY, rectangle.Bottom, 1d);
+
+                foreach (Visibility overlay in new[] { Visibility.Visible, Visibility.Hidden, Visibility.Collapsed })
+                {
+                    view.OverlayVisibility = overlay;
+                    if (overlay != Visibility.Visible)
+                    {
+                        // MainWindowのOverlay終了入口は、選択面を復元してから通常表示へ戻します。
+                        view.RestoreSelectedSurface();
+                    }
+                    FlushRenderQueue(window);
+                    Assert.AreEqual(overlay == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible, host.Visibility);
+                    Assert.AreEqual(handle, host.Handle);
+                    Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
+                    AssertPlaybackPanelHasNoAnimationClocks(view);
+                }
+                panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+                FlushRenderQueue(window);
+                Assert.AreEqual(Visibility.Collapsed, host.Visibility);
+                Assert.AreEqual(handle, host.Handle);
+                Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+
+                panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER;
+                FlushRenderQueue(window);
+                AssertPlaybackPanelHasTransitionClocks(view, compactTransition: true);
+                window.Content = null;
+                FlushRenderQueue(window);
+                Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
+                window.Content = view;
+                FlushRenderQueue(window);
+                Assert.AreEqual(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
+                Assert.AreEqual(panel.PlayerPanelState, view.EffectivePlayerPanelState);
+                AssertPlaybackPanelFinalState(view, compact: true);
+                AssertPlaybackPanelHasNoAnimationClocks(view);
+                Assert.AreEqual(handle, host.Handle);
+                ExternalPlayerHostObservation.AssertOwnedChild(handle, window);
+            }
+            finally
+            {
+                panel.BeginShutdown();
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.CloseForShutdown(), "external-surface-shutdown"); }
+                finally
+                {
+                    view.DisposePlayerHost();
+                    window.Content = null;
+                    window.Close();
+                    File.Delete(path);
+                }
             }
         });
     }
@@ -2652,6 +2748,7 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally
             {
+                (window.Content as PlaybackPanelView)?.DisposePlayerHost();
                 window.Content = null;
                 window.Close();
             }
@@ -2680,6 +2777,7 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally
             {
+                (window.Content as PlaybackPanelView)?.DisposePlayerHost();
                 window.Content = null;
                 window.Close();
             }
@@ -2713,6 +2811,7 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally
             {
+                (window.Content as PlaybackPanelView)?.DisposePlayerHost();
                 window.Content = null;
                 window.Close();
             }
@@ -2725,15 +2824,18 @@ public sealed class PlaybackPanelViewModelTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var window = new Window { Width = 640d, Height = 360d, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+            var view = new PlaybackPanelView();
             try
             {
                 PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer(), new InMemoryPlaybackSettingsStore());
                 panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
-                var view = new PlaybackPanelView { DataContext = panel };
+                view.DataContext = panel;
                 window.Content = view;
                 windowTest.ShowAndWaitForContentRendered(window);
                 FlushRenderQueue(window);
 
+                IntPtr hostHandle = view.PlayerHostHandle;
+                ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
                 panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
                 FlushRenderQueue(window);
                 AssertPlaybackPanelHasTransitionClocks(view, compactTransition: true);
@@ -2745,17 +2847,22 @@ public sealed class PlaybackPanelViewModelTests
                 window.Content = null;
                 FlushRenderQueue(window);
                 Assert.IsFalse(view.IsLoaded);
+                Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(hostHandle));
+                Assert.AreEqual(hostHandle, view.PlayerHostHandle);
                 AssertPlaybackPanelHasNoAnimationClocks(view);
 
                 panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
                 window.Content = view;
                 FlushRenderQueue(window);
                 Assert.IsTrue(view.IsLoaded);
+                Assert.AreEqual(hostHandle, view.PlayerHostHandle);
+                ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
                 AssertPlaybackPanelFinalState(view, compact: true);
                 AssertPlaybackPanelHasNoAnimationClocks(view);
             }
             finally
             {
+                view.DisposePlayerHost();
                 window.Content = null;
                 window.Close();
             }
@@ -2814,6 +2921,7 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally
             {
+                view.DisposePlayerHost();
                 window.Content = null;
                 window.Close();
             }
@@ -2928,6 +3036,7 @@ public sealed class PlaybackPanelViewModelTests
             }
             finally
             {
+                view.DisposePlayerHost();
                 window.Content = null;
                 if (view.IsLoaded)
                 {

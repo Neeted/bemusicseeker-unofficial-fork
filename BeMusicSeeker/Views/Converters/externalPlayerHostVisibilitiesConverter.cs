@@ -5,8 +5,10 @@ using System.Windows.Data;
 
 namespace BeMusicSeeker.Views;
 
-internal class windowsFormsHostVisibilitiesConverter : IMultiValueConverter
+/// <summary>再生対象・有効状態・オーバーレイから、選択中の外部プレーヤー面の表示を制限します。</summary>
+internal class externalPlayerHostVisibilitiesConverter : IMultiValueConverter
 {
+    /// <summary>オーバーレイ中または再生対象がない場合はホストを非表示にします。</summary>
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
         try
@@ -36,6 +38,7 @@ internal class windowsFormsHostVisibilitiesConverter : IMultiValueConverter
         }
     }
 
+    /// <summary>一方向の表示変換であるため、逆変換はサポートしません。</summary>
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
     {
         throw new NotImplementedException();
