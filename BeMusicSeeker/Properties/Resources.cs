@@ -2327,11 +2327,14 @@ public class Resources
     /// <summary>Historical score as-of label.</summary>
     public static string PlaylistLampViewer_as_of => ResourceManager.GetString("PlaylistLampViewer_as_of", resourceCulture);
 
+    /// <summary>ランプビューアの割合表示。</summary>
+    public static string PlaylistLampViewer_percentage_mode => ResourceManager.GetString("PlaylistLampViewer_percentage_mode", resourceCulture);
+
+    /// <summary>ランプビューアの曲数表示。</summary>
+    public static string PlaylistLampViewer_count_mode => ResourceManager.GetString("PlaylistLampViewer_count_mode", resourceCulture);
+
     /// <summary>Latest score selection label.</summary>
     public static string PlaylistLampViewer_latest => ResourceManager.GetString("PlaylistLampViewer_latest", resourceCulture);
-
-    /// <summary>Historical score unavailable status.</summary>
-    public static string PlaylistLampViewer_historical_unavailable => ResourceManager.GetString("PlaylistLampViewer_historical_unavailable", resourceCulture);
 
     internal Resources()
     {

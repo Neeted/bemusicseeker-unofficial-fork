@@ -3232,8 +3232,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_rank_f" xml:space="preserve"><value>F</value></data>
   <data name="PlaylistLampViewer_rank_np" xml:space="preserve"><value>NP</value></data>
   <data name="PlaylistLampViewer_as_of" xml:space="preserve"><value>基準日</value></data>
+  <data name="PlaylistLampViewer_percentage_mode" xml:space="preserve"><value>割合</value></data>
+  <data name="PlaylistLampViewer_count_mode" xml:space="preserve"><value>曲数</value></data>
   <data name="PlaylistLampViewer_latest" xml:space="preserve"><value>最新</value></data>
-  <data name="PlaylistLampViewer_historical_unavailable" xml:space="preserve"><value>履歴スコア利用不可</value></data>
   <data name="FileDbMutationReport_Title" xml:space="preserve"><value>ファイルとデータベースの操作結果</value></data>
   <data name="FileDbMutationReport_Operation" xml:space="preserve"><value>操作: {0}</value></data>
   <data name="LibraryMutationSessionReport_Counts" xml:space="preserve"><value>確認済みの物理変更: {0} 件

@@ -718,7 +718,11 @@ From a playlist tree item or a single playlist-summary row, choose `Open lamp vi
 
 The top cards show total charts, owned, missing, ownership rate, active score source, and playlist last update. A second card group shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.
 
-The graph area has clear lamps on the left and DJ levels on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use `folder name | 100%-stacked bar | chart count`. Empty ordinary folders remain visible with a count of zero.
+The graph area has clear lamps on the left and DJ levels on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use `folder name | stacked bar | chart count`. Empty ordinary folders remain visible with a count of zero.
+
+Use `Percentage` / `Song count` at the top right to switch the graph display. New windows start in `Percentage`: each folder fills the bar width and segments show percentages. In `Song count`, the largest normal folder fills the width and all other folders use the same scale, making their counts comparable. Segments show counts. Song count here means playlist chart entries. The overall bars fill the width in both modes; only their segment labels change.
+
+A segment label appears only when it fits. Hover over a segment to see its count and percentage; the percentage always refers to that folder's own chart count. Each window keeps its own display mode through date changes and data updates. Newly opened windows start in `Percentage`.
 
 The clear order is `MAX`, `PERFECT`, `FC`, `EXHARD`, `HARD`, `NORMAL`, `EASY`, `ASSIST`, `FAILED`, `NP`. With an LR2 score source, `MAX` and `EXHARD` are omitted from every viewer surface. The DJ level order is `AAA`, `AA`, `A`, `B`, `C`, `D`, `E`, `F`, `NP`; value `MAX` is included in `AAA`. `ASSIST` includes the `INVALID` and `L_ASSIST` clear states. Check missing charts with the `Owned` and `Missing` cards; unplayed charts are counted as `NP`.
 
