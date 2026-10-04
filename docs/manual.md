@@ -216,6 +216,8 @@ Even in standalone mode, you can specify LR2body as the playback application. Th
 
 ### Audio
 
+![Audio Settings](img/設定_オーディオ.PNG)
+
 Configure the internal player's output driver, device, sample rate, format, and volume. Choose `WASAPI (Shared)` (default), `WASAPI (Exclusive)`, or `ASIO`. Selecting a driver and device displays their capabilities. Changing the driver or device resets sample rate and format to Auto; changing the sample rate resets only the format to Auto.
 
 Click `Stop playback and test` to stop current playback and test the output settings being edited. Settings controls are unavailable until the test finishes. Review the result and save the settings you want with `Save and close`. For problems, see [Audio Playback or Conversion Fails](#audio-playback-or-conversion-fails).
