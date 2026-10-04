@@ -1,15 +1,13 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
-using NextSongPreloadInput = BeMusicSeeker.Models.NextSongPreloadInput;
-using NextSongPreloadOwner = BeMusicSeeker.Models.NextSongPreloadOwner;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
@@ -18,6 +16,8 @@ using Ribbit.BMS;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
+using NextSongPreloadInput = BeMusicSeeker.Models.NextSongPreloadInput;
+using NextSongPreloadOwner = BeMusicSeeker.Models.NextSongPreloadOwner;
 
 namespace BeMusicSeeker.Tests;
 

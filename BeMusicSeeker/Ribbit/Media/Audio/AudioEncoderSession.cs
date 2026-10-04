@@ -1,9 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
-using Microsoft.Win32.SafeHandles;
 using ManagedBass;
 using ManagedBass.Enc;
+using Microsoft.Win32.SafeHandles;
 
 namespace Ribbit.Media.Audio;
 
