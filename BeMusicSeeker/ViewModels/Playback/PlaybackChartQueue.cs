@@ -64,7 +64,11 @@ internal sealed class MainChartListPlaybackQueue : IPlaybackChartQueue
     {
         lock (rowGate)
         {
-            if (replacing || index < 0 || index >= chartList.Rows.Count) return null;
+            if (replacing || index < 0 || index >= chartList.Rows.Count)
+            {
+                return null;
+            }
+
             GridRowResolver.TryGetPlaybackChart(chartList.Rows[index], out ChartFile chart);
             return chart;
         }

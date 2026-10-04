@@ -9,7 +9,7 @@ function Get-VerificationRunnerContract {
         [ordered]@{ Name = 'update'; BudgetSeconds = 240; DiagnosticsSegment = 'update' }
         [ordered]@{ Name = 'ProcessIntegration'; BudgetSeconds = 180; DiagnosticsSegment = 'process-integration' }
         [ordered]@{ Name = 'ReleaseAcceptance'; BudgetSeconds = 180; DiagnosticsSegment = 'release-acceptance' }
-        [ordered]@{ Name = 'format'; BudgetSeconds = 120; DiagnosticsSegment = 'format' })
+        [ordered]@{ Name = 'format'; BudgetSeconds = 180; DiagnosticsSegment = 'format' })
 
     return [pscustomobject][ordered]@{
         PhaseDescriptors = $phaseDescriptors

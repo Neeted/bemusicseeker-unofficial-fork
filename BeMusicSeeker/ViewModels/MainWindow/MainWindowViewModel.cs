@@ -1,40 +1,23 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Forms;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
-using Livet.Commands;
 using Livet.EventListeners;
-using Microsoft.VisualBasic.FileIO;
 using NLog;
-using Ribbit.BMS;
 using Ribbit.Logging;
-using Ribbit.Media;
-using Ribbit.Media.Audio;
-using Ribbit.Net;
-using Ribbit.Util;
 using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -5667,7 +5650,10 @@ public partial class MainWindowViewModel : ViewModel,
         if (failure.CommandResult?.SessionReceipt != null)
         {
             if (failure.CommandResult.RegisteredPackages.Count > 0)
+            {
                 FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(failure.CommandResult.RegisteredPackages));
+            }
+
             await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
                 BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.SessionReceipt, failure.Exception);
             return;

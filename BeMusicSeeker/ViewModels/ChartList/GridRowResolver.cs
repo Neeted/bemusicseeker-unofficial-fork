@@ -2,7 +2,6 @@ using System;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -66,7 +65,11 @@ internal static class GridRowResolver
     /// <summary>内蔵再生対象を形式共通の譜面として固定します。bmsonのBMS保存行を偽造しません。</summary>
     internal static bool TryGetPlaybackChart(object row, out ChartFile chart)
     {
-        if (TryGetChartFile(row, out chart)) return true;
+        if (TryGetChartFile(row, out chart))
+        {
+            return true;
+        }
+
         if (TryGetBmsPlayerFile(row, out BMSFile bms))
         {
             chart = ChartFileProjection.FromBmsFile(bms, includeResourceReferences: false);

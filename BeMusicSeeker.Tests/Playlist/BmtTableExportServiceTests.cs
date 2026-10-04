@@ -58,9 +58,13 @@ public sealed class BmtTableExportServiceTests
                 Assert.AreEqual(lockedPath, completedResult.Failures.Single().Path);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(completedResult.Failures.Single().Cause));
                 if (route is "cleanup" or "full" or "remove")
+                {
                     Assert.IsTrue(manifest["playlists"] == null || !manifest["playlists"]!.HasValues);
+                }
                 else
+                {
                     Assert.AreEqual("https://example.com/new", manifest["playlists"]!["1"]!["url"]!.Value<string>());
+                }
             }
             BmtTableExportService.CleanupManagedFiles(directory);
             Assert.IsFalse(File.Exists(lockedPath), "後続の通常 cleanup で残留を回収する。");
@@ -126,7 +130,10 @@ public sealed class BmtTableExportServiceTests
             File.WriteAllText(manifestPath, "{\"files\":[]}");
             byte[] original = File.ReadAllBytes(manifestPath);
             using (var held = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
                 AssertBmtFailure(() => BmtTableExportService.ExportTableData(directory, CreateSimpleTableData("https://example.com/new", "New"), "1"));
+            }
+
             CollectionAssert.AreEqual(original, File.ReadAllBytes(manifestPath));
             Assert.AreEqual(0, Directory.GetFiles(directory, "*.bmt").Length);
         });
@@ -170,7 +177,11 @@ public sealed class BmtTableExportServiceTests
                 """);
             // JObject の Date 自動変換を避け、文字列型の cache / name を入力として保証する。
             manifest["playlists"]!["1"]!["name"] = "2026-09-06T12:00:00Z";
-            if (schema >= 0) manifest["schemaVersion"] = schema;
+            if (schema >= 0)
+            {
+                manifest["schemaVersion"] = schema;
+            }
+
             File.WriteAllText(Path.Combine(directory, BmtTableExportService.ManifestFileName), manifest.ToString());
             BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(directory, new[] { CreateExportMetadata("1", "https://example.com/one", "Name") }, false);
             Assert.AreEqual(3, BmtTableExportService.ReadManagedTableUrls(directory).Count);

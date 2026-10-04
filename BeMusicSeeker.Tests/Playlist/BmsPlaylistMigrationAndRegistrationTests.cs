@@ -3,23 +3,18 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-using Ribbit.Util.Extensions;
 
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
@@ -2135,7 +2130,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             IReadOnlyList<BmtTableExportService.FileOperationFailure>? reported = null;
             playlist.BmtOutput.FailureReporter = failures => reported = failures;
             using (playlist.OperationNotificationOwner.BeginSession())
+            {
                 playlist.BmtOutput.QueueBeatorajaBmtExportAll("failure_contract");
+            }
+
             using (var held = new FileStream(failureKind == "delete" ? stalePath : manifestPath,
                 FileMode.Open, FileAccess.Read, failureKind == "read" ? FileShare.None : FileShare.ReadWrite))
             using (FileStream? heldStale = failureKind == "delete-and-publish"
@@ -2150,11 +2148,19 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             Assert.AreEqual(1, capturedReports.Count);
             Assert.IsFalse(string.IsNullOrWhiteSpace(capturedReports[0].Cause));
             if (failureKind == "delete")
+            {
                 Assert.AreEqual(stalePath, capturedReports[0].Path);
+            }
             else
+            {
                 StringAssert.Contains(capturedReports[0].Cause, manifestPath);
+            }
+
             if (failureKind == "delete-and-publish")
+            {
                 StringAssert.Contains(capturedReports[0].Cause, stalePath);
+            }
+
             Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
         }
         finally { Directory.Delete(directory, recursive: true); }

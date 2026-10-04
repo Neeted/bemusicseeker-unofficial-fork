@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;

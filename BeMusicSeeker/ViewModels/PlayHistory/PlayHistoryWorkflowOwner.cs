@@ -196,7 +196,11 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     internal void QueueSort(MainChartListSortRequestedEventArgs request)
     {
-        if (request == null) throw new ArgumentNullException(nameof(request));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
         if (request.Target != MainChartListSortTarget.PlayHistory)
         {
             throw new ArgumentException("A play-history sort request is required.", nameof(request));
@@ -392,8 +396,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             cardsChanged = PresentationState.SetSummaryCards([]);
             diagnosticChanged = PresentationState.SetDiagnosticText(string.Empty);
         }
-        if (cardsChanged) RaisePropertyChanged(nameof(SummaryCards));
-        if (diagnosticChanged) RaisePropertyChanged(nameof(SummaryDiagnosticText));
+        if (cardsChanged)
+        {
+            RaisePropertyChanged(nameof(SummaryCards));
+        }
+
+        if (diagnosticChanged)
+        {
+            RaisePropertyChanged(nameof(SummaryDiagnosticText));
+        }
     }
 
     private void PruneSummaryFilters(PlayHistoryProvider provider)
@@ -713,8 +724,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             throw new ArgumentException("A complete play-history terminal request is required.", nameof(request));
         }
-        if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
-        if (playlistWorkspace == null) throw new ArgumentNullException(nameof(playlistWorkspace));
+        if (mainChartList == null)
+        {
+            throw new ArgumentNullException(nameof(mainChartList));
+        }
+
+        if (playlistWorkspace == null)
+        {
+            throw new ArgumentNullException(nameof(playlistWorkspace));
+        }
 
         var result = new PlayHistoryTerminalCommitResult();
         bool CommitPlayHistoryPresentation(Action commitRows)
@@ -798,8 +816,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             throw new ArgumentException("A complete play-history presentation request is required.", nameof(request));
         }
-        if (stopwatch == null) throw new ArgumentNullException(nameof(stopwatch));
-        if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
+        if (stopwatch == null)
+        {
+            throw new ArgumentNullException(nameof(stopwatch));
+        }
+
+        if (mainChartList == null)
+        {
+            throw new ArgumentNullException(nameof(mainChartList));
+        }
 
         PlayHistoryViewState state = request.State;
         IReadOnlyList<PlayHistoryRow> sortedRows = request.SortedRows;

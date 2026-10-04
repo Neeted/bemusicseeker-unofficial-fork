@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 using Newtonsoft.Json;

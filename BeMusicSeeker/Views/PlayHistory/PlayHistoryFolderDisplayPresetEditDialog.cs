@@ -1,5 +1,4 @@
 using System.Windows;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 

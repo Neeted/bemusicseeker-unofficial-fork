@@ -202,56 +202,164 @@ internal sealed class CatalogChartInfoOwner
 
     internal bool HydrationRunningState
     {
-        get { lock (hydrationGate) return hydrationRunning; }
-        set { lock (hydrationGate) hydrationRunning = value; }
+        get
+        {
+            lock (hydrationGate)
+            {
+                return hydrationRunning;
+            }
+        }
+        set
+        {
+            lock (hydrationGate)
+            {
+                hydrationRunning = value;
+            }
+        }
     }
 
     internal bool HydrationPending
     {
-        get { lock (hydrationGate) return hydrationPending; }
-        set { lock (hydrationGate) hydrationPending = value; }
+        get
+        {
+            lock (hydrationGate)
+            {
+                return hydrationPending;
+            }
+        }
+        set
+        {
+            lock (hydrationGate)
+            {
+                hydrationPending = value;
+            }
+        }
     }
 
     internal string HydrationPendingReason
     {
-        get { lock (hydrationGate) return hydrationPendingReason; }
-        set { lock (hydrationGate) hydrationPendingReason = value; }
+        get
+        {
+            lock (hydrationGate)
+            {
+                return hydrationPendingReason;
+            }
+        }
+        set
+        {
+            lock (hydrationGate)
+            {
+                hydrationPendingReason = value;
+            }
+        }
     }
 
     internal bool HydrationPendingQueueBackfill
     {
-        get { lock (hydrationGate) return hydrationPendingQueueBackfill; }
-        set { lock (hydrationGate) hydrationPendingQueueBackfill = value; }
+        get
+        {
+            lock (hydrationGate)
+            {
+                return hydrationPendingQueueBackfill;
+            }
+        }
+        set
+        {
+            lock (hydrationGate)
+            {
+                hydrationPendingQueueBackfill = value;
+            }
+        }
     }
 
     internal int HydrationRequestedVersionState
     {
-        get { lock (hydrationGate) return hydrationRequestedVersion; }
-        set { lock (hydrationGate) hydrationRequestedVersion = value; }
+        get
+        {
+            lock (hydrationGate)
+            {
+                return hydrationRequestedVersion;
+            }
+        }
+        set
+        {
+            lock (hydrationGate)
+            {
+                hydrationRequestedVersion = value;
+            }
+        }
     }
 
     internal int ChartInfoBackfillRequestedVersionState
     {
-        get { lock (backfillGate) return chartInfoBackfillRequestedVersion; }
-        set { lock (backfillGate) chartInfoBackfillRequestedVersion = value; }
+        get
+        {
+            lock (backfillGate)
+            {
+                return chartInfoBackfillRequestedVersion;
+            }
+        }
+        set
+        {
+            lock (backfillGate)
+            {
+                chartInfoBackfillRequestedVersion = value;
+            }
+        }
     }
 
     internal int ChartInfoBackfillCompletedVersionState
     {
-        get { lock (backfillGate) return chartInfoBackfillCompletedVersion; }
-        set { lock (backfillGate) chartInfoBackfillCompletedVersion = value; }
+        get
+        {
+            lock (backfillGate)
+            {
+                return chartInfoBackfillCompletedVersion;
+            }
+        }
+        set
+        {
+            lock (backfillGate)
+            {
+                chartInfoBackfillCompletedVersion = value;
+            }
+        }
     }
 
     internal int ChartInfoBackfillHydrationBypassUntilVersion
     {
-        get { lock (backfillGate) return chartInfoBackfillHydrationBypassUntilVersion; }
-        set { lock (backfillGate) chartInfoBackfillHydrationBypassUntilVersion = value; }
+        get
+        {
+            lock (backfillGate)
+            {
+                return chartInfoBackfillHydrationBypassUntilVersion;
+            }
+        }
+        set
+        {
+            lock (backfillGate)
+            {
+                chartInfoBackfillHydrationBypassUntilVersion = value;
+            }
+        }
     }
 
     internal ChartInfoHydrationAllCurrentSnapshot HydrationAllCurrentSnapshot
     {
-        get { lock (hydrationGate) return hydrationAllCurrentSnapshot; }
-        set { lock (hydrationGate) hydrationAllCurrentSnapshot = value; }
+        get
+        {
+            lock (hydrationGate)
+            {
+                return hydrationAllCurrentSnapshot;
+            }
+        }
+        set
+        {
+            lock (hydrationGate)
+            {
+                hydrationAllCurrentSnapshot = value;
+            }
+        }
     }
 
     internal bool ChartInfoHydrationRunning
@@ -364,14 +472,38 @@ internal sealed class CatalogChartInfoOwner
 
     internal int ChartInfoIndexVersion
     {
-        get { lock (indexGate) return chartInfoIndexVersionValue; }
-        set { lock (indexGate) chartInfoIndexVersionValue = value; }
+        get
+        {
+            lock (indexGate)
+            {
+                return chartInfoIndexVersionValue;
+            }
+        }
+        set
+        {
+            lock (indexGate)
+            {
+                chartInfoIndexVersionValue = value;
+            }
+        }
     }
 
     internal bool ChartInfoIndexHydrated
     {
-        get { lock (indexGate) return chartInfoIndexHydratedValue; }
-        set { lock (indexGate) chartInfoIndexHydratedValue = value; }
+        get
+        {
+            lock (indexGate)
+            {
+                return chartInfoIndexHydratedValue;
+            }
+        }
+        set
+        {
+            lock (indexGate)
+            {
+                chartInfoIndexHydratedValue = value;
+            }
+        }
     }
 
     internal bool HydrationReadyForInstallableMaintenance
@@ -1397,7 +1529,13 @@ internal sealed class CatalogChartInfoOwner
 
     internal bool IsIndexHydrated
     {
-        get { lock (indexGate) return chartInfoIndexHydratedValue; }
+        get
+        {
+            lock (indexGate)
+            {
+                return chartInfoIndexHydratedValue;
+            }
+        }
     }
 
     private LR2SongDBExtended.chart_info ResolveChartInfoFromIndex(string sha256, string md5)

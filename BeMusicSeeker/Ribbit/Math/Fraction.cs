@@ -24,7 +24,11 @@ public readonly struct Fraction : IComparable<Fraction>, IEquatable<Fraction>
     /// <summary>分母ゼロを拒否し、符号と既約性を正規化します。</summary>
     public Fraction(BigInteger numerator, BigInteger denominator)
     {
-        if (denominator.IsZero) throw new DivideByZeroException();
+        if (denominator.IsZero)
+        {
+            throw new DivideByZeroException();
+        }
+
         if (denominator.Sign < 0) { numerator = -numerator; denominator = -denominator; }
         var gcd = BigInteger.GreatestCommonDivisor(BigInteger.Abs(numerator), denominator);
         this.numerator = numerator / gcd;
@@ -36,7 +40,11 @@ public readonly struct Fraction : IComparable<Fraction>, IEquatable<Fraction>
     {
         int[] bits = decimal.GetBits(value);
         BigInteger coefficient = (uint)bits[0] | ((BigInteger)(uint)bits[1] << 32) | ((BigInteger)(uint)bits[2] << 64);
-        if (bits[3] < 0) coefficient = -coefficient;
+        if (bits[3] < 0)
+        {
+            coefficient = -coefficient;
+        }
+
         this = new Fraction(coefficient, BigInteger.Pow(10, (bits[3] >> 16) & 255));
     }
 
@@ -53,13 +61,25 @@ public readonly struct Fraction : IComparable<Fraction>, IEquatable<Fraction>
     /// <summary>分子分母の上位bitと相対scaleから表示用のdoubleを生成します。</summary>
     public double ToDouble()
     {
-        if (numerator.IsZero) return 0;
+        if (numerator.IsZero)
+        {
+            return 0;
+        }
+
         var absolute = BigInteger.Abs(numerator);
         long numeratorShift = System.Math.Max(0, absolute.GetBitLength() - 54);
         long denominatorShift = System.Math.Max(0, Denominator.GetBitLength() - 54);
         long exponent = numeratorShift - denominatorShift;
-        if (exponent > 1100) return numerator.Sign > 0 ? double.PositiveInfinity : double.NegativeInfinity;
-        if (exponent < -1100) return numerator.Sign > 0 ? 0d : -0d;
+        if (exponent > 1100)
+        {
+            return numerator.Sign > 0 ? double.PositiveInfinity : double.NegativeInfinity;
+        }
+
+        if (exponent < -1100)
+        {
+            return numerator.Sign > 0 ? 0d : -0d;
+        }
+
         double ratio = (double)(absolute >> checked((int)numeratorShift)) / (double)(Denominator >> checked((int)denominatorShift));
         return numerator.Sign * System.Math.ScaleB(ratio, (int)exponent);
     }
@@ -80,8 +100,16 @@ public readonly struct Fraction : IComparable<Fraction>, IEquatable<Fraction>
     /// <summary>分母のGCDと、和の分子との残りの共通因数を除去します。</summary>
     public static Fraction operator +(Fraction left, Fraction right)
     {
-        if (left.Numerator.IsZero) return right;
-        if (right.Numerator.IsZero) return left;
+        if (left.Numerator.IsZero)
+        {
+            return right;
+        }
+
+        if (right.Numerator.IsZero)
+        {
+            return left;
+        }
+
         var gcd = BigInteger.GreatestCommonDivisor(left.Denominator, right.Denominator);
         BigInteger leftScale = right.Denominator / gcd;
         BigInteger rightScale = left.Denominator / gcd;
@@ -96,7 +124,11 @@ public readonly struct Fraction : IComparable<Fraction>, IEquatable<Fraction>
     /// <summary>交差約分を行ってから乗算します。</summary>
     public static Fraction operator *(Fraction left, Fraction right)
     {
-        if (left.Numerator.IsZero || right.Numerator.IsZero) return Zero;
+        if (left.Numerator.IsZero || right.Numerator.IsZero)
+        {
+            return Zero;
+        }
+
         var a = BigInteger.GreatestCommonDivisor(BigInteger.Abs(left.Numerator), right.Denominator);
         var b = BigInteger.GreatestCommonDivisor(BigInteger.Abs(right.Numerator), left.Denominator);
         return new Fraction((left.Numerator / a) * (right.Numerator / b), (left.Denominator / b) * (right.Denominator / a), true);
@@ -104,8 +136,16 @@ public readonly struct Fraction : IComparable<Fraction>, IEquatable<Fraction>
     /// <summary>ゼロ除算を拒否し、交差約分してから除算します。</summary>
     public static Fraction operator /(Fraction left, Fraction right)
     {
-        if (right.Numerator.IsZero) throw new DivideByZeroException();
-        if (left.Numerator.IsZero) return Zero;
+        if (right.Numerator.IsZero)
+        {
+            throw new DivideByZeroException();
+        }
+
+        if (left.Numerator.IsZero)
+        {
+            return Zero;
+        }
+
         var a = BigInteger.GreatestCommonDivisor(BigInteger.Abs(left.Numerator), BigInteger.Abs(right.Numerator));
         var b = BigInteger.GreatestCommonDivisor(left.Denominator, right.Denominator);
         BigInteger n = (left.Numerator / a) * (right.Denominator / b);

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Wasapi;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 

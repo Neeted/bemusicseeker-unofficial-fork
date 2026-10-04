@@ -11,7 +11,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Tests.Helpers;
 using ManagedBass;
-using ManagedBass.Enc;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.BMS;
 using Ribbit.Media;

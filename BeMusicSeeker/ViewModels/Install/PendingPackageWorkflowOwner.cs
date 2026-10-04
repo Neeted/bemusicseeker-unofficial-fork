@@ -4,7 +4,6 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -1420,8 +1419,11 @@ internal sealed class PendingPackageWorkflowOwner
             }
         }
         if (failures.Count > 1 && failures[0].SourceException is LibraryChartRemovalException removalFailure)
+        {
             throw new LibraryChartRemovalException(removalFailure.Outcome,
                 new AggregateException(failures.Select(failure => failure.SourceException)));
+        }
+
         ThrowFailures(failures);
         return true;
     }

@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

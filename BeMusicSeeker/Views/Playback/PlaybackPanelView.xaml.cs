@@ -56,7 +56,11 @@ public partial class PlaybackPanelView : UserControl
     {
         get
         {
-            if (_panelImage != null) return _panelImage;
+            if (_panelImage != null)
+            {
+                return _panelImage;
+            }
+
             if (PlaybackPanel.UseExternalPanelImage)
             {
                 try
@@ -442,10 +446,17 @@ public partial class PlaybackPanelView : UserControl
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Collapsed);
     private static void RestoreVisibilityBinding(UIElement element, Visibility visibility)
     {
-        if (element == null) return;
+        if (element == null)
+        {
+            return;
+        }
+
         MultiBinding binding = BindingOperations.GetMultiBindingExpression(element, UIElement.VisibilityProperty)?.ParentMultiBinding;
         element.Visibility = visibility;
-        if (binding != null) BindingOperations.SetBinding(element, UIElement.VisibilityProperty, binding);
+        if (binding != null)
+        {
+            BindingOperations.SetBinding(element, UIElement.VisibilityProperty, binding);
+        }
     }
 
     public void RestoreSelectedSurface() => ApplySelectedSurface(PlaybackPanel, PlaybackPanel.PlayerPanelState);
@@ -460,10 +471,26 @@ public partial class PlaybackPanelView : UserControl
 
     private bool IsBmsPlayerSurfaceAvailable(PlaybackPanelViewModel playbackPanel)
     {
-        if (playbackPanel == null || windowsFormsHost == null || !windowsFormsHost.IsEnabled) return false;
-        if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay) return false;
-        if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay) return true;
-        if (playbackPanel.UsesLr2Body) return false;
+        if (playbackPanel == null || windowsFormsHost == null || !windowsFormsHost.IsEnabled)
+        {
+            return false;
+        }
+
+        if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
+        {
+            return false;
+        }
+
+        if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
+        {
+            return true;
+        }
+
+        if (playbackPanel.UsesLr2Body)
+        {
+            return false;
+        }
+
         return playbackPanel.UsesBmiIdxView;
     }
 
@@ -491,11 +518,22 @@ public partial class PlaybackPanelView : UserControl
             state,
             IsBmsPlayerSurfaceAvailable(playbackPanel));
         EffectivePlayerPanelState = resolvedState;
-        if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
+        if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER))
+        {
+            ShowBmsPlayer();
+        }
+        else
+        {
+            CollapseBmsPlayer();
+        }
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
-        if (isClosingOrClosed) return;
+        if (isClosingOrClosed)
+        {
+            return;
+        }
+
         PlaybackPanel.RotatePanelState(IsBmsPlayerSurfaceAvailable(PlaybackPanel));
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender, RoutedEventArgs e) => PlaybackPanel.ToggleCompactPanel();

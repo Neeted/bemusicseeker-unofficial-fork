@@ -618,7 +618,9 @@ internal sealed class StartupUpdateWorkflowOwner
     private Task DispatchToUiAsync(Func<Task> action)
     {
         if (action == null)
+        {
             throw new ArgumentNullException(nameof(action));
+        }
 
         TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         try

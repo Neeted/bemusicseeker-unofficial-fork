@@ -7,14 +7,11 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
-using Livet;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
@@ -2182,9 +2179,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.AreEqual(1, initialInfo.wav_files_defined);
             Assert.AreEqual(0, initialInfo.wav_files_existing);
             if (bmson)
+            {
                 bmsonSong!.MaintenanceInfo = initialInfo;
+            }
             else
+            {
                 bmsFile!.SetMaintenanceInfo(initialInfo, suppressPropertyChanged: true);
+            }
+
             chart = bmson ? ChartFileProjection.FromBmsonSong(bmsonSong!) : ChartFileProjection.FromBmsFile(bmsFile!);
             Assert.IsTrue(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(chart)
                 .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -2192,9 +2194,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(db);
                 if (bmson)
+                {
                     db.InsertOrReplace(bmsonSong!, typeof(LR2SongDBExtended.bmson_song));
+                }
                 else
+                {
                     db.InsertOrReplace(bmsFile!.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+
                 db.InsertOrReplace(initialInfo, typeof(LR2SongDBExtended.maintenance));
                 if (failMaintenance)
                 {
@@ -2216,7 +2223,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
                     return;
+                }
+
                 refreshCount++;
                 using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("repair_health_notification_probe");
                 notifiedWithLeaseHeld |= probe == null;
@@ -2724,8 +2734,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     songDb.InsertOrReplace(movedSong, typeof(LR2SongDBExtended.bmson_song));
                     songDb.InsertOrReplace(siblingSong, typeof(LR2SongDBExtended.bmson_song));
                     if (catalogFailure)
+                    {
                         songDb.Execute("CREATE TRIGGER fail_repair_delete BEFORE DELETE ON bmson_song WHEN OLD.path = '"
                             + sourceChartPath.Replace("'", "''") + "' BEGIN SELECT RAISE(ABORT, 'repair-deletion-fault'); END;");
+                    }
                 }
                 var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
                 library.BmsonSongs = [sourceSong, installedSong, movedSong, siblingSong];

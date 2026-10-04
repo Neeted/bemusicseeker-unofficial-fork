@@ -21,7 +21,9 @@ public sealed class AudioFrameMathTests
         Assert.AreEqual(0L, first.ToSourceFrame(32000));
         Assert.AreEqual(1L, third.ToSourceFrame(32000));
         foreach (long ticks in new long[] { -300, 0, 100, 150000, 9999999999 })
+        {
             Assert.AreEqual(AudioFrameMath.TimeToFrame(TimeSpan.FromTicks(ticks), 48000), PlaybackTime.FromTimeSpan(TimeSpan.FromTicks(ticks)).ToOutputFrame(48000));
+        }
     }
 
     [TestMethod]

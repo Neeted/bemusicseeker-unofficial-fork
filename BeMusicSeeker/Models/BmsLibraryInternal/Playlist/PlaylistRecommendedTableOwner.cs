@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -12,7 +11,6 @@ using BeMusicSeeker.Properties;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

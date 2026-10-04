@@ -127,7 +127,11 @@ internal sealed class BmsAudioFrameSchedule
     {
         ArgumentNullException.ThrowIfNull(chart);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
-        if (chart.Bms is BMSFile bms) return Create(bms, sampleRate);
+        if (chart.Bms is BMSFile bms)
+        {
+            return Create(bms, sampleRate);
+        }
+
         var resolved = new List<BmsAudioFrameEvent>(chart.AudioEvents.Count);
         foreach (PlaybackAudioEvent item in CoalesceContinuationRuns(chart.AudioEvents))
         {

@@ -1839,7 +1839,10 @@ public sealed class PackageInstallWorkflowOwnerTests
             var failed = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner.RefreshSuppressionChanged += (_, args) =>
             {
-                if (failSuppressionCleanup && !args.IsSuppressed) throw cleanupFailure;
+                if (failSuppressionCleanup && !args.IsSuppressed)
+                {
+                    throw cleanupFailure;
+                }
             };
             void RecordTerminalAdmission()
             {
@@ -2343,7 +2346,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
-                    lock (notifications) notifications.Enqueue(action);
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                    }
+
                     return true;
                 },
                 reportedFailures.Add);
@@ -2368,7 +2375,11 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
         finally
         {
-            if (owner != null) await owner.WaitForIdleAsync();
+            if (owner != null)
+            {
+                await owner.WaitForIdleAsync();
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }

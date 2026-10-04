@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using BeMusicSeeker.Tests.Helpers;
-using ManagedBass;
 using ManagedBass.Enc;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;

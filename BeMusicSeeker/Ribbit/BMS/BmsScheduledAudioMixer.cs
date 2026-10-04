@@ -380,11 +380,22 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
             // 最後のpriorだけを選ばず、半開区間に含まれるすべての独立voiceを復元します。
             foreach (BmsAudioFrameEvent activeEvent in schedule.Events)
             {
-                if (activeEvent.StartFrame >= segmentStartSongFrame) break;
+                if (activeEvent.StartFrame >= segmentStartSongFrame)
+                {
+                    break;
+                }
+
                 if ((uint)activeEvent.WavIndex >= (uint)resourcesByIndex.Count)
+                {
                     throw CreateFailure("resource index", activeEvent, 0, currentMixerFrame: null);
+                }
+
                 BmsAudioResource? resource = resourcesByIndex[activeEvent.WavIndex];
-                if (resource == null || resource.IsEmpty) continue;
+                if (resource == null || resource.IsEmpty)
+                {
+                    continue;
+                }
+
                 long endFrame = GetEndFrame(activeEvent, resource);
                 if (segmentStartSongFrame < endFrame)
                 {
@@ -719,7 +730,11 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
 
     private long GetEndFrame(BmsAudioFrameEvent audioEvent, BmsAudioResource resource)
     {
-        if (audioEvent.EndFrame is long resolvedEnd) return resolvedEnd;
+        if (audioEvent.EndFrame is long resolvedEnd)
+        {
+            return resolvedEnd;
+        }
+
         long naturalEnd = checked(audioEvent.StartFrame + resource.GetOutputFrameCount(sampleRate));
         return audioEvent.NextSameIndexStartFrame is long nextStart
             ? System.Math.Min(naturalEnd, nextStart)

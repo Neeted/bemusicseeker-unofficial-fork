@@ -1,10 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
-using ManagedBass;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -185,7 +183,10 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
     private long GetRenderFrameCount(int outputSampleRate)
     {
         if (base.Chart.Bms == null)
+        {
             return base.AudioSchedule.Events.Select(item => item.EndFrame ?? item.StartFrame).DefaultIfEmpty(0).Max();
+        }
+
         long totalFrames = AudioFrameMath.TimeToFrame(base.Duration, outputSampleRate);
         foreach (BmsAudioFrameEvent audioEvent in base.AudioSchedule.Events)
         {

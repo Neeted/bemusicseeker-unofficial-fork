@@ -35,7 +35,11 @@ internal static class BmsonPlaybackParser
         {
             byte[] bytes = File.ReadAllBytes(path);
             ReadOnlyMemory<byte> json = bytes;
-            if (bytes.AsSpan().StartsWith(new byte[] { 0xef, 0xbb, 0xbf })) json = json[3..];
+            if (bytes.AsSpan().StartsWith(new byte[] { 0xef, 0xbb, 0xbf }))
+            {
+                json = json[3..];
+            }
+
             using var document = JsonDocument.Parse(json);
             return Parse(document.RootElement, path, Convert.ToHexStringLower(MD5.HashData(bytes)));
         }
@@ -52,19 +56,31 @@ internal static class BmsonPlaybackParser
         JsonElement info = Get(root, "info");
         RequireObject(info);
         JsonElement version = Get(root, "version");
-        if (version.ValueKind == JsonValueKind.Null) throw new InvalidDataException("version cannot be null.");
+        if (version.ValueKind == JsonValueKind.Null)
+        {
+            throw new InvalidDataException("version cannot be null.");
+        }
+
         string versionText = Text(version);
         bool legacy = versionText == "0.21" || (version.ValueKind == JsonValueKind.Undefined
             && (Has(root, "soundChannel") || Has(root, "bpmNotes") || Has(root, "stopNotes") || Has(info, "initBPM")));
         BigInteger resolution = legacy ? 240 : Integer(Get(info, "resolution"), 240, allowNull: true);
         resolution = BigInteger.Abs(resolution);
-        if (resolution.IsZero) resolution = 240;
+        if (resolution.IsZero)
+        {
+            resolution = 240;
+        }
+
         Fraction initialBpm = Positive(Number(Alias(info, "init_bpm", "initBPM")), "initial BPM");
         Fraction minBpm = initialBpm, maxBpm = initialBpm;
         var boundaries = new SortedDictionary<BigInteger, Boundary>();
         Boundary At(BigInteger pulse)
         {
-            if (!boundaries.TryGetValue(pulse, out Boundary? value)) boundaries.Add(pulse, value = new Boundary());
+            if (!boundaries.TryGetValue(pulse, out Boundary? value))
+            {
+                boundaries.Add(pulse, value = new Boundary());
+            }
+
             return value;
         }
         foreach (JsonElement item in Array(Alias(root, "bpm_events", "bpmNotes")))
@@ -73,16 +89,31 @@ internal static class BmsonPlaybackParser
             Fraction bpm = Number(Alias(item, "bpm", "v"));
             // 実譜面にある有限の0/負BPM変更は通常プレイヤー同様に無効として飛ばします。
             // 初期BPMの必須・正値契約とは分け、旧有効BPMとmin/maxを維持します。
-            if (bpm <= Fraction.Zero) continue;
+            if (bpm <= Fraction.Zero)
+            {
+                continue;
+            }
+
             At(y).Bpm = bpm;
-            if (bpm < minBpm) minBpm = bpm;
-            if (bpm > maxBpm) maxBpm = bpm;
+            if (bpm < minBpm)
+            {
+                minBpm = bpm;
+            }
+
+            if (bpm > maxBpm)
+            {
+                maxBpm = bpm;
+            }
         }
         foreach (JsonElement item in Array(Alias(root, "stop_events", "stopNotes")))
         {
             BigInteger y = Position(Get(item, "y"));
             Fraction duration = Number(Alias(item, "duration", "v"));
-            if (duration < Fraction.Zero) throw new InvalidDataException("STOP duration must be nonnegative.");
+            if (duration < Fraction.Zero)
+            {
+                throw new InvalidDataException("STOP duration must be nonnegative.");
+            }
+
             At(y).Stop += duration;
         }
         At(BigInteger.Zero);
@@ -103,7 +134,11 @@ internal static class BmsonPlaybackParser
                 controls.Add(new PlaybackControl(arrival, PlaybackControlKind.Bpm, bpm.ToDouble(), default));
             }
             var stop = PlaybackTime.FromTicks(Ticks(boundary.Stop, effectiveBpm));
-            if (stop.Subticks.Sign > 0) controls.Add(new PlaybackControl(arrival, PlaybackControlKind.Stop, 0, stop));
+            if (stop.Subticks.Sign > 0)
+            {
+                controls.Add(new PlaybackControl(arrival, PlaybackControlKind.Stop, 0, stop));
+            }
+
             clock += stop;
             _ = clock.ToTimeSpan();
             anchors.Add(new Anchor(pulse, arrival, clock, effectiveBpm));
@@ -115,7 +150,14 @@ internal static class BmsonPlaybackParser
             while (low < high)
             {
                 int middle = low + (high - low) / 2;
-                if (anchors[middle].Pulse <= pulse) low = middle + 1; else high = middle;
+                if (anchors[middle].Pulse <= pulse)
+                {
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle;
+                }
             }
             Anchor anchor = anchors[low - 1];
             PlaybackTime time = pulse == anchor.Pulse ? anchor.Arrival
@@ -138,7 +180,11 @@ internal static class BmsonPlaybackParser
             if (previous != null && previous.Head == note.Head)
             {
                 // 同長の正常layerは一つに数え、競合では先に採用したnormal/LNを維持します。
-                if (previous.Length != note.Length) ignoredPlayableNotes++;
+                if (previous.Length != note.Length)
+                {
+                    ignoredPlayableNotes++;
+                }
+
                 return;
             }
             // 採用LNは重ならないため、直前headの末尾と次headの範囲検索だけで判定できます。
@@ -174,13 +220,21 @@ internal static class BmsonPlaybackParser
                 }
             }
             // channel順を保ち、channel内だけyでstableに登録します。音声groupの採否には使いません。
-            foreach ((BigInteger lane, ProgressNote note) in playable.OrderBy(item => item.Note.Head)) RegisterPlayable(lane, note);
+            foreach ((BigInteger lane, ProgressNote note) in playable.OrderBy(item => item.Note.Head))
+            {
+                RegisterPlayable(lane, note);
+            }
+
             KeyValuePair<BigInteger, bool>[] values = groups.ToArray();
             PlaybackTime restartTime = default;
             for (int i = 0; i < values.Length; i++)
             {
                 PlaybackTime time = TimeAt(values[i].Key);
-                if (i == 0 || !values[i].Value) restartTime = time;
+                if (i == 0 || !values[i].Value)
+                {
+                    restartTime = time;
+                }
+
                 PlaybackTime? end = i + 1 < values.Length && values[i + 1].Value ? TimeAt(values[i + 1].Key) : null;
                 audio.Add(new PlaybackAudioEvent(resourceIndex, time, time - restartTime,
                     end is PlaybackTime finite ? finite - restartTime : null, end, stableOrder++));
@@ -190,7 +244,10 @@ internal static class BmsonPlaybackParser
         foreach (ProgressNote note in playableByLane.Values.SelectMany(notes => notes))
         {
             countPositions.Add(note.Head);
-            if (note.Length > 0) countPositions.Add(note.Head + note.Length);
+            if (note.Length > 0)
+            {
+                countPositions.Add(note.Head + note.Length);
+            }
         }
         // release layerは既存のLN終端へ対応する表示情報であり、追加判定位置を生成しません。
         JsonElement lines = Get(root, "lines");
@@ -198,7 +255,10 @@ internal static class BmsonPlaybackParser
         {
             BigInteger step = resolution * 4;
             int count = checked((int)(lastPulse / step));
-            for (int i = 1; i <= count; i++) controls.Add(new PlaybackControl(TimeAt(step * i), PlaybackControlKind.BarLine, 0, default));
+            for (int i = 1; i <= count; i++)
+            {
+                controls.Add(new PlaybackControl(TimeAt(step * i), PlaybackControlKind.BarLine, 0, default));
+            }
         }
         else
         {
@@ -210,7 +270,11 @@ internal static class BmsonPlaybackParser
             }
         }
         PlaybackTime durationTime = TimeAt(lastPulse);
-        if (clock.CompareTo(durationTime) > 0) durationTime = clock;
+        if (clock.CompareTo(durationTime) > 0)
+        {
+            durationTime = clock;
+        }
+
         var chart = new PlaybackChart(path, hash, Text(Get(info, "title")), Text(Get(info, "subtitle")),
             Text(Get(info, "artist")), string.Join(" ", Array(Get(info, "subartists")).Select(Text)), Text(Get(info, "genre")),
             initialBpm, minBpm, maxBpm, OptionalNumber(Get(info, "total"), 100).ToDouble(),
@@ -226,13 +290,27 @@ internal static class BmsonPlaybackParser
     private static JsonElement Get(JsonElement obj, string name) => obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out JsonElement value) ? value : default;
     private static bool Has(JsonElement obj, string name) => obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out _);
     private static JsonElement Alias(JsonElement obj, string modern, string legacy) => Has(obj, modern) ? Get(obj, modern) : Get(obj, legacy);
-    private static void RequireObject(JsonElement obj) { if (obj.ValueKind != JsonValueKind.Object) throw new InvalidDataException("Expected a JSON object."); }
+    private static void RequireObject(JsonElement obj)
+    {
+        if (obj.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException("Expected a JSON object.");
+        }
+    }
     private static string Text(JsonElement value) => value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? string.Empty
         : value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
     private static IEnumerable<JsonElement> Array(JsonElement value)
     {
-        if (value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return [];
-        if (value.ValueKind != JsonValueKind.Array) throw new InvalidDataException("Expected an array.");
+        if (value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return [];
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException("Expected an array.");
+        }
+
         return value.EnumerateArray();
     }
     private static bool Boolean(JsonElement value) => value.ValueKind is JsonValueKind.True;
@@ -245,38 +323,67 @@ internal static class BmsonPlaybackParser
     }
     private static BigInteger Integer(JsonElement value, long? fallback = null, bool allowNull = false)
     {
-        if (fallback is long number && (value.ValueKind == JsonValueKind.Undefined || (allowNull && value.ValueKind == JsonValueKind.Null))) return number;
+        if (fallback is long number && (value.ValueKind == JsonValueKind.Undefined || (allowNull && value.ValueKind == JsonValueKind.Null)))
+        {
+            return number;
+        }
+
         Fraction result = Number(value);
-        if (!result.Denominator.IsOne) throw new InvalidDataException("Expected an integer.");
+        if (!result.Denominator.IsOne)
+        {
+            throw new InvalidDataException("Expected an integer.");
+        }
+
         return result.Numerator;
     }
     private static Fraction Number(JsonElement value)
     {
         string token = value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty
             : value.ValueKind == JsonValueKind.Number ? value.GetRawText() : throw new InvalidDataException("Expected a finite number.");
-        if (!NumberSyntax.IsMatch(token)) throw new FormatException("Invalid finite JSON number.");
+        if (!NumberSyntax.IsMatch(token))
+        {
+            throw new FormatException("Invalid finite JSON number.");
+        }
+
         int exponentIndex = token.IndexOfAny(['e', 'E']);
         string coefficient = exponentIndex < 0 ? token : token[..exponentIndex];
         int digits = coefficient.Length - (coefficient[0] == '-' ? 1 : 0) - (coefficient.Contains('.') ? 1 : 0);
-        if (digits > 4096) throw new InvalidDataException("The decimal coefficient exceeds 4096 digits.");
+        if (digits > 4096)
+        {
+            throw new InvalidDataException("The decimal coefficient exceeds 4096 digits.");
+        }
+
         int exponent = 0;
         if (exponentIndex >= 0)
         {
             ReadOnlySpan<char> explicitExponent = token.AsSpan(exponentIndex + 1);
             bool negative = explicitExponent[0] == '-';
-            if (explicitExponent[0] is '+' or '-') explicitExponent = explicitExponent[1..];
+            if (explicitExponent[0] is '+' or '-')
+            {
+                explicitExponent = explicitExponent[1..];
+            }
             // 指数の先頭0は字句長ではなく値として扱い、巨大整数・べき乗を作る前に検査します。
             foreach (char digit in explicitExponent)
             {
                 exponent = exponent * 10 + digit - '0';
-                if (exponent > 4096) throw new InvalidDataException("The explicit decimal exponent exceeds the range [-4096, 4096].");
+                if (exponent > 4096)
+                {
+                    throw new InvalidDataException("The explicit decimal exponent exceeds the range [-4096, 4096].");
+                }
             }
-            if (negative) exponent = -exponent;
+            if (negative)
+            {
+                exponent = -exponent;
+            }
         }
         int dot = coefficient.IndexOf('.');
         int scale = dot < 0 ? 0 : coefficient.Length - dot - 1;
         var numerator = BigInteger.Parse(coefficient.Replace(".", string.Empty), CultureInfo.InvariantCulture);
-        if (numerator.IsZero) return Fraction.Zero;
+        if (numerator.IsZero)
+        {
+            return Fraction.Zero;
+        }
+
         int power = checked(exponent - scale);
         return power >= 0 ? new Fraction(numerator * BigInteger.Pow(10, power), BigInteger.One)
             : new Fraction(numerator, BigInteger.Pow(10, checked(-power)));

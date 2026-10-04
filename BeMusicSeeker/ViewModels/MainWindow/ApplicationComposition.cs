@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +11,6 @@ using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
-using Livet;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
 using Ribbit.Net;

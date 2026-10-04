@@ -14,7 +14,6 @@ using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
-using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -493,7 +492,11 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 {
                     Interlocked.Increment(ref postCount);
                     entered.TrySetResult();
-                    if (!cancelCaller) throw new OperationCanceledException("HTTP request deadline expired.");
+                    if (!cancelCaller)
+                    {
+                        throw new OperationCanceledException("HTTP request deadline expired.");
+                    }
+
                     return await release.Task.WaitAsync(token);
                 }
             };
@@ -536,7 +539,11 @@ public sealed class PlaylistRecommendedTableOwnerTests
         {
             cancellation.Cancel();
             release.TrySetResult(string.Empty);
-            if (request != null) await ObserveRequestForCleanupAsync(request, primaryFailure);
+            if (request != null)
+            {
+                await ObserveRequestForCleanupAsync(request, primaryFailure);
+            }
+
             Directory.Delete(directory, recursive: true);
         }
     }
@@ -592,8 +599,15 @@ public sealed class PlaylistRecommendedTableOwnerTests
             request = externalOwner.ReloadPlaylistTargetsAsync([table], attempts.Add, cancellationToken: cancellation.Token);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(1, updating);
-            if (cancelCaller) cancellation.Cancel();
-            else response.TrySetException(new OperationCanceledException("HTTP request deadline expired."));
+            if (cancelCaller)
+            {
+                cancellation.Cancel();
+            }
+            else
+            {
+                response.TrySetException(new OperationCanceledException("HTTP request deadline expired."));
+            }
+
             List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await request.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.AreEqual(0, updating);
@@ -619,7 +633,11 @@ public sealed class PlaylistRecommendedTableOwnerTests
         {
             cancellation.Cancel();
             response.TrySetResult("{}");
-            if (request != null) await ObserveRequestForCleanupAsync(request, primaryFailure);
+            if (request != null)
+            {
+                await ObserveRequestForCleanupAsync(request, primaryFailure);
+            }
+
             Directory.Delete(directory, recursive: true);
         }
     }

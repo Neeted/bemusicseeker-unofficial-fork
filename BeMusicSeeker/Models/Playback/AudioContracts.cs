@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Properties;
 using Ribbit.Logging;
-using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Models;

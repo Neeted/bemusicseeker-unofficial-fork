@@ -4,9 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Ribbit.Util;
 
 namespace BeMusicSeeker.Models;
 

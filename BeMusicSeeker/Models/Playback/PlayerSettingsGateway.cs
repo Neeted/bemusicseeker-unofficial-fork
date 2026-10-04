@@ -1,7 +1,6 @@
 using System;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Models;

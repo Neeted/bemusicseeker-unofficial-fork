@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartInfoBackfillRequest

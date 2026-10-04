@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 

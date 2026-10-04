@@ -1,24 +1,16 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Data;
 using System.Windows.Markup;
-using System.Windows.Navigation;
 using System.Windows.Threading;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 
 namespace BeMusicSeeker.Views;

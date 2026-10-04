@@ -720,9 +720,13 @@ internal sealed class SelectedChartMutationWorkflowOwner
         void CaptureNotification(Action notification)
         {
             if (mutationWithReceipt != null)
+            {
                 FileDbMutationReport.NotifyBestEffort(notification);
+            }
             else
+            {
                 CaptureCleanupFailure(notification, failures);
+            }
         }
 
         Exception CombineReceiptFailure(Exception failure)

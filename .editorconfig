@@ -7,22 +7,30 @@ indent_style = space
 [*.cs]
 end_of_line = lf
 indent_size = 4
+tab_width = 4
 trim_trailing_whitespace = true
 
-# 名前空間と型の書き方をビルドで検査する。その他の品質診断は SDK の既定に従う。
-# this 修飾の規則はビルドで実行されないため、IDE の提案に留める。
+# C# の正規形を定め、dotnet format style で検査する。ビルド時解析も補助として使う。
+# その他の品質診断は SDK の既定に従う。
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = false
 
 csharp_style_namespace_declarations = file_scoped:error
+csharp_using_directive_placement = outside_namespace:error
 csharp_style_var_when_type_is_apparent = true:error
 csharp_style_var_for_built_in_types = false:error
 csharp_style_var_elsewhere = false:error
+csharp_prefer_braces = true:error
 
-dotnet_style_qualification_for_field = false:suggestion
-dotnet_style_qualification_for_property = false:suggestion
-dotnet_style_qualification_for_method = false:suggestion
-dotnet_style_qualification_for_event = false:suggestion
+dotnet_style_qualification_for_field = false:error
+dotnet_style_qualification_for_property = false:error
+dotnet_style_qualification_for_method = false:error
+dotnet_style_qualification_for_event = false:error
+dotnet_style_predefined_type_for_locals_parameters_members = true:error
+dotnet_style_predefined_type_for_member_access = true:error
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:error
+dotnet_diagnostic.IDE0005.severity = error
+dotnet_diagnostic.IDE0055.severity = error
 
 [*.{csproj,props,targets,resx,xaml,xml}]
 end_of_line = lf

@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
-using Ribbit.Logging;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.ViewModels;

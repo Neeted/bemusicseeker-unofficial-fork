@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 

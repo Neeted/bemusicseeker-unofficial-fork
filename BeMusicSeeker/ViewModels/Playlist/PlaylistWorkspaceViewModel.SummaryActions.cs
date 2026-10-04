@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;

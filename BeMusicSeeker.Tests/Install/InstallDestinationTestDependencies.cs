@@ -1,10 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 

@@ -15,7 +15,6 @@ using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;

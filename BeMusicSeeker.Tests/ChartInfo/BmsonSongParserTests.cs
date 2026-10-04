@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 

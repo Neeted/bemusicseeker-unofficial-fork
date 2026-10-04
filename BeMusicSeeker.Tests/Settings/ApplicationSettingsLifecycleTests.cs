@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
@@ -227,7 +226,10 @@ public sealed class ApplicationSettingsLifecycleTests
             lifecycle = new ApplicationSettingsLifecycle(settingsStore: store,
                 normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path), warnSaveFailure: _ => Assert.Fail("Read is fatal."));
             using (var blocker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
                 Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
+            }
+
             Assert.AreEqual(0, store.Events.Count);
         }
         finally
@@ -460,7 +462,10 @@ public sealed class ApplicationSettingsLifecycleTests
                 section.Add(new XElement("setting", new XAttribute("name", value.Key), new XAttribute("serializeAs", "Xml"),
                     new XElement("value", XElement.Parse(serialized.ToString()))));
             }
-            else section.Add(new XElement("setting", new XAttribute("name", value.Key), new XAttribute("serializeAs", "String"), new XElement("value", value.Value)));
+            else
+            {
+                section.Add(new XElement("setting", new XAttribute("name", value.Key), new XAttribute("serializeAs", "String"), new XElement("value", value.Value)));
+            }
         }
         new XDocument(new XElement("configuration", new XElement("userSettings", section))).Save(path);
     }

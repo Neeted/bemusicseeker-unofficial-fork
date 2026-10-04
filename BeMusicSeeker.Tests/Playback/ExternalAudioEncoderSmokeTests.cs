@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Tests.Helpers;
 using ManagedBass;
 using ManagedBass.Enc;

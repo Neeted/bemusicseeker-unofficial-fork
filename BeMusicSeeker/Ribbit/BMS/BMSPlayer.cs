@@ -8,7 +8,6 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Ribbit.Logging;
-using Ribbit.Math;
 using Ribbit.Media;
 
 namespace Ribbit.BMS;
@@ -848,8 +847,15 @@ public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader :
 
     private void AdvanceCommonCounts()
     {
-        while (commonCountIndex < Chart.CountTimes.Count && Chart.CountTimes[commonCountIndex].ToTimeSpan() <= currentTime) commonCountIndex++;
-        while (commonDensityIndex < Chart.CountTimes.Count && Chart.CountTimes[commonDensityIndex].ToTimeSpan() < currentTime - densityRange) commonDensityIndex++;
+        while (commonCountIndex < Chart.CountTimes.Count && Chart.CountTimes[commonCountIndex].ToTimeSpan() <= currentTime)
+        {
+            commonCountIndex++;
+        }
+
+        while (commonDensityIndex < Chart.CountTimes.Count && Chart.CountTimes[commonDensityIndex].ToTimeSpan() < currentTime - densityRange)
+        {
+            commonDensityIndex++;
+        }
     }
 
     protected virtual void ResetPlaybackState()

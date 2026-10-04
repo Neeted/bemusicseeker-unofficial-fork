@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;

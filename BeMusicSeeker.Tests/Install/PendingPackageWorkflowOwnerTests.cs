@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -2003,7 +2002,9 @@ public sealed class PendingPackageWorkflowOwnerTests
         owner.WorkflowChanged += (_, args) =>
         {
             if (args is PendingPackageRefreshSuppressionChangedEventArgs suppression && !suppression.IsSuppressed)
+            {
                 throw scopeFailure;
+            }
         };
         var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
         PendingPackageMutationResult result = manual
@@ -2166,8 +2167,16 @@ public sealed class PendingPackageWorkflowOwnerTests
         finally
         {
             confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
-            if (pending != null) await pending.WaitAsync(TimeSpan.FromSeconds(5));
-            if (automatic != null) await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            if (pending != null)
+            {
+                await pending.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
+            if (automatic != null)
+            {
+                await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }
@@ -2232,7 +2241,9 @@ public sealed class PendingPackageWorkflowOwnerTests
                     {
                         enqueueEntered.TrySetResult(true);
                         if (!releaseEnqueue.Wait(TimeSpan.FromSeconds(5)))
+                        {
                             throw new TimeoutException("enqueue publication barrier was not released");
+                        }
                     }
                     action();
                     return true;
@@ -2281,8 +2292,16 @@ public sealed class PendingPackageWorkflowOwnerTests
         finally
         {
             releaseEnqueue.Set();
-            if (enqueue != null) await enqueue.WaitAsync(TimeSpan.FromSeconds(5));
-            if (automatic != null) await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            if (enqueue != null)
+            {
+                await enqueue.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
+            if (automatic != null)
+            {
+                await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }
@@ -2702,7 +2721,11 @@ public sealed class PendingPackageWorkflowOwnerTests
             ChangedCharts = repairCharts;
             ApprovedDuplicateRemovalChartPaths = approvedDuplicateRemovalChartPaths;
             ThrowIfConfigured();
-            if (RepairFailure != null) throw RepairFailure;
+            if (RepairFailure != null)
+            {
+                throw RepairFailure;
+            }
+
             if (FixInstalledLocationsAction != null)
             {
                 return FixInstalledLocationsAction(library, repairCharts, approvedDuplicateRemovalChartPaths);

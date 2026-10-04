@@ -1,8 +1,6 @@
 using System;
 using System.IO;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

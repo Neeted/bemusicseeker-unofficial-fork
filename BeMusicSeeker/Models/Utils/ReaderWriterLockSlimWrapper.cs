@@ -1,7 +1,5 @@
 using System;
 using System.Threading;
-using BeMusicSeeker.Models;
-using Ribbit.Threading;
 
 namespace BeMusicSeeker.Models.Utils;
 

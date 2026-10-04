@@ -5,7 +5,6 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using BeMusicSeeker.Tests.Helpers;
-using ManagedBass;
 using ManagedBass.Enc;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.BMS;

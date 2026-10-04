@@ -106,14 +106,27 @@ public sealed class BmsLibraryIrStartupTests
             Library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
             Library.StartupBackgroundTaskReporter = (name, status, _, failed, _) =>
             {
-                if (name != "ranking_refresh_deferred") return;
-                if (status == "start") RankingStarted.TrySetResult();
-                if (failed) FailedReport = true;
+                if (name != "ranking_refresh_deferred")
+                {
+                    return;
+                }
+
+                if (status == "start")
+                {
+                    RankingStarted.TrySetResult();
+                }
+
+                if (failed)
+                {
+                    FailedReport = true;
+                }
             };
             Library.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(BMSLibrary.RankingRefreshRunning) && !Library.RankingRefreshRunning)
+                {
                     RankingCompleted.TrySetResult();
+                }
             };
         }
 
@@ -134,9 +147,15 @@ public sealed class BmsLibraryIrStartupTests
             Library.RequestShutdown("ir-fixture-cleanup");
             Client.Release.TrySetResult();
             if (Client.Started.Task.IsCompleted)
+            {
                 await Client.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+
             if (Library.RankingRefreshRunning)
+            {
                 await RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }
@@ -160,10 +179,18 @@ public sealed class BmsLibraryIrStartupTests
             try
             {
                 // cleanup は production のキャンセル接続を壊した negative control も回収する。
-                if (waitForCancellation) await Task.WhenAny(Cancelled.Task, Release.Task);
+                if (waitForCancellation)
+                {
+                    await Task.WhenAny(Cancelled.Task, Release.Task);
+                }
+
                 await Release.Task.WaitAsync(TimeSpan.FromSeconds(10));
                 cancellationToken.ThrowIfCancellationRequested();
-                if (RequestCount == 1) throw new IOException("controlled unavailable IR");
+                if (RequestCount == 1)
+                {
+                    throw new IOException("controlled unavailable IR");
+                }
+
                 return "<scores />";
             }
             finally { Completed.TrySetResult(); }

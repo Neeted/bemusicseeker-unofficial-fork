@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using BeMusicSeeker.Models;
 using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;

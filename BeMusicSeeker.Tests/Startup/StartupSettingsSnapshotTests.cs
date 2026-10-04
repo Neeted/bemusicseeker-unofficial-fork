@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 

@@ -2,19 +2,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using Ribbit.Util.Extensions;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

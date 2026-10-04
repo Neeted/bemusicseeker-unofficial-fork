@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
 using Parago.Windows;
 using Ribbit.Logging;

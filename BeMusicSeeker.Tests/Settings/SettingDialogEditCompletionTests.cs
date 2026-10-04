@@ -23,7 +23,6 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
-using BeMusicSeeker.Views.Settings;
 using Livet;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

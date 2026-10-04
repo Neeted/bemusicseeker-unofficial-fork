@@ -7,7 +7,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using Ribbit.Logging;
 using Ribbit.Media;

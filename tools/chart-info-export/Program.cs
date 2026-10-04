@@ -24,7 +24,7 @@ internal static class Program
 
     private static ChartInfoExportOptions ParseOptions(string[] args)
     {
-        ChartInfoExportOptions options = new ChartInfoExportOptions();
+        var options = new ChartInfoExportOptions();
         for (int index = 0; index < (args?.Length ?? 0); index++)
         {
             string name = args[index];

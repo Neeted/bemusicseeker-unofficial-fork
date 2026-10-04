@@ -6,7 +6,6 @@ using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Mix;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 

@@ -31,13 +31,13 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 | `Functional` | 通常の最終統合。同じ最終版に対して一回を原則とする。 |
 | `Full` | 配布・更新・リリースに関わる検証。共通の `Functional` の後に配布物の受入を行う。 |
 
-`Quick` はフィルターの有無によらず独立した整形検査を省き、通常のビルドで SDK 標準解析を実行します。`Functional` / `Full` はロックファイルに従う復元の後、空白整形の検査、SDK 標準解析を含む通常のビルド、出力検査、実テストの順に進みます。自動修正はしません。
+`Quick` はフィルターの有無によらず、`Functional` / `Full` と同じ整形検査を行います。全コードモードで、ロックファイルに従う復元の後、空白整形と C# スタイルの検査、SDK 標準解析を含む通常のビルド、出力検査、実テストの順に進みます。整形差分が必要なら失敗とし、自動修正はしません。
 
-整形検査はプロジェクトを評価せず、ルートを `dotnet format whitespace --folder` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
+整形検査は、まずプロジェクトを評価せず、ルートを `dotnet format whitespace --folder --verify-no-changes` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。続いて `dotnet format style BeMusicSeeker.sln --verify-no-changes --severity error --no-restore --verbosity minimal` で、ソリューションの C# スタイルを検査します。両検査は既存の `format` フェーズの180秒期限を共有し、どちらかの失敗・期限超過で後続のビルド・テストへ進みません。このフェーズは既存の復元・ビルド・テストの時間予算に含めません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
 
 SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK の `version` と `rollForward` の選択に従います。[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、テスト `BeMusicSeeker.Tests` にだけ `EnforceCodeStyleInBuild=true` を適用し、nullable 診断を警告ではなくビルドエラーとして扱います。nullable 解析そのものは各プロジェクトとソースの既存設定に従い、この共通設定から新しい解析範囲を有効化しません。補助ツールのプロジェクトにはこのビルド時スタイル検査と nullable 診断のエラー化を追加せず、SDK の既定解析を従来どおり実行します。
 
-書き方は [`.editorconfig`](../../../.editorconfig) を正本とし、ファイルスコープ名前空間の `IDE0161`、型が明白な場合に `var` を使う `IDE0007`、組込み型と型が明白でない場合に明示型を使う `IDE0008` をビルドエラーとして扱います。不要な `this` 修飾を除く `IDE0003` は SDK のビルドでは実行されないため、IDE の提案に留めます。nullable 診断は null 許容契約の不一致を作業中に残さないためビルドエラーとして扱い、その他の SDK 品質診断は既定の重大度を維持します。全警告を一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードはテストプロジェクトのコンパイル対象として検査します。
+C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、エラーに設定した規則を `dotnet format style` で検査します。通常のビルドで実行できるスタイル解析は補助防御として維持します。nullable 診断は null 許容契約の不一致を作業中に残さないためビルドエラーとして扱い、その他の SDK 品質診断は既定の重大度を維持します。全警告を一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードはテストプロジェクトのコンパイル対象として検査します。
 
 ### 実行期限と失敗分類
 
@@ -124,7 +124,7 @@ WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcher
 
 | 段階 | 制限時間 |
 | --- | ---: |
-| 整形検査 | 120秒 |
+| 整形検査 | 180秒 |
 | ツールの基本確認 | 60秒 |
 | 公開旧版のキャッシュ準備 | 180秒 |
 | 現在版の配布物作成 | 180秒 |
@@ -216,6 +216,7 @@ OS入力との接続自体は、該当機能の入力・フォーカス経路を
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | 実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
+| 全コードモードの空白整形・C# 正規形、差分失敗、共有期限 | [正規形設定](../../../.editorconfig)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormatVerification` | 両 formatter の変更なし検査と、違反時にビルド前で失敗する実行プローブ。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
 | 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、障害解決の条件を区別する。 |
 | UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/Verification/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |

@@ -90,18 +90,26 @@ internal static class BmsAudioResourceLoader
                         .AsParallel().WithCancellation(cancellationToken)
                         .WithDegreeOfParallelism(Environment.ProcessorCount)
                         .Select(item => ReadAndDecode(item, session, sourceGain, cancellationToken, readInput, decode)).ToArray();
-                    foreach (PathResult result in results) completed.Add(result.Path, result);
+                    foreach (PathResult result in results)
+                    {
+                        completed.Add(result.Path, result);
+                    }
                 }
                 foreach ((AudioReference reference, Candidate candidate) in candidates)
                 {
                     PathResult result = completed[candidate.Path];
-                    if (result.Resource is BmsAudioResource resource) resources[reference.Index] = resource;
+                    if (result.Resource is BmsAudioResource resource)
+                    {
+                        resources[reference.Index] = resource;
+                    }
                     else if (result.Failure is AudioSourceLoadException failure)
                     {
                         // 後続欠落で実際の復号・アクセス失敗を上書きしません。全欠落なら最初の要求を残します。
                         if (reference.Failure == null || (IsMissing(reference.Failure.Exception) && !IsMissing(failure)))
+                        {
                             reference.Failure = new BmsAudioLoadFailure(reference.Index, reference.Name,
                                 candidate.Path, candidate.Path, failure);
+                        }
                     }
                 }
             }
@@ -134,7 +142,11 @@ internal static class BmsAudioResourceLoader
     {
         IEnumerable<string> names = Resources.NormalizeExtension(name);
         string basename = Path.GetFileName(name);
-        if (!string.Equals(name, basename, StringComparison.Ordinal)) names = names.Concat(Resources.NormalizeExtension(basename));
+        if (!string.Equals(name, basename, StringComparison.Ordinal))
+        {
+            names = names.Concat(Resources.NormalizeExtension(basename));
+        }
+
         return names.Select(item => Path.Combine(basePath, item)).ToArray();
     }
 
@@ -155,7 +167,11 @@ internal static class BmsAudioResourceLoader
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (candidate.Failure is AudioSourceLoadException pathFailure) throw pathFailure;
+            if (candidate.Failure is AudioSourceLoadException pathFailure)
+            {
+                throw pathFailure;
+            }
+
             AudioInputFile input;
             try { input = readInput == null ? AudioInputFile.Read(candidate.Path) : readInput(candidate.Path); }
             catch (Exception cause) when (cause is not AudioSourceLoadException

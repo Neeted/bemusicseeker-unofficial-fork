@@ -128,7 +128,9 @@ public sealed class RibbitBmsFileTimingTests
             CollectionAssert.AreEqual(new[] { BMSFile.Chart.Note.NoteType.BAR_LINE, BMSFile.Chart.Note.NoteType.BPM },
                 bms.Measures[0].Control.Where(note => note.Position == new Fraction(1)).Select(note => note.Type).ToArray());
             foreach (BMSFile.Chart.Note control in bms.Measures[0].Control.Where(note => note.Position == new Fraction(1)))
+            {
                 Assert.AreEqual(20000000L, control.AbsoluteTime.Ticks);
+            }
         });
     }
 
@@ -233,7 +235,11 @@ public sealed class RibbitBmsFileTimingTests
     public void ReferencedInfiniteLengthAndFiniteBpmInfiniteStopPreserveParsingFailure(string bpm, string channel)
     {
         string infinity = CultureInfo.GetCultureInfo("en-US").NumberFormat.PositiveInfinitySymbol;
-        if (bpm == "explicit-infinity") bpm = infinity;
+        if (bpm == "explicit-infinity")
+        {
+            bpm = infinity;
+        }
+
         string definition = channel == "02" ? $"#00002:{infinity}\n" : $"#STOP01 {infinity}\n#00009:01\n";
         Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
             WithChart("#BPM " + bpm + "\n" + definition + "#00011:01\n", _ => { }));
@@ -280,7 +286,10 @@ public sealed class RibbitBmsFileTimingTests
     private static Fraction RequireFinite(BmsNumber? value)
     {
         if (value is not BmsNumber number || number.FiniteValue is not Fraction finite)
+        {
             throw new AssertFailedException("定義された有限値が必要です。");
+        }
+
         return finite;
     }
 

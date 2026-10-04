@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -41,7 +40,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         {
             releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
             lease?.Dispose();
-            if (reportThrows) throw new IOException("optional report failed");
+            if (reportThrows)
+            {
+                throw new IOException("optional report failed");
+            }
         };
         SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
         ChartOperationTarget target = CreateTarget("deleted.bms", ChartOperationSourceScope.Library, false,
@@ -483,7 +485,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             owner.WorkflowChanged += (_, change) =>
             {
                 if (change is SelectedChartMutationRefreshSuppressionChangedEventArgs { IsSuppressed: false })
+                {
                     throw new IOException("optional observer failed");
+                }
             };
         }
 
@@ -514,7 +518,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             cleanupFailure: new IOException("cleanup failed"));
         var store = new TerminalRecordingStore(receipt);
         FakeUiDialogService dialogs = AcceptedMessageDialogs();
-        if (reporterThrows) dialogs.OnMessage = () => throw new IOException("report failed");
+        if (reporterThrows)
+        {
+            dialogs.OnMessage = () => throw new IOException("report failed");
+        }
+
         SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
             [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));

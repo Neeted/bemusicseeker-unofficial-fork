@@ -20,7 +20,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -1085,7 +1084,10 @@ public sealed class PlaybackPanelViewModelTests
             var nextStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             EventHandler nextStartedHandler = (_, _) =>
             {
-                if (panel.NowPlayingChart?.Path == paths[1]) nextStarted.TrySetResult();
+                if (panel.NowPlayingChart?.Path == paths[1])
+                {
+                    nextStarted.TrySetResult();
+                }
             };
             panel.PlaybackStarted += nextStartedHandler;
             try
@@ -1125,7 +1127,10 @@ public sealed class PlaybackPanelViewModelTests
             await start;
             panel.BeginShutdown();
             await panel.CloseForShutdown();
-            foreach (string path in paths) File.Delete(path);
+            foreach (string path in paths)
+            {
+                File.Delete(path);
+            }
         }
     }
     [TestMethod]
@@ -2478,7 +2483,10 @@ public sealed class PlaybackPanelViewModelTests
             int displayedChanges = 0;
             PropertyChangedEventHandler displayedHandler = (_, args) =>
             {
-                if (args.PropertyName == nameof(PlaybackPanelViewModel.DisplayedChart)) Interlocked.Increment(ref displayedChanges);
+                if (args.PropertyName == nameof(PlaybackPanelViewModel.DisplayedChart))
+                {
+                    Interlocked.Increment(ref displayedChanges);
+                }
             };
             void WriteImage(string name, byte blue)
             {
@@ -2502,7 +2510,11 @@ public sealed class PlaybackPanelViewModelTests
                 WriteImage("stage-b.png", 150);
                 WriteImage("banner-b.png", 160);
                 string[] paths = [Path.Combine(directory, "first.bms"), Path.Combine(directory, "second.bmson"), Path.Combine(directory, "third.bms")];
-                foreach (string path in paths) File.WriteAllText(path, "");
+                foreach (string path in paths)
+                {
+                    File.WriteAllText(path, "");
+                }
+
                 ChartFile[] charts = [
                     ChartFileProjection.FromBmsFile(new TestBmsFile(paths[0]) { stagefile = "stage-a.png", banner = "banner-a.png" }),
                     ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song { path = paths[1], stagefile = "stage-b.png", banner = "banner-b.png" }),

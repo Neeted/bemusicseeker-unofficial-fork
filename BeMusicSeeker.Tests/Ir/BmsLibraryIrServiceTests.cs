@@ -1279,7 +1279,11 @@ public sealed class BmsLibraryIrServiceTests
     {
         using var cancellation = new CancellationTokenSource();
         var client = new FakeIrClient("") { FetchFailure = new OperationCanceledException() };
-        if (shutdown) cancellation.Cancel();
+        if (shutdown)
+        {
+            cancellation.Cancel();
+        }
+
         var service = new BmsLibraryIrService();
         IrScorePrefetchResult result = service.PrefetchIrScoreTableWithMetrics(123, client, PlayerScoreRegex, cancellation.Token);
         Assert.IsFalse(result.Succeeded);
@@ -1468,7 +1472,11 @@ public sealed class BmsLibraryIrServiceTests
         public string GetPlayerScoresXml(int lr2Id, CancellationToken cancellationToken = default)
         {
             PlayerScoreXmlRequestCount++;
-            if (FetchFailure != null) throw FetchFailure;
+            if (FetchFailure != null)
+            {
+                throw FetchFailure;
+            }
+
             return PlayerScoreXml;
         }
 

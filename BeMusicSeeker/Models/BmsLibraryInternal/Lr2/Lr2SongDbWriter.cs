@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

@@ -152,7 +152,10 @@ public sealed class PortableSettingsPersistenceTests
                     backup = preserved;
                     Assert.IsFalse(File.Exists(files.Path), "Warning must precede fresh creation and first getter.");
                     CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(preserved));
-                    if (earlierBackup != null) CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(earlierBackup));
+                    if (earlierBackup != null)
+                    {
+                        CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(earlierBackup));
+                    }
                 });
             Assert.IsNotNull(backup);
             Assert.AreNotEqual(earlierBackup, backup);
@@ -251,7 +254,11 @@ public sealed class PortableSettingsPersistenceTests
         provider.Initialize(nameof(PortableSettingsProvider), null!);
         settings.Providers.Clear();
         settings.Providers.Add(provider);
-        foreach (SettingsProperty property in settings.Properties) property.Provider = provider;
+        foreach (SettingsProperty property in settings.Properties)
+        {
+            property.Provider = provider;
+        }
+
         return settings;
     }
 
@@ -276,7 +283,11 @@ public sealed class PortableSettingsPersistenceTests
         internal SettingsFiles() => System.IO.Directory.CreateDirectory(Directory);
         public void Dispose()
         {
-            if (File.Exists(Path)) File.SetAttributes(Path, FileAttributes.Normal);
+            if (File.Exists(Path))
+            {
+                File.SetAttributes(Path, FileAttributes.Normal);
+            }
+
             System.IO.Directory.Delete(Directory, true);
         }
     }

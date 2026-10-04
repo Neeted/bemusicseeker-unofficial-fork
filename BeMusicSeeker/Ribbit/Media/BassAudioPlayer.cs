@@ -3,17 +3,14 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
-using Ribbit.Util;
 
 namespace Ribbit.Media;
 
@@ -3283,6 +3280,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
 
         using (operation)
+        {
             try
             {
                 // Keep the same instance lifecycle boundary from Stop through native free.  A
@@ -3357,6 +3355,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 TryLogPlayerCleanupFailure("BASS source stream finalizer cleanup failed", exception);
                 return false;
             }
+        }
     }
 
     private void ConfirmNativeStreamReleased(int releasedHandle)

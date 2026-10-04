@@ -135,8 +135,16 @@ public sealed class BMSAutoPlayerInputTests
             AudioSourceFatalException fatal = Assert.ThrowsException<AudioSourceFatalException>(() => BmsAudioResourceLoader.Load(chart, directory.File(""), 1f,
                 readInput: path =>
                 {
-                    if (path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase)) Interlocked.Increment(ref alternatives);
-                    if (!duringDecode) throw cause;
+                    if (path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Interlocked.Increment(ref alternatives);
+                    }
+
+                    if (!duringDecode)
+                    {
+                        throw cause;
+                    }
+
                     return held = AudioInputFile.Read(path);
                 }, decode: (input, activeSession) =>
                 {
@@ -146,7 +154,10 @@ public sealed class BMSAutoPlayerInputTests
             Assert.IsTrue(ContainsCause(fatal, cause));
             Assert.AreEqual(0, alternatives);
             Assert.AreEqual(streams, session.OwnedStreamCount);
-            if (held != null) Assert.ThrowsException<ObjectDisposedException>(() => held.OpenReadView());
+            if (held != null)
+            {
+                Assert.ThrowsException<ObjectDisposedException>(() => held.OpenReadView());
+            }
         }
     }
 
@@ -173,7 +184,11 @@ public sealed class BMSAutoPlayerInputTests
         try
         {
             Task first = await Task.WhenAny(entered.Task, loading);
-            if (ReferenceEquals(first, loading)) await loading;
+            if (ReferenceEquals(first, loading))
+            {
+                await loading;
+            }
+
             AudioInputFile held = await entered.Task;
             cancellation.Cancel();
             Assert.IsFalse(loading.IsCompleted);
@@ -225,8 +240,15 @@ public sealed class BMSAutoPlayerInputTests
     private static PlaybackChart CreateFallbackChart(TemporaryDirectory directory, bool bmson, string resource)
     {
         string path = directory.File(bmson ? "chart.bmson" : "chart.bms");
-        if (bmson) File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"" + resource + "\",\"notes\":[{\"y\":0}]}]}");
-        else WriteChart(path, "#BPM 120\n#WAV01 " + resource + "\n#00011:01\n");
+        if (bmson)
+        {
+            File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"" + resource + "\",\"notes\":[{\"y\":0}]}]}");
+        }
+        else
+        {
+            WriteChart(path, "#BPM 120\n#WAV01 " + resource + "\n#00011:01\n");
+        }
+
         return PlaybackChart.Load(path);
     }
     [TestInitialize]

@@ -26,7 +26,11 @@ public readonly record struct PlaybackTime(BigInteger Subticks) : IComparable<Pl
     internal long ToSourceFrame(int rate)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rate);
-        if (Subticks.Sign < 0) throw new ArgumentOutOfRangeException(nameof(Subticks));
+        if (Subticks.Sign < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(Subticks));
+        }
+
         return checked((long)(Subticks * rate / ((BigInteger)TimeSpan.TicksPerSecond << 32)));
     }
     /// <summary>符号付き整数比を最近傍偶数へ丸めます。</summary>

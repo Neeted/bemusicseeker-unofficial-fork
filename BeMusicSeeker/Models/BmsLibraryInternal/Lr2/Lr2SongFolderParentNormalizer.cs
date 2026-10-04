@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Text;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 

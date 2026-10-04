@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using ManagedBass;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 

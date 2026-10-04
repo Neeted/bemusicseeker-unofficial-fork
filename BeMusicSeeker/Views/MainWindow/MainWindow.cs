@@ -1,18 +1,13 @@
 using System;
-using System.CodeDom.Compiler;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,7 +19,6 @@ using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
@@ -34,7 +28,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using NLog;
-using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Windows;
 
@@ -8162,23 +8155,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void RestorePlaybackSurfaceAndFocusTable()
     {
-        if (IsShellClosingOrClosed()) return;
+        if (IsShellClosingOrClosed())
+        {
+            return;
+        }
+
         playbackPanelView.RestoreSelectedSurface();
         IntPtr handle;
         try { handle = new WindowInteropHelper(this).Handle; }
         catch { return; }
-        if (handle != Win32API.GetForegroundWindow()) return;
+        if (handle != Win32API.GetForegroundWindow())
+        {
+            return;
+        }
+
         Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
         {
-            if (IsShellClosingOrClosed()) return;
+            if (IsShellClosingOrClosed())
+            {
+                return;
+            }
+
             for (int i = 1; i <= 10; i++)
             {
-                if (IsShellClosingOrClosed()) break;
+                if (IsShellClosingOrClosed())
+                {
+                    break;
+                }
+
                 NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table");
                 IntPtr currentHandle;
                 try { currentHandle = new WindowInteropHelper(this).Handle; }
                 catch { break; }
-                if (currentHandle != Win32API.GetForegroundWindow()) break;
+                if (currentHandle != Win32API.GetForegroundWindow())
+                {
+                    break;
+                }
+
                 Keyboard.Focus(customTableView);
                 await Task.Delay(100);
             }
@@ -8190,14 +8203,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
         {
             activeOverlayDialog = overlayDialog;
-            if (HidesPlaybackSurface(overlayDialog)) PlaybackOverlayVisibility = Visibility.Visible;
+            if (HidesPlaybackSurface(overlayDialog))
+            {
+                PlaybackOverlayVisibility = Visibility.Visible;
+            }
         }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
             if (ReferenceEquals(activeOverlayDialog, sender))
             {
                 activeOverlayDialog = null;
-                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog)) PlaybackOverlayVisibility = Visibility.Collapsed;
+                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog))
+                {
+                    PlaybackOverlayVisibility = Visibility.Collapsed;
+                }
             }
             playbackPanelView.RestoreSelectedSurface();
         }

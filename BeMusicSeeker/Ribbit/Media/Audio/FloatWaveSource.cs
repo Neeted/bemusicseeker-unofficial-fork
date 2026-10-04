@@ -33,7 +33,11 @@ internal sealed class FloatWaveSource
         }
 
         FrameCount = endFrame ?? audio.FrameCount;
-        if (FrameCount < 0 || FrameCount > audio.FrameCount) throw new ArgumentOutOfRangeException(nameof(endFrame));
+        if (FrameCount < 0 || FrameCount > audio.FrameCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(endFrame));
+        }
+
         long dataLength = checked(FrameCount * audio.ChannelCount * sizeof(float));
         long riffLength = checked(HeaderLength - 8L + dataLength);
         if (dataLength > uint.MaxValue || riffLength > uint.MaxValue || FrameCount > uint.MaxValue)

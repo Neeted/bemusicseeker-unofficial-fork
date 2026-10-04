@@ -114,8 +114,7 @@ public sealed class MainWindowPlaybackWpfTests
                         {
                             evaluationCount++;
                             ChartFileStatus status = ((PlaylistDetailRow)row).status & ChartFileStatus.PLAYALL;
-                            if (ReferenceEquals(row, first) && status == expected) rendered.TrySetResult();
-                            return status.ToString();
+                            if (ReferenceEquals(row, first) && status == expected) { rendered.TrySetResult(); } return status.ToString();
                         })
                     ];
                     Task? start = null;
@@ -177,7 +176,11 @@ public sealed class MainWindowPlaybackWpfTests
                     {
                         ready.TrySetResult();
                         completion.TrySetResult();
-                        if (start != null) TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "start-cleanup");
+                        if (start != null)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "start-cleanup");
+                        }
+
                         table.HandleKeyDown(Key.Escape, ModifierKeys.None);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "stop-cleanup");
                         viewModel.MainChartList.DisplayRefreshRequested -= refresh;

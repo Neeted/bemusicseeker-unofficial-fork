@@ -10,7 +10,6 @@ using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Wasapi;
 using Ribbit.Logging;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 

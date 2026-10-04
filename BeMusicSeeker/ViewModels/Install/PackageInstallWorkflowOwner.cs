@@ -440,7 +440,9 @@ internal sealed class PackageInstallWorkflowOwner
             QueueTerminalNotification(context, () =>
             {
                 if (IsCurrentGeneration(currentGeneration, currentLibrary))
+                {
                     FailurePublished?.Invoke(failure);
+                }
             }, terminalFailure);
             return;
         }

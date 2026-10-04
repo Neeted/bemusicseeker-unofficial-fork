@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

@@ -1658,7 +1658,7 @@ function Assert-BuiltOutputs {
     Assert-ReleaseOutputLayout -ExecutablePath (Resolve-Path -LiteralPath $uiExecutable).Path
 }
 
-# 長いテストの前にリポジトリの整形を確認する。Quick の反復にはこの検査を追加しない。
+# 全コードモードで、ビルド前に空白整形と C# の正規形を一つの期限内で確認する。
 function Invoke-RepositoryFormatVerification {
     param(
         [Parameter(Mandatory)]
@@ -1668,10 +1668,16 @@ function Invoke-RepositoryFormatVerification {
     [void](Invoke-MonitoredVerificationPhase -Name 'format' -DiagnosticsRoot $DiagnosticsRoot -Action {
         param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
         Invoke-VerificationPhaseCommand `
-            -Label 'dotnet format' `
+            -Label 'dotnet format whitespace' `
             -CommandPath 'dotnet' `
             -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
-            -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'whitespace') `
+            -DeadlinePolicy $deadlinePolicy
+        Invoke-VerificationPhaseCommand `
+            -Label 'dotnet format style' `
+            -CommandPath 'dotnet' `
+            -Arguments @('format', 'style', $solution, '--verify-no-changes', '--severity', 'error', '--no-restore', '--verbosity', 'minimal') `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'style') `
             -DeadlinePolicy $deadlinePolicy
     })
 }
@@ -1700,9 +1706,7 @@ function Invoke-CanonicalFunctionalVerification {
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
         $restoreStopwatch.Stop()
 
-        if ($Mode -in @('Functional', 'Full')) {
-            Invoke-RepositoryFormatVerification -DiagnosticsRoot $DiagnosticsRoot
-        }
+        Invoke-RepositoryFormatVerification -DiagnosticsRoot $DiagnosticsRoot
 
         $buildStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         Invoke-BudgetedCommand `
@@ -1748,6 +1752,15 @@ function Invoke-FilteredQuickVerification {
             -CommandPath 'dotnet' `
             -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
+
+        # 整形検査は独立した共有期限を使い、既存の復元・ビルド・テスト予算には含めない。
+        $filteredQuickStopwatch.Stop()
+        try {
+            Invoke-RepositoryFormatVerification -DiagnosticsRoot $DiagnosticsRoot
+        }
+        finally {
+            $filteredQuickStopwatch.Start()
+        }
 
         $testDirectory = Join-Path $DiagnosticsRoot 'functional'
         [void](New-Item -ItemType Directory -Path $testDirectory -Force)

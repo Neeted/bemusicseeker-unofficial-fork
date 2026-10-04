@@ -9,7 +9,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Net;
 

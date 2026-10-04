@@ -11,10 +11,6 @@ using System.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using Ribbit.Threading;
-using Ribbit.Util.Extensions;
-using SQLite;
 
 namespace BeMusicSeeker.Models;
 

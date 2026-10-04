@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using Ribbit.Net;

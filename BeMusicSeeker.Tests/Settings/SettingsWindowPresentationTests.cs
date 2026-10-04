@@ -11,7 +11,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
-using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -33,7 +32,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
-using Ribbit.Logging;
 using Ribbit.Media.Audio;
 using SQLite;
 

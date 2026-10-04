@@ -1,34 +1,24 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Runtime.ExceptionServices;
-using System.Security;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Microsoft.VisualBasic.FileIO;
 using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
-using Ribbit.Net;
-using Ribbit.Util;
 using Ribbit.Util.Extensions;
-using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -7087,7 +7077,11 @@ public partial class BMSLibrary : ObservableObject
         string scoreDbPathSnapshot = lr2ScoreDBPath;
         lock (lockIrScorePrefetch)
         {
-            if (IsShutdownRequested) return;
+            if (IsShutdownRequested)
+            {
+                return;
+            }
+
             if (irScorePrefetchTask != null
                 && !irScorePrefetchTask.IsCompleted
                 && irScorePrefetchLr2Id == lr2Id

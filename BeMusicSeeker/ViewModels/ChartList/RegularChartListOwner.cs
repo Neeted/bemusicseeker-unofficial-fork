@@ -15,7 +15,6 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
 using Ribbit.Util;
@@ -881,7 +880,11 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal void QueueSort(MainChartListSortRequestedEventArgs request)
     {
-        if (request == null) throw new ArgumentNullException(nameof(request));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
         if (request.Target != MainChartListSortTarget.Regular)
         {
             throw new ArgumentException("A regular chart-list sort request is required.", nameof(request));
@@ -1161,9 +1164,13 @@ internal sealed class RegularChartListOwner : IDisposable
         void CaptureNotification(Action notification)
         {
             if (mutationDialogs != null)
+            {
                 FileDbMutationReport.NotifyBestEffort(notification);
+            }
             else
+            {
                 CaptureCleanupFailure(notification, failures);
+            }
         }
     }
 
@@ -3110,23 +3117,71 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private static long GetSortCacheGenerationForLog(NormalLibrarySortCacheKey key)
     {
-        if (key.ScoreGeneration != 0) return key.ScoreGeneration;
-        if (key.ChartInfoGeneration != 0) return key.ChartInfoGeneration;
-        if (key.WarningGeneration != 0) return key.WarningGeneration;
-        if (key.InstallDestinationGeneration != 0) return key.InstallDestinationGeneration;
-        if (key.ReferenceTablesGeneration != 0) return key.ReferenceTablesGeneration;
-        if (key.MaintenanceGeneration != 0) return key.MaintenanceGeneration;
+        if (key.ScoreGeneration != 0)
+        {
+            return key.ScoreGeneration;
+        }
+
+        if (key.ChartInfoGeneration != 0)
+        {
+            return key.ChartInfoGeneration;
+        }
+
+        if (key.WarningGeneration != 0)
+        {
+            return key.WarningGeneration;
+        }
+
+        if (key.InstallDestinationGeneration != 0)
+        {
+            return key.InstallDestinationGeneration;
+        }
+
+        if (key.ReferenceTablesGeneration != 0)
+        {
+            return key.ReferenceTablesGeneration;
+        }
+
+        if (key.MaintenanceGeneration != 0)
+        {
+            return key.MaintenanceGeneration;
+        }
+
         return key.SortKeyGeneration;
     }
 
     private static long GetSortCacheGenerationForLog(VirtualChartSubsetSortCacheKey key)
     {
-        if (key.ScoreGeneration != 0) return key.ScoreGeneration;
-        if (key.ChartInfoGeneration != 0) return key.ChartInfoGeneration;
-        if (key.WarningGeneration != 0) return key.WarningGeneration;
-        if (key.InstallDestinationGeneration != 0) return key.InstallDestinationGeneration;
-        if (key.ReferenceTablesGeneration != 0) return key.ReferenceTablesGeneration;
-        if (key.MaintenanceGeneration != 0) return key.MaintenanceGeneration;
+        if (key.ScoreGeneration != 0)
+        {
+            return key.ScoreGeneration;
+        }
+
+        if (key.ChartInfoGeneration != 0)
+        {
+            return key.ChartInfoGeneration;
+        }
+
+        if (key.WarningGeneration != 0)
+        {
+            return key.WarningGeneration;
+        }
+
+        if (key.InstallDestinationGeneration != 0)
+        {
+            return key.InstallDestinationGeneration;
+        }
+
+        if (key.ReferenceTablesGeneration != 0)
+        {
+            return key.ReferenceTablesGeneration;
+        }
+
+        if (key.MaintenanceGeneration != 0)
+        {
+            return key.MaintenanceGeneration;
+        }
+
         return key.SortKeyGeneration;
     }
 
@@ -4327,11 +4382,22 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private static bool IsSameReferenceSequence<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) where T : class
     {
-        if (ReferenceEquals(left, right)) return true;
-        if (left == null || right == null || left.Count != right.Count) return false;
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left == null || right == null || left.Count != right.Count)
+        {
+            return false;
+        }
+
         for (int i = 0; i < left.Count; i++)
         {
-            if (!ReferenceEquals(left[i], right[i])) return false;
+            if (!ReferenceEquals(left[i], right[i]))
+            {
+                return false;
+            }
         }
         return true;
     }
@@ -4557,14 +4623,22 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private static void CancelAndDispose(CancellationTokenSource cancellation)
     {
-        if (cancellation == null) return;
+        if (cancellation == null)
+        {
+            return;
+        }
+
         try { cancellation.Cancel(); }
         finally { cancellation.Dispose(); }
     }
 
     private static void Cancel(CancellationTokenSource cancellation)
     {
-        if (cancellation == null) return;
+        if (cancellation == null)
+        {
+            return;
+        }
+
         try
         {
             cancellation.Cancel();

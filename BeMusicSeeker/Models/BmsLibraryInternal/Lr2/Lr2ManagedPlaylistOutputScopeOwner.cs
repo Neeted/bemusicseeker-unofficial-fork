@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 

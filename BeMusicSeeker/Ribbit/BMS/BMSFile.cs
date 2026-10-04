@@ -3,7 +3,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -1498,7 +1497,11 @@ public partial class BMSFile
         string autoDetectedString = getAutoDetectedString(array, out Encoding enc);
         Encode = enc ?? sjisEncDefault;
         parseOptions?.InputRead?.Invoke(new BmsInputIdentity(Md5, array.LongLength, Encode.WebName, Encode.CodePage));
-        if (array.Length == 0) throw new InvalidDataException(filePath + " is empty file.");
+        if (array.Length == 0)
+        {
+            throw new InvalidDataException(filePath + " is empty file.");
+        }
+
         return enc == null ? sjisEncDefault.GetString(array) : autoDetectedString;
     }
 

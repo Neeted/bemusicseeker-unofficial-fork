@@ -1,25 +1,14 @@
 using System;
-using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
 
@@ -416,7 +405,11 @@ public sealed class RegularChartFolderRenameTests
             string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
             string lr2RootPath = Path.Combine(libraryRoot, "LR2beta3");
             var dialogs = new FileDbReportRecordingDialogs();
-            if (reporterThrows) dialogs.MessageFailure = new IOException("terminal report failed");
+            if (reporterThrows)
+            {
+                dialogs.MessageFailure = new IOException("terminal report failed");
+            }
+
             var gate = new ChartFileOperationSynchronizer();
             var activity = new ChartMutationActivityOwner();
             bool reportAfterRelease = false;
@@ -446,7 +439,11 @@ public sealed class RegularChartFolderRenameTests
                 {
                     bool gateReleased = gate.TryEnter(out IDisposable releasedGate);
                     reportAfterRelease = !activity.IsActive && gateReleased;
-                    if (gateReleased) releasedGate.Dispose();
+                    if (gateReleased)
+                    {
+                        releasedGate.Dispose();
+                    }
+
                     using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation("rename_report_probe");
                     modelLeaseReleased = lease != null;
                 };

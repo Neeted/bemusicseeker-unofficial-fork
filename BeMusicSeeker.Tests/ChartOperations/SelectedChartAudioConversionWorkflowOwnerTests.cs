@@ -59,7 +59,11 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         finally
         {
             BassAudioWriter.TryReleaseEncoder();
-            if (lease.Session != null) lease.TryRelease(BassAudioPlayer.Free);
+            if (lease.Session != null)
+            {
+                lease.TryRelease(BassAudioPlayer.Free);
+            }
+
             BassAudioPlayer.Free();
             BassAudioRuntime.Shutdown();
             BassAudioPlayer.Frequency = previousFrequency;

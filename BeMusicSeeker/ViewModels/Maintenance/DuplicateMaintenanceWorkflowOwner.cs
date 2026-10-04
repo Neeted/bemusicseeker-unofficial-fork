@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -692,9 +691,13 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         void CaptureNotification(Action notification)
         {
             if (mutationWithReceipt != null)
+            {
                 FileDbMutationReport.NotifyBestEffort(notification);
+            }
             else
+            {
                 CaptureCleanupFailure(notification, failures);
+            }
         }
     }
 

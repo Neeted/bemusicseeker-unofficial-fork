@@ -6,7 +6,6 @@ using System.Linq;
 using System.Numerics;
 using Ribbit.Logging;
 using Ribbit.Math;
-using Ribbit.Util.Extensions;
 
 namespace Ribbit.BMS;
 
@@ -25,11 +24,18 @@ public partial class BMSFile
         // 旧TryParseの数値は演算へ戻さず、特殊STOPの受理に必要な正∞分類だけを保持します。
         if (decimalSyntax)
         {
-            if (!decimal.TryParse(text, out decimal parsed) || parsed <= 0) return false;
+            if (!decimal.TryParse(text, out decimal parsed) || parsed <= 0)
+            {
+                return false;
+            }
         }
         else
         {
-            if (!double.TryParse(text, out double parsed) || !(parsed > 0)) return false;
+            if (!double.TryParse(text, out double parsed) || !(parsed > 0))
+            {
+                return false;
+            }
+
             wasParsedAsPositiveInfinity = double.IsPositiveInfinity(parsed);
         }
 
@@ -41,8 +47,16 @@ public partial class BMSFile
             value = BmsNumber.PositiveInfinity;
             return true;
         }
-        if (input.StartsWith(format.PositiveSign, StringComparison.Ordinal)) input = input[format.PositiveSign.Length..];
-        if (decimalSyntax && input.EndsWith(format.PositiveSign, StringComparison.Ordinal)) input = input[..^format.PositiveSign.Length].TrimEnd();
+        if (input.StartsWith(format.PositiveSign, StringComparison.Ordinal))
+        {
+            input = input[format.PositiveSign.Length..];
+        }
+
+        if (decimalSyntax && input.EndsWith(format.PositiveSign, StringComparison.Ordinal))
+        {
+            input = input[..^format.PositiveSign.Length].TrimEnd();
+        }
+
         BigInteger exponent = BigInteger.Zero;
         int exponentAt = input.IndexOfAny(['e', 'E']);
         if (!decimalSyntax && exponentAt >= 0)
@@ -50,9 +64,16 @@ public partial class BMSFile
             exponent = BigInteger.Parse(input[(exponentAt + 1)..], NumberStyles.AllowLeadingSign, format);
             input = input[..exponentAt];
         }
-        if (!string.IsNullOrEmpty(format.NumberGroupSeparator)) input = input.Replace(format.NumberGroupSeparator, string.Empty);
+        if (!string.IsNullOrEmpty(format.NumberGroupSeparator))
+        {
+            input = input.Replace(format.NumberGroupSeparator, string.Empty);
+        }
         // .NETの空白区切りカルチャはASCII空白も区切りとして受理します。
-        if (format.NumberGroupSeparator is "\u00a0" or "\u202f") input = input.Replace(" ", string.Empty);
+        if (format.NumberGroupSeparator is "\u00a0" or "\u202f")
+        {
+            input = input.Replace(" ", string.Empty);
+        }
+
         int point = input.IndexOf(format.NumberDecimalSeparator, StringComparison.Ordinal);
         if (point >= 0)
         {
@@ -70,14 +91,25 @@ public partial class BMSFile
 
     private static BigInteger PowerOfTen(BigInteger exponent)
     {
-        if (exponent <= int.MaxValue) return BigInteger.Pow(10, (int)exponent);
+        if (exponent <= int.MaxValue)
+        {
+            return BigInteger.Pow(10, (int)exponent);
+        }
+
         BigInteger result = BigInteger.One;
         BigInteger power = 10;
         while (exponent > 0)
         {
-            if (!exponent.IsEven) result *= power;
+            if (!exponent.IsEven)
+            {
+                result *= power;
+            }
+
             exponent >>= 1;
-            if (exponent > 0) power *= power;
+            if (exponent > 0)
+            {
+                power *= power;
+            }
         }
         return result;
     }
@@ -94,12 +126,18 @@ public partial class BMSFile
             int[] cursors = new int[lanes.Length];
             measure.Time = measureIndex == 0 ? TimeSpan.Zero : Measures[measureIndex - 1].BarLine.First().AbsoluteTime;
             Action<BmsTimingDiagnostic>? diagnostic = parseOptions?.TimingDiagnostic;
-            if (diagnostic != null && parseOptions?.DiagnoseMeasure?.Invoke(measureIndex) == false) diagnostic = null;
+            if (diagnostic != null && parseOptions?.DiagnoseMeasure?.Invoke(measureIndex) == false)
+            {
+                diagnostic = null;
+            }
 
             void Observe(string stage, Fraction result)
             {
-                if (diagnostic != null) diagnostic(new BmsTimingDiagnostic(measureIndex, stage,
+                if (diagnostic != null)
+                {
+                    diagnostic(new BmsTimingDiagnostic(measureIndex, stage,
                     BigInteger.Abs(result.Numerator).GetBitLength(), result.Denominator.GetBitLength()));
+                }
             }
             Fraction Operate(string operation, Fraction left, Fraction right)
             {
@@ -122,11 +160,19 @@ public partial class BMSFile
             Fraction Ratio(long ticks, BmsNumber numerator)
             {
                 // 旧STOP×係数の順序では、正∞STOPでも正∞BPMの係数ゼロが優先されます。
-                if (currentBpm.IsPositiveInfinity) return Fraction.Zero;
+                if (currentBpm.IsPositiveInfinity)
+                {
+                    return Fraction.Zero;
+                }
+
                 if (numerator.IsPositiveInfinity)
                 {
                     // 有限文字列BPMの厳密値は維持し、明示∞STOPだけ旧パース時のゼロ作用に従います。
-                    if (currentBpm.WasParsedAsPositiveInfinity) return Fraction.Zero;
+                    if (currentBpm.WasParsedAsPositiveInfinity)
+                    {
+                        return Fraction.Zero;
+                    }
+
                     throw new ArithmeticException(BeMusicSeeker.Properties.Resources.BmsInfiniteStopTimingFailure);
                 }
                 Fraction bpm = currentBpm.FiniteValue.GetValueOrDefault();
@@ -141,12 +187,19 @@ public partial class BMSFile
             Observe("measure-start", accumulated);
             // 旧小節長はBPM係数を掛ける前に位置へ適用され、正∞BPMでも確定できません。
             if (measure.Length.IsPositiveInfinity)
+            {
                 throw new ArithmeticException(BeMusicSeeker.Properties.Resources.BmsInfiniteMeasureLengthTimingFailure);
+            }
+
             Fraction TimeAt(Fraction position)
             {
                 Fraction distance = Operate("add", position, -previousPosition);
                 // 旧処理では距離0の時刻は変わらず、末尾BPM0や次小節先頭での復帰に係数は不要です。
-                if (distance == Fraction.Zero) return accumulated;
+                if (distance == Fraction.Zero)
+                {
+                    return accumulated;
+                }
+
                 coefficient ??= Ratio(2400000000L, measure.Length);
                 return Operate("add", accumulated, Operate("multiply", distance, coefficient.Value));
             }
@@ -186,7 +239,11 @@ public partial class BMSFile
                             control.Value = bpm;
                             changedBpm = true;
                         }
-                        else NLogWrapper.GetLogger()?.Warn("BMS Parser: #BPM" + BMSBase64.FromInt(control.Index) + " not found.");
+                        else
+                        {
+                            NLogWrapper.GetLogger()?.Warn("BMS Parser: #BPM" + BMSBase64.FromInt(control.Index) + " not found.");
+                        }
+
                         break;
                     case Chart.Note.NoteType.STOP:
                         if (StopArray[control.Index] is BmsNumber stop)
@@ -195,13 +252,25 @@ public partial class BMSFile
                             accumulated = Operate("add", accumulated, increment);
                             control.Value = TimeSpan.FromTicks(increment.ToInt64());
                         }
-                        else NLogWrapper.GetLogger()?.Warn("BMS Parser: #STOP" + BMSBase64.FromInt(control.Index) + " not found.");
+                        else
+                        {
+                            NLogWrapper.GetLogger()?.Warn("BMS Parser: #STOP" + BMSBase64.FromInt(control.Index) + " not found.");
+                        }
+
                         break;
                 }
                 if (changedBpm)
                 {
-                    if (currentBpm.CompareTo(MinBpm.GetValueOrDefault()) < 0) MinBpm = currentBpm;
-                    if (currentBpm.CompareTo(MaxBpm.GetValueOrDefault()) > 0) MaxBpm = currentBpm;
+                    if (currentBpm.CompareTo(MinBpm.GetValueOrDefault()) < 0)
+                    {
+                        MinBpm = currentBpm;
+                    }
+
+                    if (currentBpm.CompareTo(MaxBpm.GetValueOrDefault()) > 0)
+                    {
+                        MaxBpm = currentBpm;
+                    }
+
                     coefficient = null;
                 }
                 Observe("control", accumulated);

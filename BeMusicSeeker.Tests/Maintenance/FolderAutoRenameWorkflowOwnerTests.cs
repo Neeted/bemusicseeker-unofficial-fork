@@ -521,7 +521,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var scopeFailure = new IOException("suppression cleanup failed");
             owner.RefreshSuppressionChanged += (_, args) =>
             {
-                if (failSuppressionCleanup && !args.IsSuppressed) throw scopeFailure;
+                if (failSuppressionCleanup && !args.IsSuppressed)
+                {
+                    throw scopeFailure;
+                }
             };
             var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -532,7 +535,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             {
                 bool acquired = gate.TryEnter(out IDisposable probe);
                 releasedAtPublication = !activity.IsActive && acquired;
-                if (acquired) probe.Dispose();
+                if (acquired)
+                {
+                    probe.Dispose();
+                }
+
                 failurePublished.TrySetResult(failure);
             };
             owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);

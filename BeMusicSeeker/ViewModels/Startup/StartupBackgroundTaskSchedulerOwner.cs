@@ -1357,18 +1357,66 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetPriority(string name)
     {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)) return 10;
-        if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)) return 15;
-        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return 16;
-        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)) return int.MaxValue;
-        if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)) return 20;
-        if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)) return 30;
-        if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return 40;
-        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)) return 50;
-        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)) return 55;
-        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)) return 60;
-        if (string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)) return 70;
-        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 10;
+        }
+
+        if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase))
+        {
+            return 15;
+        }
+
+        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase))
+        {
+            return 16;
+        }
+
+        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase))
+        {
+            return int.MaxValue;
+        }
+
+        if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase))
+        {
+            return 20;
+        }
+
+        if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase))
+        {
+            return 30;
+        }
+
+        if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
+        {
+            return 40;
+        }
+
+        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 50;
+        }
+
+        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 55;
+        }
+
+        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase))
+        {
+            return 60;
+        }
+
+        if (string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
+        {
+            return 70;
+        }
+
+        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
+        {
+            return 90;
+        }
+
         return 100;
     }
 
@@ -1383,14 +1431,34 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     private static string GetBaseLane(string name)
     {
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)) return "read_hydration";
-        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)) return "maintenance_hydration";
+            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return "read_hydration";
+        }
+
+        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return "maintenance_hydration";
+        }
+
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return "playlist_followup";
-        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return "folder_tree_refresh";
+            || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
+        {
+            return "playlist_followup";
+        }
+
+        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase))
+        {
+            return "folder_tree_refresh";
+        }
+
         if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)) return "dependent_maintenance";
+            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
+        {
+            return "dependent_maintenance";
+        }
+
         return "default";
     }
 
@@ -1451,7 +1519,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static string Sanitize(string value)
     {
-        if (string.IsNullOrWhiteSpace(value)) return "-";
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
         return value
             .Replace(Environment.NewLine, " ")
             .Replace("\r", " ")

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Properties;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util.Extensions;

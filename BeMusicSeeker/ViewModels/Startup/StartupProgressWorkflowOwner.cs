@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -187,7 +186,11 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     }
     internal bool IsStartupProgressOperationTokenCurrent(long operationToken)
     {
-        if (operationToken == 0L) return true;
+        if (operationToken == 0L)
+        {
+            return true;
+        }
+
         lock (startupProgressLock)
         {
             return startupProgressState.IsActive && startupProgressState.OperationToken == operationToken;

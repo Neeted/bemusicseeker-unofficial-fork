@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

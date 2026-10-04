@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;

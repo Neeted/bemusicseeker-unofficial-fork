@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -8,30 +7,19 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Threading;
-using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Livet.Commands;
 using Livet.EventListeners;
-using Microsoft.VisualBasic.FileIO;
-using NLog;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
-using Ribbit.Net;
-using Ribbit.Util;
 using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -3186,14 +3174,26 @@ public partial class SettingsDialogViewModel : ViewModel
     public bool IsLightAppearanceTheme
     {
         get => string.Equals(AppearanceTheme, AppThemeService.Light, StringComparison.Ordinal);
-        set { if (value) AppearanceTheme = AppThemeService.Light; }
+        set
+        {
+            if (value)
+            {
+                AppearanceTheme = AppThemeService.Light;
+            }
+        }
     }
 
     /// <summary>Gets or selects the dark appearance theme for choice-tile binding.</summary>
     public bool IsDarkAppearanceTheme
     {
         get => string.Equals(AppearanceTheme, AppThemeService.Dark, StringComparison.Ordinal);
-        set { if (value) AppearanceTheme = AppThemeService.Dark; }
+        set
+        {
+            if (value)
+            {
+                AppearanceTheme = AppThemeService.Dark;
+            }
+        }
     }
 
     public double CustomTableFontSize
@@ -3987,7 +3987,10 @@ public partial class SettingsDialogViewModel : ViewModel
             // 表示名が保存されている場合はそれを優先（同一カルチャ名の重複対策）
             string savedDisplayName = ApplicationSettings.LangDisplayName;
             if (!string.IsNullOrEmpty(savedDisplayName) && cultureCatalog.Cultures.ContainsKey(savedDisplayName))
+            {
                 return savedDisplayName;
+            }
+
             return cultureCatalog.Cultures.FirstOrDefault(kv => kv.Value == ApplicationSettings.Lang).Key;
         }
         set
@@ -5065,7 +5068,9 @@ public partial class SettingsDialogViewModel : ViewModel
     public void SetFilePathFromPicker(string propertyName, string path)
     {
         if (path == null)
+        {
             return;
+        }
 
         SetSettingProperty(propertyName, path);
     }
@@ -5073,7 +5078,9 @@ public partial class SettingsDialogViewModel : ViewModel
     public void SetDirectoryPathFromPicker(string propertyName, string path)
     {
         if (path == null)
+        {
             return;
+        }
 
         SetSettingProperty(propertyName, path);
     }

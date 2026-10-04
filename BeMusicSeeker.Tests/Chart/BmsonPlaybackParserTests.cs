@@ -171,7 +171,10 @@ public sealed class BmsonPlaybackParserTests
             Assert.AreEqual(modern.AudioEvents[0].Start, legacy.AudioEvents[0].Start);
         }
         foreach (string version in new[] { "", "\"version\":\"future\"," })
+        {
             Assert.AreEqual(modern.AudioEvents[0].Start, Parse("{" + version + Chart("120", "[{\"y\":240}]")[1..].Replace("\"version\":\"1.0.0\",", "")).AudioEvents[0].Start);
+        }
+
         PlaybackChart mixed = Parse("{\"info\":{\"init_bpm\":120,\"initBPM\":60},\"sound_channels\":[],\"soundChannel\":[{\"notes\":[{\"y\":240}]}],\"bpm_events\":[],\"bpmNotes\":[{\"y\":0,\"v\":60}]}");
         Assert.AreEqual(0, mixed.AudioEvents.Count);
         Assert.AreEqual(120d, mixed.Bpm.ToDouble());
@@ -331,9 +334,15 @@ public sealed class BmsonPlaybackParserTests
     {
         string Token(string value) => quoted ? "\"" + value + "\"" : value;
         foreach (string value in new[] { "1" + new string('0', 4095), "0." + new string('0', 4094) + "1" })
+        {
             Assert.AreEqual(1, Parse(Chart(Token(value), "[{\"y\":0}]", ",\"lines\":[]")).AudioEvents.Count);
+        }
+
         foreach (string value in new[] { "0." + new string('0', 4095), "-1" + new string('0', 4095) })
+        {
             Assert.AreEqual(120d, Parse(Chart("120", "[]", ",\"bpm_events\":[{\"y\":0,\"bpm\":" + Token(value) + "}]")).Bpm.ToDouble());
+        }
+
         foreach (string value in new[] { "1" + new string('0', 4096), "0." + new string('0', 4096), "-1" + new string('0', 4096) })
         {
             InvalidBmsonFileException failure = Assert.ThrowsException<InvalidBmsonFileException>(() =>

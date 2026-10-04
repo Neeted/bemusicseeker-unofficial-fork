@@ -6,11 +6,9 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;

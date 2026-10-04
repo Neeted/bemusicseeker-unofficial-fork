@@ -1107,9 +1107,15 @@ internal sealed class PlaylistBmtOutputOwner
     private void ReportFailures(List<BmtTableExportService.FileOperationFailure> failures)
     {
         if (failures.Count == 0)
+        {
             return;
+        }
+
         foreach (BmtTableExportService.FileOperationFailure failure in failures)
+        {
             logWarning?.Invoke(new System.IO.IOException(failure.Cause), "beatoraja_bmt_failed path=" + FormatTextForLog(failure.Path));
+        }
+
         FailureReporter?.Invoke(Array.AsReadOnly(failures.ToArray()));
     }
 

@@ -17,7 +17,6 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 

@@ -6,14 +6,12 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
-using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -1386,7 +1384,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         {
             competingOperation?.Dispose();
             if (installOwner != null)
+            {
                 await installOwner.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }

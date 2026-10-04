@@ -6,7 +6,6 @@ using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Tests.Performance;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 

@@ -75,7 +75,7 @@ public sealed class WpfTestApplicationHostTests
     [TestMethod]
     public void CompiledDialogSurfaces_ResolveSemanticBrushesOnConstructorOnlyControls()
     {
-        TestUiDispatcherHost.Invoke(() =>
+        TestUiDispatcherHost.RunWindowTest(_ =>
         {
             var settingsWindow = new SettingsWindow();
             var settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");

@@ -8,11 +8,9 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Net;
 

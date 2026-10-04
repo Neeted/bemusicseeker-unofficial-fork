@@ -5,7 +5,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -1464,30 +1463,53 @@ internal static class BmtTableExportService
                 DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
             });
             while (reader.Read())
+            {
                 if (reader.TokenType != JsonToken.Comment)
+                {
                     throw new InvalidDataException("Unexpected content after manifest object.");
+                }
+            }
+
             var state = new ManifestState
             {
                 SchemaVersion = checked((int)ReadOptionalInteger(manifest, "schemaVersion")),
                 ExporterVersion = checked((int)ReadOptionalInteger(manifest, "exporterVersion"))
             };
             if (manifest["schemaVersion"]?.Type == JTokenType.Null || state.SchemaVersion is < 0 or > ManifestSchemaVersion)
+            {
                 throw new InvalidDataException("Unsupported manifest schemaVersion.");
+            }
+
             if (manifest["files"] is not JArray files)
+            {
                 throw new InvalidDataException("Manifest files must be an array.");
+            }
+
             foreach (JToken item in files)
+            {
                 state.Files.Add(ReadManagedFileName(item, allowEmpty: false));
+            }
+
             if (manifest["playlists"] is JToken playlistToken)
             {
                 if (playlistToken is not JObject playlists)
+                {
                     throw new InvalidDataException("Manifest playlists must be an object.");
+                }
+
                 foreach (JProperty property in playlists.Properties())
                 {
                     if (string.IsNullOrWhiteSpace(property.Name) || property.Value is not JObject value)
+                    {
                         throw new InvalidDataException("Invalid manifest playlist entry.");
+                    }
+
                     string url = ReadOptionalString(value, "url");
                     if (string.IsNullOrWhiteSpace(url))
+                    {
                         throw new InvalidDataException("Manifest playlist URL is required.");
+                    }
+
                     string fileName = ReadManagedFileName(value["file"], allowEmpty: true);
                     ReadOptionalString(value, "contentHash"); // 旧 cache field は型だけ検証し、no-op 根拠にはしない。
                     state.Playlists.Add(property.Name, new ManifestPlaylistEntry
@@ -1505,7 +1527,9 @@ internal static class BmtTableExportService
                     });
                     // 旧形式の playlist 参照も物理所有台帳の一部である。
                     if (fileName.Length > 0)
+                    {
                         state.Files.Add(fileName);
+                    }
                 }
             }
             return state;
@@ -1520,9 +1544,15 @@ internal static class BmtTableExportService
     {
         JToken token = value[name];
         if (token == null || token.Type == JTokenType.Null)
+        {
             return string.Empty;
+        }
+
         if (token.Type != JTokenType.String)
+        {
             throw new InvalidDataException($"Manifest {name} must be a string.");
+        }
+
         return token.Value<string>();
     }
 
@@ -1530,18 +1560,30 @@ internal static class BmtTableExportService
     {
         JToken token = value[name];
         if (token == null || token.Type == JTokenType.Null)
+        {
             return 0L;
+        }
+
         if (token.Type != JTokenType.Integer)
+        {
             throw new InvalidDataException($"Manifest {name} must be an integer.");
+        }
+
         return token.Value<long>();
     }
 
     private static string ReadManagedFileName(JToken token, bool allowEmpty)
     {
         if (allowEmpty && (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.String && token.Value<string>() == string.Empty))
+        {
             return string.Empty;
+        }
+
         if (token?.Type != JTokenType.String)
+        {
             throw new InvalidDataException("Manifest file must be a BMT basename.");
+        }
+
         string name = token.Value<string>();
         if (string.IsNullOrWhiteSpace(name)
             || !name.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase)
@@ -1549,7 +1591,10 @@ internal static class BmtTableExportService
             || name.Contains(Path.DirectorySeparatorChar) || name.Contains(Path.AltDirectorySeparatorChar)
             || Path.IsPathRooted(name)
             || !string.Equals(name, Path.GetFileName(name), StringComparison.Ordinal))
+        {
             throw new InvalidDataException("Manifest file must be a safe BMT basename.");
+        }
+
         return name;
     }
     private static void WriteManifest(string tablePath, IEnumerable<string> fileNames, IDictionary<string, ManifestPlaylistEntry> playlists, ExportResult result)
