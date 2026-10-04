@@ -210,6 +210,8 @@ The list appearance settings adjust the shared table display used by the library
 
 ### Playback
 
+![Playback Settings](img/設定_再生.PNG)
+
 Select the player used to play charts. The built-in player is for simple audio-only preview playback. When using external players such as uBMplay, BMIIDXView2015, or LR2, specify the executable path.
 
 Even in standalone mode, you can specify LR2body as the playback application. This is separate from whether the application integrates with the LR2 DB.
