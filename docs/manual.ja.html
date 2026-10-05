@@ -831,7 +831,7 @@ hr {
 <p>通常は <code>LR2 ディレクトリ</code> を指定すると、標準配置の <code>song.db</code> と <code>config.xml</code> / <code>config.xmh</code> が自動設定されます。標準配置を使えない場合だけ、各ファイルの <code>参照</code> で個別指定してください。状態表示で標準配置か個別設定かを確認できます。</p>
 <p>BMS ディレクトリの追加・削除は BeMusicSeeker の <code>一般</code> で行ってください。LR2 のデータベース自動更新は、初回設定保存時と起動時に「手動のみ」へ設定されます。</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>LR2 で読み込めない譜面も BeMusicSeeker の管理対象に含まれます。<a href="#lr2互換性警告">LR2互換性警告</a> を確認し、LR2 での選曲・再生に支障がある譜面は対応してください。</p></div>
-<p><code>LR2 song.db データを再同期</code> は、所持譜面とプレイリストから LR2 のライブラリ情報を作り直します。復旧手順は <a href="#lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</a> を参照してください。</p>
+<p><code>LR2 song.db データを再同期</code> は通常の利用では必要ありません。LR2 連携で問題が起きた場合は <a href="#lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</a> を参照してください。</p>
 <h4 id="lr2プレイログ">LR2プレイログ</h4>
 <p>LR2 連携モードで、導入後のプレイ履歴を記録できます。導入前の過去プレイは復元できません。</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>導入・修復は選択中プレイヤーの <code>score.db</code> を変更します。対象プレイヤーを確認し、<code>score.db</code> をバックアップしてから実行してください。</p></div>
@@ -1915,7 +1915,7 @@ playlist:"Satellite Sub"
 <h4 id="lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</h4>
 <p><code>LR2互換性警告</code> に表示されていないか確認してください。CP932(Shift_JIS) で表現できない譜面パスやリソース定義、長すぎる譜面パスやリソース参照パスを含む譜面は、LR2 側で選曲または再生できない可能性があります。</p>
 <p>LR2 連携モードでは、ステータスバーの <code>LR2 song.db 同期</code> 状態も確認してください。未完了や失敗が残っていると、LR2 側が古い <code>song.db</code> を読んでいる可能性があります。<code>再試行</code> で完了させてから LR2 を起動してください。</p>
-<p>または、設定画面の <code>LR2 song.db データを再同期</code> を実行することも有効な手段です。</p>
+<p>同期済みであっても、本アプリ以外のツールによって <code>song.db</code> の <code>song</code> / <code>folder</code> 情報が変更され、LR2 用の生成データに不整合があると考えられる場合は、設定画面の <code>LR2 song.db データを再同期</code> を使用できます。</p>
 <h3 id="プレイログの問題">プレイログの問題</h3>
 <h4 id="lr2-の過去プレイが表示されません">LR2 の過去プレイが表示されません</h4>
 <p>LR2 プレイログは、プレイログ機能を導入した後に LR2 でプレイした履歴だけを記録します。導入前の過去プレイはプレイログ画面には復元できません。</p>

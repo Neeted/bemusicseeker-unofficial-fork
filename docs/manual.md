@@ -183,7 +183,7 @@ Add or remove BMS directories through BeMusicSeeker's `General` category. LR2 da
 > [!CAUTION]
 > BeMusicSeeker also manages charts that LR2 cannot read. Check [LR2 Compatibility Warnings](#lr2-compatibility-warnings) and address charts that may cause problems during LR2 selection or playback.
 
-`Resync LR2 song.db data` rebuilds LR2 library information from owned charts and playlists. For recovery, see [LR2 Cannot Select a Chart](#lr2-cannot-select-a-chart).
+`Resync LR2 song.db data` is unnecessary during normal use. If you encounter problems with LR2 integration, see [LR2 Cannot Select a Chart](#lr2-cannot-select-a-chart).
 
 #### LR2 Play Log
 
@@ -1266,7 +1266,7 @@ Check whether the chart appears in `LR2 compatibility warnings`. Charts containi
 
 In LR2 linked mode, also check the `Syncing LR2 song.db` state in the status bar. If incomplete or failed work remains, LR2 may be reading an old `song.db`. Press `Retry` and let synchronization finish before starting LR2.
 
-Running `Resync LR2 song.db data` from the settings dialog is also an effective option.
+Even after synchronization is complete, you can use `Resync LR2 song.db data` in the settings dialog if another tool has changed the `song` / `folder` information in `song.db` and you suspect inconsistencies in the data generated for LR2.
 
 ### Play Log Troubleshooting
 

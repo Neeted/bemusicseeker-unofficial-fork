@@ -499,7 +499,8 @@ public class Resources
 
     public static string Lr2_song_db_sync_data_resync => ResourceManager.GetString("Lr2_song_db_sync_data_resync", resourceCulture);
 
-    public static string Lr2_song_db_sync_data_resync_tooltip => ResourceManager.GetString("Lr2_song_db_sync_data_resync_tooltip", resourceCulture);
+    /// <summary>LR2 song.db の手動再同期が通常は不要であることと、修復用途の実行条件を示す常設説明を取得します。</summary>
+    public static string Lr2_song_db_sync_data_resync_description => ResourceManager.GetString("Lr2_song_db_sync_data_resync_description", resourceCulture);
 
     public static string Msg_confirm_lr2_song_db_sync_data_resync => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_data_resync", resourceCulture);
 

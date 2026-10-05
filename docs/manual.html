@@ -829,7 +829,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p>Normally, specifying the <code>LR2 directory</code> automatically sets the standard locations for <code>song.db</code> and <code>config.xml</code> / <code>config.xmh</code>. Use each file's <code>Browse</code> button only when the standard location cannot be used. The status display identifies standard and individually configured paths.</p>
 <p>Add or remove BMS directories through BeMusicSeeker's <code>General</code> category. LR2 database auto-update is set to manual-only when saving the initial setup and on startup.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>BeMusicSeeker also manages charts that LR2 cannot read. Check <a href="#lr2-compatibility-warnings">LR2 Compatibility Warnings</a> and address charts that may cause problems during LR2 selection or playback.</p></div>
-<p><code>Resync LR2 song.db data</code> rebuilds LR2 library information from owned charts and playlists. For recovery, see <a href="#lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</a>.</p>
+<p><code>Resync LR2 song.db data</code> is unnecessary during normal use. If you encounter problems with LR2 integration, see <a href="#lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</a>.</p>
 <h4 id="lr2-play-log">LR2 Play Log</h4>
 <p>In LR2 linked mode, you can record plays made after installing this feature. Plays made before installation cannot be restored.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Installation or repair changes the selected player's <code>score.db</code>. Check the player and back up <code>score.db</code> before proceeding.</p></div>
@@ -1913,7 +1913,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</h4>
 <p>Check whether the chart appears in <code>LR2 compatibility warnings</code>. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.</p>
 <p>In LR2 linked mode, also check the <code>Syncing LR2 song.db</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Press <code>Retry</code> and let synchronization finish before starting LR2.</p>
-<p>Running <code>Resync LR2 song.db data</code> from the settings dialog is also an effective option.</p>
+<p>Even after synchronization is complete, you can use <code>Resync LR2 song.db data</code> in the settings dialog if another tool has changed the <code>song</code> / <code>folder</code> information in <code>song.db</code> and you suspect inconsistencies in the data generated for LR2.</p>
 <h3 id="play-log-troubleshooting">Play Log Troubleshooting</h3>
 <h4 id="past-lr2-plays-are-not-shown">Past LR2 Plays Are Not Shown</h4>
 <p>The LR2 play log records only plays made in LR2 after the play-log feature has been installed. Plays made before installation cannot be restored in the Play Log view.</p>

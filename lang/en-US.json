@@ -77,7 +77,7 @@
   "Lr2_song_db_sync_status_incomplete": "LR2 song.db sync is incomplete",
   "Lr2_song_db_sync_retry": "Retry",
   "Lr2_song_db_sync_data_resync": "Resync LR2 song.db data",
-  "Lr2_song_db_sync_data_resync_tooltip": "Resync LR2 song/folder derived data from the current owned charts and playlists. This is not a maintenance rescan or full chart_info completion.",
+  "Lr2_song_db_sync_data_resync_description": "This is normally unnecessary. Initial LR2 song.db synchronization and regular updates made by this application are automatic. Use this if another tool has changed the song / folder information and you suspect inconsistencies in the data generated for LR2.",
   "Lr2_play_history_schema_label": "LR2 Play Log",
   "Lr2_play_history_schema_install": "Install play log...",
   "Lr2_play_history_schema_repair": "Install / repair...",

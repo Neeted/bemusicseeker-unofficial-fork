@@ -85,7 +85,7 @@
   "Lr2_song_db_sync_status_incomplete": "LR2 song.db 同步未完成",
   "Lr2_song_db_sync_retry": "重试",
   "Lr2_song_db_sync_data_resync": "重新同步 LR2 song.db 数据",
-  "Lr2_song_db_sync_data_resync_tooltip": "根据当前已持有谱面和播放列表重新同步 LR2 的 song / folder 派生数据。这不是维护重新扫描，也不是 chart_info 全谱面补全。",
+  "Lr2_song_db_sync_data_resync_description": "通常无需执行此操作。LR2 song.db 的首次同步和本应用进行的常规更新都会自动完成。如果其他工具修改了 song / folder 信息，且您怀疑为 LR2 生成的数据存在不一致，请执行此操作。",
   "Lr2_play_history_schema_label": "LR2 游玩日志",
   "Lr2_play_history_schema_install": "安装游玩日志...",
   "Lr2_play_history_schema_repair": "安装 / 修复...",

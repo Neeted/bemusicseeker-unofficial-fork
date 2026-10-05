@@ -85,7 +85,7 @@
   "Lr2_song_db_sync_status_incomplete": "LR2 song.db 동기화가 완료되지 않았습니다",
   "Lr2_song_db_sync_retry": "다시 시도",
   "Lr2_song_db_sync_data_resync": "LR2 song.db 데이터 재동기화",
-  "Lr2_song_db_sync_data_resync_tooltip": "현재 보유 채보와 플레이리스트에서 LR2의 song / folder 파생 데이터를 다시 동기화합니다. 유지 보수 재스캔이나 chart_info 전체 보완은 아닙니다.",
+  "Lr2_song_db_sync_data_resync_description": "일반적으로 실행할 필요가 없습니다. LR2 song.db의 최초 동기화와 이 앱을 통한 일반적인 업데이트는 자동으로 이루어집니다. 다른 도구가 song / folder 정보를 변경하여 LR2용으로 생성된 데이터에 불일치가 있다고 의심되는 경우에 실행하세요.",
   "Lr2_play_history_schema_label": "LR2 플레이 로그",
   "Lr2_play_history_schema_install": "플레이 로그 설치...",
   "Lr2_play_history_schema_repair": "설치 / 복구...",
