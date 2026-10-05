@@ -27,7 +27,8 @@ public static class BassAudioRuntime
     private static Func<bool> _releaseAudioSessionForShutdown;
 
     /// <summary>
-    /// Loads and validates the bundled native runtime. Repeated calls are safe.
+    /// 同梱native runtimeを読み込み、接続と版を検証します。
+    /// 受理済み要求内で初期化済み状態を共有leaseにより確認し、不要な排他待ちでcallbackを拒否しません。
     /// </summary>
     public static void Initialize()
     {
@@ -42,6 +43,18 @@ public static class BassAudioRuntime
             throw new InvalidOperationException("The native runtime is busy with another audio request.");
         }
         using IDisposable requestAdmission = admission;
+        if (TryEnterAudioOperation(out BassAudioOperationLease operation))
+        {
+            using (operation)
+            {
+                if (_isInitialized)
+                {
+                    return;
+                }
+            }
+        }
+
+        // 共有leaseから排他へ昇格せず、初回・停止後の初期化は既存の排他側で再確認します。
         InitializeRuntime();
     }
 

@@ -5,8 +5,10 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
@@ -226,6 +228,163 @@ public sealed class BassNativeRuntimeTests
             }
 
             Assert.IsFalse(BassNativeRuntime.IsLoaded);
+        }
+    }
+
+    [TestMethod]
+    public void BassAudioRuntime_RepeatedInitializeCoexistsWithHeldCallbackAndIndependentPcmPull()
+    {
+        string wavePath = CreateNativeSmokeWaveFile();
+        using var releaseCallback = new ManualResetEventSlim();
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? heldCallback = null;
+        Task? initialization = null;
+        ExceptionDispatchInfo? failure = null;
+        void CaptureCleanup(Action cleanup)
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception exception)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+
+        try
+        {
+            BassAudioRuntime.Initialize();
+            Assert.IsTrue(Bass.Init(0, 44100, DeviceInitFlags.Default, IntPtr.Zero, IntPtr.Zero),
+                Bass.LastError.ToString());
+            int sourceHandle = Bass.CreateStream(wavePath, 0L, 0L,
+                BassFlags.Float | BassFlags.Prescan | BassFlags.Decode);
+            Assert.AreNotEqual(0, sourceHandle, Bass.LastError.ToString());
+            var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO)
+            {
+                OutputProcessor = new AudioOutputProcessor(44100, 1d),
+                CallbackPcmRenderer = new AudioPcmRenderer(sourceHandle, 44100, 1)
+            };
+            session.TrackOutputHandle(sourceHandle);
+
+            heldCallback = Task.Factory.StartNew(
+                () =>
+                {
+                    try
+                    {
+                        Assert.IsTrue(BassAudioRuntime.TryEnterAudioCallbackOperation(
+                            out BassAudioOperationLease operation));
+                        using (operation)
+                        {
+                            callbackEntered.SetResult();
+                            releaseCallback.Wait();
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        callbackEntered.TrySetException(exception);
+                        throw;
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            callbackEntered.Task.GetAwaiter().GetResult();
+
+            initialization = Task.Factory.StartNew(
+                () =>
+                {
+                    for (int repetition = 0; repetition < 3; repetition++)
+                    {
+                        BassAudioRuntime.Initialize();
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+
+            // 保持中の共有leaseが冗長な排他初期化を待たせる誤実装だけを、この局所期限で検出します。
+            bool completedWhileCallbackHeld = initialization.Wait(TimeSpan.FromSeconds(2));
+            float[]? pcm = Task.Factory.StartNew(
+                () =>
+                {
+                    if (!BassAudioRuntime.TryEnterAudioCallbackOperation(out BassAudioOperationLease operation))
+                    {
+                        return null;
+                    }
+                    using (operation)
+                    {
+                        const int sampleCount = 128;
+                        IntPtr buffer = Marshal.AllocHGlobal(sampleCount * sizeof(float));
+                        try
+                        {
+                            Assert.AreEqual(sampleCount * sizeof(float),
+                                BassAudioPlayer.ReadPublishedCallbackOutput(session, buffer, sampleCount * sizeof(float)));
+                            session.ThrowPendingOutputFailure();
+                            float[] samples = new float[sampleCount];
+                            Marshal.Copy(buffer, samples, 0, samples.Length);
+                            return samples;
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(buffer);
+                        }
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).GetAwaiter().GetResult();
+
+            Assert.IsTrue(completedWhileCallbackHeld, "初期化済みruntimeの確認は進行中のcallbackの解放を待ちません。");
+            Assert.IsNotNull(pcm, "独立したcallbackの受付を維持します。");
+            Assert.IsTrue(pcm.All(float.IsFinite));
+            Assert.IsTrue(pcm.Any(sample => sample != 0f), "実native PCMを継続して読み取ります。");
+            Assert.IsTrue(Bass.ChannelGetPosition(sourceHandle, PositionFlags.Bytes) > 0);
+        }
+        catch (Exception exception)
+        {
+            failure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            releaseCallback.Set();
+            CaptureCleanup(() => heldCallback?.GetAwaiter().GetResult());
+            CaptureCleanup(() => initialization?.GetAwaiter().GetResult());
+            CaptureCleanup(BassAudioRuntime.Shutdown);
+            CaptureCleanup(() => File.Delete(wavePath));
+        }
+
+        failure?.Throw();
+    }
+
+    [TestMethod]
+    public void BassAudioRuntime_InitializedRuntimeRejectsIndependentRequestButAllowsAcceptedReentry()
+    {
+        BassAudioRuntime.Initialize();
+        try
+        {
+            Assert.IsTrue(BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission));
+            using (admission)
+            {
+                Task independentRequest;
+                // 受理済み要求のAsyncLocalを継承させず、別要求として直接Initializeを呼びます。
+                using (ExecutionContext.SuppressFlow())
+                {
+                    independentRequest = Task.Factory.StartNew(
+                        () => Assert.ThrowsException<InvalidOperationException>(BassAudioRuntime.Initialize),
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+                }
+                independentRequest.GetAwaiter().GetResult();
+                BassAudioRuntime.Initialize();
+            }
+
+            BassAudioRuntime.Initialize();
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
         }
     }
 
