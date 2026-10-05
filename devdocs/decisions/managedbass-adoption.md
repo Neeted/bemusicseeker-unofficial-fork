@@ -20,4 +20,4 @@ BASSのマネージドラッパーにはManagedBassを使い、エンコーダ�
 
 通常テストは外部エンコーダーを要求しません。利用者が用意した実行ファイルを使う確認は `ExternalAudioEncoderSmokeTests` の明示実行に分けます。形式・停止・後片付けは本番の処理を通し、実行ファイルや音声素材を配布物へ追加しません。
 
-実機での音声確認は[音声再生仕様](../spec/runtime/audio.md)、配布・外部エンコーダーの実行条件は[テスト検証](../spec/development/testing.md)を参照します。
+ユーザーへ推奨する音声機器の確認項目は[音声再生仕様](../spec/runtime/audio.md#診断と実機確認)、実機確認の扱いと配布・外部エンコーダーの実行条件は[テスト検証](../spec/development/testing.md)を参照します。

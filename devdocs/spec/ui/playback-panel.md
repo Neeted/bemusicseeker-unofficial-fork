@@ -22,7 +22,7 @@
 
 画像と再生面の切替、Overlay表示、`Unloaded` と切離し・再接続では同じHWNDを保持します。終了は既存のシェル終了管理主体によるプレーヤー終了の実完了を待ち、最終 `MainWindow.Closed` からUIスレッド上でホストを解放します。ネイティブ生成・破棄の失敗は例外として伝えます。
 
-外部プレーヤーは物理587×256ピクセルです。XAMLの予約領域は `MinWidth=587`、`Height=256`、`MaxHeight=256` DIPとし、中央・下端へ配置します。ホストの配置は各軸について、WPFから渡された `finalSize` と物理寸法を実行時DPI倍率でDIPへ換算した値の小さい方を返します。小型でも固定の予約寸法を維持し、親の可用領域とは区別します。空ホストの位置とサイズは `HwndHost` が同期します。通常テストは実行時DPIで確認し、異なるDPIの実モニターにおける描画・入力は実機確認の範囲です。
+外部プレーヤーは物理587×256ピクセルです。XAMLの予約領域は `MinWidth=587`、`Height=256`、`MaxHeight=256` DIPとし、中央・下端へ配置します。ホストの配置は各軸について、WPFから渡された `finalSize` と物理寸法を実行時DPI倍率でDIPへ換算した値の小さい方を返します。小型でも固定の予約寸法を維持し、親の可用領域とは区別します。空ホストの位置とサイズは `HwndHost` が同期します。通常テストは実行時DPIで確認し、異なるDPIの実モニターにおける描画・入力は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分けます。
 
 ### 共通の再生対象と一覧状態
 
@@ -76,6 +76,7 @@ DataContextが読込み前・読込み中のどちらで設定されても同じ
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 異なるDPIの実モニターでの描画・入力 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | 下記の自動テストは実行時DPIで配置・寸法・HWND寿命を検証する。異なるDPIのモニターでの描画・入力位置とモニター移動後の操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 譜面の表示対象変更、素材A→素材B→素材なし | [`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) の `DisplayedChart` 通知と `RefreshArtwork(ChartFile)` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent` は実選曲からcompiled Viewの画像・バナー画素更新と既定画像・背景なしへの復帰を確認する。 |
 | 共通譜面キュー、現在曲表示、再生状態投影、外部playerの能力 | `PlaybackPanelViewModel.NowPlayingChart` / `GetPlaybackStatus`、[`MainChartRowProjectionOwner`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartRowProjectionOwner.cs)、`PlaybackChartQueue` | `PlaybackPanelViewModelTests.PlaybackPanelChartQueueKeepsIdentityStatusAndSingleAdvance` は混在入力を代表として現在対象・ヘッダー・PLAY/PAUSE・一回の送り・旧対象の状態解除と `SCORE_UNSENT` / `SEARCHING` の維持を、`PlaybackPanelDoesNotSendBmsonToAnExternalPlayerWithoutThatCapability` は外部能力の分離を確認する。 |
 | 要求状態と実効状態、初期フレーム、差替え・再読込み、遷移 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) |
