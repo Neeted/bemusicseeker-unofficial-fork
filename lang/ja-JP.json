@@ -1070,5 +1070,18 @@
   "Error_RecommendationScoreNotConfigured": "スコアDBが設定されていません。一般設定でプレイヤーとスコアDBを選択してください。",
   "Error_RecommendationScoreReadFailed": "選択中のスコアDBを読み込めませんでした。",
   "Error_RecommendationNoObservations": "モデルに一致するプレイ記録がありません。",
-  "Error_RecommendationRatingFailed": "プレイ記録から実力を推定できませんでした。"
+  "Error_RecommendationRatingFailed": "プレイ記録から実力を推定できませんでした。",
+  "Statusbar_progress_phase_lr2_folder_file_check": "LR2カスタムフォルダの変更確認",
+  "Statusbar_progress_phase_chart_digest": "譜面ハッシュの補完",
+  "Statusbar_progress_task_external_playlist_sync": "外部プレイリストの同期",
+  "Statusbar_progress_task_playlist_manual_reload": "選択プレイリストの再同期",
+  "Statusbar_progress_task_external_table_catalog": "外部表一覧の読込み",
+  "Statusbar_progress_task_playlist_index": "プレイリスト索引の準備",
+  "Statusbar_progress_task_chart_list_preparation": "譜面一覧の索引・ソートキャッシュの準備",
+  "Statusbar_progress_task_playlist_url_completion": "プレイリストURLの補完",
+  "Statusbar_progress_task_folder_tree": "フォルダ一覧の更新",
+  "Statusbar_progress_task_custom_folder_repair": "LR2カスタムフォルダ出力の修復",
+  "Statusbar_progress_task_bmt_output": "BMTの出力",
+  "Statusbar_progress_task_gc": "起動後のメモリ整理",
+  "Statusbar_progress_task_lr2_sync_enrollment": "LR2楽曲DB同期の準備"
 }

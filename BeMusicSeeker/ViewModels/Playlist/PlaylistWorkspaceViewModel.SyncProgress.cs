@@ -5,115 +5,87 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private readonly object playlistSyncProgressLock = new();
-
     private readonly object playlistSyncProgressPublicationLock = new();
+    private readonly Dictionary<string, int> playlistSyncProgressActiveOperations = new();
+    private readonly HashSet<(string Source, long OperationId)> activePlaylistProgressIds = [];
 
-    private int playlistSyncProgressActiveOperationCount;
-
-    private readonly HashSet<long> activeBeatorajaBmtExportProgressOperations = [];
-
-    internal void BeginPlaylistSyncProgressOperation()
+    /// <summary>同じ生産元の複合処理が終結するまで、その進捗行を所有します。</summary>
+    internal void BeginPlaylistSyncProgressOperation(string source = "playlist")
     {
         lock (playlistSyncProgressPublicationLock)
         {
-            lock (playlistSyncProgressLock)
-            {
-                playlistSyncProgressActiveOperationCount++;
-            }
+            playlistSyncProgressActiveOperations.TryGetValue(source, out int count);
+            playlistSyncProgressActiveOperations[source] = count + 1;
         }
     }
 
-    internal void EndPlaylistSyncProgressOperation()
+    /// <summary>生産元の最後の所有処理が終わったとき、その行だけを消します。</summary>
+    internal void EndPlaylistSyncProgressOperation(string source = "playlist")
     {
         lock (playlistSyncProgressPublicationLock)
         {
-            bool shouldClear;
-            lock (playlistSyncProgressLock)
+            playlistSyncProgressActiveOperations.TryGetValue(source, out int count);
+            if (count > 1)
             {
-                if (playlistSyncProgressActiveOperationCount > 0)
-                {
-                    playlistSyncProgressActiveOperationCount--;
-                }
-                shouldClear = playlistSyncProgressActiveOperationCount == 0;
+                playlistSyncProgressActiveOperations[source] = count - 1;
+                return;
             }
-            if (shouldClear)
-            {
-                PublishPlaylistSyncProgress(CreateInactivePlaylistSyncProgressSnapshot());
-            }
+            playlistSyncProgressActiveOperations.Remove(source);
+            PublishPlaylistSyncProgress(new PlaylistSyncProgressSnapshot { Source = source, IsActive = false });
         }
     }
 
+    /// <summary>異なる生産元と既存操作IDの進捗・終端を、互いに上書きせず表示先へ渡します。</summary>
     internal void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
     {
-        bool isActive = snapshot?.IsActive == true;
-        long operationId = snapshot?.OperationId ?? 0;
+        if (snapshot == null)
+        {
+            return;
+        }
+
         lock (playlistSyncProgressPublicationLock)
         {
-            if (isActive)
+            if (snapshot.OperationId != 0)
             {
-                if (operationId != 0)
+                (string Source, long OperationId) key = (snapshot.Source, snapshot.OperationId);
+                if (snapshot.IsActive)
                 {
-                    lock (playlistSyncProgressLock)
-                    {
-                        if (activeBeatorajaBmtExportProgressOperations.Add(operationId))
-                        {
-                            playlistSyncProgressActiveOperationCount++;
-                        }
-                    }
+                    activePlaylistProgressIds.Add(key);
                 }
-                PublishPlaylistSyncProgress(snapshot);
-                return;
-            }
-
-            if (operationId != 0)
-            {
-                bool shouldClear = false;
-                lock (playlistSyncProgressLock)
-                {
-                    if (activeBeatorajaBmtExportProgressOperations.Remove(operationId))
-                    {
-                        if (playlistSyncProgressActiveOperationCount > 0)
-                        {
-                            playlistSyncProgressActiveOperationCount--;
-                        }
-                        shouldClear = playlistSyncProgressActiveOperationCount == 0;
-                    }
-                }
-                if (shouldClear)
-                {
-                    PublishPlaylistSyncProgress(CreateInactivePlaylistSyncProgressSnapshot());
-                }
-                return;
-            }
-
-            lock (playlistSyncProgressLock)
-            {
-                if (playlistSyncProgressActiveOperationCount > 0)
+                else if (!activePlaylistProgressIds.Remove(key))
                 {
                     return;
                 }
             }
+            // ID付きBMT出力と修復は自身の終端を持ち、利用者の複合処理とは別に終結します。
+            if (!snapshot.IsActive && snapshot.OperationId == 0
+                && playlistSyncProgressActiveOperations.ContainsKey(snapshot.Source))
+            {
+                return;
+            }
+
             PublishPlaylistSyncProgress(snapshot);
         }
     }
 
-    private void PublishPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
+    // モデル共通通知の既存操作IDを保ち、呼出し元が所有する仕事だけを識別します。
+    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, string singleLabel = null)
     {
-        PlaylistSyncProgressChanged?.Invoke(
-            this,
-            new PlaylistSyncProgressChangedEventArgs(snapshot));
+        if (snapshot == null)
+        {
+            return;
+        }
+        snapshot.Source = source;
+        if (singleLabel != null)
+        {
+            snapshot.SingleLabel = singleLabel;
+            snapshot.LabelFormat = singleLabel + " {0}/{1}";
+        }
+        ReportPlaylistSyncProgress(snapshot);
     }
 
-    private static PlaylistSyncProgressSnapshot CreateInactivePlaylistSyncProgressSnapshot()
+    private void PublishPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
     {
-        return new PlaylistSyncProgressSnapshot
-        {
-            IsActive = false,
-            TotalTableCount = 0,
-            CompletedTableCount = 0,
-            CurrentTableName = string.Empty,
-            CurrentUri = null
-        };
+        PlaylistSyncProgressChanged?.Invoke(this, new PlaylistSyncProgressChangedEventArgs(snapshot));
     }
 }

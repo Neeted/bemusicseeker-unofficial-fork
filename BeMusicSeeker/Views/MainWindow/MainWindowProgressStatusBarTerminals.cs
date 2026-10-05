@@ -4,29 +4,35 @@ using BeMusicSeeker.ViewModels;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// Narrows status-bar action events to the existing workflow owners.
+/// 表示行の操作を既存の管理主体へ直接接続します。
 /// </summary>
 internal sealed class MainWindowProgressStatusBarTerminals
 {
     private readonly Action cancelInstallPipeline;
+
+    private readonly Action cancelPlaylistUrlDownload;
 
     private readonly Action cancelMaintenanceRescan;
 
     private readonly Action retryLr2Sync;
 
     /// <summary>
-    /// Initializes the status-bar action terminal bundle.
+    /// 行ごとの取消・再試行先を初期化します。
     /// </summary>
     /// <param name="cancelInstallPipeline">
-    /// Cancels the currently prioritized playlist URL download or package-install pipeline.
+    /// 導入行が所有するパッケージ導入を取り消します。
     /// </param>
-    /// <param name="cancelMaintenanceRescan">Cancels the owned maintenance rescan.</param>
-    /// <param name="retryLr2Sync">Requests the owned LR2 sync retry.</param>
+    /// <param name="cancelMaintenanceRescan">保守再検査の取消先。</param>
+    /// <param name="retryLr2Sync">LR2同期の再試行先。</param>
+    /// <param name="cancelPlaylistUrlDownload">URL取得の取消先。</param>
     internal MainWindowProgressStatusBarTerminals(
         Action cancelInstallPipeline,
         Action cancelMaintenanceRescan,
-        Action retryLr2Sync)
+        Action retryLr2Sync,
+        Action cancelPlaylistUrlDownload)
     {
+        this.cancelPlaylistUrlDownload = cancelPlaylistUrlDownload
+            ?? throw new ArgumentNullException(nameof(cancelPlaylistUrlDownload));
         this.cancelInstallPipeline = cancelInstallPipeline
             ?? throw new ArgumentNullException(nameof(cancelInstallPipeline));
         this.cancelMaintenanceRescan = cancelMaintenanceRescan
@@ -36,30 +42,41 @@ internal sealed class MainWindowProgressStatusBarTerminals
     }
 
     /// <summary>
-    /// Cancels the active install pipeline through its existing owner priority rule.
+    /// 導入処理の既存管理主体へ取消を渡します。
     /// </summary>
     internal void CancelInstallPipeline() => cancelInstallPipeline();
 
+    /// <summary>選択した行の操作を、その処理の管理主体へ一度だけ届けます。</summary>
+    internal void Invoke(OperationProgressAction action)
+    {
+        switch (action)
+        {
+            case OperationProgressAction.CancelInstall: cancelInstallPipeline(); break;
+            case OperationProgressAction.CancelUrlDownload: cancelPlaylistUrlDownload(); break;
+            case OperationProgressAction.CancelMaintenance: cancelMaintenanceRescan(); break;
+            case OperationProgressAction.RetryLr2: retryLr2Sync(); break;
+        }
+    }
+
     /// <summary>
-    /// Cancels the active maintenance rescan through its existing owner.
+    /// 保守再検査を既存の管理主体で取り消します。
     /// </summary>
     internal void CancelMaintenanceRescan() => cancelMaintenanceRescan();
 
     /// <summary>
-    /// Requests an LR2 sync retry through its existing owner.
+    /// LR2同期を既存の管理主体で再試行します。
     /// </summary>
     internal void RetryLr2Sync() => retryLr2Sync();
 
     /// <summary>
-    /// Creates the default terminal bundle without changing the existing workflow routes.
+    /// 実際の管理主体に各行の操作を接続します。
     /// </summary>
-    /// <param name="viewModel">The shell view model owning all status-bar workflows.</param>
-    /// <returns>A bundle delegating each action to its existing workflow owner.</returns>
+    /// <param name="viewModel">各処理の管理主体を接続しているViewModel。</param>
+    /// <returns>各行を管理主体へ接続した操作先。</returns>
     internal static MainWindowProgressStatusBarTerminals Create(MainWindowViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         return CreateCore(
-            () => viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning,
             viewModel.PlaylistWorkspace.CancelPlaylistUrlDownload,
             viewModel.PackageInstallWorkflow.CancelAll,
             viewModel.MaintenanceRescanWorkflow.Cancel,
@@ -67,39 +84,28 @@ internal sealed class MainWindowProgressStatusBarTerminals
     }
 
     /// <summary>
-    /// Creates the narrow status-bar action bundle while preserving playlist-download priority.
+    /// URL取得と導入をそれぞれの取消先へ接続します。
     /// </summary>
-    /// <param name="playlistUrlDownloadIsRunning">Reports whether playlist URL acquisition currently owns cancellation.</param>
-    /// <param name="cancelPlaylistUrlDownload">Cancels the active playlist URL download.</param>
-    /// <param name="cancelPackageInstall">Cancels the package-install pipeline when no playlist download is active.</param>
-    /// <param name="cancelMaintenanceRescan">Cancels the owned maintenance rescan.</param>
-    /// <param name="retryLr2Sync">Requests the owned LR2 sync retry.</param>
-    /// <returns>A terminal bundle that delegates each action exactly once to the supplied owner action.</returns>
+    /// <param name="cancelPlaylistUrlDownload">URL取得の取消先。</param>
+    /// <param name="cancelPackageInstall">パッケージ導入の取消先。</param>
+    /// <param name="cancelMaintenanceRescan">保守再検査の取消先。</param>
+    /// <param name="retryLr2Sync">LR2同期の再試行先。</param>
+    /// <returns>各操作を一度だけ届ける行固有の操作先。</returns>
     internal static MainWindowProgressStatusBarTerminals CreateCore(
-        Func<bool> playlistUrlDownloadIsRunning,
         Action cancelPlaylistUrlDownload,
         Action cancelPackageInstall,
         Action cancelMaintenanceRescan,
         Action retryLr2Sync)
     {
-        ArgumentNullException.ThrowIfNull(playlistUrlDownloadIsRunning);
         ArgumentNullException.ThrowIfNull(cancelPlaylistUrlDownload);
         ArgumentNullException.ThrowIfNull(cancelPackageInstall);
         ArgumentNullException.ThrowIfNull(cancelMaintenanceRescan);
         ArgumentNullException.ThrowIfNull(retryLr2Sync);
 
         return new MainWindowProgressStatusBarTerminals(
-            () =>
-            {
-                if (playlistUrlDownloadIsRunning())
-                {
-                    cancelPlaylistUrlDownload();
-                    return;
-                }
-
-                cancelPackageInstall();
-            },
+            cancelPackageInstall,
             cancelMaintenanceRescan,
-            retryLr2Sync);
+            retryLr2Sync,
+            cancelPlaylistUrlDownload);
     }
 }

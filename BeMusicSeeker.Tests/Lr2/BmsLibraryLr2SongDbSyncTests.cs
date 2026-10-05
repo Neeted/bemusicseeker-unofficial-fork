@@ -1991,7 +1991,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void ReloadFileDiff_Lr2FolderFileApplyPublishesBoundedProgressBeforeCompletion()
+    public void ReloadFileDiff_Lr2FolderFileApplyPreservesTotalAndIsolatesProgressSubscriber()
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -2048,7 +2048,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 {
                     BMSLibrary.LibraryInitializationProgressSnapshot snapshot =
                         library.GetLibraryInitializationProgressSnapshot();
-                    if (snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff
+                    if (snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.Lr2FolderFileCheck
                         && snapshot.TotalCount > 1)
                     {
                         progressSnapshots.Add(snapshot);
@@ -2125,7 +2125,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void ReloadFileDiff_Lr2FolderDeferredPublicationRetainsLeadingIntermediate()
+    public void ReloadFileDiff_Lr2FolderCompletesDatabaseAndDiffBeforeDeferredPublication()
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -2172,168 +2172,41 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
+            library.BeginLibraryInitializationProgressOperation(71L);
             var progressSnapshots = new List<BMSLibrary.LibraryInitializationProgressSnapshot>();
-            StartupProgressWorkflowOwner startupProgress = CreateStartupProgressConsumer(library);
-            var startupSubLabelSnapshots = new List<BMSLibrary.LibraryInitializationProgressSnapshot>();
-            var presentationOrder = new List<string>();
-            static bool IsStrictFileDiffIntermediate(BMSLibrary.LibraryInitializationProgressSnapshot snapshot) =>
-                snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff
-                && snapshot.TotalCount > 1
-                && snapshot.ProcessedCount > 0
-                && snapshot.ProcessedCount < snapshot.TotalCount;
-            static bool IsTerminalFileDiffProgress(BMSLibrary.LibraryInitializationProgressSnapshot snapshot) =>
-                snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff
-                && snapshot.TotalCount > 1
-                && snapshot.ProcessedCount == snapshot.TotalCount;
-            startupProgress.PropertyChanged += (_, args) =>
-            {
-                if (string.Equals(
-                        args.PropertyName,
-                        nameof(StartupProgressWorkflowOwner.SubLabel),
-                        StringComparison.Ordinal))
-                {
-                    BMSLibrary.LibraryInitializationProgressSnapshot snapshot =
-                        library.GetLibraryInitializationProgressSnapshot();
-                    if (snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff
-                        && snapshot.TotalCount > 1)
-                    {
-                        startupSubLabelSnapshots.Add(snapshot);
-                    }
-                }
-            };
             System.ComponentModel.PropertyChangedEventHandler progressObserver = (_, args) =>
             {
-                if (!string.Equals(
-                        args.PropertyName,
-                        nameof(BMSLibrary.LibraryInitializationProgressVersion),
-                        StringComparison.Ordinal))
+                if (args.PropertyName == nameof(BMSLibrary.LibraryInitializationProgressVersion))
                 {
-                    return;
-                }
-
-                BMSLibrary.LibraryInitializationProgressSnapshot snapshot =
-                    library.GetLibraryInitializationProgressSnapshot();
-                if (snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff
-                    && snapshot.TotalCount > 1)
-                {
-                    progressSnapshots.Add(snapshot);
-                    presentationOrder.Add(
-                        IsStrictFileDiffIntermediate(snapshot)
-                            ? "progress:strict"
-                            : IsTerminalFileDiffProgress(snapshot)
-                                ? "progress:terminal"
-                                : "progress:other");
+                    progressSnapshots.AddRange(library.GetLibraryInitializationProgressSnapshots()
+                        .Where(snapshot => snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.Lr2FolderFileCheck));
                 }
             };
-            System.ComponentModel.PropertyChangedEventHandler startupProgressConsumer = (_, args) =>
-            {
-                if (string.Equals(
-                        args.PropertyName,
-                        nameof(BMSLibrary.LibraryInitializationProgressVersion),
-                        StringComparison.Ordinal))
-                {
-                    BMSLibrary.LibraryInitializationProgressSnapshot snapshot =
-                        library.GetLibraryInitializationProgressSnapshot();
-                    startupProgress.UpdateStartupProgressLibraryInitializationStatus(
-                        snapshot.Stage,
-                        snapshot.ScannerLabel,
-                        snapshot.TotalCount,
-                        snapshot.ProcessedCount,
-                        snapshot.CurrentPath);
-                }
-                else if (string.Equals(
-                             args.PropertyName,
-                             nameof(BMSLibrary.LibraryFileEnumerationCompletedVersion),
-                             StringComparison.Ordinal))
-                {
-                    startupProgress.TryCompleteStartupProgressLibraryFileEnumeration(
-                        library.LibraryFileEnumerationCompletedVersion);
-                }
-                else if (string.Equals(
-                             args.PropertyName,
-                             nameof(BMSLibrary.LibraryFileDiffCompletedVersion),
-                             StringComparison.Ordinal))
-                {
-                    presentationOrder.Add("completion");
-                    startupProgress.TryCompleteStartupProgressLibraryFileDiff(
-                        library.LibraryFileDiffCompletedVersion);
-                }
-            };
-            library.PropertyChanged += startupProgressConsumer;
             library.PropertyChanged += progressObserver;
             try
             {
-                startupProgress.StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
                 library.ReloadFileDiff();
                 Assert.IsTrue(scheduler.PendingCount > 0);
                 Assert.AreEqual(0, progressSnapshots.Count);
-                Assert.AreEqual(
-                    0,
-                    library.LibraryFileDiffCompletedVersion,
-                    "The deferred LR2 completion notification must remain behind the queued progress publication.");
-
-                // Drain the first Normal publication independently.  The
-                // retained leading frame must be visible to StartupProgress
-                // while completion and the terminal frame remain pending.
-                scheduler.ExecuteNext();
-                Assert.IsTrue(progressSnapshots.Count > 0);
-                Assert.IsTrue(progressSnapshots.All(IsStrictFileDiffIntermediate));
-                Assert.IsTrue(startupSubLabelSnapshots.All(IsStrictFileDiffIntermediate));
-                Assert.IsTrue(startupSubLabelSnapshots.Any(IsStrictFileDiffIntermediate));
-                Assert.IsFalse(progressSnapshots.Any(IsTerminalFileDiffProgress));
-                Assert.IsFalse(startupSubLabelSnapshots.Any(IsTerminalFileDiffProgress));
-                Assert.AreEqual(
-                    0,
-                    library.LibraryFileDiffCompletedVersion,
-                    "FileDiff completion must remain pending after the leading intermediate publication.");
-                Assert.AreEqual(
-                    UiSchedulePriority.Background,
-                    scheduler.NextPriority,
-                    "LR2 completion must remain behind a render opportunity at the Background boundary.");
-
-                // The Background completion boundary drains the pending
-                // terminal frame once, then exposes FileDiff completion.
-                scheduler.ExecuteNext();
+                Assert.AreEqual(1, library.LibraryFileDiffCompletedVersion,
+                    "表示の排出を止めても保存と差分完了は終結する。");
+                using (var beforePublication = new LR2SongDBExtended(scope.SongDbPath))
+                {
+                    Assert.AreEqual(lr2FolderPaths.Length,
+                        beforePublication.Table<LR2SongDB.folder>().Count(row => row.path.EndsWith(".lr2folder", StringComparison.OrdinalIgnoreCase)));
+                }
                 scheduler.Drain();
+                BMSLibrary.LibraryInitializationProgressSnapshot latest = progressSnapshots.Last();
+                Assert.AreEqual(71L, latest.OperationToken);
+                Assert.AreEqual(lr2FolderPaths.Length, latest.TotalCount);
+                Assert.AreEqual(latest.TotalCount, latest.ProcessedCount);
+                Assert.AreEqual(1, library.LibraryFileDiffCompletedVersion);
             }
             finally
             {
+                scheduler.Drain();
                 library.PropertyChanged -= progressObserver;
-                library.PropertyChanged -= startupProgressConsumer;
             }
-
-            Assert.IsTrue(progressSnapshots.Count > 0);
-            Assert.IsTrue(progressSnapshots.Any(IsStrictFileDiffIntermediate));
-            Assert.IsTrue(progressSnapshots.All(snapshot =>
-                snapshot.TotalCount == lr2FolderPaths.Length
-                && snapshot.ProcessedCount >= 0
-                && snapshot.ProcessedCount <= snapshot.TotalCount));
-            for (int index = 1; index < progressSnapshots.Count; index++)
-            {
-                Assert.IsTrue(
-                    progressSnapshots[index].ProcessedCount >= progressSnapshots[index - 1].ProcessedCount,
-                    "LR2 folder-file progress must be monotonic.");
-            }
-            Assert.IsTrue(progressSnapshots.Any(snapshot =>
-                snapshot.ProcessedCount == snapshot.TotalCount));
-            Assert.AreEqual(1, library.LibraryFileDiffCompletedVersion);
-            Assert.IsTrue(
-                startupSubLabelSnapshots.Any(IsStrictFileDiffIntermediate),
-                "StartupProgress must observe a strict FileDiff intermediate before completion.");
-            Assert.IsTrue(
-                startupSubLabelSnapshots.Any(IsTerminalFileDiffProgress),
-                "StartupProgress must observe the terminal FileDiff frame.");
-            int firstStrictSubLabel = startupSubLabelSnapshots.FindIndex(IsStrictFileDiffIntermediate);
-            int terminalSubLabel = startupSubLabelSnapshots.FindIndex(IsTerminalFileDiffProgress);
-            Assert.IsTrue(
-                terminalSubLabel > firstStrictSubLabel,
-                "StartupProgress must observe the terminal FileDiff frame after the intermediate.");
-            Assert.IsTrue(
-                presentationOrder.IndexOf("progress:strict") >= 0
-                    && presentationOrder.IndexOf("progress:terminal") > presentationOrder.IndexOf("progress:strict")
-                    && presentationOrder.IndexOf("progress:terminal")
-                    < presentationOrder.IndexOf("completion"),
-                "The StartupProgress consumer must receive progress frames before FileDiff completion.");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder[] folderRows = [.. verify.Table<LR2SongDB.folder>()];
@@ -2382,6 +2255,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
         Assert.IsFalse(result.HasReadFailures);
         Assert.AreEqual(filePaths.Length, result.Items.Count);
+        Assert.AreEqual(filePaths.Length, result.ParseTargetCount);
+        Assert.AreEqual(filePaths.Length, result.ParsedCount);
+        Assert.AreEqual(0, result.UnchangedCount);
         Assert.IsTrue(reports.Count > 0);
         Assert.IsTrue(reports.All(report =>
             report.TotalCount == filePaths.Length
@@ -2396,6 +2272,28 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.IsTrue(reports[index].ProcessedCount >= reports[index - 1].ProcessedCount);
         }
 
+        request.Lr2RootCustomFolderOutputBaseDir = rootDirectory;
+        File.Delete(filePaths[2]);
+        Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult mixedResult =
+            Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
+                filePaths,
+                request,
+                entriesByPath,
+                existingRowResolver: path => new LR2SongDB.folder
+                {
+                    path = path,
+                    type = 2,
+                    date = path == filePaths[0]
+                        ? Lr2SongRowEnricher.ToLr2UnixSeconds(entriesByPath[path].LastWriteTimeUtc.GetValueOrDefault())
+                        : -1,
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash
+                });
+        Assert.AreEqual(3, mixedResult.Items.Count);
+        Assert.AreEqual(2, mixedResult.ParseTargetCount);
+        Assert.AreEqual(1, mixedResult.ParsedCount);
+        Assert.AreEqual(1, mixedResult.UnchangedCount);
+        Assert.IsTrue(mixedResult.HasReadFailures);
+
         reports.Clear();
         Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult emptyResult =
             Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
@@ -2405,6 +2303,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     reports.Add((totalCount, processedCount, currentPath)));
 
         Assert.AreEqual(0, emptyResult.Items.Count);
+        Assert.AreEqual(0, emptyResult.ParseTargetCount);
+        Assert.AreEqual(0, emptyResult.ParsedCount);
+        Assert.AreEqual(0, emptyResult.UnchangedCount);
         Assert.AreEqual(0, reports.Count);
     }
 
@@ -2477,7 +2378,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
                 BMSLibrary.LibraryInitializationProgressSnapshot snapshot =
                     library.GetLibraryInitializationProgressSnapshot();
-                if (snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff
+                if (snapshot.Stage == BMSLibrary.LibraryInitializationProgressStage.Lr2FolderFileCheck
                     && snapshot.TotalCount > 1)
                 {
                     progressSnapshots.Add(snapshot);
@@ -5127,7 +5028,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2SongDbSync_PublishesFolderReconciliationProgressThroughRuntimeStatus()
+    public void QueueLr2SongDbSync_CompletesFolderReconciliationBeforeLatestStatusPublication()
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -5196,8 +5097,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     timeline.Add((
                         snapshot,
                         runtime,
-                        progressHub.IsLr2SongDbSyncStatusActive,
-                        progressHub.Lr2SongDbSyncStatusSubLabel));
+                        progressHub.Rows.Any(row => row.Key == "lr2"),
+                        progressHub.Rows.SingleOrDefault(row => row.Key == "lr2")?.Detail ?? string.Empty));
                 }
             };
             int subscriberFailureCount = 0;
@@ -5222,48 +5123,28 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             library.QueueLr2SongDbSync("folder_reconciliation_progress");
 
             Assert.IsTrue(scheduler.PendingCount > 0);
-            Assert.AreEqual(UiSchedulePriority.Normal, scheduler.NextPriority);
+            Assert.AreEqual(0, timeline.Count);
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
+            Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
+            string[] expectedFolderPaths = [.. new[] { rootDirectory, firstDirectory, secondDirectory }.Select(ToFolderPath)];
+            using (var beforePublication = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                CollectionAssert.AreEquivalent(expectedFolderPaths,
+                    beforePublication.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
+            }
 
-            scheduler.ExecuteNext();
+            scheduler.Drain();
 
-            List<(Lr2SongDbSyncStatusSnapshot Snapshot, Lr2SongDbSyncRuntimeStatus Runtime, bool IsActive, string SubLabel)> strictProgress = [.. timeline
-                .Where(entry => entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Running
-                    && entry.Snapshot.ProcessedCursor.GetValueOrDefault() == 0
-                    && entry.Snapshot.StageTotalCount.GetValueOrDefault() > 0
-                    && entry.Snapshot.StageProcessedCount.GetValueOrDefault() > 0
-                    && entry.Snapshot.StageProcessedCount.GetValueOrDefault()
-                        < entry.Snapshot.StageTotalCount.GetValueOrDefault())];
-            Assert.IsTrue(strictProgress.Count > 0);
-            int stageTotal = strictProgress[0].Snapshot.StageTotalCount.GetValueOrDefault();
-            Assert.IsTrue(strictProgress.All(entry =>
-                entry.Snapshot.StageTotalCount.GetValueOrDefault() == stageTotal
-                && entry.Snapshot.StageProcessedCount.GetValueOrDefault() > 0
-                && entry.Snapshot.StageProcessedCount.GetValueOrDefault() < stageTotal
-                && entry.Runtime.HasProgress
-                && entry.Runtime.ProgressValue > 0
-                && entry.Runtime.ProgressValue < entry.Runtime.ProgressMaximum
-                && entry.IsActive
-                && !string.IsNullOrWhiteSpace(entry.SubLabel)));
-            Assert.IsTrue(strictProgress[0].IsActive);
-            Assert.AreEqual(UiSchedulePriority.Background, scheduler.NextPriority);
-            Assert.IsFalse(timeline.Any(entry =>
-                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Completed));
-            Assert.IsTrue(progressHub.IsLr2SongDbSyncStatusActive);
-
-            scheduler.ExecuteNext();
-
-            Assert.IsTrue(timeline.Any(entry =>
-                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Completed
-                && !entry.IsActive));
-            Assert.IsFalse(progressHub.IsLr2SongDbSyncStatusActive);
+            Assert.IsTrue(timeline.Count > 0);
+            Assert.IsTrue(timeline.All(entry => entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Completed && !entry.IsActive));
+            Assert.IsFalse(progressHub.Rows.Any(row => row.Key == "lr2"));
             Assert.IsTrue(subscriberFailureCount > 0);
-
             Lr2SongDbSyncStatusSnapshot completed = library.GetLr2SongDbSyncStatusSnapshot();
-            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, completed.Status);
             Assert.AreEqual(completed.TotalCount, completed.ProcessedCursor);
+            Assert.AreEqual(0, scheduler.PendingCount);
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            Assert.AreEqual(stageTotal, verify.Table<LR2SongDB.folder>().Count());
+            CollectionAssert.AreEquivalent(expectedFolderPaths,
+                verify.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
         }
         finally
         {
@@ -5272,7 +5153,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2SongDbSync_DoesNotPublishRetainedFolderProgressAfterApplyFailure()
+    public void QueueLr2SongDbSync_PublishesLatestFailureAndPreservesDatabaseAfterApplyFailure()
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -5340,7 +5221,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
                     progressHub.UpdateLr2SongDbSyncStatus(
                         Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.UtcNow));
-                    timeline.Add((snapshot, progressHub.IsLr2SongDbSyncStatusActive));
+                    timeline.Add((snapshot, progressHub.Rows.Any(row => row.Key == "lr2")));
                 }
             };
             library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
@@ -5356,20 +5237,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             StringAssert.Contains(latest.LastError, "forced folder table apply failure");
             Assert.IsTrue(scheduler.PendingCount > 0);
 
-            scheduler.ExecuteNext();
+            Assert.AreEqual(0, timeline.Count);
+            scheduler.Drain();
 
             Assert.IsTrue(timeline.Any(entry =>
                 entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Failed
                 && entry.IsActive));
-            Assert.IsFalse(timeline.Any(entry =>
-                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Running
-                && entry.Snapshot.ProcessedCursor.GetValueOrDefault() == 0
-                && entry.Snapshot.StageTotalCount.GetValueOrDefault() > 1
-                && entry.Snapshot.StageProcessedCount.GetValueOrDefault() > 0
-                && entry.Snapshot.StageProcessedCount.GetValueOrDefault()
-                    < entry.Snapshot.StageTotalCount.GetValueOrDefault()));
-            Assert.IsTrue(progressHub.IsLr2SongDbSyncStatusActive);
-            Assert.IsTrue(progressHub.IsLr2SongDbSyncRetryVisible);
+            Assert.IsTrue(timeline.All(entry => entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Failed));
+            Assert.IsTrue(progressHub.Rows.Any(row => row.Key == "lr2"));
+            Assert.IsTrue(progressHub.Rows.Single(row => row.Key == "lr2").CanRetry);
             Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
@@ -5425,6 +5301,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
         Assert.AreEqual(0, scheduler.PendingCount);
         CollectionAssert.AreEquivalent(expectedPropertyNames, publishedPropertyNames);
+        Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
+        Assert.AreEqual("stage_19", latest.Stage);
+        Assert.AreEqual(19, latest.ProcessedCursor);
+        Assert.AreEqual(20, latest.TotalCount);
+        Assert.AreEqual(19, latest.StageProcessedCount);
+        Assert.AreEqual(20, latest.StageTotalCount);
     }
 
     [TestMethod]
@@ -5475,14 +5357,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             new[] { firstPropertyName, statusPropertyName, refilledPropertyName, statusPropertyName },
             publishedPropertyNames);
         Assert.AreEqual(0, scheduler.PendingCount);
+        Assert.AreEqual(1, library.GetLr2SongDbSyncStatusSnapshot().ProcessedCursor);
     }
 
     [TestMethod]
-    public void QueueLr2SongDbSync_ShutdownMarksDurableIncompleteStatus()
+    public async Task QueueLr2SongDbSync_ShutdownMarksDurableIncompleteStatus()
     {
         using var scope = TestDatabaseScope.Create();
         using var inputSurfaceGate = new ManualResetEventSlim();
         Task? worker = null;
+        var inputSurfaceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             Settings.Default.OperationModeLR2DB = true;
@@ -5514,7 +5398,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 }, typeof(LR2SongDB.song));
             }
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
-            // 中間stageの通知がUIへ届くまで入力面を保ち、通知集約による終了要求の取り逃しを防ぐ。
+            // 既存の設定取得境界へ到達した実Taskで待ち、表示の排出を終結条件にしない。
             int inputSurfaceOptionsGateArmed = 0;
             var library = new TestBmsLibrary(
                 scope.SongDbPath,
@@ -5522,11 +5406,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 _lr2ScoreDB: null,
                 fileMutationService: null,
                 dialogService: null,
-                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                uiScheduler: new QueuedUiScheduler(),
                 optionsSnapshotProvider: () =>
                 {
                     if (Volatile.Read(ref inputSurfaceOptionsGateArmed) != 0)
                     {
+                        inputSurfaceEntered.TrySetResult(true);
                         inputSurfaceGate.Wait();
                     }
 
@@ -5545,29 +5430,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     [rootDirectory],
                     [],
                     [rootDirectory]));
-            bool shutdownRequested = false;
-            var shutdownObserved = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
             Func<Task>? scheduledWork = null;
-            System.ComponentModel.PropertyChangedEventHandler requestShutdownWhenInputSurfaceIsObserved = (_, args) =>
-            {
-                if (!shutdownRequested
-                    && string.Equals(
-                        args.PropertyName,
-                        nameof(BMSLibrary.Lr2SongDbSyncStage),
-                        StringComparison.Ordinal)
-                    && string.Equals(
-                        library.Lr2SongDbSyncStage,
-                        "input_surface",
-                        StringComparison.Ordinal))
-                {
-                    library.RequestShutdown("test_preflight_shutdown");
-                    shutdownRequested = true;
-                    inputSurfaceGate.Set();
-                    shutdownObserved.TrySetResult(true);
-                }
-            };
-            library.PropertyChanged += requestShutdownWhenInputSurfaceIsObserved;
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
             {
                 scheduledWork = work;
@@ -5578,33 +5441,22 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Volatile.Write(ref inputSurfaceOptionsGateArmed, 1);
             Assert.IsNotNull(scheduledWork);
             Func<Task> capturedScheduledWork = scheduledWork!;
-            try
+            Task startedWork = Task.Factory.StartNew(
+                () => capturedScheduledWork().GetAwaiter().GetResult(),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            worker = startedWork;
+            await Task.WhenAny(inputSurfaceEntered.Task, startedWork);
+            if (!inputSurfaceEntered.Task.IsCompleted)
             {
-                Task startedWork = Task.Factory.StartNew(
-                    () => capturedScheduledWork().GetAwaiter().GetResult(),
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default);
-                worker = startedWork;
-                TestUiDispatcherHost.Invoke(() =>
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        shutdownObserved.Task,
-                        nameof(QueueLr2SongDbSync_ShutdownMarksDurableIncompleteStatus)
-                            + ".shutdown");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        startedWork,
-                        nameof(QueueLr2SongDbSync_ShutdownMarksDurableIncompleteStatus)
-                            + ".work");
-                });
+                await startedWork;
+                Assert.Fail("終了要求前の設定取得境界へ到達しなかった。");
             }
-            finally
-            {
-                library.PropertyChanged -= requestShutdownWhenInputSurfaceIsObserved;
-            }
-            TestUiDispatcherHost.Drain();
+            library.RequestShutdown("test_preflight_shutdown");
+            inputSurfaceGate.Set();
+            await startedWork;
 
-            Assert.IsTrue(shutdownRequested);
             Assert.IsFalse(library.Lr2SongDbSyncRunning);
             Lr2SongDbSyncStatusSnapshot runtimeStatus = library.GetLr2SongDbSyncStatusSnapshot();
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
@@ -5639,7 +5491,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 if (worker != null)
                 {
-                    worker.GetAwaiter().GetResult();
+                    await worker;
                 }
             }
             finally

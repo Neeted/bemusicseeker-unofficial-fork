@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -49,6 +50,8 @@ internal sealed class StartupBackgroundTaskReservation
 /// </summary>
 internal sealed class StartupBackgroundTaskSchedulerOwner
 {
+    private readonly AsyncLocal<StartupBackgroundTaskProgressSnapshot> progressContext = new();
+
     private const int ReservationStateQueued = 1;
     private const int ReservationStateRunning = 2;
     private const int ReservationStateTerminal = 3;
@@ -181,6 +184,55 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         this.formatTextForLog = formatTextForLog ?? throw new ArgumentNullException(nameof(formatTextForLog));
         this.schedulerIdleChanged = schedulerIdleChanged ?? throw new ArgumentNullException(nameof(schedulerIdleChanged));
         this.progressSynchronization = progressSynchronization ?? throw new ArgumentNullException(nameof(progressSynchronization));
+    }
+
+    /// <summary>要求の実行開始・終端を、捕捉した世代と分類付きで通知します。</summary>
+    internal event Action<StartupBackgroundTaskProgressSnapshot> ProgressChanged;
+
+    /// <summary>要求受付側の既存世代を捕捉し、要求ごとの実行境界を通知する窓口を返します。</summary>
+    /// <param name="name">要求を識別する処理名。</param>
+    /// <returns>モデルの要求版と実行中フラグを受け取る通知。文脈がなければ表示を通知しません。</returns>
+    /// <remarks>スコア適用と順位更新の通知版はモデル要求版です。worker再利用時にも捕捉世代を付け直しません。</remarks>
+    internal Action<int, bool> CaptureExecutionProgressReporter(string name)
+    {
+        StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        return (requestVersion, running) =>
+        {
+            if (context != null)
+            {
+                PublishProgress(new(name, context.Generation, requestVersion, IsPostInitializationTask(name), running));
+            }
+        };
+    }
+
+    private static bool UsesExecutionProgressReporter(string name) =>
+        name is "score_hydration_deferred" or "ranking_refresh_deferred";
+
+    private void PublishProgress(Request request, bool running)
+    {
+        if (UsesExecutionProgressReporter(request.Name))
+        {
+            return;
+        }
+
+        var status = new StartupBackgroundTaskProgressSnapshot(request.Name, request.Generation,
+            request.Version, request.IsPostInitialization, running);
+        PublishProgress(status);
+    }
+
+    private void PublishProgress(StartupBackgroundTaskProgressSnapshot status)
+    {
+        Action<StartupBackgroundTaskProgressSnapshot> handlers = ProgressChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<StartupBackgroundTaskProgressSnapshot> handler in handlers.GetInvocationList())
+        {
+            try { handler(status); }
+            catch { /* 表示通知の失敗は受理済みの仕事の結果や収束を変えません。 */ }
+        }
     }
 
     internal object ProgressSynchronization => progressSynchronization;
@@ -655,6 +707,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
+    /// <summary>既存のスケジュールを再設定し、以後の子Taskへ表示世代を捕捉します。</summary>
     internal void Reset(bool startImmediately)
     {
         bool shouldStartWorker;
@@ -666,6 +719,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 postInitializationSchedulingComplete = false;
                 requiredInitializationSchedulingComplete = false;
                 generation++;
+                // 同期の操作開始入口から流すため、後で旧子Taskへ現在世代を付け直しません。
+                progressContext.Value = new StartupBackgroundTaskProgressSnapshot(string.Empty, generation, 0, false, false);
                 latestReservationSequenceByName.Clear();
                 idleRevision++;
                 for (int i = 0; i < queue.Count; i++)
@@ -884,8 +939,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
+    /// <summary>捕捉した要求文脈の外部子処理を、集計と表示へ通知します。</summary>
     internal void Report(string name, string status, long elapsedMs, bool failed, string detail)
     {
+        StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        if (context != null && !UsesExecutionProgressReporter(name)
+            && !string.Equals(context.Name, name, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, "queued", StringComparison.OrdinalIgnoreCase))
+        {
+            bool running = string.Equals(status, "start", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(status, "running", StringComparison.OrdinalIgnoreCase);
+            PublishProgress(new(name, context.Generation, context.Version, IsPostInitializationTask(name), running));
+        }
         lock (syncRoot)
         {
             Metric metric = GetOrCreateMetricUnsafe(name);
@@ -1086,9 +1151,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         Task.Run(async delegate
         {
+            progressContext.Value = new(request.Name, request.Generation, request.Version, request.IsPostInitialization, true);
             var stopwatch = Stopwatch.StartNew();
             logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
             RecordStarted(request);
+            PublishProgress(request, true);
             try
             {
                 await request.Work().ConfigureAwait(false);
@@ -1106,6 +1173,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             }
             finally
             {
+                PublishProgress(request, false);
                 lock (progressSynchronization)
                 {
                     lock (syncRoot)

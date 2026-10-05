@@ -1336,9 +1336,25 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformanceWarn,
             bmsFileScanSucceeded);
 
+        logInstallPerformance?.Invoke("song_tbl_file_check_result result=applied"
+            + " checkedCharts=" + (result.BmsPathCount + result.BmsonPathCount)
+            + " checkedBms=" + result.BmsPathCount
+            + " checkedBmson=" + result.BmsonPathCount
+            + " parseTargets=" + (result.BmsAddedTargetCount + result.BmsonUpsertTargetCount)
+            + " bmsUpserted=" + result.DbCommitBmsChangedCount
+            + " bmsDeleted=" + result.DeletedPaths.Count
+            + " bmsDateUpdated=" + result.BmsDateOnlyUpdateCount
+            + " bmsTextUpdated=" + result.BmsTextOnlyUpdateCount
+            + " bmsonUpserted=" + result.AddedBmsonSongs.Count
+            + " bmsonDeleted=" + result.DeletedBmsonPaths.Count
+            + " fileFailures=" + result.FileScanFailures.Count
+            + " dbCommitChunks=" + result.DbCommitChunks
+            + " dbCommitMs=" + (result.DbCommitChunks > 0 ? result.DbCommitMs.ToString() : "not_applied"));
+        string nativeBridgeTime = scanResult.NativeBridgeUsed ? result.NativeBridgeMs.ToString() : "not_used";
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs
-            + " native_bridge_ms=" + result.NativeBridgeMs
+            + " native_bridge_used=" + scanResult.NativeBridgeUsed.ToString().ToLowerInvariant()
+            + " native_bridge_ms=" + nativeBridgeTime
             + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
             + " fallback_used=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
             + " fallback_reason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
@@ -1478,7 +1494,8 @@ internal sealed class BmsLibraryInitializationService
             + " imageResourceKeyEntries=" + result.ImageResourceKeyHashEntryCount
             + " movieResourceKeyEntries=" + result.MovieResourceKeyHashEntryCount);
         logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs
-            + " nativeBridgeMs=" + result.NativeBridgeMs
+            + " nativeBridgeUsed=" + scanResult.NativeBridgeUsed.ToString().ToLowerInvariant()
+            + " nativeBridgeMs=" + nativeBridgeTime
             + " managedDecodeMs=" + result.ManagedDecodeMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " resourceIndexBuildMs=" + result.ResourceIndexBuildMs

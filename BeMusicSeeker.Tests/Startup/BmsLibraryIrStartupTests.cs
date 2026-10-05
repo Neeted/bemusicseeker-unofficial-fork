@@ -1,5 +1,6 @@
 #nullable disable
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -56,6 +57,105 @@ public sealed class BmsLibraryIrStartupTests
         fixture.AssertDatabaseRetained();
     }
 
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public Task ScoreHydration_UsesAcceptanceReporterForNextRequestAndIsolatesCaptureFailure(bool failNextCapture)
+        => VerifyAcceptanceReporterAsync(scoreHydration: true, failNextCapture, failNextPublication: false);
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public Task RankingRefresh_UsesAcceptanceReporterForNextRequestAndIsolatesPublicationFailure(bool failNextPublication)
+        => VerifyAcceptanceReporterAsync(scoreHydration: false, failNextCapture: false, failNextPublication);
+
+    private static async Task VerifyAcceptanceReporterAsync(bool scoreHydration, bool failNextCapture, bool failNextPublication)
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, deferScoreWorker: scoreHydration);
+        string taskName = scoreHydration ? "score_hydration_deferred" : "ranking_refresh_deferred";
+        var reports = new ConcurrentQueue<(int Callback, int Version, bool Running)>();
+        var firstStarted = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim(false);
+        int captures = 0;
+        fixture.Library.StartupExecutionProgressReporterFactory = name =>
+        {
+            if (name != taskName)
+            {
+                return null;
+            }
+            int callback = Interlocked.Increment(ref captures);
+            if (callback == 2 && failNextCapture)
+            {
+                throw new InvalidOperationException("controlled progress capture failure");
+            }
+            return (version, running) =>
+            {
+                reports.Enqueue((callback, version, running));
+                if (callback == 1 && running)
+                {
+                    firstStarted.TrySetResult(version);
+                    release.Wait();
+                }
+                if (callback == 2 && failNextPublication)
+                {
+                    throw new InvalidOperationException("controlled progress publication failure");
+                }
+            };
+        };
+        Task initialize = Task.CompletedTask;
+        Task initializeScores = Task.CompletedTask;
+        Task ownedScoreWorker = Task.CompletedTask;
+        fixture.Client.Release.TrySetResult();
+        try
+        {
+            initialize = fixture.InitializeAsync();
+            await initialize;
+            if (scoreHydration)
+            {
+                Assert.IsNotNull(fixture.DeferredScoreWorker);
+                ownedScoreWorker = Task.Run(fixture.DeferredScoreWorker);
+            }
+            int firstVersion = await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            initializeScores = Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+            await initializeScores;
+            int nextVersion = scoreHydration
+                ? fixture.Library.ScoreHydrationRequestedVersion
+                : fixture.Library.RankingRefreshRequestedVersion;
+            Assert.IsTrue(nextVersion > firstVersion);
+            release.Set();
+            await ownedScoreWorker;
+            await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.IsTrue(reports.Contains((1, firstVersion, false)), "旧周の終端が旧callbackと要求版へ届きませんでした。");
+            Assert.IsFalse(reports.Any(report => report.Callback == 1 && report.Version == nextVersion));
+            if (!failNextCapture)
+            {
+                Assert.IsTrue(reports.Contains((2, nextVersion, true)));
+                Assert.IsTrue(reports.Contains((2, nextVersion, false)));
+            }
+            Assert.AreEqual(nextVersion, scoreHydration
+                ? fixture.Library.ScoreHydrationCompletedVersion
+                : fixture.Library.RankingRefreshCompletedVersion);
+            Assert.IsFalse(fixture.Library.ScoreHydrationRunning);
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.IsFalse(fixture.Library.HasShutdownBlockingWork);
+        }
+        finally
+        {
+            release.Set();
+            fixture.Client.Release.TrySetResult();
+            await Task.WhenAll(initialize, initializeScores, ownedScoreWorker);
+            if (fixture.Library.RankingRefreshRunning)
+            {
+                await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            if (fixture.Client.Started.Task.IsCompleted)
+            {
+                await fixture.Client.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+    }
+
     private sealed class StartupFixture : IAsyncDisposable
     {
         private const string Hash = "abcdefabcdefabcdefabcdefabcdefab";
@@ -68,7 +168,9 @@ public sealed class BmsLibraryIrStartupTests
         internal readonly TaskCompletionSource RankingCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal bool FailedReport;
 
-        internal StartupFixture(bool waitForCancellation)
+        internal Func<Task> DeferredScoreWorker;
+
+        internal StartupFixture(bool waitForCancellation, bool deferScoreWorker = false)
         {
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
@@ -103,7 +205,15 @@ public sealed class BmsLibraryIrStartupTests
             Library = new TestBmsLibrary(songPath, null, scorePath, null, () => options,
                 TestBmsFactory.MissingEverythingBridge,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: Client);
-            Library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            Library.StartupBackgroundTaskScheduler = (name, _, _, process) =>
+            {
+                if (deferScoreWorker && name == "score_hydration_deferred")
+                {
+                    DeferredScoreWorker = process;
+                    return true;
+                }
+                return false;
+            };
             Library.StartupBackgroundTaskReporter = (name, status, _, failed, _) =>
             {
                 if (name != "ranking_refresh_deferred")

@@ -1070,5 +1070,18 @@
   "Error_RecommendationScoreNotConfigured": "尚未设置成绩数据库。请在常规设置中选择玩家和成绩数据库。",
   "Error_RecommendationScoreReadFailed": "无法读取所选成绩数据库。",
   "Error_RecommendationNoObservations": "没有与内置模型匹配的游玩记录。",
-  "Error_RecommendationRatingFailed": "无法根据游玩记录估算实力。"
+  "Error_RecommendationRatingFailed": "无法根据游玩记录估算实力。",
+  "Statusbar_progress_phase_lr2_folder_file_check": "检查 LR2 自定义文件夹变更",
+  "Statusbar_progress_phase_chart_digest": "补全谱面哈希",
+  "Statusbar_progress_task_external_playlist_sync": "同步外部播放列表",
+  "Statusbar_progress_task_playlist_manual_reload": "重新同步选中的播放列表",
+  "Statusbar_progress_task_external_table_catalog": "读取外部表目录",
+  "Statusbar_progress_task_playlist_index": "准备播放列表索引",
+  "Statusbar_progress_task_chart_list_preparation": "准备谱面列表索引与排序缓存",
+  "Statusbar_progress_task_playlist_url_completion": "补全播放列表 URL",
+  "Statusbar_progress_task_folder_tree": "更新文件夹列表",
+  "Statusbar_progress_task_custom_folder_repair": "修复 LR2 自定义文件夹输出",
+  "Statusbar_progress_task_bmt_output": "导出 BMT 文件",
+  "Statusbar_progress_task_gc": "启动后清理内存",
+  "Statusbar_progress_task_lr2_sync_enrollment": "准备同步 LR2 歌曲数据库"
 }

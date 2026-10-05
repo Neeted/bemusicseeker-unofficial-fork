@@ -1070,5 +1070,18 @@
   "Error_RecommendationScoreNotConfigured": "No score database is configured. Select a player and score database in General settings.",
   "Error_RecommendationScoreReadFailed": "The selected score database could not be read.",
   "Error_RecommendationNoObservations": "No play records match the bundled model.",
-  "Error_RecommendationRatingFailed": "Player skill could not be estimated from the play records."
+  "Error_RecommendationRatingFailed": "Player skill could not be estimated from the play records.",
+  "Statusbar_progress_phase_lr2_folder_file_check": "Checking LR2 custom folder changes",
+  "Statusbar_progress_phase_chart_digest": "Completing chart hashes",
+  "Statusbar_progress_task_external_playlist_sync": "Syncing external playlists",
+  "Statusbar_progress_task_playlist_manual_reload": "Resynchronizing selected playlists",
+  "Statusbar_progress_task_external_table_catalog": "Loading external table catalog",
+  "Statusbar_progress_task_playlist_index": "Preparing playlist index",
+  "Statusbar_progress_task_chart_list_preparation": "Preparing chart list indexes and sort caches",
+  "Statusbar_progress_task_playlist_url_completion": "Completing playlist URLs",
+  "Statusbar_progress_task_folder_tree": "Updating folder list",
+  "Statusbar_progress_task_custom_folder_repair": "Repairing LR2 custom folder output",
+  "Statusbar_progress_task_bmt_output": "Exporting BMT files",
+  "Statusbar_progress_task_gc": "Reclaiming memory after startup",
+  "Statusbar_progress_task_lr2_sync_enrollment": "Preparing LR2 song database sync"
 }

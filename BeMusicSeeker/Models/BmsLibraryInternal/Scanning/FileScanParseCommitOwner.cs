@@ -101,6 +101,7 @@ internal sealed class FileScanParseCommitOwner
         stopwatchScannedSplit.Stop();
         result.DiffScannedSplitMs = stopwatchScannedSplit.ElapsedMilliseconds;
         result.BmsPathCount = scannedPaths.Count;
+        result.BmsonPathCount = scannedBmsonPaths.Count;
 
         var stopwatchDeleted = Stopwatch.StartNew();
         foreach (string currentPath in currentBmsByPath.Keys)

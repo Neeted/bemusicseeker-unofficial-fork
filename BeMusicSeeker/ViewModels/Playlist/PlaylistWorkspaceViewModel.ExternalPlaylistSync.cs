@@ -8,6 +8,8 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private const string ExternalPlaylistSyncProgressSource = "external_playlist_sync";
+
     private readonly object deferredExternalSyncLock = new();
 
     private int deferredExternalSyncRequestedVersion;
@@ -113,7 +115,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 int updatedCount = 0;
                 try
                 {
-                    BeginPlaylistSyncProgressOperation();
+                    BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource);
                     string operationKind = GetPlaylistReloadOperationKindText(
                         request.Reason,
                         request.FromReloadTables);
@@ -141,7 +143,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                         {
                             RecordPlaylistSyncResult(result);
                         },
-                        ReportPlaylistSyncProgress,
+                        snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
+                            BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync),
                         publishReferenceReceipts: request.PublishesReferenceReceipt).ConfigureAwait(false);
                     updatedCount = tables?.Count ?? 0;
                     currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason);
@@ -215,7 +218,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 finally
                 {
-                    EndPlaylistSyncProgressOperation();
+                    EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource);
                     RaisePlaylistOperationNotificationPresentationRequested(
                         notificationSession.TakeReceipt(),
                         "external playlist sync notification");

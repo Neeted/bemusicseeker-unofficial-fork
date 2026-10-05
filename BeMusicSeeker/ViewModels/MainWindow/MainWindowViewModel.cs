@@ -402,6 +402,7 @@ public partial class MainWindowViewModel : ViewModel,
         long operationToken)
     {
         ProgressHub?.ResetStartupBackgroundInitializationPresentation();
+        files?.BeginLibraryInitializationProgressOperation(operationToken);
         lock (startupBackgroundTaskProgressSynchronization)
         {
             lock (lockUiSuppression)
@@ -414,6 +415,7 @@ public partial class MainWindowViewModel : ViewModel,
             startupPostInitializationWarmupOwner?.Reset("startup_operation_reset");
             startupBackgroundTaskScheduler.Reset(
                 operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached);
+            ProgressHub?.BeginBackgroundProgressGeneration(startupBackgroundTaskScheduler.CurrentGeneration);
             lock (startupInitializationCompletionLock)
             {
                 startupInitializationCompleteStopwatch = operationKind == StartupProgressOperationKind.Startup
@@ -557,9 +559,14 @@ public partial class MainWindowViewModel : ViewModel,
             return;
         }
         long operationToken;
-        lock (startupInitializationCompletionLock)
+        long schedulerGeneration;
+        lock (startupBackgroundTaskProgressSynchronization)
         {
-            operationToken = startupCompletionContinuationToken;
+            lock (startupInitializationCompletionLock)
+            {
+                operationToken = startupCompletionContinuationToken;
+                schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
+            }
         }
         TryScheduleStartupPostInitializationWarmupAfterPostWork(
             "startup_background_tasks_idle",
@@ -585,7 +592,20 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        ProgressHub?.CompleteStartupBackgroundInitializationPresentation();
+        // worker の複合終端は待たせず、表示だけを通常の UI 排出へ渡します。
+        // 行を消すときにも送出時の操作を検査し、新操作の親行を旧終端で消しません。
+        DispatchStartupProgressPresentation(() =>
+        {
+            if (!IsCurrentStartupPostInitializationCallback(
+                    operationToken,
+                    schedulerGeneration,
+                    IsStartupCompletionTokenCurrent,
+                    startupBackgroundTaskScheduler.IsCurrentGeneration))
+            {
+                return;
+            }
+            ProgressHub?.CompleteStartupBackgroundInitializationPresentation();
+        });
         LogUiSuppression("startup_post_initialization_maintenance_complete");
         if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
         {
@@ -3018,6 +3038,8 @@ public partial class MainWindowViewModel : ViewModel,
             libraryFolderTreeLog: LogUiSuppression,
             libraryFolderTreeLogWarning: LogUiSuppressionWarning);
         ProgressHub = childComposition.ProgressHub;
+        startupBackgroundTaskScheduler.ProgressChanged += status =>
+            DispatchStartupProgressPresentation(() => ProgressHub.UpdateBackgroundTaskProgress(status));
         ChartMutationActivity = childComposition.ChartMutationActivity;
         ChartMutationActivity.ActivityChanged += ChartMutationActivityChanged;
         PlaybackPanel = childComposition.PlaybackPanel;
@@ -4164,6 +4186,7 @@ public partial class MainWindowViewModel : ViewModel,
         tables = services.Playlist;
         files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
         files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
+        files.StartupExecutionProgressReporterFactory = startupBackgroundTaskScheduler.CaptureExecutionProgressReporter;
         files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
         tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
         tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
@@ -4386,14 +4409,8 @@ public partial class MainWindowViewModel : ViewModel,
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressVersion, delegate
         {
-            BMSLibrary.LibraryInitializationProgressSnapshot progress =
-                files.GetLibraryInitializationProgressSnapshot();
-            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatus(
-                progress.Stage,
-                progress.ScannerLabel,
-                progress.TotalCount,
-                progress.ProcessedCount,
-                progress.CurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressLibraryInitializationStatuses(
+                files.GetLibraryInitializationProgressSnapshots());
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryDatabaseLoadCompletedVersion, delegate
         {
@@ -4509,17 +4526,9 @@ public partial class MainWindowViewModel : ViewModel,
             }
             RefreshChartInfoDependentViews();
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillTotalCount, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillProgressSnapshot, delegate
         {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillProcessedCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCurrentPath, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillProgressSnapshot);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationRequestedVersion, delegate
         {
@@ -4530,13 +4539,9 @@ public partial class MainWindowViewModel : ViewModel,
             startupProgressWorkflowOwner.TryCompleteStartupProgressChartInfoHydration(files.ChartInfoHydrationCompletedVersion);
             RefreshChartInfoDependentViews();
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationTotalCount, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationProgressSnapshot, delegate
         {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationAppliedCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
+            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationProgressSnapshot);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStatusVersion, delegate
         {

@@ -1,18 +1,20 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
-using System.Windows.Interop;
 using System.Windows.Media;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -25,328 +27,187 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowProgressStatusBarWpfTests
 {
-    [TestMethod]
-    public void ProgressStatusBar_BindsExactHubAndEnumeratesOwnerTriggers()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StartupPostInitializationCompositeTerminal_ReflectsOnUiAndRejectsPreviousStartup(bool beginNewStartup)
     {
-        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
+        var scheduler = new HoldingTerminalUiScheduler();
+        var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { }, () => { });
+        RunConstructorOnlyWithStatusBarTerminals(terminals, (owner, window, host) =>
+        {
+            StatusBar statusBar = GetNamedElement<StatusBar>(window, "progressStatusBar");
+            ItemsControl rows = GetNamedElement<ItemsControl>(window, "progressRows");
+            BeginReadyOperableStartup(owner);
+            statusBar.ApplyTemplate();
+            host.UpdateLayout();
+            Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+            Assert.IsTrue(statusBar.IsVisible);
+            Assert.IsTrue(FindVisualChildren<ProgressBar>(rows)
+                .Any(bar => ((OperationProgressRow)bar.DataContext).Key == "startup_background" && bar.IsIndeterminate
+                    && bar.IsVisible && bar.ActualWidth > 0 && bar.ActualHeight > 0));
+
+            StartupBackgroundTaskSchedulerOwner background = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
+                owner, "startupBackgroundTaskScheduler");
+            background.MarkPostInitializationSchedulingComplete();
+            SetPrivateField(owner, "startupInitializationCompleteLogged", true);
+            SetPrivateField(owner, "startupPostInitializationWarmupScheduled", true);
+            SetPrivateField(owner, "startupPostInitializationWarmupCompleted", true);
+            var notificationThreads = new ConcurrentQueue<(string Name, bool IsUi)>();
+            owner.ProgressHub.PropertyChanged += (_, args) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowProgressStatusBarBindings");
-                StatusBar statusBar = GetNamedElement<StatusBar>(window, "progressStatusBar");
-                Assert.AreSame(viewModel.ProgressHub, statusBar.DataContext);
-
-                CollectionAssert.IsSubsetOf(
-                    new[]
-                    {
-                        "StartupProgress.IsActive",
-                        "IsInstallPipelineStatusActive",
-                        "IsPlaylistSyncProgressActive",
-                        "IsMaintenanceRescanProgressActive",
-                        "IsFolderAutoRenameProgressActive",
-                        "IsLr2SongDbSyncStatusActive",
-                        "IsStartupBackgroundInitializationActive"
-                    },
-                    GetTriggerBindingPaths(statusBar.Style));
-
-                var ownerStyles = new Dictionary<string, string[]>
+                if (args.PropertyName is nameof(OperationProgressHubViewModel.Rows) or nameof(OperationProgressHubViewModel.HasRows))
                 {
-                    ["styleStartupProgressStatusBarItem"] = new[] { "StartupProgress.IsActive" },
-                    ["styleInstallPipelineStatusBarItem"] = new[] { "IsInstallPipelineStatusActive" },
-                    ["stylePlaylistSyncStatusBarItem"] = new[] { "IsPlaylistSyncProgressActive" },
-                    ["styleMaintenanceRescanStatusBarItem"] = new[] { "IsMaintenanceRescanProgressActive" },
-                    ["styleFolderAutoRenameStatusBarItem"] = new[] { "IsFolderAutoRenameProgressActive" },
-                    ["styleStartupBackgroundInitializationStatusBarItem"] = new[] { "IsStartupBackgroundInitializationActive" },
-                    ["styleLr2SongDbSyncStatusBarItem"] = new[] { "IsLr2SongDbSyncStatusActive" },
-                    ["styleLr2SongDbSyncRetryStatusBarItem"] = new[] { "IsLr2SongDbSyncRetryVisible" },
-                    ["styleLr2SongDbSyncProgressStatusBarItem"] = new[] { "IsLr2SongDbSyncStatusProgressVisible" },
-                    ["styleInstallPipelineCancelButton"] = new[] { "InstallPipelineCanCancel" },
-                    ["styleMaintenanceRescanCancelButton"] = new[] { "MaintenanceRescanCanCancel" }
-                };
-                foreach ((string key, string[] paths) in ownerStyles)
-                {
-                    Assert.IsNotNull(statusBar.Resources[key], key);
-                    CollectionAssert.AreEquivalent(paths, GetTriggerBindingPaths((Style)statusBar.Resources[key]));
+                    notificationThreads.Enqueue((args.PropertyName, host.Dispatcher.CheckAccess()));
                 }
+            };
+            scheduler.HoldNextNormal();
+            try
+            {
+                var terminal = Task.Run(() => InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "startup worker composite terminal");
+                terminal.GetAwaiter().GetResult();
+                Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationCompletionLogged"));
+                Assert.IsTrue(background.IsFullyIdle);
+                Assert.AreEqual(1, scheduler.HeldCount);
+                Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive,
+                    "Worker completion must not wait for presentation or apply its Hub update off the UI thread.");
+                Assert.IsTrue(notificationThreads.IsEmpty);
 
-                Assert.IsNull(statusBar.Resources["styleLr2SongDbSyncCancelStatusBarItem"]);
-                Assert.IsNull(window.FindName("lr2SongDbSyncCancelButton"));
-                Assert.IsNull(statusBar.Resources["styleLr2SongDbSyncCleanupStatusBarItem"]);
-                Assert.IsNull(window.FindName("lr2SongDbSyncCleanupButton"));
-
-                var boundPaths = new HashSet<string>(StringComparer.Ordinal);
-                foreach (TextBlock textBlock in FindVisualChildren<TextBlock>(statusBar))
+                if (beginNewStartup)
                 {
-                    if (BindingOperations.GetBinding(textBlock, TextBlock.TextProperty) is Binding binding
-                        && binding.Path?.Path is string path)
-                    {
-                        boundPaths.Add(path);
-                    }
-                    AddBindingPath(boundPaths, textBlock, FrameworkElement.ToolTipProperty);
+                    // 設定保存の RestartMode.All は Startup の全初期化を再受付し、この ready-operable 境界へ戻る。
+                    BeginReadyOperableStartup(owner);
+                    host.UpdateLayout();
                 }
-                foreach (ProgressBar progressBar in FindVisualChildren<ProgressBar>(statusBar))
+                OperationProgressRow before = owner.ProgressHub.Rows.Single(row => row.Key == "startup_background");
+                notificationThreads.Clear();
+                scheduler.ReleaseHeld();
+                host.UpdateLayout();
+                if (beginNewStartup)
                 {
-                    AddBindingPath(boundPaths, progressBar, RangeBase.MaximumProperty);
-                    AddBindingPath(boundPaths, progressBar, RangeBase.ValueProperty);
+                    Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+                    OperationProgressRow after = owner.ProgressHub.Rows.Single(row => row.Key == "startup_background");
+                    Assert.AreEqual(before.Value, after.Value);
+                    Assert.AreEqual(before.Maximum, after.Maximum);
+                    Assert.IsTrue(statusBar.IsVisible);
+                    Assert.IsTrue(FindVisualChildren<ProgressBar>(rows)
+                        .Any(bar => ((OperationProgressRow)bar.DataContext).Key == "startup_background" && bar.IsIndeterminate
+                            && bar.IsVisible && bar.ActualWidth > 0 && bar.ActualHeight > 0));
+                    Assert.IsTrue(notificationThreads.IsEmpty);
                 }
-
-                CollectionAssert.IsSubsetOf(
-                    new[]
-                    {
-                        "StartupProgress.Label",
-                        "StartupProgress.SubLabel",
-                        "StartupProgress.Maximum",
-                        "StartupProgress.Value",
-                        "InstallPipelineLabel",
-                        "InstallPipelineSubLabel",
-                        "InstallPipelineMaximum",
-                        "InstallPipelineValue",
-                        "PlaylistSyncProgressLabel",
-                        "PlaylistSyncProgressSubLabel",
-                        "PlaylistSyncProgressMaximum",
-                        "PlaylistSyncProgressValue",
-                        "MaintenanceRescanLabel",
-                        "MaintenanceRescanSubLabel",
-                        "MaintenanceRescanMaximum",
-                        "MaintenanceRescanValue",
-                        "FolderAutoRenameProgressLabel",
-                        "FolderAutoRenameProgressSubLabel",
-                        "FolderAutoRenameProgressMaximum",
-                        "FolderAutoRenameProgressValue",
-                        "StartupBackgroundInitializationLabel",
-                        "Lr2SongDbSyncStatusLabel",
-                        "Lr2SongDbSyncStatusSubLabel",
-                        "Lr2SongDbSyncStatusToolTip",
-                        "Lr2SongDbSyncStatusProgressMaximum",
-                        "Lr2SongDbSyncStatusProgressValue"
-                    },
-                    boundPaths.ToArray());
-            });
+                else
+                {
+                    Assert.IsFalse(owner.ProgressHub.IsStartupBackgroundInitializationActive);
+                    Assert.IsFalse(owner.ProgressHub.HasRows);
+                    Assert.IsFalse(FindVisualChildren<ProgressBar>(rows)
+                        .Any(bar => ((OperationProgressRow)bar.DataContext).Key == "startup_background"));
+                    Assert.AreEqual(Visibility.Collapsed, statusBar.Visibility);
+                    Assert.IsTrue(notificationThreads.Any(item => item.Name == nameof(OperationProgressHubViewModel.Rows)));
+                    Assert.IsTrue(notificationThreads.Any(item => item.Name == nameof(OperationProgressHubViewModel.HasRows)));
+                    Assert.IsTrue(notificationThreads.All(item => item.IsUi));
+                }
+            }
+            finally
+            {
+                scheduler.ReleaseHeld();
+            }
+        }, scheduler);
     }
 
     [TestMethod]
-    public void ProgressStatusBar_ReflectsRepresentativeHubStateForEveryOwner()
+    public void ProgressStatusBar_RendersConcurrentRowsWithFlexibleLabelWidthAndMeasuredHeight()
     {
-        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
+        var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { }, () => { });
+        RunConstructorOnlyWithStatusBarTerminals(terminals, (viewModel, window, host) =>
+        {
+            OperationProgressHubViewModel hub = viewModel.ProgressHub;
+            StatusBar statusBar = GetNamedElement<StatusBar>(window, "progressStatusBar");
+            Assert.AreSame(hub, statusBar.DataContext);
+            Assert.AreEqual(Visibility.Collapsed, statusBar.Visibility);
+            hub.StartupProgress.ApplyPresentation(true, new string('あ', 200), "phase", 2, 13);
+            host.UpdateLayout();
+            double oneRowHeight = statusBar.ActualHeight;
+            hub.UpdatePendingEstimateQueueStatus(new BeMusicSeeker.Models.PendingInstallEstimateQueueStatusSnapshot
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowProgressStatusBarState");
-                StatusBar statusBar = GetNamedElement<StatusBar>(window, "progressStatusBar");
-                OperationProgressHubViewModel hub = viewModel.ProgressHub;
-
-                ResetProgressHub(hub);
-                hub.StartupProgress.ApplyPresentation(true, "startup-label", "startup-detail", 2, 5);
-                TestUiDispatcherHost.Drain();
-                AssertOwnerPresentation(
-                    statusBar,
-                    "StartupProgress.Label",
-                    "startup-label",
-                    "StartupProgress.Maximum",
-                    5,
-                    "StartupProgress.Value",
-                    2,
-                    "styleStartupProgressStatusBarItem");
-
-                ResetProgressHub(hub);
-                hub.IsInstallPipelineStatusActive = true;
-                hub.InstallPipelineLabel = "install-label";
-                hub.InstallPipelineSubLabel = "install-detail";
-                hub.InstallPipelineMaximum = 8;
-                hub.InstallPipelineValue = 3;
-                hub.InstallPipelineCanCancel = true;
-                TestUiDispatcherHost.Drain();
-                AssertOwnerPresentation(
-                    statusBar,
-                    "InstallPipelineLabel",
-                    "install-label",
-                    "InstallPipelineMaximum",
-                    8,
-                    "InstallPipelineValue",
-                    3,
-                    "styleInstallPipelineStatusBarItem");
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    GetNamedElement<Button>(window, "installPipelineCancelButton").Visibility);
-
-                ResetProgressHub(hub);
-                hub.IsPlaylistSyncProgressActive = true;
-                hub.PlaylistSyncProgressLabel = "playlist-label";
-                hub.PlaylistSyncProgressSubLabel = "playlist-detail";
-                hub.PlaylistSyncProgressMaximum = 9;
-                hub.PlaylistSyncProgressValue = 4;
-                TestUiDispatcherHost.Drain();
-                AssertOwnerPresentation(
-                    statusBar,
-                    "PlaylistSyncProgressLabel",
-                    "playlist-label",
-                    "PlaylistSyncProgressMaximum",
-                    9,
-                    "PlaylistSyncProgressValue",
-                    4,
-                    "stylePlaylistSyncStatusBarItem");
-
-                ResetProgressHub(hub);
-                hub.IsMaintenanceRescanProgressActive = true;
-                hub.MaintenanceRescanLabel = "maintenance-label";
-                hub.MaintenanceRescanSubLabel = "maintenance-detail";
-                hub.MaintenanceRescanMaximum = 10;
-                hub.MaintenanceRescanValue = 5;
-                hub.MaintenanceRescanCanCancel = true;
-                TestUiDispatcherHost.Drain();
-                AssertOwnerPresentation(
-                    statusBar,
-                    "MaintenanceRescanLabel",
-                    "maintenance-label",
-                    "MaintenanceRescanMaximum",
-                    10,
-                    "MaintenanceRescanValue",
-                    5,
-                    "styleMaintenanceRescanStatusBarItem");
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    GetNamedElement<Button>(window, "maintenanceRescanCancelButton").Visibility);
-
-                ResetProgressHub(hub);
-                hub.IsFolderAutoRenameProgressActive = true;
-                hub.FolderAutoRenameProgressLabel = "rename-label";
-                hub.FolderAutoRenameProgressSubLabel = "rename-detail";
-                hub.FolderAutoRenameProgressMaximum = 11;
-                hub.FolderAutoRenameProgressValue = 6;
-                TestUiDispatcherHost.Drain();
-                AssertOwnerPresentation(
-                    statusBar,
-                    "FolderAutoRenameProgressLabel",
-                    "rename-label",
-                    "FolderAutoRenameProgressMaximum",
-                    11,
-                    "FolderAutoRenameProgressValue",
-                    6,
-                    "styleFolderAutoRenameStatusBarItem");
-
-                ResetProgressHub(hub);
-                hub.IsLr2SongDbSyncStatusActive = true;
-                hub.Lr2SongDbSyncStatusLabel = "lr2-label";
-                hub.Lr2SongDbSyncStatusSubLabel = "lr2-detail";
-                hub.Lr2SongDbSyncStatusToolTip = "lr2-tooltip";
-                hub.Lr2SongDbSyncStatusProgressMaximum = 12;
-                hub.Lr2SongDbSyncStatusProgressValue = 7;
-                hub.IsLr2SongDbSyncStatusProgressVisible = true;
-                hub.IsLr2SongDbSyncRetryVisible = true;
-                TestUiDispatcherHost.Drain();
-                AssertOwnerPresentation(
-                    statusBar,
-                    "Lr2SongDbSyncStatusLabel",
-                    "lr2-label",
-                    "Lr2SongDbSyncStatusProgressMaximum",
-                    12,
-                    "Lr2SongDbSyncStatusProgressValue",
-                    7,
-                    "styleLr2SongDbSyncStatusBarItem");
-                Assert.AreEqual(
-                    "lr2-tooltip",
-                    FindBoundText(statusBar, "Lr2SongDbSyncStatusSubLabel").ToolTip);
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    FindStatusBarItem(statusBar, "styleLr2SongDbSyncProgressStatusBarItem").Visibility);
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    FindStatusBarItem(statusBar, "styleLr2SongDbSyncRetryStatusBarItem").Visibility);
-
-                var backgroundItemStyle = (Style)statusBar.Resources[
-                    "styleStartupBackgroundInitializationStatusBarItem"];
-                StatusBarItem backgroundItem = statusBar.Items
-                    .OfType<StatusBarItem>()
-                    .Where(item => ReferenceEquals(item.Style, backgroundItemStyle))
-                    .Single(item => item.Content is ProgressBar);
-                Assert.IsInstanceOfType(backgroundItem.Content, typeof(ProgressBar));
-                var backgroundProgress = (ProgressBar)backgroundItem.Content;
-                Assert.IsTrue(backgroundProgress.IsIndeterminate);
-                // The indeterminate animation can starve ApplicationIdle while this test drives
-                // the precedence transitions. Keep the compiled-content contract assertion,
-                // then disable animation on this test-owned control before any transition drain.
-                backgroundProgress.IsIndeterminate = false;
-
-                ResetProgressHub(hub);
-                hub.BeginStartupBackgroundInitializationPresentation();
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(Visibility.Visible, statusBar.Visibility);
-                Assert.AreEqual(Visibility.Visible, backgroundItem.Visibility);
-                TextBlock backgroundLabel = FindBoundText(
-                    statusBar,
-                    "StartupBackgroundInitializationLabel");
-                Assert.IsFalse(string.IsNullOrWhiteSpace(backgroundLabel.Text));
-
-                hub.IsPlaylistSyncProgressActive = true;
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(Visibility.Collapsed, backgroundItem.Visibility);
-
-                hub.IsPlaylistSyncProgressActive = false;
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(Visibility.Visible, backgroundItem.Visibility);
-
-                hub.IsLr2SongDbSyncStatusActive = true;
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(Visibility.Collapsed, backgroundItem.Visibility);
+                IsActive = true,
+                CurrentPackageCount = 8,
+                CompletedPackageCount = 3,
+                CurrentDisplayName = new string('長', 200)
             });
+            hub.BeginBackgroundProgressGeneration(1);
+            hub.UpdateBackgroundTaskProgress(new("chart_info_hydration", 1, 1, false, true));
+            statusBar.ApplyTemplate();
+            host.UpdateLayout();
+            Assert.AreEqual(Visibility.Visible, statusBar.Visibility);
+            Assert.IsTrue(double.IsNaN(statusBar.Height));
+            Assert.IsTrue(statusBar.ActualHeight >= oneRowHeight * 2);
+            ProgressBar[] bars = FindVisualChildren<ProgressBar>(statusBar).ToArray();
+            Assert.AreEqual(3, bars.Length);
+            Assert.AreEqual(13d, bars.Single(bar => ((OperationProgressRow)bar.DataContext).Key == "startup").Maximum);
+            TextBlock[] labels = FindVisualChildren<TextBlock>(statusBar)
+                .Where(text => text.DataContext is OperationProgressRow && text.Inlines.Count > 0).ToArray();
+            Assert.AreEqual(3, labels.Length);
+            Assert.IsTrue(labels.All(text => text.ActualWidth > 200));
+            TextBlock child = labels.Single(text => ((OperationProgressRow)text.DataContext).IsChild);
+            var childGrid = (Grid)VisualTreeHelper.GetParent(child);
+            Assert.AreEqual(20d, childGrid.Margin.Left);
+            StringAssert.Contains((string)childGrid.ToolTip, ((OperationProgressRow)child.DataContext).Label);
+            TextBlock longLabel = labels.Single(text => ((OperationProgressRow)text.DataContext).Key == "startup");
+            StringAssert.Contains((string)((Grid)VisualTreeHelper.GetParent(longLabel)).ToolTip, new string('あ', 200));
+            double wideLabelWidth = labels[0].ActualWidth;
+            host.Width = 800;
+            host.UpdateLayout();
+            Assert.IsTrue(labels[0].ActualWidth < wideLabelWidth);
+            Assert.IsTrue(labels.All(text => text.ActualWidth > 0));
+            Assert.IsTrue(window.MinHeight >= statusBar.ActualHeight);
+        });
     }
 
     [TestMethod]
-    public void ProgressStatusBarButtons_InvokeInjectedTerminalsExactlyOnce()
+    public void ProgressStatusBarButtons_InvokeEachRowsOwnerExactlyOnce()
     {
         var calls = new List<string>();
         var terminals = new MainWindowProgressStatusBarTerminals(
-            () => calls.Add("install"),
-            () => calls.Add("maintenance"),
-            () => calls.Add("retry"));
-
-        RunConstructorOnlyWithStatusBarTerminals(
-            terminals,
-            (viewModel, window) =>
+            () => calls.Add("install"), () => calls.Add("maintenance"),
+            () => calls.Add("retry"), () => calls.Add("url"));
+        RunConstructorOnlyWithStatusBarTerminals(terminals, (viewModel, window, host) =>
+        {
+            viewModel.ProgressHub.StartupProgress.ApplyPresentation(true, "startup", "", 1, 13);
+            ItemsControl rows = GetNamedElement<ItemsControl>(window, "progressRows");
+            rows.ItemsSource = new[]
             {
-                RaiseButtonClick(window, "installPipelineCancelButton");
-                RaiseButtonClick(window, "maintenanceRescanCancelButton");
-                RaiseButtonClick(window, "lr2SongDbSyncRetryButton");
-            });
-
-        CollectionAssert.AreEqual(
-            new[] { "install", "maintenance", "retry" },
-            calls);
+                new OperationProgressRow("install", "install", "", Action: OperationProgressAction.CancelInstall),
+                new OperationProgressRow("url", "url", "", Action: OperationProgressAction.CancelUrlDownload),
+                new OperationProgressRow("maintenance", "maintenance", "", Action: OperationProgressAction.CancelMaintenance),
+                new OperationProgressRow("lr2", "lr2", "", Action: OperationProgressAction.RetryLr2)
+            };
+            rows.ApplyTemplate();
+            host.UpdateLayout();
+            foreach (Button button in FindVisualChildren<Button>(rows).Where(button => button.Visibility == Visibility.Visible))
+            {
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+            }
+        });
+        CollectionAssert.AreEqual(new[] { "install", "url", "maintenance", "retry" }, calls);
     }
 
     [TestMethod]
-    public void ProgressStatusBarCoreFactory_PreservesPlaylistPriorityAndMapsEveryOwnerActionOnce()
+    public void ProgressStatusBarCoreFactory_UsesRowSpecificCancellationWhileAcquisitionRuns()
     {
-        bool playlistUrlDownloadIsRunning = true;
         var calls = new List<string>();
         var terminals = MainWindowProgressStatusBarTerminals.CreateCore(
-            () => playlistUrlDownloadIsRunning,
-            () => calls.Add("playlist-cancel"),
-            () => calls.Add("package-cancel"),
-            () => calls.Add("maintenance-cancel"),
-            () => calls.Add("lr2-retry"));
-
-        terminals.CancelInstallPipeline();
-        CollectionAssert.AreEqual(new[] { "playlist-cancel" }, calls);
-
-        playlistUrlDownloadIsRunning = false;
-        terminals.CancelInstallPipeline();
-        terminals.CancelMaintenanceRescan();
-        terminals.RetryLr2Sync();
-
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "playlist-cancel",
-                "package-cancel",
-                "maintenance-cancel",
-                "lr2-retry"
-            },
-            calls);
+            () => calls.Add("url"), () => calls.Add("install"),
+            () => calls.Add("maintenance"), () => calls.Add("retry"));
+        terminals.Invoke(OperationProgressAction.CancelInstall);
+        terminals.Invoke(OperationProgressAction.CancelUrlDownload);
+        terminals.Invoke(OperationProgressAction.CancelMaintenance);
+        terminals.Invoke(OperationProgressAction.RetryLr2);
+        CollectionAssert.AreEqual(new[] { "install", "url", "maintenance", "retry" }, calls);
     }
 
     [TestMethod]
-    public async Task DefaultFactory_MapsEveryOwnerRouteAndPreservesPlaylistCancellationPriority()
+    public async Task DefaultFactory_MapsEveryOwnerRouteAndKeepsCancellationIndependent()
     {
         var settings = new Settings { OperationModeLR2DB = false };
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
@@ -413,11 +274,14 @@ public sealed class MainWindowProgressStatusBarWpfTests
             Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning);
             Assert.AreEqual(1, Volatile.Read(ref playlistCancelableSnapshots));
 
-            terminals.CancelInstallPipeline();
+            terminals.Invoke(OperationProgressAction.CancelInstall);
+            Assert.AreEqual(2, packageCancelRequests);
+            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning);
+            terminals.Invoke(OperationProgressAction.CancelUrlDownload);
 
             await download.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsFalse(viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning);
-            Assert.AreEqual(1, packageCancelRequests, "Playlist download cancellation must have priority over package installation.");
+            Assert.AreEqual(2, packageCancelRequests);
             Assert.AreEqual(1, Volatile.Read(ref playlistCanceledSnapshots));
         }
         finally
@@ -428,9 +292,10 @@ public sealed class MainWindowProgressStatusBarWpfTests
 
     private static void RunConstructorOnlyWithStatusBarTerminals(
         MainWindowProgressStatusBarTerminals terminals,
-        Action<MainWindowViewModel, MainWindow> test)
+        Action<MainWindowViewModel, MainWindow, Window> test,
+        IUiScheduler? uiScheduler = null)
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
@@ -444,7 +309,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             {
                 viewModel = new ApplicationComposition(
                     settingsEditSession: new NoOpSettingsEditSession(new Settings()),
-                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog())
                     .CreateMainWindowViewModelForTest();
@@ -476,7 +341,18 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     progressStatusBarTerminals: terminals);
                 window.Closed += (_, _) => windowClosed.TrySetResult();
                 TestUiDispatcherHost.Drain();
-                test(viewModel, window);
+                object content = window.Content;
+                window.Content = null;
+                var host = new Window { Width = 1100, Height = 700, Resources = window.Resources, Content = content, DataContext = viewModel };
+                try
+                {
+                    scope.ShowAndWaitForContentRendered(host);
+                    test(viewModel, window, host);
+                }
+                finally
+                {
+                    host.Close();
+                }
             }
             finally
             {
@@ -516,89 +392,60 @@ public sealed class MainWindowProgressStatusBarWpfTests
         });
     }
 
-    private static void ResetProgressHub(OperationProgressHubViewModel hub)
+    private static void BeginReadyOperableStartup(MainWindowViewModel owner)
     {
-        hub.ResetStartupBackgroundInitializationPresentation();
-        hub.StartupProgress.ApplyPresentation(false, string.Empty, string.Empty, 0, 1);
-        hub.IsInstallPipelineStatusActive = false;
-        hub.InstallPipelineCanCancel = false;
-        hub.IsPlaylistSyncProgressActive = false;
-        hub.IsMaintenanceRescanProgressActive = false;
-        hub.MaintenanceRescanCanCancel = false;
-        hub.IsFolderAutoRenameProgressActive = false;
-        hub.IsLr2SongDbSyncStatusActive = false;
-        hub.IsLr2SongDbSyncStatusProgressVisible = false;
-        hub.IsLr2SongDbSyncRetryVisible = false;
-        TestUiDispatcherHost.Drain();
+        StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
+        long token = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        SetPrivateField(owner, "startupReadyUiReached", true);
+        SetPrivateField(owner, "startupReadyOperableStopwatch", Stopwatch.StartNew());
+        InvokePrivate(owner, "TryLogStartupReadyOperable", [token]);
+        progress.ApplyPresentation(false, null, null, 0, 1);
+        SetPrivateField(owner, "startupCompletionContinuationToken", token);
     }
 
-    private static void AssertOwnerPresentation(
-        StatusBar statusBar,
-        string labelPath,
-        string expectedLabel,
-        string maximumPath,
-        double expectedMaximum,
-        string valuePath,
-        double expectedValue,
-        string itemStyleKey)
-    {
-        Assert.AreEqual(Visibility.Visible, statusBar.Visibility, labelPath);
-        TextBlock label = FindBoundText(statusBar, labelPath);
-        Assert.AreEqual(expectedLabel, label.Text, labelPath);
-        ProgressBar progressBar = FindBoundProgressBar(statusBar, maximumPath, valuePath);
-        Assert.AreEqual(expectedMaximum, progressBar.Maximum, maximumPath);
-        Assert.AreEqual(expectedValue, progressBar.Value, valuePath);
-        Assert.AreEqual(Visibility.Visible, FindStatusBarItem(statusBar, itemStyleKey).Visibility, itemStyleKey);
-    }
+    private static T GetPrivateField<T>(object target, string name) => (T)target.GetType()
+        .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;
 
-    private static string[] GetTriggerBindingPaths(Style style)
-    {
-        return style.Triggers
-            .OfType<DataTrigger>()
-            .Select(trigger => (trigger.Binding as Binding)?.Path?.Path)
-            .Where(path => path != null)
-            .Cast<string>()
-            .ToArray();
-    }
+    private static void SetPrivateField(object target, string name, object value) => target.GetType()
+        .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(target, value);
 
-    private static void AddBindingPath(
-        ISet<string> paths,
-        DependencyObject target,
-        DependencyProperty property)
+    private static void InvokePrivate(object target, string name, object[] arguments) => target.GetType()
+        .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+        .Single(method => method.Name == name && method.GetParameters().Length == arguments.Length)
+        .Invoke(target, arguments);
+
+    private sealed class HoldingTerminalUiScheduler : IUiScheduler
     {
-        if (BindingOperations.GetBinding(target, property) is Binding binding
-            && binding.Path?.Path is string path)
+        private readonly TestUiScheduler inner = new(() => TestUiDispatcherHost.Dispatcher);
+        private readonly ConcurrentQueue<Action> held = new();
+        private int holdNextNormal;
+        internal int HeldCount => held.Count;
+        internal void HoldNextNormal() => Interlocked.Exchange(ref holdNextNormal, 1);
+        internal void ReleaseHeld()
         {
-            paths.Add(path);
+            Interlocked.Exchange(ref holdNextNormal, 0);
+            while (held.TryDequeue(out Action? action))
+            {
+                action();
+            }
         }
-    }
-
-    private static TextBlock FindBoundText(StatusBar statusBar, string path)
-    {
-        return FindVisualChildren<TextBlock>(statusBar)
-            .Single(textBlock => BindingOperations.GetBinding(textBlock, TextBlock.TextProperty) is Binding binding
-                && string.Equals(binding.Path?.Path, path, StringComparison.Ordinal));
-    }
-
-    private static ProgressBar FindBoundProgressBar(StatusBar statusBar, string maximumPath, string valuePath)
-    {
-        return FindVisualChildren<ProgressBar>(statusBar)
-            .Single(progressBar => string.Equals(
-                    (BindingOperations.GetBinding(progressBar, RangeBase.MaximumProperty) as Binding)?.Path?.Path,
-                    maximumPath,
-                    StringComparison.Ordinal)
-                && string.Equals(
-                    (BindingOperations.GetBinding(progressBar, RangeBase.ValueProperty) as Binding)?.Path?.Path,
-                    valuePath,
-                    StringComparison.Ordinal));
-    }
-
-    private static StatusBarItem FindStatusBarItem(StatusBar statusBar, string styleKey)
-    {
-        var style = (Style)statusBar.Resources[styleKey];
-        return statusBar.Items
-            .OfType<StatusBarItem>()
-            .First(item => ReferenceEquals(item.Style, style));
+        public bool IsAvailable => inner.IsAvailable;
+        public bool CanExecuteInline => inner.CanExecuteInline;
+        public bool CheckAccess() => inner.CheckAccess();
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            if (priority == UiSchedulePriority.Normal && Interlocked.Exchange(ref holdNextNormal, 0) == 1)
+            {
+                var operation = new RegularChartListOwnerTestSupport.ActionQueueUiScheduledOperation();
+                held.Enqueue(() => operation.Execute(action));
+                return operation;
+            }
+            return inner.Schedule(action, priority);
+        }
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
     }
 
     private static IReadOnlyList<T> FindVisualChildren<T>(DependencyObject root)
@@ -636,34 +483,12 @@ public sealed class MainWindowProgressStatusBarWpfTests
         }
     }
 
-    private static void RaiseButtonClick(MainWindow window, string name)
-    {
-        Button button = GetNamedElement<Button>(window, name);
-        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
-    }
-
     private static T GetNamedElement<T>(MainWindow window, string name)
         where T : class
     {
         object? element = window.FindName(name);
         Assert.IsInstanceOfType(element, typeof(T), name);
         return (T)element!;
-    }
-
-    private static HwndSource CreateVisualHost(MainWindow window, string name)
-    {
-        var source = new HwndSource(new HwndSourceParameters(name)
-        {
-            Width = 1000,
-            Height = 700,
-            PositionX = 0,
-            PositionY = 0
-        });
-        source.RootVisual = (Visual)window.Content;
-        window.Measure(new Size(1000d, 700d));
-        window.Arrange(new Rect(0d, 0d, 1000d, 700d));
-        window.UpdateLayout();
-        return source;
     }
 
     private sealed class AcceptedStatusBarTestDialogService : IUiDialogService

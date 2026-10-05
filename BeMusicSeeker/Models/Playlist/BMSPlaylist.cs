@@ -2757,6 +2757,7 @@ public partial class BMSPlaylist : ObservableObject
             progressReporter(new PlaylistSyncProgressSnapshot
             {
                 IsActive = isActive,
+                Source = "custom_folder_repair",
                 TotalTableCount = isActive ? total : 0,
                 CompletedTableCount = isActive ? Math.Min(processed, total) : 0,
                 CurrentTableName = isActive ? tableName ?? string.Empty : string.Empty,
@@ -3526,8 +3527,8 @@ public partial class BMSPlaylist : ObservableObject
             + " backend=" + QuoteLogValue(result.BackendName)
             + " entries=" + result.GetEntries(CustomFolderOutputLr2FolderEnumerationGroupName).Count
             + " queryHits=" + result.GetQueryHitCount(CustomFolderOutputLr2FolderEnumerationGroupName)
-            + " queryMs=" + result.GetQueryMs(CustomFolderOutputLr2FolderEnumerationGroupName)
-            + " enumerationMs=" + result.EnumerationMs
+            + " queryMs=" + (result.GetMeasuredQueryMs(CustomFolderOutputLr2FolderEnumerationGroupName)?.ToString() ?? "not_measured")
+            + " enumerationMs=" + (result.MeasuredEnumerationMs?.ToString() ?? "not_measured")
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds
             + " reasonDetail=" + QuoteLogValue(result.ErrorReason));
         return result.Success

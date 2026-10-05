@@ -11,6 +11,8 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private const string ExternalPlaylistImportProgressSource = "external_playlist_import";
+
     internal event EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> ExternalPlaylistImportQueueSummaryReady;
 
     internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
@@ -110,7 +112,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
             notificationSession = tables.OperationNotificationOwner.BeginSession();
-            BeginPlaylistSyncProgressOperation();
+            BeginPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
             progressStarted = true;
             IReadOnlyList<Uri> batch;
             while ((batch = readiness.DequeueExternalPlaylistImportBatch()).Count > 0)
@@ -308,7 +310,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (progressStarted && !readiness.IsShutdownRequested && !tables.IsShutdownRequested)
             {
-                EndPlaylistSyncProgressOperation();
+                EndPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
             }
             if (notificationSession != null
                 && !readiness.IsShutdownRequested
@@ -426,6 +428,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         string detail = BuildExternalPlaylistImportProgressDetail(phaseText, currentTableName);
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
+            Source = ExternalPlaylistImportProgressSource,
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),
             CompletedTableCount = completedCount,

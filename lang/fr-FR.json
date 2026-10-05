@@ -1070,5 +1070,18 @@
   "Error_RecommendationScoreNotConfigured": "Aucune base de scores n’est configurée. Sélectionnez un joueur et une base de scores dans les paramètres généraux.",
   "Error_RecommendationScoreReadFailed": "Impossible de lire la base de scores sélectionnée.",
   "Error_RecommendationNoObservations": "Aucun résultat de jeu ne correspond au modèle intégré.",
-  "Error_RecommendationRatingFailed": "Impossible d’estimer le niveau du joueur à partir des résultats de jeu."
+  "Error_RecommendationRatingFailed": "Impossible d’estimer le niveau du joueur à partir des résultats de jeu.",
+  "Statusbar_progress_phase_lr2_folder_file_check": "Vérification des modifications des dossiers personnalisés LR2",
+  "Statusbar_progress_phase_chart_digest": "Complément des empreintes des partitions",
+  "Statusbar_progress_task_external_playlist_sync": "Synchronisation des listes de lecture externes",
+  "Statusbar_progress_task_playlist_manual_reload": "Resynchronisation des listes de lecture sélectionnées",
+  "Statusbar_progress_task_external_table_catalog": "Chargement du catalogue des tables externes",
+  "Statusbar_progress_task_playlist_index": "Préparation de l’index des listes de lecture",
+  "Statusbar_progress_task_chart_list_preparation": "Préparation des index et des caches de tri de la liste des partitions",
+  "Statusbar_progress_task_playlist_url_completion": "Complément des URL des listes de lecture",
+  "Statusbar_progress_task_folder_tree": "Mise à jour de la liste des dossiers",
+  "Statusbar_progress_task_custom_folder_repair": "Réparation des dossiers personnalisés LR2 exportés",
+  "Statusbar_progress_task_bmt_output": "Export des fichiers BMT",
+  "Statusbar_progress_task_gc": "Libération de mémoire après le démarrage",
+  "Statusbar_progress_task_lr2_sync_enrollment": "Préparation de la synchronisation de la base de données des morceaux LR2"
 }

@@ -704,6 +704,9 @@ internal static class Lr2SongDbSyncService
         bool hasReadFailures = false;
         int totalCount = materializedFilePaths.Count;
         int processedCount = 0;
+        int parseTargetCount = 0;
+        int parsedCount = 0;
+        int unchangedCount = 0;
         foreach (string filePath in materializedFilePaths)
         {
             RootFileEnumerationEntry entry = ResolveEnumerationEntry(entriesByPath, filePath);
@@ -712,11 +715,23 @@ internal static class Lr2SongDbSyncService
             {
                 hasReadFailures = true;
             }
+            if (item.PreserveExistingRowOnly)
+            {
+                unchangedCount++;
+            }
+            else
+            {
+                parseTargetCount++;
+                if (item.Definition != null)
+                {
+                    parsedCount++;
+                }
+            }
             items.Add(item);
             processedCount++;
             ReportLr2FolderFileSyncProgress(progressReporter, totalCount, processedCount, filePath);
         }
-        return new Lr2FolderFileSyncItemsResult(items, hasReadFailures);
+        return new Lr2FolderFileSyncItemsResult(items, hasReadFailures, parseTargetCount, parsedCount, unchangedCount);
     }
 
     private static void ReportLr2FolderFileSyncProgress(
@@ -1044,13 +1059,27 @@ internal static class Lr2SongDbSyncService
         return result;
     }
 
+    /// <summary>確認済みファイルの同期入力と、同じ確認ループで取得した解析量です。</summary>
     internal sealed class Lr2FolderFileSyncItemsResult(
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,
-        bool hasReadFailures)
+        bool hasReadFailures,
+        int parseTargetCount,
+        int parsedCount,
+        int unchangedCount)
     {
+        /// <summary>確認を終えた各ファイルの同期入力です。この件数が確認済みファイル数です。</summary>
         public IReadOnlyCollection<Lr2FolderFileSyncItem> Items { get; } = items ?? [];
 
         public bool HasReadFailures { get; } = hasReadFailures;
+
+        /// <summary>既存行の時刻等で解析を省略できず、読込み・解析を試みたファイル数です。</summary>
+        public int ParseTargetCount { get; } = parseTargetCount;
+
+        /// <summary>定義の読込み・解析が成功したファイル数です。DB行の生成・変更数とは異なります。</summary>
+        public int ParsedCount { get; } = parsedCount;
+
+        /// <summary>既存行が同じため定義の解析を省略したファイル数です。親ディレクトリ行の変更不要を保証しません。</summary>
+        public int UnchangedCount { get; } = unchangedCount;
     }
 
     private static SongRowSyncResult UpsertSongRows(

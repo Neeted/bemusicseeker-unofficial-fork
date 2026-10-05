@@ -1039,6 +1039,7 @@ internal sealed class PlaylistBmtOutputOwner
         {
             IsActive = isActive,
             OperationId = operationId,
+            Source = "bmt",
             TotalTableCount = totalCount,
             CompletedTableCount = completedCount,
             CurrentTableName = currentTableName ?? string.Empty,

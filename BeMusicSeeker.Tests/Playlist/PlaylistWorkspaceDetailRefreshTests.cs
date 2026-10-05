@@ -568,6 +568,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = true,
+            Source = "bmt",
             OperationId = 7,
             TotalTableCount = 1,
             CompletedTableCount = 0
@@ -575,13 +576,17 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = false,
+            Source = "bmt",
             OperationId = 7
         });
 
-        Assert.AreEqual(1, snapshots.Count);
-        workspace.EndPlaylistSyncProgressOperation();
         Assert.AreEqual(2, snapshots.Count);
+        Assert.AreEqual("bmt", snapshots[1].Source);
         Assert.IsFalse(snapshots[1].IsActive);
+        workspace.EndPlaylistSyncProgressOperation();
+        Assert.AreEqual(3, snapshots.Count);
+        Assert.AreEqual("playlist", snapshots[2].Source);
+        Assert.IsFalse(snapshots[2].IsActive);
     }
 
     [TestMethod]

@@ -46,8 +46,10 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.IsFalse(status.CanRetry);
     }
 
-    [TestMethod]
-    public void Create_RunningBuildsVisibleRuntimeStatusWithoutRetry()
+    [DataTestMethod]
+    [DataRow(4)]
+    [DataRow(50)]
+    public void Create_RunningBuildsVisibleRuntimeStatusWithoutRetry(int processedCount)
     {
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
@@ -55,18 +57,19 @@ public sealed class Lr2SongDbSyncStatusMapperTests
             Stage = "song_rows",
             ProcessedCursor = 12,
             TotalCount = 100,
-            StageProcessedCount = 4,
+            StageProcessedCount = processedCount,
             StageTotalCount = 50
         }, new DateTime(2026, 6, 5, 12, 0, 0));
 
+        Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, status.Kind);
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_running, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
         Assert.IsFalse(status.CanRetry);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, "song rows");
-        Assert.AreEqual("song rows [4/50]", status.ProgressText);
+        Assert.AreEqual("song rows [" + processedCount + "/50]", status.ProgressText);
         Assert.IsTrue(status.HasProgress);
-        Assert.AreEqual(4.0, status.ProgressValue);
+        Assert.AreEqual((double)processedCount, status.ProgressValue);
         Assert.AreEqual(50.0, status.ProgressMaximum);
     }
 

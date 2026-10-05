@@ -75,19 +75,26 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void ForwardPlaylistPropertySyncStarted(object sender, EventArgs e)
     {
-        ApplyPlaylistPropertyPresentation(BeginPlaylistSyncProgressOperation);
+        ApplyPlaylistPropertyPresentation(() => BeginPlaylistSyncProgressOperation("property_save"));
     }
 
     private void ForwardPlaylistSyncProgressChanged(
         object sender,
         PlaylistSyncProgressChangedEventArgs request)
     {
-        ApplyPlaylistPropertyPresentation(() => ReportPlaylistSyncProgress(request?.Snapshot));
+        ApplyPlaylistPropertyPresentation(() =>
+        {
+            if (request?.Snapshot is PlaylistSyncProgressSnapshot snapshot)
+            {
+                snapshot.Source = "property_save";
+                ReportPlaylistSyncProgress(snapshot);
+            }
+        });
     }
 
     private void ForwardPlaylistPropertySyncFinished(object sender, EventArgs e)
     {
-        ApplyPlaylistPropertyPresentation(EndPlaylistSyncProgressOperation);
+        ApplyPlaylistPropertyPresentation(() => EndPlaylistSyncProgressOperation("property_save"));
     }
 
     private void ForwardPlaylistPropertyReferenceTableReplaced(

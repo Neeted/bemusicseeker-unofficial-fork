@@ -7332,20 +7332,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void cancelDropInstallQueueClick(object sender, RoutedEventArgs e)
+    private void progressRowActionClick(object sender, RoutedEventArgs e)
     {
-        progressStatusBarTerminals.CancelInstallPipeline();
+        if (sender is FrameworkElement { DataContext: OperationProgressRow row })
+        {
+            progressStatusBarTerminals.Invoke(row.Action);
+        }
     }
 
-    private void cancelMaintenanceRescanClick(object sender, RoutedEventArgs e)
-    {
-        progressStatusBarTerminals.CancelMaintenanceRescan();
-    }
 
-    private void retryLr2SongDbSyncClick(object sender, RoutedEventArgs e)
-    {
-        progressStatusBarTerminals.RetryLr2Sync();
-    }
 
     private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
     {

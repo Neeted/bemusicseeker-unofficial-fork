@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -41,6 +44,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private StartupProgressState startupProgressState = new();
     private long startupProgressOperationTokenSeed;
     private bool isActive;
+    private IReadOnlyList<BMSLibrary.LibraryInitializationProgressSnapshot> libraryInitializationStatuses = Array.Empty<BMSLibrary.LibraryInitializationProgressSnapshot>();
 
     private bool isStartupUiInteractionBlocked;
     private string label = string.Empty;
@@ -164,19 +168,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     {
         get { lock (startupProgressLock) { return startupProgressState.IsRetryableFailure; } }
     }
-    /// <summary>
-    /// Gets whether the active non-failed startup operation temporarily owns the status presentation.
-    /// </summary>
-    internal bool IsStartupProgressBlockingDedicatedStatus
-    {
-        get
-        {
-            lock (startupProgressLock)
-            {
-                return startupProgressState.IsActive && !startupProgressState.IsFailed;
-            }
-        }
-    }
     internal long GetActiveStartupProgressOperationToken()
     {
         lock (startupProgressLock)
@@ -242,7 +233,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
         if (marked)
         {
-            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
             RecomputeStartupProgressPresentation();
         }
     }
@@ -253,6 +243,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         SubLabel = valueSubLabel;
         Value = progress;
         Maximum = maximum;
+        RaisePropertyChanged(nameof(DetailRows));
     }
     private void SetValue<T>(ref T storage, T value, string propertyName)
     {
@@ -298,6 +289,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             lock (startupProgressLock)
             {
                 startupProgressState = state;
+                libraryInitializationStatuses = Array.Empty<BMSLibrary.LibraryInitializationProgressSnapshot>();
             }
             prepareOperation(operationKind, operationToken);
         }
@@ -305,7 +297,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         RaiseStartupProgressPropertyChanged(nameof(IsFailed));
         RaiseStartupProgressPropertyChanged(nameof(IsRetryableFailure));
         RecomputeStartupProgressPresentation(operationToken);
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         return state.OperationToken;
     }
 
@@ -326,7 +317,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             startupProgressState.FailureSubLabel = subLabel ?? string.Empty;
             startupProgressState.CompletionHideScheduled = false;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         RecomputeStartupProgressPresentation();
     }
 
@@ -383,7 +373,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         {
             return;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         RecomputeStartupProgressPresentation(operationToken);
         if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
         {
@@ -411,7 +400,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
         if (skipped)
         {
-            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
             log?.Invoke("startup_progress_phase_skipped operation=" + operationKind + " phase=" + phase + " reason=" + (reason ?? string.Empty));
             RecomputeStartupProgressPresentation(operationToken);
             if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
@@ -503,7 +491,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             log?.Invoke("startup_progress_request_ignored operation=" + operationKind + " phase=" + phase + " reason=" + ignoredReason + " requestReason=" + (reason ?? string.Empty) + " version=" + version);
             return false;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         if (requestAfterSkip)
         {
             log?.Invoke("startup_progress_request_after_skip operation=" + operationKind + " phase=" + phase + " requestReason=" + (reason ?? string.Empty) + " version=" + version);
@@ -664,6 +651,31 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             state => state.RequiredRankingRefreshCompletedVersion = Math.Max(state.RequiredRankingRefreshCompletedVersion, requestedVersion));
     }
 
+    /// <summary>モデル要求版が、現在の親が予定して待つスコア適用または順位更新かを返します。</summary>
+    /// <param name="name">処理名。</param>
+    /// <param name="requestVersion">送出元で捕捉したモデル要求版。</param>
+    /// <returns>現在の親の予定段階と必要要求版が一致する場合だけtrue。</returns>
+    internal bool IsExecutionProgressPartOfStartup(string name, long requestVersion)
+    {
+        lock (startupProgressLock)
+        {
+            StartupProgressState state = startupProgressState;
+            if (!state.IsActive || requestVersion <= 0)
+            {
+                return false;
+            }
+
+            return name switch
+            {
+                "score_hydration_deferred" => (state.ExpectedPhases & StartupProgressPhase.ScoreHydrationDone) != 0
+                    && state.RequiredScoreHydrationCompletedVersion == requestVersion,
+                "ranking_refresh_deferred" => (state.ExpectedPhases & StartupProgressPhase.RankingRefreshDone) != 0
+                    && state.RequiredRankingRefreshCompletedVersion == requestVersion,
+                _ => false
+            };
+        }
+    }
+
     internal void TrackStartupProgressChartDigestBackfillRequested(int requestedVersion)
     {
         TryTrackStartupProgressPhaseRequest(
@@ -746,7 +758,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         {
             return;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         RecomputeStartupProgressPresentation(operationToken);
         MarkStartupProgressPhaseCompleted(StartupProgressPhase.PlaylistReferenceApplied, operationToken);
     }
@@ -777,6 +788,96 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
+    /// <summary>現在の操作が実行している独立した詳細処理を、親の段階数とは別に取得します。</summary>
+    public IReadOnlyList<OperationProgressRow> DetailRows
+    {
+        get
+        {
+            lock (startupProgressLock)
+            {
+                var rows = new List<OperationProgressRow>();
+                StartupProgressState state = startupProgressState;
+                if (!state.IsActive || state.IsFailed)
+                {
+                    return rows;
+                }
+
+                foreach (BMSLibrary.LibraryInitializationProgressSnapshot status in libraryInitializationStatuses.OrderBy(s => s.Stage).ThenBy(s => s.ScannerLabel, StringComparer.Ordinal))
+                {
+                    StartupProgressPhase phase = status.Stage switch
+                    {
+                        BMSLibrary.LibraryInitializationProgressStage.DatabaseLoad => StartupProgressPhase.LibraryDatabaseLoadDone,
+                        BMSLibrary.LibraryInitializationProgressStage.FileEnumeration => StartupProgressPhase.LibraryFileEnumerationDone,
+                        _ => StartupProgressPhase.LibraryFileDiffDone
+                    };
+                    if (status.Stage == BMSLibrary.LibraryInitializationProgressStage.None
+                        || IsStartupProgressPhaseCompletedOrNotExpected(state, phase))
+                    {
+                        continue;
+                    }
+
+                    string label = status.Stage switch
+                    {
+                        BMSLibrary.LibraryInitializationProgressStage.DatabaseLoad => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_db_load,
+                        BMSLibrary.LibraryInitializationProgressStage.FileEnumeration => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_enumeration,
+                        BMSLibrary.LibraryInitializationProgressStage.Lr2FolderFileCheck => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_folder_file_check,
+                        _ => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_diff
+                    };
+                    if (!string.IsNullOrWhiteSpace(status.ScannerLabel))
+                    {
+                        label += " (" + status.ScannerLabel + ")";
+                    }
+
+                    AddDetail(rows, "library:" + status.Stage + ":" + status.ScannerLabel, label,
+                        status.TotalCount, status.ProcessedCount, status.CurrentPath);
+                }
+                if (state.ChartInfoBackfillTotalCount > 0 && !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
+                {
+                    AddDetail(rows, "task:chart_info_backfill", BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info,
+                        state.ChartInfoBackfillTotalCount, state.ChartInfoBackfillProcessedCount, state.ChartInfoBackfillCurrentPath);
+                }
+
+                if (state.ChartInfoHydrationTotalCount > 0 && !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
+                {
+                    AddDetail(rows, "task:chart_info_hydration", BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load,
+                        state.ChartInfoHydrationTotalCount, state.ChartInfoHydrationAppliedCount, string.Empty);
+                }
+
+                return rows;
+            }
+        }
+    }
+
+    private static void AddDetail(List<OperationProgressRow> rows, string key, string label, int total, int processed, string path)
+    {
+        bool indeterminate = total <= 0;
+        rows.Add(new(key, indeterminate ? label : FormatStartupProgressCountLabel(label, processed, total, string.Empty),
+            path ?? string.Empty, Math.Max(0, processed), Math.Max(1, total), indeterminate, ParentKey: "startup"));
+    }
+
+    /// <summary>送出時に捕捉された操作識別が一致する処理別最新値だけを反映します。</summary>
+    internal void UpdateStartupProgressLibraryInitializationStatuses(IReadOnlyList<BMSLibrary.LibraryInitializationProgressSnapshot> snapshots)
+    {
+        long token;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive)
+            {
+                return;
+            }
+
+            token = startupProgressState.OperationToken;
+            BMSLibrary.LibraryInitializationProgressSnapshot[] current = snapshots.Where(s => s.OperationToken == token).ToArray();
+            if (current.Length == 0 && snapshots.Count > 0)
+            {
+                return;
+            }
+
+            libraryInitializationStatuses = current;
+        }
+        RecomputeStartupProgressPresentation(token);
+    }
+
     internal void UpdateStartupProgressLibraryInitializationStatus(BMSLibrary.LibraryInitializationProgressStage stage, string scannerLabel, int totalCount, int processedCount, string currentPath)
     {
         lock (startupProgressLock)
@@ -794,31 +895,39 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
-    internal void UpdateStartupProgressChartInfoBackfillStatus(int totalCount, int processedCount, string currentPath)
+    /// <summary>現在の親操作が待つ要求版と一致する補完件数だけを反映します。</summary>
+    internal void UpdateStartupProgressChartInfoBackfillStatus(ChartInfoWorkflowProgressSnapshot snapshot)
     {
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
+            if (snapshot == null || !startupProgressState.IsActive
+                || snapshot.RequestVersion != startupProgressState.RequiredChartInfoBackfillCompletedVersion
+                || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
             {
                 return;
             }
-            startupProgressState.ChartInfoBackfillTotalCount = totalCount;
-            startupProgressState.ChartInfoBackfillProcessedCount = processedCount;
-            startupProgressState.ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
+
+            startupProgressState.ChartInfoBackfillTotalCount = snapshot.TotalCount;
+            startupProgressState.ChartInfoBackfillProcessedCount = snapshot.ProcessedCount;
+            startupProgressState.ChartInfoBackfillCurrentPath = snapshot.CurrentPath;
         }
         RecomputeStartupProgressPresentation();
     }
 
-    internal void UpdateStartupProgressChartInfoHydrationStatus(int totalCount, int appliedCount)
+    /// <summary>現在の親操作が待つ要求版と一致する読込み件数だけを反映します。</summary>
+    internal void UpdateStartupProgressChartInfoHydrationStatus(ChartInfoWorkflowProgressSnapshot snapshot)
     {
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoHydrationDone))
+            if (snapshot == null || !startupProgressState.IsActive
+                || snapshot.RequestVersion != startupProgressState.RequiredChartInfoHydrationCompletedVersion
+                || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoHydrationDone))
             {
                 return;
             }
-            startupProgressState.ChartInfoHydrationTotalCount = totalCount;
-            startupProgressState.ChartInfoHydrationAppliedCount = appliedCount;
+
+            startupProgressState.ChartInfoHydrationTotalCount = snapshot.TotalCount;
+            startupProgressState.ChartInfoHydrationAppliedCount = snapshot.ProcessedCount;
         }
         RecomputeStartupProgressPresentation();
     }

@@ -995,18 +995,18 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 isDiffUrl: false);
             await gateway.ReadStarted.Task;
 
-            Assert.IsTrue(hub.IsInstallPipelineStatusActive);
-            Assert.IsTrue(hub.InstallPipelineCanCancel);
+            Assert.IsTrue(hub.Rows.Any(row => row.Key == "url"));
+            Assert.IsTrue(hub.Rows.Single(row => row.Key == "url").CanCancel);
             workspace.CancelPlaylistUrlDownload();
-            Assert.IsFalse(hub.InstallPipelineCanCancel);
+            Assert.IsFalse(hub.Rows.Single(row => row.Key == "url").CanCancel);
 
             gateway.Response.TrySetResult(new AppHttpResponse(
                 new Uri("https://example.invalid/running.zip"),
                 new MemoryStream([1, 2, 3], writable: false)));
             await acquisition;
 
-            Assert.IsFalse(hub.IsInstallPipelineStatusActive);
-            Assert.AreEqual(0, hub.InstallPipelineValue);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == "url"));
+            Assert.IsFalse(hub.HasRows);
         }
         finally
         {

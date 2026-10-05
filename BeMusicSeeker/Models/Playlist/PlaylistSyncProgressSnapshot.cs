@@ -4,6 +4,9 @@ namespace BeMusicSeeker.Models;
 
 internal sealed class PlaylistSyncProgressSnapshot
 {
+    /// <summary>独立して実行できる進捗の生産元を識別します。</summary>
+    public string Source { get; set; } = "playlist";
+
     public bool IsActive { get; set; }
 
     public long OperationId { get; set; }

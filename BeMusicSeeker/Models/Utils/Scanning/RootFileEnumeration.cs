@@ -107,7 +107,15 @@ internal sealed class RootFileEnumerationResult
 
     public string IncompleteReason { get; set; } = string.Empty;
 
-    public long EnumerationMs { get; set; }
+    /// <summary>互換参照用の列挙時間です。診断では欠測を識別できるMeasuredEnumerationMsを使います。</summary>
+    public long EnumerationMs
+    {
+        get => MeasuredEnumerationMs.GetValueOrDefault();
+        set => MeasuredEnumerationMs = value;
+    }
+
+    /// <summary>列挙を実行して測定した時間です。未実行・測定前の失敗ではnullです。</summary>
+    internal long? MeasuredEnumerationMs { get; private set; }
 
     public int TotalFileCount { get; set; }
 
@@ -136,7 +144,6 @@ internal sealed class RootFileEnumerationResult
 
         PathsByGroup[groupName] = new HashSet<string>(StringComparer.Ordinal);
         EntriesByGroup[groupName] = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
-        QueryMsByGroup[groupName] = 0L;
         QueryHitCountByGroup[groupName] = 0UL;
     }
 
@@ -191,6 +198,12 @@ internal sealed class RootFileEnumerationResult
             : null;
     }
 
+    /// <summary>実測されたグループの検索時間を返します。OS列挙や未実行の検索ではnullです。</summary>
+    internal long? GetMeasuredQueryMs(string groupName)
+    {
+        return !string.IsNullOrWhiteSpace(groupName) && QueryMsByGroup.TryGetValue(groupName, out long ms) ? ms : null;
+    }
+
     public long GetQueryMs(string groupName)
     {
         return !string.IsNullOrWhiteSpace(groupName) && QueryMsByGroup.TryGetValue(groupName, out long ms) ? ms : 0L;
@@ -240,6 +253,27 @@ internal static class RootFileEnumerationService
     internal const string AllFilesGroupName = "__all__";
 
     internal const string DirectoriesGroupName = "__directories__";
+
+    /// <summary>既存の探索要求から条件を記録します。大きい除外パス集合は件数だけを出します。</summary>
+    internal static void LogSearchConditions(string backend, IReadOnlyList<string> roots, IReadOnlyList<RootFileEnumerationGroup> groups)
+    {
+        try
+        {
+            string rootPaths = string.Join(" | ", roots);
+            foreach (RootFileEnumerationGroup group in groups)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Info(
+                    "file_search_conditions backend={0} group={1} roots={2} rootPaths={3} extensions={4} includeDirectories={5} exclusionKind=directory_tree exclusionCount={6}",
+                    backend, group.Name, roots.Count, rootPaths,
+                    group.IncludeAllFiles ? "*" : string.Join(",", group.Extensions),
+                    group.IncludeDirectories, group.ExcludedDirectories.Length);
+            }
+        }
+        catch
+        {
+            // 診断出力で探索の成功・失敗を変えない。
+        }
+    }
 
     internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result = null)
     {

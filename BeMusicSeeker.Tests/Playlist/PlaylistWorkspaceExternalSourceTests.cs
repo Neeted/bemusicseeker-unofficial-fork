@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -71,6 +72,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 out _,
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
             var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
@@ -86,6 +89,14 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             CollectionAssert.AreEqual(new[] { "not-a-uri" }, submission.InvalidLines.ToList());
             ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
                 .WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+
+            PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
+            Assert.IsTrue(notifications.Length > 0);
+            Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "external_playlist_import"));
+            Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == firstUri));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == secondUri));
+            Assert.IsFalse(notifications[^1].IsActive);
 
             Assert.AreEqual(2, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);

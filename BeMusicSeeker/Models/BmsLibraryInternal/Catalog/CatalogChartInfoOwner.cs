@@ -22,6 +22,16 @@ internal sealed class CatalogChartInfoOwner
 
     private readonly ChartInfoInlineBuildService inlineBuildService;
 
+    private ChartInfoWorkflowProgressSnapshot backfillProgressSnapshot = new(0, 0, 0, string.Empty);
+
+    private ChartInfoWorkflowProgressSnapshot hydrationProgressSnapshot = new(0, 0, 0, string.Empty);
+
+    /// <summary>補完workerが捕捉した要求版と件数を、一つの変更不能な値で返します。</summary>
+    internal ChartInfoWorkflowProgressSnapshot BackfillProgressSnapshot => Volatile.Read(ref backfillProgressSnapshot);
+
+    /// <summary>読込みworkerが捕捉した要求版と適用数を、一つの変更不能な値で返します。</summary>
+    internal ChartInfoWorkflowProgressSnapshot HydrationProgressSnapshot => Volatile.Read(ref hydrationProgressSnapshot);
+
     private readonly Action<string> propertyChanged;
 
     private readonly Func<bool> isShutdownRequested;
@@ -714,6 +724,29 @@ internal sealed class CatalogChartInfoOwner
         QueueBackfillRequest(ChartInfoBackfillRequest.Full(reason), processSynchronously);
     }
 
+    private void PublishProgressSnapshot(
+        ref ChartInfoWorkflowProgressSnapshot target,
+        ChartInfoWorkflowProgressSnapshot snapshot,
+        string propertyName)
+    {
+        Volatile.Write(ref target, snapshot);
+        try
+        {
+            propertyChanged(propertyName);
+        }
+        catch (Exception ex)
+        {
+            // 表示購読者の失敗で元の保存・取消・終端を変えない。
+            try
+            {
+                LogPerformance?.Invoke("chart_info_progress_observer_failed property=" + propertyName + " exception=" + ex.GetType().Name);
+            }
+            catch
+            {
+            }
+        }
+    }
+
     internal void ProcessBackfillRequests(bool waitForHydrationIdle = true)
     {
         EnsureWorkflowConfigured();
@@ -778,6 +811,9 @@ internal sealed class CatalogChartInfoOwner
                         ChartInfoBackfillTotalCount = total;
                         ChartInfoBackfillProcessedCount = processed;
                         ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
+                        PublishProgressSnapshot(ref backfillProgressSnapshot,
+                            new(requestVersion, total, processed, currentPath),
+                            nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot));
                     }
                     existingRowsSnapshot = CreateSha256Snapshot();
                     result = buildService.BackfillChartInfos(
@@ -890,6 +926,9 @@ internal sealed class CatalogChartInfoOwner
             }
             ChartInfoHydrationTotalCount = result.TotalRows;
             ChartInfoHydrationAppliedCount = result.AppliedBmsCount + result.AppliedBmsonCount;
+            PublishProgressSnapshot(ref hydrationProgressSnapshot,
+                new(requestVersion, result.TotalRows, result.AppliedBmsCount + result.AppliedBmsonCount, string.Empty),
+                nameof(BMSLibrary.ChartInfoHydrationProgressSnapshot));
             ChartInfoHydrationCompletedVersion = requestVersion;
             LogPerformance?.Invoke("chart_info_hydration done version=" + requestVersion
                 + " reason=" + (reason ?? "unknown")
@@ -1092,6 +1131,9 @@ internal sealed class CatalogChartInfoOwner
             }
         }
         ChartInfoBackfillRequestedVersion = requestVersion;
+        PublishProgressSnapshot(ref backfillProgressSnapshot,
+            new(requestVersion, 0, 0, string.Empty),
+            nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot));
         ChartInfoBackfillTotalCount = 0;
         ChartInfoBackfillProcessedCount = 0;
         ChartInfoBackfillDigestBackfilledCount = 0;
@@ -1159,6 +1201,9 @@ internal sealed class CatalogChartInfoOwner
             chartInfoBackfillCompletedVersion = requestVersion;
         }
         ChartInfoBackfillRequestedVersion = requestVersion;
+        PublishProgressSnapshot(ref backfillProgressSnapshot,
+            new(requestVersion, 0, 0, string.Empty),
+            nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot));
         ChartInfoBackfillTotalCount = 0;
         ChartInfoBackfillProcessedCount = 0;
         ChartInfoBackfillDigestBackfilledCount = 0;
@@ -1644,6 +1689,9 @@ internal sealed class CatalogChartInfoOwner
             }
         }
         ChartInfoHydrationRequestedVersion = requestVersion;
+        PublishProgressSnapshot(ref hydrationProgressSnapshot,
+            new(requestVersion, 0, 0, string.Empty),
+            nameof(BMSLibrary.ChartInfoHydrationProgressSnapshot));
         ChartInfoHydrationTotalCount = 0;
         ChartInfoHydrationAppliedCount = 0;
         ChartInfoHydrationRunning = true;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -1387,11 +1388,11 @@ public sealed class BmsPlaylistExternalReloadTests
             PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RefreshPlaylistTreeTables(playlist);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
-            int progressCount = 0;
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
             int referenceSortInvalidationCount = 0;
             long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder(string.Empty));
-            workspace.PlaylistSyncProgressChanged += (_, _) => progressCount++;
+            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
             workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(table));
             Assert.IsTrue(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
@@ -1404,7 +1405,8 @@ public sealed class BmsPlaylistExternalReloadTests
                 lifecycleLogs.Count(log => log.StartsWith(
                     "playlist_reload_operation started operationKind=single reason=manual_resync tableCount=1",
                     StringComparison.Ordinal)));
-            Assert.IsTrue(progressCount >= 3);
+            AssertManualResyncProgress(progress, new Uri(headerJsonPath));
+            progress.Clear();
             Assert.AreEqual(1, referenceSortInvalidationCount);
             Assert.IsTrue(lifecycleLogs.Any(log => log.StartsWith(
                 "playlist_reload_operation completed operationKind=single reason=manual_resync tableCount=1 processedCount=1",
@@ -1425,6 +1427,8 @@ public sealed class BmsPlaylistExternalReloadTests
             reloadedTable.header_sha256 = null;
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"WorkspaceTarget\",\r\n\"symbol\":\"W\",\r\n\"tag\":\"header-refresh\",\r\n\"data_url\":\"./workspace-score.json\",\r\n\"level_order\":[1]\r\n}"));
             BMSTable secondSelectionTarget = await workspace.ResyncPlaylistTableAsync(reloadedTable);
+            AssertManualResyncProgress(progress, new Uri(headerJsonPath));
+            progress.Clear();
             Assert.AreEqual(2, referenceSortInvalidationCount);
             BMSTable headerRefreshedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(reloadedTable, headerRefreshedTable);
@@ -1443,6 +1447,7 @@ public sealed class BmsPlaylistExternalReloadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{"));
             Uri failureUri = headerRefreshedTable.Page_url ?? headerRefreshedTable.Header_url;
             BMSTable failureSelectionTarget = await workspace.ResyncPlaylistTableAsync(headerRefreshedTable);
+            AssertManualResyncProgress(progress, new Uri(headerJsonPath));
             Assert.AreEqual(1, failureLogs.Count);
             Assert.AreEqual(2, referenceSortInvalidationCount);
             Assert.AreSame(headerRefreshedTable, workspace.CapturePlaylistDetailSelection().Table);
@@ -1460,6 +1465,18 @@ public sealed class BmsPlaylistExternalReloadTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    private static void AssertManualResyncProgress(ConcurrentQueue<PlaylistSyncProgressSnapshot> progress, Uri targetUri)
+    {
+        PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
+        Assert.IsTrue(notifications.Length > 0);
+        Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "playlist_manual_reload"));
+        Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+        Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive
+            && snapshot.TotalTableCount == 1 && snapshot.CurrentUri == targetUri));
+        Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 1));
+        Assert.IsFalse(notifications[^1].IsActive);
     }
 
     private static IReadOnlyList<LocalPlaylistMutationCase> CreateLocalPlaylistMutationCases()

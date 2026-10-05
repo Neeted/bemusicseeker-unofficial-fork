@@ -2717,4 +2717,43 @@ public class Resources
     /// <summary>プレイ記録から実力を推定できませんでした。</summary>
     public static string Error_RecommendationRatingFailed => ResourceManager.GetString("Error_RecommendationRatingFailed", resourceCulture);
 
+    /// <summary>LR2カスタムフォルダの変更確認の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_phase_lr2_folder_file_check => ResourceManager.GetString("Statusbar_progress_phase_lr2_folder_file_check", resourceCulture);
+
+    /// <summary>譜面ハッシュの補完の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_phase_chart_digest => ResourceManager.GetString("Statusbar_progress_phase_chart_digest", resourceCulture);
+
+    /// <summary>外部プレイリストの同期の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_external_playlist_sync => ResourceManager.GetString("Statusbar_progress_task_external_playlist_sync", resourceCulture);
+
+    /// <summary>選択プレイリストの再同期の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_manual_reload => ResourceManager.GetString("Statusbar_progress_task_playlist_manual_reload", resourceCulture);
+
+    /// <summary>外部表一覧の読込みの進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_external_table_catalog => ResourceManager.GetString("Statusbar_progress_task_external_table_catalog", resourceCulture);
+
+    /// <summary>プレイリスト索引の準備の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_index => ResourceManager.GetString("Statusbar_progress_task_playlist_index", resourceCulture);
+
+    /// <summary>譜面一覧の索引・ソートキャッシュの準備の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_chart_list_preparation => ResourceManager.GetString("Statusbar_progress_task_chart_list_preparation", resourceCulture);
+
+    /// <summary>プレイリストURLの補完の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_url_completion => ResourceManager.GetString("Statusbar_progress_task_playlist_url_completion", resourceCulture);
+
+    /// <summary>フォルダ一覧の更新の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_folder_tree => ResourceManager.GetString("Statusbar_progress_task_folder_tree", resourceCulture);
+
+    /// <summary>LR2カスタムフォルダ出力の修復の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_custom_folder_repair => ResourceManager.GetString("Statusbar_progress_task_custom_folder_repair", resourceCulture);
+
+    /// <summary>BMTの出力の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_bmt_output => ResourceManager.GetString("Statusbar_progress_task_bmt_output", resourceCulture);
+
+    /// <summary>起動後のメモリ整理の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_gc => ResourceManager.GetString("Statusbar_progress_task_gc", resourceCulture);
+
+    /// <summary>LR2楽曲DB同期の準備の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_lr2_sync_enrollment => ResourceManager.GetString("Statusbar_progress_task_lr2_sync_enrollment", resourceCulture);
+
 }

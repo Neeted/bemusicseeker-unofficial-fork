@@ -1070,5 +1070,18 @@
   "Error_RecommendationScoreNotConfigured": "尚未設定成績資料庫。請在一般設定中選擇玩家和成績資料庫。",
   "Error_RecommendationScoreReadFailed": "無法讀取所選成績資料庫。",
   "Error_RecommendationNoObservations": "沒有與內建模型相符的遊玩紀錄。",
-  "Error_RecommendationRatingFailed": "無法根據遊玩紀錄估算實力。"
+  "Error_RecommendationRatingFailed": "無法根據遊玩紀錄估算實力。",
+  "Statusbar_progress_phase_lr2_folder_file_check": "檢查 LR2 自訂資料夾變更",
+  "Statusbar_progress_phase_chart_digest": "補全譜面雜湊",
+  "Statusbar_progress_task_external_playlist_sync": "同步外部播放清單",
+  "Statusbar_progress_task_playlist_manual_reload": "重新同步選取的播放清單",
+  "Statusbar_progress_task_external_table_catalog": "讀取外部表目錄",
+  "Statusbar_progress_task_playlist_index": "準備播放清單索引",
+  "Statusbar_progress_task_chart_list_preparation": "準備譜面清單索引與排序快取",
+  "Statusbar_progress_task_playlist_url_completion": "補全播放清單 URL",
+  "Statusbar_progress_task_folder_tree": "更新資料夾清單",
+  "Statusbar_progress_task_custom_folder_repair": "修復 LR2 自訂資料夾輸出",
+  "Statusbar_progress_task_bmt_output": "匯出 BMT 檔案",
+  "Statusbar_progress_task_gc": "啟動後清理記憶體",
+  "Statusbar_progress_task_lr2_sync_enrollment": "準備同步 LR2 歌曲資料庫"
 }
