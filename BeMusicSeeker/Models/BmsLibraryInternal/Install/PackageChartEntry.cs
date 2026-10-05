@@ -168,21 +168,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         return chart == null ? null : new PackageChartEntry(chart);
     }
 
-    internal bool HasInstallDestinationSuggestion(string destinationDirectory)
-    {
-        return !string.IsNullOrWhiteSpace(destinationDirectory)
-            && (Chart.InstallDestinationSuggestions?.Any(path => string.Equals(path, destinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false);
-    }
-
-    internal bool HasLowConfidenceInstallEstimationWarning()
-    {
-        return (Chart.Warnings ?? []).Any(warning => warning != null
-            && warning.Category == ChartWarningCategory.InstallEstimation
-            && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed
-            && warning.Kind != ChartWarningKind.UnsupportedResourcePath
-            && warning.Kind != ChartWarningKind.SourceSurfaceScanLimitExceeded);
-    }
-
     internal void SetSearchingStatus(bool isSearching)
     {
         if (searchingStatusProjection == isSearching)
@@ -228,20 +213,25 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         }
     }
 
-    internal void ApplyInstallDestination(string destinationDirectory, string title, string artist, bool preserveAmbiguousInstallContext = false)
+    /// <summary>導入先と代表情報を設定し、導入・推定に伴う状態の置換として候補と推定警告を消去します。</summary>
+    /// <param name="destinationDirectory">新しい導入先。</param>
+    /// <param name="title">導入先の代表題名。</param>
+    /// <param name="artist">導入先の代表アーティスト。</param>
+    internal void ApplyInstallDestination(string destinationDirectory, string title, string artist)
     {
         ReplacePendingInstallDestination(
             destinationDirectory,
             title,
             artist,
-            preserveAmbiguousInstallContext ? installDestinationSuggestions : [],
+            [],
             forceProjection: true);
-        if (!preserveAmbiguousInstallContext)
-        {
-            ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        }
+        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
+    /// <summary>候補と推定警告を保持したまま、導入先と代表情報だけを更新します。</summary>
+    /// <param name="destinationDirectory">新しい導入先。空値による編集も含みます。</param>
+    /// <param name="title">導入先の代表題名。</param>
+    /// <param name="artist">導入先の代表アーティスト。</param>
     internal void ApplyInstallDestinationMetadata(string destinationDirectory, string title, string artist)
     {
         ReplacePendingInstallDestination(

@@ -1486,7 +1486,7 @@ public sealed class CustomTableView : Grid
             switch (key)
             {
                 case Key.Escape:
-                    if (editSuggestionPopup.IsOpen)
+                    if (editSuggestionListBox.Items.Count > 0)
                     {
                         CloseEditSuggestions();
                         return true;
@@ -1968,6 +1968,7 @@ public sealed class CustomTableView : Grid
         textBox.Height = editorRect.Height;
         activeEditHit = hit;
         activeEditor = textBox;
+        textBox.TextChanged += ActiveEditorTextChanged;
         editorLayer.Children.Add(textBox);
         CellEditStarted?.Invoke(this, new CustomTableCellEditStartedEventArgs(hit, hit.Column.EditPropertyName));
         UpdateEditSuggestions();
@@ -2028,10 +2029,22 @@ public sealed class CustomTableView : Grid
 
     private void ActiveEditorLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (!completingEdit && !completingSuggestionSelection && activeEditor != null && !activeEditor.IsKeyboardFocusWithin && !editSuggestionListBox.IsKeyboardFocusWithin)
+        HandleEditFocusDeparture(activeEditor?.IsKeyboardFocusWithin == true || editSuggestionListBox.IsKeyboardFocusWithin);
+    }
+
+    /// <summary>編集欄と候補一覧の外へフォーカスが離れた場合、入力文字列を確定します。</summary>
+    /// <param name="focusWithinEditControls">移動先が編集欄または候補一覧に含まれる場合は <see langword="true"/>。</param>
+    internal void HandleEditFocusDeparture(bool focusWithinEditControls)
+    {
+        if (!completingEdit && !completingSuggestionSelection && activeEditor != null && !focusWithinEditControls)
         {
             CommitActiveEdit();
         }
+    }
+
+    private void ActiveEditorTextChanged(object sender, TextChangedEventArgs e)
+    {
+        editSuggestionListBox.SelectedIndex = -1;
     }
 
     private bool CommitActiveEdit()
@@ -2058,6 +2071,7 @@ public sealed class CustomTableView : Grid
             string text = editor.Text ?? string.Empty;
             CloseEditSuggestions();
             editor.LostKeyboardFocus -= ActiveEditorLostKeyboardFocus;
+            editor.TextChanged -= ActiveEditorTextChanged;
             editorLayer.Children.Remove(editor);
             activeEditor = null;
             activeEditHit = null;
@@ -2079,7 +2093,7 @@ public sealed class CustomTableView : Grid
     {
         IReadOnlyList<string> suggestions = activeEditHit?.Column?.GetEditSuggestions(activeEditHit.Row) ?? [];
         editSuggestionListBox.ItemsSource = suggestions;
-        editSuggestionListBox.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
+        editSuggestionListBox.SelectedIndex = -1;
         if (activeEditor == null || suggestions.Count == 0)
         {
             CloseEditSuggestions();
@@ -2122,7 +2136,7 @@ public sealed class CustomTableView : Grid
 
     private bool CommitSelectedEditSuggestion()
     {
-        if (!editSuggestionPopup.IsOpen || activeEditor == null || editSuggestionListBox.SelectedItem is not string selectedSuggestion || string.IsNullOrWhiteSpace(selectedSuggestion))
+        if (activeEditor == null || editSuggestionListBox.SelectedItem is not string selectedSuggestion || string.IsNullOrWhiteSpace(selectedSuggestion))
         {
             return false;
         }
@@ -2145,12 +2159,24 @@ public sealed class CustomTableView : Grid
         ListBoxItem item = e.OriginalSource is not DependencyObject source ? null : FindVisualParent<ListBoxItem>(source);
         if (item != null)
         {
-            editSuggestionListBox.SelectedItem = item.DataContext;
-            if (CommitSelectedEditSuggestion())
+            if (HandleEditSuggestionClick(item.DataContext as string))
             {
                 e.Handled = true;
             }
         }
+    }
+
+    /// <summary>クリックした候補の生パスを選択し、その候補を編集値として確定します。</summary>
+    /// <param name="suggestion">クリック対象の候補パス。</param>
+    /// <returns>表示中の候補を確定した場合は <see langword="true"/>。</returns>
+    internal bool HandleEditSuggestionClick(string suggestion)
+    {
+        if (activeEditor == null || !editSuggestionListBox.Items.Contains(suggestion))
+        {
+            return false;
+        }
+        editSuggestionListBox.SelectedItem = suggestion;
+        return CommitSelectedEditSuggestion();
     }
 
     private void EditSuggestionListBoxPreviewKeyDown(object sender, KeyEventArgs e)

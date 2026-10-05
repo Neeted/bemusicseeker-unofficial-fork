@@ -9846,12 +9846,12 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory, bool preserveAmbiguousInstallContext = false)
+    private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
     {
         InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
-            entry.ApplyInstallDestination(destinationDirectory, metadata.Title, metadata.Artist, preserveAmbiguousInstallContext);
+            entry.ApplyInstallDestination(destinationDirectory, metadata.Title, metadata.Artist);
         }
     }
 
@@ -10123,6 +10123,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 検証した編集値を対象パッケージの導入先と代表情報へ反映し、候補と推定警告を保持します。
+    /// 空値は導入先と代表情報だけを消去し、検証拒否時は対象の状態を変更しません。
+    /// </summary>
+    /// <param name="targetEntry">編集対象の保留項目、または全件確認で扱う所持譜面。</param>
+    /// <param name="destinationDirectory">入力された導入先。空値も受け付けます。</param>
+    /// <returns>導入先を検証し、対象へ適用した場合は <see langword="true"/>。</returns>
     internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory)
     {
         if (targetEntry == null)
@@ -10144,11 +10151,7 @@ public partial class BMSLibrary : ObservableObject
                     ShowOperationDialog(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
-                bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
-                    && selection.TargetEntries.Any(entry => entry != null
-                            && entry.HasLowConfidenceInstallEstimationWarning()
-                            && entry.HasInstallDestinationSuggestion(selection.ValidatedDestinationDirectory));
-                ApplyResolvedInstallDestinationToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
+                ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory);
                 ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
                 return true;
             }

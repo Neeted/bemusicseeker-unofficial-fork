@@ -2552,6 +2552,106 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartSourceRows_InstallDestinationEditsNotifyCurrentProjectionAndPreserveEstimation()
+    {
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        string[] candidates = [@"C:\Candidate\A", @"C:\Candidate\B"];
+        var result = new InstallEstimationResult
+        {
+            Confidence = InstallEstimationConfidence.Low,
+            HasViableDestination = true,
+            LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates
+        };
+        result.Candidates.Add(new InstallEstimationCandidate
+        {
+            DirectoryPath = candidates[0],
+            RepresentativeTitle = "Candidate A",
+            RepresentativeArtist = "Artist A"
+        });
+        result.Candidates.Add(new InstallEstimationCandidate
+        {
+            DirectoryPath = candidates[1],
+            RepresentativeTitle = "Candidate B",
+            RepresentativeArtist = "Artist B"
+        });
+        result.SuggestedDestinationDirectories.AddRange(candidates);
+        entry.ApplyInstallEstimationResult(result);
+        ChartWarning[] estimationWarnings = entry.Chart.Warnings.ToArray();
+        Assert.IsTrue(estimationWarnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        var projectionOwner = new MainChartRowProjectionOwner();
+        ChartListSourceRow sourceRow = projectionOwner.BuildPackageSourceRows(null, [entry], includeResourceHealth: false).Single();
+        LibraryChartRow row = projectionOwner.CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
+
+        // 両行のキャッシュを先に読み、後の通知で生成時の値へ戻らないことを確認します。
+        AssertCurrentProjection(string.Empty, "Candidate A", "Artist A");
+        string expectedPath = candidates[1];
+        string expectedTitle = "Candidate B";
+        string expectedArtist = "Artist B";
+        var entryNotifications = new List<string>();
+        var rowNotifications = new List<string>();
+        PropertyChangedEventHandler entryChanged = (_, _) => entryNotifications.Add(entry.Chart.InstallDestination ?? string.Empty);
+        PropertyChangedEventHandler rowChanged = (_, _) =>
+        {
+            AssertCurrentProjection(expectedPath, expectedTitle, expectedArtist);
+            rowNotifications.Add(row.instl_dst);
+        };
+        entry.PropertyChanged += entryChanged;
+        row.PropertyChanged += rowChanged;
+        try
+        {
+            entry.ApplyInstallDestinationMetadata(expectedPath, expectedTitle, expectedArtist);
+            CollectionAssert.Contains(entryNotifications, candidates[1]);
+            CollectionAssert.Contains(rowNotifications, candidates[1]);
+            AssertCurrentProjection(candidates[1], "Candidate B", "Artist B");
+
+            entryNotifications.Clear();
+            rowNotifications.Clear();
+            expectedPath = expectedTitle = expectedArtist = string.Empty;
+            entry.ApplyInstallDestinationMetadata(expectedPath, expectedTitle, expectedArtist);
+            CollectionAssert.Contains(entryNotifications, string.Empty);
+            CollectionAssert.Contains(rowNotifications, string.Empty);
+            AssertCurrentProjection(string.Empty, string.Empty, string.Empty);
+
+            Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
+            var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
+            Assert.AreSame(entry, request.PackageTargets.Single().PackageEntry);
+            ChartFile nextChart = request.PackageTargets.Single().Chart;
+            Assert.AreEqual(string.Empty, nextChart.InstallDestination);
+            Assert.AreEqual(string.Empty, nextChart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, nextChart.InstallDestinationArtist);
+            CollectionAssert.AreEqual(candidates, nextChart.InstallDestinationSuggestions.ToArray());
+            CollectionAssert.AreEqual(estimationWarnings, nextChart.Warnings.ToArray());
+            Assert.IsNull(entry.GetBmsOwnerForTest());
+            Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
+        }
+        finally
+        {
+            entry.PropertyChanged -= entryChanged;
+            row.PropertyChanged -= rowChanged;
+        }
+
+        void AssertCurrentProjection(string path, string title, string artist)
+        {
+            Assert.AreEqual(path, sourceRow.InstallDestination);
+            Assert.AreEqual(title, sourceRow.InstallDestinationTitle);
+            Assert.AreEqual(artist, sourceRow.InstallDestinationArtist);
+            Assert.AreEqual(path, sourceRow.Chart.InstallDestination);
+            Assert.AreEqual(title, sourceRow.Chart.InstallDestinationTitle);
+            Assert.AreEqual(artist, sourceRow.Chart.InstallDestinationArtist);
+            Assert.AreEqual(path, row.instl_dst);
+            Assert.AreEqual(title, row.InstallDestinationTitle);
+            Assert.AreEqual(artist, row.InstallDestinationArtist);
+            CollectionAssert.AreEqual(candidates, sourceRow.Chart.InstallDestinationSuggestions.ToArray());
+            CollectionAssert.AreEqual(candidates, row.Chart.InstallDestinationSuggestions.ToArray());
+            CollectionAssert.AreEqual(estimationWarnings, sourceRow.Chart.Warnings.ToArray());
+            CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.ToArray());
+            Assert.AreEqual(ChartWarningCollection.BuildDigestText(estimationWarnings, path), row.WarningDigestText);
+        }
+    }
+
+    [TestMethod]
     public void PackagePlaybackTargetSnapshot_UsesChartEntriesWithoutMaterializingBmsonAdapters()
     {
         var bms = new TestableBmsFile();
