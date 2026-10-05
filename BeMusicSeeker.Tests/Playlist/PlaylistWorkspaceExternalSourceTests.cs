@@ -117,6 +117,103 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     [TestMethod]
+    public async Task StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var auxiliaryWork = new ConcurrentQueue<Task>();
+        var summaryReady = new TaskCompletionSource<BeatorajaTableUrlImportSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool started = false;
+        Exception? primaryFailure = null;
+        try
+        {
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string headerPath = Path.Combine(root, "header.json");
+            File.WriteAllBytes(headerPath, BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                "{\"name\":\"ImportTarget\",\"symbol\":\"I\",\"output_dir\":\"ImportTarget\",\"data_url\":\"./data.json\"}"));
+            File.WriteAllBytes(Path.Combine(root, "data.json"), BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            string inputUri = new Uri(headerPath).AbsoluteUri;
+            string beatorajaRoot = Path.Combine(root, "beatoraja");
+            Directory.CreateDirectory(beatorajaRoot);
+            File.WriteAllBytes(Path.Combine(beatorajaRoot, "beatoraja.jar"), []);
+            File.WriteAllText(Path.Combine(beatorajaRoot, "config_sys.json"),
+                "{\"tableURL\":[\"" + inputUri + "\"]}");
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { KeepBeatorajaBmtFilesWhenOutputDisabled = true },
+                () => new CustomFolderOutputSettingsSnapshot())
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                auxiliaryWork.Enqueue(Task.Run(work));
+                return true;
+            };
+            var library = new TestBmsLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
+            workspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => request.Confirmed = true;
+            workspace.BeatorajaTableUrlImportNotificationRequested += (_, request) =>
+                summaryReady.TrySetException(new InvalidOperationException(request.Message));
+            workspace.BeatorajaTableUrlImportSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+            started = true;
+            workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
+            BeatorajaTableUrlImportSummary summary = await summaryReady.Task;
+            string diagnostics = string.Join(Environment.NewLine, summary.Outcomes.Select(outcome =>
+                $"取込み結果: {outcome.Kind}, URI={outcome.Uri}, 表名={outcome.TableName}, 例外={outcome.Exception}"));
+            Assert.AreEqual(1, summary.ImportedCount, diagnostics);
+            Assert.AreEqual(0, summary.FailedCount, diagnostics);
+            Assert.AreEqual(1, summary.Outcomes.Count, diagnostics);
+            BeatorajaTableUrlImportOutcome imported = summary.Outcomes.Single();
+            Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Imported, imported.Kind, diagnostics);
+            Assert.AreEqual(inputUri, imported.Uri.AbsoluteUri);
+            Assert.AreEqual("ImportTarget", imported.TableName);
+            PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
+            Assert.IsTrue(notifications.Length > 0);
+            Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "beatoraja_table_url_import"));
+            Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == inputUri));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount > 0));
+            Assert.IsFalse(notifications[^1].IsActive);
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                if (started && !summaryReady.Task.IsCompleted)
+                {
+                    await summaryReady.Task;
+                }
+                try
+                {
+                    await Task.WhenAll(auxiliaryWork.ToArray());
+                }
+                finally
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            {
+                Console.WriteLine("beatoraja import cleanup: " + cleanupFailure);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ExternalPlaylistSourceRequestsRejectUnavailableStoreBeforeQueueing()
     {
         PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);

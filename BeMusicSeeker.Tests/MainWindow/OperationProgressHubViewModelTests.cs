@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -633,203 +632,89 @@ public sealed class OperationProgressHubViewModelTests
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task PlaylistRows_RealSyncAndBeatorajaImportRemainIndependentInEitherCompletionOrder(bool syncCompletesFirst)
+    public void PlaylistRows_SyncAndBeatorajaImportRemainIndependentInEitherCompletionOrder(bool syncCompletesFirst)
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        string root = Path.Combine(Path.GetTempPath(), nameof(OperationProgressHubViewModelTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        var presentation = new ConcurrentQueue<Action>();
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(action => action());
+        hub.AttachPlaylistProgressSources(workspace, presentation.Enqueue, () => false);
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.BeginStartupBackgroundInitializationPresentation();
+        const string genericKey = "background:external_playlist_sync:1";
+        const string syncKey = "playlist:external_playlist_sync:0";
+        const string importKey = "playlist:beatoraja_table_url_import:0";
+        workspace.BeginPlaylistSyncProgressOperation("external_playlist_sync");
+        workspace.BeginPlaylistSyncProgressOperation("beatoraja_table_url_import");
         try
         {
-            string dataPath = Path.Combine(root, "data.json");
-            File.WriteAllBytes(dataPath, BmsPlaylistTestSupport.CreateUtf8BomBytes(
-                "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
-            string dataUri = new Uri(dataPath).AbsoluteUri;
-            string syncHeader = "{\"name\":\"SyncTarget\",\"symbol\":\"S\",\"output_dir\":\"SyncTarget\",\"data_url\":\"" + dataUri + "\"}";
-            string importHeader = "{\"name\":\"ImportTarget\",\"symbol\":\"I\",\"output_dir\":\"ImportTarget\",\"data_url\":\"" + dataUri + "\"}";
-            await using var syncServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(syncHeader), holdBody: true);
-            await using var importServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(importHeader), holdBody: true);
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot { KeepBeatorajaBmtFilesWhenOutputDisabled = true },
-                () => new CustomFolderOutputSettingsSnapshot());
-            string initialHeaderPath = Path.Combine(root, "initial.json");
-            File.WriteAllBytes(initialHeaderPath, BmsPlaylistTestSupport.CreateUtf8BomBytes(syncHeader));
-            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(initialHeaderPath));
-            table.playlist_id = 9201;
-            table.Header_url = syncServer.Address;
-            table.header_sha256 = null;
-            table.EnableExternalSync();
-            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, true));
+            workspace.ReportPlaylistSyncProgress(new()
             {
-                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
-                foreach (BMSTableEntry entry in table.entries ?? [])
-                {
-                    setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
-                }
-            }
-            var library = new TestBmsLibrary(songDbPath);
-            string beatorajaRoot = Path.Combine(root, "beatoraja");
-            Directory.CreateDirectory(beatorajaRoot);
-            File.WriteAllBytes(Path.Combine(beatorajaRoot, "beatoraja.jar"), []);
-            File.WriteAllText(Path.Combine(beatorajaRoot, "config_sys.json"),
-                "{\"tableURL\":[\"" + importServer.Address.AbsoluteUri + "\"]}");
+                Source = "beatoraja_table_url_import",
+                IsActive = true,
+                TotalTableCount = 5,
+                CompletedTableCount = 2,
+                CurrentTableName = "ImportTarget",
+                CurrentUri = new Uri("https://example.test/import.json")
+            });
+            DrainProgressPresentation(presentation);
+            Assert.AreEqual("startup_background", hub.Rows.Single(row => row.Key == genericKey).ParentKey);
+            Assert.IsFalse(hub.Rows.Single(row => row.Key == importKey).IsChild);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == syncKey));
 
-            var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-            var presentation = new ConcurrentQueue<Action>();
-            var notifications = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
-            var auxiliaryWork = new ConcurrentQueue<Task>();
-            var workEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var schedulerIdle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var syncCompleted = new TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var importCompleted = new TaskCompletionSource<BeatorajaTableUrlImportSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
-            StartupBackgroundTaskSchedulerOwner? scheduler = null;
-            scheduler = new StartupBackgroundTaskSchedulerOwner(() => false, _ => { }, _ => { }, _ => { }, text => text,
-                (_, _) => { if (scheduler?.IsFullyIdle == true) { schedulerIdle.TrySetResult(); } }, new object());
-            scheduler.ProgressChanged += status => presentation.Enqueue(() => hub.UpdateBackgroundTaskProgress(status));
-            scheduler.Reset(false);
-            hub.BeginBackgroundProgressGeneration(scheduler.CurrentGeneration);
-            hub.BeginStartupBackgroundInitializationPresentation();
-            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            workspace.ReportPlaylistSyncProgress(new()
             {
-                auxiliaryWork.Enqueue(Task.Run(work));
-                return true;
-            };
-            PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
-                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
-                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
-                externalSyncScheduler: (reason, work) => scheduler.Queue("external_playlist_sync", reason, null, async () =>
-                {
-                    workEntered.TrySetResult();
-                    await releaseWork.Task;
-                    await work();
-                }));
-            workspace.RefreshPlaylistTreeTables(playlist);
-            hub.AttachPlaylistProgressSources(workspace, presentation.Enqueue, () => false);
-            workspace.PlaylistSyncProgressChanged += (_, request) => notifications.Enqueue(request.Snapshot);
-            workspace.PlaylistExternalSyncCompleted += (_, completion) => syncCompleted.TrySetResult(completion);
-            workspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => request.Confirmed = true;
-            workspace.BeatorajaTableUrlImportNotificationRequested += (_, _) => { };
-            workspace.BeatorajaTableUrlImportSummaryReady += (_, request) => importCompleted.TrySetResult(request.Summary);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
-            bool importStarted = false;
-            Exception? primaryFailure = null;
-            try
-            {
-                workspace.QueueExternalPlaylistSync("startup", false, false, 1L);
-                scheduler.Start();
-                await workEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                importStarted = true;
-                workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
-                await importServer.WaitForPhaseAsync(importServer.BodyPrefixSent.Task, "import body held").WaitAsync(TimeSpan.FromSeconds(30));
-                DrainProgressPresentation(presentation);
-                const string genericKey = "background:external_playlist_sync:1";
-                const string syncKey = "playlist:external_playlist_sync:0";
-                const string importKey = "playlist:beatoraja_table_url_import:0";
-                OperationProgressRow generic = hub.Rows.Single(row => row.Key == genericKey);
-                OperationProgressRow importing = hub.Rows.Single(row => row.Key == importKey);
-                Assert.AreEqual("startup_background", generic.ParentKey);
-                Assert.IsFalse(importing.IsChild, "別の取込みは同期のスケジューラー行を隠さず独立する。");
-                Assert.IsFalse(hub.Rows.Any(row => row.Key == syncKey));
+                Source = "external_playlist_sync",
+                IsActive = true,
+                TotalTableCount = 4,
+                CompletedTableCount = 1,
+                CurrentTableName = "SyncTarget",
+                CurrentUri = new Uri("https://example.test/sync.json")
+            });
+            DrainProgressPresentation(presentation);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == genericKey));
+            Assert.AreEqual("startup_background", hub.Rows.Single(row => row.Key == syncKey).ParentKey);
+            Assert.IsFalse(hub.Rows.Single(row => row.Key == importKey).IsChild);
+            OperationProgressRow surviving = hub.Rows.Single(row => row.Key == (syncCompletesFirst ? importKey : syncKey));
+            Assert.AreEqual(syncCompletesFirst ? 2d : 1d, surviving.Value);
+            Assert.AreEqual(syncCompletesFirst ? 5d : 4d, surviving.Maximum);
+            StringAssert.Contains(surviving.Detail, syncCompletesFirst ? "ImportTarget" : "SyncTarget");
 
-                releaseWork.TrySetResult();
-                await syncServer.WaitForPhaseAsync(syncServer.BodyPrefixSent.Task, "sync body held").WaitAsync(TimeSpan.FromSeconds(30));
-                DrainProgressPresentation(presentation);
-                Assert.IsFalse(hub.Rows.Any(row => row.Key == genericKey), "実同期の専用行だけが同じ仕事を統合する。");
-                OperationProgressRow syncing = hub.Rows.Single(row => row.Key == syncKey);
-                importing = hub.Rows.Single(row => row.Key == importKey);
-                Assert.AreEqual("startup_background", syncing.ParentKey);
-                Assert.IsFalse(importing.IsChild);
-                Assert.AreNotEqual(syncing.Label, importing.Label);
-                StringAssert.Contains(syncing.Detail, "SyncTarget");
-                Assert.IsFalse(string.IsNullOrWhiteSpace(importing.Detail));
-                PlaylistSyncProgressSnapshot[] executing = notifications.ToArray();
-                Assert.IsTrue(executing.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri == syncServer.Address));
-                Assert.IsTrue(executing.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri == importServer.Address));
-                OperationProgressRow surviving = syncCompletesFirst ? importing : syncing;
-                if (syncCompletesFirst)
-                {
-                    syncServer.ReleaseBody.TrySetResult();
-                    await schedulerIdle.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                    Assert.IsTrue((await syncCompleted.Task).Succeeded);
-                    Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
-                }
-                else
-                {
-                    importServer.ReleaseBody.TrySetResult();
-                    BeatorajaTableUrlImportSummary firstSummary = await importCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                    Assert.AreEqual(1, firstSummary.ImportedCount, FormatImportOutcomeDiagnostics(firstSummary, importServer));
-                }
-                Assert.IsTrue(hub.Rows.Any(row => row.Key == syncKey) && hub.Rows.Any(row => row.Key == importKey),
-                    "表示の排出を保留したまま本体の終端とsummaryが完了する。");
-                DrainProgressPresentation(presentation);
-                Assert.IsFalse(hub.Rows.Any(row => row.Key == (syncCompletesFirst ? syncKey : importKey)));
-                OperationProgressRow remaining = hub.Rows.Single(row => row.Key == surviving.Key);
-                Assert.AreEqual(surviving.Value, remaining.Value);
-                Assert.AreEqual(surviving.Maximum, remaining.Maximum);
-                Assert.AreEqual(surviving.Detail, remaining.Detail);
-                Assert.AreEqual(surviving.ParentKey, remaining.ParentKey);
-                Assert.IsFalse(hub.Rows.Any(row => row.Key == genericKey));
-
-                syncServer.ReleaseBody.TrySetResult();
-                importServer.ReleaseBody.TrySetResult();
-                await schedulerIdle.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                BeatorajaTableUrlImportSummary summary = await importCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                Assert.AreEqual(1, summary.ImportedCount, FormatImportOutcomeDiagnostics(summary, importServer));
-                Assert.AreEqual(0, summary.FailedCount);
-                Assert.IsTrue((await syncCompleted.Task).Succeeded);
-                DrainProgressPresentation(presentation);
-                Assert.IsFalse(hub.Rows.Any(row => row.Key == syncKey || row.Key == importKey || row.Key == genericKey));
-                PlaylistSyncProgressSnapshot[] all = notifications.ToArray();
-                Assert.IsTrue(all.All(snapshot => snapshot.Source is "external_playlist_sync" or "beatoraja_table_url_import"));
-                Assert.IsTrue(all.All(snapshot => snapshot.OperationId == 0));
-                foreach (string source in new[] { "external_playlist_sync", "beatoraja_table_url_import" })
-                {
-                    PlaylistSyncProgressSnapshot[] owned = all.Where(snapshot => snapshot.Source == source).ToArray();
-                    Assert.IsTrue(owned.Any(snapshot => snapshot.IsActive));
-                    Assert.IsFalse(owned[^1].IsActive);
-                }
-            }
-            catch (Exception failure)
+            workspace.EndPlaylistSyncProgressOperation(syncCompletesFirst ? "external_playlist_sync" : "beatoraja_table_url_import");
+            if (syncCompletesFirst)
             {
-                primaryFailure = failure;
-                throw;
+                hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false));
             }
-            finally
-            {
-                releaseWork.TrySetResult();
-                syncServer.ReleaseBody.TrySetResult();
-                importServer.ReleaseBody.TrySetResult();
-                try
-                {
-                    await schedulerIdle.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                    if (importStarted)
-                    {
-                        await importCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30));
-                    }
+            Assert.IsTrue(hub.Rows.Any(row => row.Key == syncKey) && hub.Rows.Any(row => row.Key == importKey),
+                "終端の受付は表示callbackの排出を待たない。");
+            DrainProgressPresentation(presentation);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == (syncCompletesFirst ? syncKey : importKey)));
+            OperationProgressRow remaining = hub.Rows.Single(row => row.Key == surviving.Key);
+            Assert.AreEqual(surviving.Value, remaining.Value);
+            Assert.AreEqual(surviving.Maximum, remaining.Maximum);
+            Assert.AreEqual(surviving.Detail, remaining.Detail);
+            Assert.AreEqual(surviving.ParentKey, remaining.ParentKey);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == genericKey));
 
-                    await Task.WhenAll(auxiliaryWork.ToArray()).WaitAsync(TimeSpan.FromSeconds(30));
-                    DrainProgressPresentation(presentation);
-                }
-                catch (Exception cleanupFailure) when (primaryFailure != null)
-                {
-                    Console.WriteLine("playlist progress cleanup: " + cleanupFailure);
-                }
+            workspace.EndPlaylistSyncProgressOperation(syncCompletesFirst ? "beatoraja_table_url_import" : "external_playlist_sync");
+            if (!syncCompletesFirst)
+            {
+                hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false));
             }
+            Assert.IsTrue(hub.Rows.Any(row => row.Key == surviving.Key));
+            DrainProgressPresentation(presentation);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == syncKey || row.Key == importKey || row.Key == genericKey));
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            workspace.EndPlaylistSyncProgressOperation("external_playlist_sync");
+            workspace.EndPlaylistSyncProgressOperation("beatoraja_table_url_import");
+            hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false));
+            DrainProgressPresentation(presentation);
+            hub.CompleteStartupBackgroundInitializationPresentation();
         }
     }
-
-    private static string FormatImportOutcomeDiagnostics(BeatorajaTableUrlImportSummary summary, SingleRequestHttpServer server) =>
-        string.Join(Environment.NewLine, summary.Outcomes.Select(outcome =>
-            $"取込み結果: {outcome.Kind}, URI={outcome.Uri}, 表名={outcome.TableName}, 例外={outcome.Exception}"))
-        + Environment.NewLine + server.Diagnostics;
 
     private static void DrainProgressPresentation(ConcurrentQueue<Action> presentation)
     {

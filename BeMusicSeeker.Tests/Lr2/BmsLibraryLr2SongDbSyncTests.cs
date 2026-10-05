@@ -5077,13 +5077,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Lr2ScanLr2FolderFileDiscoveryComplete = true
                 });
 
-            StartupProgressWorkflowOwner startupProgress = CreateStartupProgressConsumer(library);
-            var progressHub = new OperationProgressHubViewModel(startupProgress);
-            var timeline = new List<(
-                Lr2SongDbSyncStatusSnapshot Snapshot,
-                Lr2SongDbSyncRuntimeStatus Runtime,
-                bool IsActive,
-                string SubLabel)>();
+            var timeline = new List<Lr2SongDbSyncStatusSnapshot>();
             library.PropertyChanged += (_, args) =>
             {
                 if (string.Equals(
@@ -5092,13 +5086,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     StringComparison.Ordinal))
                 {
                     Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
-                    Lr2SongDbSyncRuntimeStatus runtime = Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.UtcNow);
-                    progressHub.UpdateLr2SongDbSyncStatus(runtime);
-                    timeline.Add((
-                        snapshot,
-                        runtime,
-                        progressHub.Rows.Any(row => row.Key == "lr2"),
-                        progressHub.Rows.SingleOrDefault(row => row.Key == "lr2")?.Detail ?? string.Empty));
+                    timeline.Add(snapshot);
                 }
             };
             int subscriberFailureCount = 0;
@@ -5127,7 +5115,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
             Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
             string[] expectedFolderPaths = [.. new[] { rootDirectory, firstDirectory, secondDirectory }.Select(ToFolderPath)];
-            using (var beforePublication = new LR2SongDBExtended(scope.SongDbPath))
+            using (LR2SongDBExtended beforePublication = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
             {
                 CollectionAssert.AreEquivalent(expectedFolderPaths,
                     beforePublication.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
@@ -5136,13 +5124,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             scheduler.Drain();
 
             Assert.IsTrue(timeline.Count > 0);
-            Assert.IsTrue(timeline.All(entry => entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Completed && !entry.IsActive));
-            Assert.IsFalse(progressHub.Rows.Any(row => row.Key == "lr2"));
+            Assert.IsTrue(timeline.All(snapshot => snapshot.Status == Lr2SongDbSyncStatusKind.Completed));
             Assert.IsTrue(subscriberFailureCount > 0);
             Lr2SongDbSyncStatusSnapshot completed = library.GetLr2SongDbSyncStatusSnapshot();
             Assert.AreEqual(completed.TotalCount, completed.ProcessedCursor);
             Assert.AreEqual(0, scheduler.PendingCount);
-            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(expectedFolderPaths,
                 verify.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
         }
@@ -5208,9 +5195,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Lr2ScanLr2FolderFileDiscoveryComplete = true
                 });
 
-            StartupProgressWorkflowOwner startupProgress = CreateStartupProgressConsumer(library);
-            var progressHub = new OperationProgressHubViewModel(startupProgress);
-            var timeline = new List<(Lr2SongDbSyncStatusSnapshot Snapshot, bool IsActive)>();
+            var timeline = new List<Lr2SongDbSyncStatusSnapshot>();
             library.PropertyChanged += (_, args) =>
             {
                 if (string.Equals(
@@ -5219,9 +5204,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     StringComparison.Ordinal))
                 {
                     Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
-                    progressHub.UpdateLr2SongDbSyncStatus(
-                        Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.UtcNow));
-                    timeline.Add((snapshot, progressHub.Rows.Any(row => row.Key == "lr2")));
+                    timeline.Add(snapshot);
                 }
             };
             library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
@@ -5235,20 +5218,23 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, latest.Status);
             StringAssert.Contains(latest.LastError, "forced folder table apply failure");
+            Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
             Assert.IsTrue(scheduler.PendingCount > 0);
+            using (LR2SongDBExtended beforePublication = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(0, beforePublication.Table<LR2SongDB.folder>().Count());
+            }
 
             Assert.AreEqual(0, timeline.Count);
             scheduler.Drain();
 
-            Assert.IsTrue(timeline.Any(entry =>
-                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Failed
-                && entry.IsActive));
-            Assert.IsTrue(timeline.All(entry => entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Failed));
-            Assert.IsTrue(progressHub.Rows.Any(row => row.Key == "lr2"));
-            Assert.IsTrue(progressHub.Rows.Single(row => row.Key == "lr2").CanRetry);
+            Assert.IsTrue(timeline.Count > 0);
+            Assert.IsTrue(timeline.All(snapshot => snapshot.Status == Lr2SongDbSyncStatusKind.Failed));
+            Assert.IsTrue(timeline.All(snapshot => snapshot.LastError == latest.LastError));
+            Assert.AreEqual(0, scheduler.PendingCount);
             Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
 
-            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
         }
         finally
@@ -7425,25 +7411,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     private static string EscapeXml(string value)
     {
         return System.Security.SecurityElement.Escape(value) ?? string.Empty;
-    }
-
-    private static StartupProgressWorkflowOwner CreateStartupProgressConsumer(BMSLibrary library)
-    {
-        return new StartupProgressWorkflowOwner(
-            () => new StartupProgressVersionSnapshot
-            {
-                LibraryFileEnumerationCompletedVersion = library.LibraryFileEnumerationCompletedVersion,
-                LibraryFileDiffCompletedVersion = library.LibraryFileDiffCompletedVersion
-            },
-            (_, _) => { },
-            action => action(),
-            _ => { },
-            _ => { },
-            () => false,
-            (_, _) => false,
-            () => true,
-            new object(),
-            () => Task.CompletedTask);
     }
 
     private sealed class CapturedRootFileEnumerator : IRootFileEnumerator

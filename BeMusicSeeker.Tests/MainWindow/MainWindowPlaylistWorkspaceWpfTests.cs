@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -607,6 +608,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     deferredCompletion.Task.IsCompleted,
                     "Deferred sync must retain its accepted request while the HTTP score response is held.");
 
+                var deferredProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+                workspace.PlaylistSyncProgressChanged += (_, request) => deferredProgress.Enqueue(request.Snapshot);
+
                 closeNextMutationNotification = true;
                 busyRejection = NewCompletion<PlaylistWorkspaceMutationRejectedEventArgs>();
                 Task deferredBusyRename = workspace.RenameFolderAsync(
@@ -632,6 +636,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     deferredPresentation.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.deferred-ui-terminal");
                 Assert.IsTrue(deferredCompletion.Task.Result.Succeeded);
+                PlaylistSyncProgressSnapshot[] notifications = deferredProgress.ToArray();
+                Assert.IsTrue(notifications.Length > 0);
+                Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "external_playlist_sync"));
+                Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+                Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive
+                    && snapshot.CurrentUri?.AbsoluteUri == manualServer.PageUri.AbsoluteUri));
+                Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount > 0));
+                Assert.IsFalse(notifications[^1].IsActive);
 
                 using (var terminalAdmissionCancellation = new CancellationTokenSource())
                 {
