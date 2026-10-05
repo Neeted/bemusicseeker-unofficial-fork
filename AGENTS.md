@@ -26,7 +26,8 @@
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
 | 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
 | リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
-| テストの追加・変更・削除 | [テスト作成](devdocs/spec/development/test-authoring.md)、[テスト検証](devdocs/spec/development/testing.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
+| テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
+| 検証の実行範囲・環境・結果判定 | [テスト検証](devdocs/spec/development/testing.md) |
 | ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
 委譲した実装の不備は、まず元の実装担当へ差し戻します。不備の発見だけで障害解決担当を呼ばず、[差し戻しと呼出し条件](devdocs/spec/development/agent-workflow.md#不備の差し戻し)で判断します。
@@ -45,7 +46,9 @@
 
 ログは `BeMusicSeeker/Ribbit/Logging/NLogWrapper.cs` を経由します。通常は `NLogWrapper.FileLogger`、名前付き出力は `GetLogger(name)` を使い、NLogの構成・取得を各機能で行いません。高頻度処理の同期ログや不要な個人情報は追加しません。詳細は[ログ仕様](devdocs/spec/core/logging.md)を参照します。
 
-利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残さず、`LocalizationResourceParityTests` の全件共通検査で対応を確認します。新規キーごとのテストや機能別のキー一覧は増やしません。表示への到達と検査の分担は[テスト作成](devdocs/spec/development/test-authoring.md#表示リソースの検査)に従います。開発診断・性能記録・内部識別子は対象外です。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
+利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残しません。辞書の整合と実際の通知・表示は[表示リソースの検査](devdocs/spec/development/test-authoring.md#表示リソースの検査)で分担します。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
+
+表示文言かどうかは文字列の所在ではなく利用者への通知経路で判断します。モデル内の独自例外も詳細が画面へ渡るなら対象とし、例外型・対象パス・引数名・内部例外・失敗分類を保ってリソースを使います。開発診断・性能記録・内部識別子・変換用中間値・解析規則を、文字種だけを理由に表示リソースへ移しません。
 
 ## 文書と検証
 
@@ -53,8 +56,10 @@
 
 仕様は[共通書式](devdocs/spec/README.md#仕様書の書式)で日本語に統一し、機能・条件・期待結果から実装とテストへ辿れるようにします。現行ツリーには現行情報と未完了作業だけを残します。完了計画は必要な契約・設計判断・残課題を引き継いで削除し、完了記録や一時的な作業番号は残しません。詳細は[文書運用](devdocs/README.md#現行情報の維持)を参照します。
 
-検証の標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行回数、時間制限、失敗時の扱いは[テスト検証](devdocs/spec/development/testing.md)を正本とします。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
+変更ごとに[テスト設計](devdocs/spec/development/test-authoring.md)で必要な保証と既存テストの扱いを決め、[検証仕様](devdocs/spec/development/testing.md)で実行範囲を選びます。新しいテストを作らない判断は、既存の回帰検証を省略する理由にはなりません。
+
+標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行回数、時間制限、失敗時の扱いは検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
 Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `Functional` / `Full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
 
-実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動テスト・静的確認・必要に応じた画面外WPF描画で検証し、ユーザーの明示依頼がある場合に実機確認を行います。画面確認では、リポジトリ内の正確な実行ファイルを指定し、インストール版を誤って起動しません。確認後は対象プロセスと操作セッションを終了します。起動方法と中断時の扱いは[画面確認](devdocs/spec/development/testing.md#画面確認)を参照します。
+実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動検証を使い、ユーザーの明示依頼がある場合に実機確認を行います。起動する実行ファイル・利用データの確認から、中断・終了・後片付けまでは[画面確認の手順](devdocs/spec/development/testing.md#画面確認)に従います。
