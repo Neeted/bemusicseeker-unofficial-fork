@@ -437,28 +437,6 @@ public class Resources
 
     public static string Statusbar_progress_full_reinitialize => ResourceManager.GetString("Statusbar_progress_full_reinitialize", resourceCulture);
 
-    public static string Statusbar_progress_operable => ResourceManager.GetString("Statusbar_progress_operable", resourceCulture);
-
-    public static string Statusbar_progress_operable_background => ResourceManager.GetString("Statusbar_progress_operable_background", resourceCulture);
-
-    public static string Statusbar_progress_complete => ResourceManager.GetString("Statusbar_progress_complete", resourceCulture);
-
-    public static string Statusbar_progress_complete_reload => ResourceManager.GetString("Statusbar_progress_complete_reload", resourceCulture);
-
-    public static string Statusbar_progress_complete_scores => ResourceManager.GetString("Statusbar_progress_complete_scores", resourceCulture);
-
-    public static string Statusbar_progress_complete_reinitialize => ResourceManager.GetString("Statusbar_progress_complete_reinitialize", resourceCulture);
-
-    public static string Statusbar_progress_failed => ResourceManager.GetString("Statusbar_progress_failed", resourceCulture);
-
-    public static string Statusbar_progress_failed_reload => ResourceManager.GetString("Statusbar_progress_failed_reload", resourceCulture);
-
-    public static string Statusbar_progress_failed_scores => ResourceManager.GetString("Statusbar_progress_failed_scores", resourceCulture);
-
-    public static string Statusbar_progress_failed_reinitialize => ResourceManager.GetString("Statusbar_progress_failed_reinitialize", resourceCulture);
-
-    public static string Statusbar_progress_phase_library_load => ResourceManager.GetString("Statusbar_progress_phase_library_load", resourceCulture);
-
     public static string Statusbar_progress_phase_library_db_load => ResourceManager.GetString("Statusbar_progress_phase_library_db_load", resourceCulture);
 
     public static string Statusbar_progress_phase_file_enumeration => ResourceManager.GetString("Statusbar_progress_phase_file_enumeration", resourceCulture);
@@ -1937,8 +1915,6 @@ public class Resources
 
     public static string Error_OutputFolderNameEmptyOrDuplicateCheckInput => ResourceManager.GetString("Error_OutputFolderNameEmptyOrDuplicateCheckInput", resourceCulture);
 
-    public static string Statusbar_progress_phase_playlist_load => ResourceManager.GetString("Statusbar_progress_phase_playlist_load", resourceCulture);
-
     public static string Statusbar_progress_phase_playlist_loading => ResourceManager.GetString("Statusbar_progress_phase_playlist_loading", resourceCulture);
 
     public static string Statusbar_progress_detail_separator_format => ResourceManager.GetString("Statusbar_progress_detail_separator_format", resourceCulture);
@@ -2720,9 +2696,6 @@ public class Resources
     /// <summary>LR2カスタムフォルダの変更確認の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_phase_lr2_folder_file_check => ResourceManager.GetString("Statusbar_progress_phase_lr2_folder_file_check", resourceCulture);
 
-    /// <summary>譜面ハッシュの補完の進捗行を識別する文言を取得します。</summary>
-    public static string Statusbar_progress_phase_chart_digest => ResourceManager.GetString("Statusbar_progress_phase_chart_digest", resourceCulture);
-
     /// <summary>外部プレイリストの同期の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_task_external_playlist_sync => ResourceManager.GetString("Statusbar_progress_task_external_playlist_sync", resourceCulture);
 
@@ -2756,4 +2729,21 @@ public class Resources
     /// <summary>LR2楽曲DB同期の準備の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_task_lr2_sync_enrollment => ResourceManager.GetString("Statusbar_progress_task_lr2_sync_enrollment", resourceCulture);
 
+    /// <summary>起動に伴う追加処理の親行名を取得します。</summary>
+    public static string Statusbar_progress_startup_additional => ResourceManager.GetString("Statusbar_progress_startup_additional", resourceCulture);
+
+    /// <summary>操作名に完了状態を添える表示書式を取得します。</summary>
+    public static string Statusbar_progress_operation_completed_format => ResourceManager.GetString("Statusbar_progress_operation_completed_format", resourceCulture);
+
+    /// <summary>操作名に失敗状態を添える表示書式を取得します。</summary>
+    public static string Statusbar_progress_operation_failed_format => ResourceManager.GetString("Statusbar_progress_operation_failed_format", resourceCulture);
+
+    /// <summary>プレイリストのプロパティ更新を表す進捗行名を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_property_update => ResourceManager.GetString("Statusbar_progress_task_playlist_property_update", resourceCulture);
+
+    /// <summary>フォルダ名の自動変更を表す進捗行名を取得します。</summary>
+    public static string Statusbar_progress_task_folder_rename => ResourceManager.GetString("Statusbar_progress_task_folder_rename", resourceCulture);
+
+    /// <summary>サマリーから実行するプレイリスト外部プロパティ初期化の進捗名です。</summary>
+    public static string Statusbar_progress_task_playlist_external_property_initialization => ResourceManager.GetString("Statusbar_progress_task_playlist_external_property_initialization", resourceCulture);
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -56,10 +57,15 @@ internal sealed class PlaylistHydrationCompletionReceipt
 {
     private readonly object synchronizationRoot = new();
 
-    internal PlaylistHydrationCompletionReceipt(bool requestAlreadyPublished = false)
+    /// <summary>既存の受付・完了情報に、同じ要求の捕捉済み表示識別を添えます。</summary>
+    internal PlaylistHydrationCompletionReceipt(bool requestAlreadyPublished = false, OperationProgressRequest request = null)
     {
+        Request = request;
         state = requestAlreadyPublished ? 3 : 1;
     }
+
+    /// <summary>表示要求の受付時に捕捉した発生元です。</summary>
+    internal OperationProgressRequest Request { get; }
 
     private int state;
 

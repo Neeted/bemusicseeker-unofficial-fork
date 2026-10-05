@@ -121,7 +121,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         try
         {
-            owner.ProgressHub.BeginStartupBackgroundInitializationPresentation();
+            owner.ProgressHub.BeginStartupBackgroundInitializationPresentation(1, 1);
             Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
 
             StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
@@ -180,12 +180,12 @@ public sealed class MainWindowViewModelStartupProgressTests
         CompleteUntilBackground(owner);
 
         owner.TryCompleteStartupBackgroundTasksPhaseIfIdle(owner.GetActiveStartupProgressOperationToken());
-        Assert.AreNotEqual(Resources.Statusbar_progress_complete, owner.Label);
+        Assert.AreNotEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_startup), owner.Label);
 
         requiredSchedulingClosed = true;
         owner.TryCompleteStartupBackgroundTasksPhaseIfIdle(owner.GetActiveStartupProgressOperationToken());
         await hideEntered.Task;
-        Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
+        Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_startup), owner.Label);
 
         releaseHide.TrySetResult(true);
     }
@@ -314,7 +314,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
         Assert.AreEqual(4.0, owner.Value);
         Assert.AreEqual(4.0, owner.Maximum);
-        Assert.AreEqual(Resources.Statusbar_progress_complete_scores, owner.Label);
+        Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_reload_scores), owner.Label);
     }
 
     [TestMethod]
@@ -499,7 +499,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                     finally { rankingReporter(1, false); }
                 });
                 progress.ApplyPresentation(false, null, null, 0.0, 1.0);
-                owner.ProgressHub.BeginStartupBackgroundInitializationPresentation();
+                owner.ProgressHub.BeginStartupBackgroundInitializationPresentation(1, 1);
                 Assert.IsTrue(owner.ProgressHub.IsStartupBackgroundInitializationActive);
                 SetPrivateField(owner, "startupPostInitializationCompletionTracking", true);
                 SetPrivateField(owner, "startupInitializationCompleteLogged", true);
@@ -801,7 +801,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         owner.TryCompleteStartupProgressPlaylistEntriesHydration(1);
 
         Assert.AreEqual(6.0, owner.Value);
-        Assert.AreEqual(Resources.Statusbar_progress_complete_reload, owner.Label);
+        Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_reload_files), owner.Label);
     }
 
     [TestMethod]
@@ -818,7 +818,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
 
         Assert.AreEqual(13.0, owner.Value);
-        Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
+        Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_startup), owner.Label);
     }
 
     [TestMethod]
@@ -870,13 +870,13 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_OperableWithBackgroundWorkUsesOperableLabel()
+    public void StartupProgress_OperableKeepsOperationLabelAndEmptySubLabel()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.FullReinitialize);
         Mark(owner, StartupProgressPhase.StartupReadyOperable);
 
-        Assert.AreEqual(Resources.Statusbar_progress_operable_background, owner.Label);
-        Assert.AreEqual(Resources.Statusbar_progress_phase_playlist_load, owner.SubLabel);
+        Assert.AreEqual(Resources.Statusbar_progress_full_reinitialize, owner.Label);
+        Assert.AreEqual(string.Empty, owner.SubLabel);
     }
 
     [TestMethod]
@@ -903,14 +903,68 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_InstallableMaintenanceUsesDedicatedSubLabel()
+    public void StartupProgress_RequestMembershipRequiresActualTrackedOriginAndFeatureVersion()
+    {
+        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.ScoreOnly);
+        long token = owner.GetActiveStartupProgressOperationToken();
+        var score = new OperationProgressRequest(5, token, "score_hydration_deferred", 7);
+        var ranking = new OperationProgressRequest(5, token, "ranking_refresh_deferred", 9);
+        owner.TrackStartupProgressScoreHydrationRequested(7, score);
+        owner.TrackStartupProgressRankingRefreshRequested(9, ranking);
+        double value = owner.Value;
+        Assert.IsTrue(owner.IsExecutionProgressPartOfStartup(score));
+        Assert.IsTrue(owner.IsExecutionProgressPartOfStartup(ranking));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(score with { OperationToken = 0 }));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(score with { OperationToken = token + 1 }));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(score with { Generation = 6 }));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(score with { Source = "scheduler:score_hydration_deferred" }));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(score with { Version = 9 }));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(score with { Source = "ranking_refresh_deferred" }));
+        Assert.AreEqual(value, owner.Value);
+        Assert.AreEqual(4d, owner.Maximum);
+    }
+
+    [TestMethod]
+    public void StartupProgress_SharedPlaylistNumericSlotsDoNotConfuseDifferentRequestSources()
+    {
+        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.ReloadTables);
+        long token = owner.GetActiveStartupProgressOperationToken();
+        var external = new OperationProgressRequest(4, token, "external_playlist_sync", 3);
+        var reference = new OperationProgressRequest(4, token, "playlist_ref_apply", 3);
+        var entries = new OperationProgressRequest(4, token, "playlist_entries_hydration", 3);
+        owner.TrackStartupProgressExternalSyncRequest("ReloadTables", 3, token, external);
+        owner.TrackStartupProgressPlaylistReferenceRequest("PlaylistEntriesHydration", 3, token, reference);
+        owner.TrackStartupProgressPlaylistEntriesHydrationDirectRequest(3, "ReloadTables", token, entries);
+        Assert.IsTrue(owner.IsExecutionProgressPartOfStartup(external));
+        Assert.IsTrue(owner.IsExecutionProgressPartOfStartup(reference));
+        Assert.IsTrue(owner.IsExecutionProgressPartOfStartup(entries));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(reference with { Source = "scheduler:playlist_ref_apply" }));
+        OperationProgressRequest latestReference = reference with { Version = 2 };
+        owner.TrackStartupProgressPlaylistReferenceRequest("PlaylistEntriesHydration", 2, token, latestReference);
+        Assert.IsTrue(owner.IsExecutionProgressPartOfStartup(latestReference));
+        Assert.IsFalse(owner.IsExecutionProgressPartOfStartup(reference));
+        double before = owner.Value;
+        owner.TryCompleteStartupProgressPlaylistReference(2, token);
+        Assert.AreEqual(before, owner.Value, "表示用要求の実版を添えても既存 Math.Max による完了版判定を変えない。");
+        owner.TryCompleteStartupProgressPlaylistReference(3, token);
+        Assert.AreEqual(before + 1, owner.Value);
+    }
+
+    [TestMethod]
+    public void StartupProgress_InstallableMaintenanceUsesMatchingChildRow()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.FullReinitialize);
         CompleteUntilBackground(owner);
-        owner.TrackStartupProgressInstallableMaintenanceRequested(1);
-
-        Assert.AreEqual(Resources.Statusbar_progress_operable_background, owner.Label);
-        Assert.AreEqual(Resources.Statusbar_progress_phase_installable_maintenance, owner.SubLabel);
+        var request = new OperationProgressRequest(1, owner.GetActiveStartupProgressOperationToken(), "installable_maintenance", 1);
+        owner.TrackStartupProgressInstallableMaintenanceRequested(1, request);
+        var hub = new OperationProgressHubViewModel(owner);
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.UpdateBackgroundTaskProgress(new("installable_maintenance", 1, 1, true, true, request));
+        Assert.AreEqual(Resources.Statusbar_progress_full_reinitialize, owner.Label);
+        Assert.AreEqual(string.Empty, owner.SubLabel);
+        OperationProgressRow child = hub.Rows.Single(row => row.Key.StartsWith("background:"));
+        Assert.AreEqual("startup", child.ParentKey);
+        Assert.AreEqual(Resources.Statusbar_progress_phase_installable_maintenance, child.Label);
     }
 
     [TestMethod]
@@ -942,28 +996,32 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_LibrarySubLabelFollowsLibraryStage()
+    public void StartupProgress_LibraryChildrenFollowActualNotificationsAndUiPreparationBoundary()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.Startup);
-        Assert.AreEqual(Resources.Statusbar_progress_phase_library_db_load, owner.SubLabel);
-
+        long token = owner.GetActiveStartupProgressOperationToken();
+        Assert.AreEqual(string.Empty, owner.SubLabel);
+        Assert.IsFalse(owner.DetailRows.Any());
+        owner.UpdateStartupProgressLibraryInitializationStatuses([
+            new(1, BMSLibrary.LibraryInitializationProgressStage.DatabaseLoad, "", 0, 0, "", token)]);
+        Assert.AreEqual(Resources.Statusbar_progress_phase_library_db_load, owner.DetailRows.Single().Label);
         owner.TryCompleteStartupProgressLibraryDatabaseLoad(1);
-        owner.UpdateStartupProgressLibraryInitializationStatus(
-            BMSLibrary.LibraryInitializationProgressStage.FileEnumeration,
-            "Everything",
-            0,
-            0,
-            string.Empty);
-        Assert.AreEqual(Resources.Statusbar_progress_phase_file_enumeration + " (Everything)", owner.SubLabel);
-
+        owner.UpdateStartupProgressLibraryInitializationStatuses([
+            new(2, BMSLibrary.LibraryInitializationProgressStage.FileEnumeration, "Everything", 0, 0, "", token)]);
+        Assert.AreEqual(Resources.Statusbar_progress_phase_file_enumeration + " (Everything)", owner.DetailRows.Single().Label);
         owner.TryCompleteStartupProgressLibraryFileEnumeration(1);
-        owner.UpdateStartupProgressLibraryInitializationStatus(
-            BMSLibrary.LibraryInitializationProgressStage.FileDiff,
-            string.Empty,
-            10,
-            3,
-            "C:\\BMS\\added.bms");
-        Assert.AreEqual("[3/10] " + Resources.Statusbar_progress_phase_file_diff + " added.bms", owner.SubLabel);
+        owner.UpdateStartupProgressLibraryInitializationStatuses([
+            new(3, BMSLibrary.LibraryInitializationProgressStage.FileDiff, "", 10, 3, "added.bms", token)]);
+        Assert.AreEqual("[3/10] " + Resources.Statusbar_progress_phase_file_diff, owner.DetailRows.Single().Label);
+        Assert.AreEqual("added.bms", owner.DetailRows.Single().Detail);
+        owner.TryCompleteStartupProgressLibraryFileDiff(1);
+        Assert.IsFalse(owner.DetailRows.Any());
+        Mark(owner, StartupProgressPhase.StartupReadyData);
+        Assert.AreEqual(Resources.Statusbar_progress_phase_ui_prepare, owner.DetailRows.Single().Label);
+        Mark(owner, StartupProgressPhase.StartupReadyUi);
+        Assert.AreEqual("task:ui_prepare", owner.DetailRows.Single().Key);
+        Mark(owner, StartupProgressPhase.StartupReadyOperable);
+        Assert.IsFalse(owner.DetailRows.Any());
     }
 
     [TestMethod]
@@ -1064,7 +1122,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Skip(owner, StartupProgressPhase.PlaylistEntriesHydrationDone);
 
         Assert.AreEqual(5.0, owner.Value);
-        Assert.AreEqual(Resources.Statusbar_progress_complete_reload, owner.Label);
+        Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_reload_tables), owner.Label);
     }
 
     [TestMethod]
@@ -1456,4 +1514,26 @@ public sealed class MainWindowViewModelStartupProgressTests
             .GetMethod("GetWriterGuard", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .Invoke(wrapper, null)!;
     }
+    [DataTestMethod]
+    [DataRow(1, "Statusbar_progress_startup", 13)]
+    [DataRow(2, "Statusbar_progress_reload_files", 6)]
+    [DataRow(3, "Statusbar_progress_reload_scores", 4)]
+    [DataRow(4, "Statusbar_progress_full_reinitialize", 14)]
+    [DataRow(5, "Statusbar_progress_reload_tables", 5)]
+    public void StartupProgress_OperationNameAndFailureReasonStayDistinct(int operationKind, string resourceKey, int maximum)
+    {
+        StartupProgressWorkflowOwner owner = Start((StartupProgressOperationKind)operationKind);
+        string expected = Resources.ResourceManager.GetString(resourceKey) ?? throw new InvalidOperationException(resourceKey);
+        Assert.AreEqual(expected, owner.Label);
+        Assert.AreEqual((double)maximum, owner.Maximum);
+        Mark(owner, StartupProgressPhase.StartupReadyOperable);
+        Assert.AreEqual(expected, owner.Label);
+        Assert.AreEqual(string.Empty, owner.SubLabel);
+        owner.FailStartupProgressOperation("");
+        Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_failed_format, expected), owner.Label);
+        Assert.AreEqual(string.Empty, owner.SubLabel);
+        owner.FailStartupProgressOperation("failure detail");
+        Assert.AreEqual("failure detail", owner.SubLabel);
+    }
+
 }

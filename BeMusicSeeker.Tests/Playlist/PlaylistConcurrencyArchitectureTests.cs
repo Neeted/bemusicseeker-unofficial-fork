@@ -170,7 +170,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(ownerSource, "new PlaylistReferenceTableSnapshot(");
         StringAssert.Contains(ownerSource, "internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }");
         StringAssert.Contains(referenceApplySource, "ApplyHydrationReceipt(");
-        StringAssert.Contains(referenceApplySource, "Queue(receipt.Reason, operationToken: 0L)");
+        StringAssert.Contains(referenceApplySource, "Queue(receipt.Reason, operationToken: 0L, originatingRequest: receipt.ProgressRequest)");
         StringAssert.Contains(referenceApplySource, "PrepareReferenceBMSTableSynchronization(tables)");
         StringAssert.Contains(referenceApplySource, "TryCommitReferenceBMSTableSynchronization(synchronizationPlan)");
         Assert.IsFalse(workspaceSource.Contains("SynchronizeReferenceBMSTableSnapshots("));

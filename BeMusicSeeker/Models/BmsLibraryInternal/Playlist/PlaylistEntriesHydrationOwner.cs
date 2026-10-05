@@ -19,6 +19,16 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class PlaylistEntriesHydrationOwner
 {
+    /// <summary>受付時に既存要求版の発生元を捕捉します。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
+
+    /// <summary>捕捉済みの読込み要求の実行境界を通知します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
+
+    private OperationProgressRequest requestedProgressRequest;
+
+    private Action<OperationProgressRequest, bool> requestedProgressReporter;
+
     private readonly PlaylistPersistenceRepository repository;
 
     private readonly Func<PlaylistHydrationTableSnapshot> tablesSnapshotProvider;
@@ -178,14 +188,16 @@ internal sealed class PlaylistEntriesHydrationOwner
 
     internal sealed class PlaylistEntriesHydrationReceipt
     {
+        /// <summary>確定した読込み内容と同じ要求の表示発生元を、後続処理へ変更不能な受領として渡します。</summary>
         internal PlaylistEntriesHydrationReceipt(
             long generation,
             int shutdownEpoch,
             int requestVersion,
             string reason,
             IReadOnlyList<PlaylistHydratedTableFact> tables,
-            PlaylistHydrationContinuationIntent continuation)
+            PlaylistHydrationContinuationIntent continuation, OperationProgressRequest progressRequest = null)
         {
+            ProgressRequest = progressRequest;
             Generation = generation;
             ShutdownEpoch = shutdownEpoch;
             RequestVersion = requestVersion;
@@ -193,6 +205,9 @@ internal sealed class PlaylistEntriesHydrationOwner
             Tables = Array.AsReadOnly([.. (tables ?? []).Where(table => table != null)]);
             Continuation = continuation;
         }
+
+        /// <summary>この読込み受領を生産した要求の表示識別です。派生受領にも保持します。</summary>
+        internal OperationProgressRequest ProgressRequest { get; }
 
         internal long Generation { get; }
 
@@ -243,9 +258,11 @@ internal sealed class PlaylistEntriesHydrationOwner
 
     internal event Action<bool> RunningChanged;
 
-    internal event Action<int> HydrationRequested;
+    /// <summary>受付版と、その受付時に捕捉した表示識別を通知します。</summary>
+    internal event Action<int, OperationProgressRequest> HydrationRequested;
 
-    internal event Action<int> HydrationCompleted;
+    /// <summary>確定した完了版と、同じ読込み実行の表示識別を通知します。</summary>
+    internal event Action<int, OperationProgressRequest> HydrationCompleted;
 
     internal event EventHandler<PlaylistEntriesHydrationReceiptEventArgs> HydrationReceiptPublished;
 
@@ -312,6 +329,7 @@ internal sealed class PlaylistEntriesHydrationOwner
 
         string requestReason = reason ?? string.Empty;
         int version;
+        OperationProgressRequest progressRequest;
         bool shouldSchedule;
         lock (requestLock)
         {
@@ -321,12 +339,14 @@ internal sealed class PlaylistEntriesHydrationOwner
                 return;
             }
             version = Interlocked.Increment(ref requestedVersion);
+            requestedProgressRequest = progressRequest = ProgressRequestFactory?.Invoke("playlist_entries_hydration", version);
+            requestedProgressReporter = RequestProgressReporter;
             pendingRequest = true;
             pendingContinuation = PlaylistHydrationContinuationIntent.Merge(pendingContinuation, continuation);
             shouldSchedule = queued == 0;
             queued = 1;
         }
-        HydrationRequested?.Invoke(version);
+        HydrationRequested?.Invoke(version, progressRequest);
         logPerformance("playlist_entries_hydration queue reason=" + requestReason
             + " version=" + version
             + " runExternalSyncAfterHydration="
@@ -366,13 +386,18 @@ internal sealed class PlaylistEntriesHydrationOwner
             PlaylistHydrationContinuationIntent failedContinuation = null;
             bool failedRetryRequested = false;
             int startedRequestVersion;
+            OperationProgressRequest executionRequest;
+            Action<OperationProgressRequest, bool> executionReporter;
             int workShutdownEpoch;
             lock (requestLock)
             {
                 workShutdownEpoch = shutdownEpoch;
                 startedRequestVersion = requestedVersion;
+                executionRequest = requestedProgressRequest;
+                executionReporter = requestedProgressReporter;
                 workStarted = true;
             }
+            executionReporter?.Invoke(executionRequest, true);
             try
             {
                 if (IsShutdownOrEpochChanged(workShutdownEpoch))
@@ -410,11 +435,15 @@ internal sealed class PlaylistEntriesHydrationOwner
                     {
                         PlaylistHydrationContinuationIntent mergedContinuation;
                         int batchVersion;
+                        OperationProgressRequest batchProgressRequest;
+                        Action<OperationProgressRequest, bool> batchProgressReporter;
                         bool shutdownAfterDrain;
                         lock (requestLock)
                         {
                             shutdownAfterDrain = isShutdownRequested() || shutdownEpoch != workShutdownEpoch;
                             batchVersion = PlaylistEntriesHydrationRequestedVersion;
+                            batchProgressRequest = requestedProgressRequest;
+                            batchProgressReporter = requestedProgressReporter;
                             if (shutdownAfterDrain)
                             {
                                 pendingRequest = false;
@@ -428,9 +457,16 @@ internal sealed class PlaylistEntriesHydrationOwner
                                 pendingContinuation = null;
                             }
                         }
+                        if (executionRequest != batchProgressRequest)
+                        {
+                            executionReporter?.Invoke(executionRequest, false);
+                            executionRequest = batchProgressRequest;
+                            executionReporter = batchProgressReporter;
+                            executionReporter?.Invoke(executionRequest, true);
+                        }
                         if (shutdownAfterDrain)
                         {
-                            SetCompletedVersion(batchVersion);
+                            SetCompletedVersion(batchVersion, batchProgressRequest);
                             return;
                         }
 
@@ -447,7 +483,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                         }
                         if (IsShutdownOrEpochChanged(workShutdownEpoch))
                         {
-                            SetCompletedVersion(batchVersion);
+                            SetCompletedVersion(batchVersion, batchProgressRequest);
                             return;
                         }
 
@@ -456,7 +492,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                             workShutdownEpoch,
                             batchVersion,
                             requestReason,
-                            mergedContinuation);
+                            mergedContinuation, batchProgressRequest);
                         if (receipt == null)
                         {
                             lock (requestLock)
@@ -472,7 +508,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                         hydrationPublishLease = null;
                         if (IsShutdownOrEpochChanged(workShutdownEpoch))
                         {
-                            SetCompletedVersion(batchVersion);
+                            SetCompletedVersion(batchVersion, batchProgressRequest);
                             return;
                         }
                         failedContinuation = mergedContinuation;
@@ -504,10 +540,10 @@ internal sealed class PlaylistEntriesHydrationOwner
                         }
                         if (IsShutdownOrEpochChanged(workShutdownEpoch))
                         {
-                            SetCompletedVersion(batchVersion);
+                            SetCompletedVersion(batchVersion, batchProgressRequest);
                             return;
                         }
-                        SetCompletedVersion(batchVersion);
+                        SetCompletedVersion(batchVersion, batchProgressRequest);
                         return;
                     }
                     finally
@@ -541,6 +577,7 @@ internal sealed class PlaylistEntriesHydrationOwner
             }
             finally
             {
+                executionReporter?.Invoke(executionRequest, false);
                 bool hasPendingRequest;
                 lock (requestLock)
                 {
@@ -821,7 +858,7 @@ internal sealed class PlaylistEntriesHydrationOwner
         }
     }
 
-    private void SetCompletedVersion(int value)
+    private void SetCompletedVersion(int value, OperationProgressRequest progressRequest = null)
     {
         while (true)
         {
@@ -832,7 +869,12 @@ internal sealed class PlaylistEntriesHydrationOwner
             }
             if (Interlocked.CompareExchange(ref completedVersion, value, current) == current)
             {
-                HydrationCompleted?.Invoke(value);
+                OperationProgressRequest request;
+                lock (requestLock)
+                {
+                    request = progressRequest ?? (requestedProgressRequest?.Version == value ? requestedProgressRequest : null);
+                }
+                HydrationCompleted?.Invoke(value, request);
                 return;
             }
         }
@@ -843,14 +885,14 @@ internal sealed class PlaylistEntriesHydrationOwner
         int shutdownEpoch,
         int requestVersion,
         string reason,
-        PlaylistHydrationContinuationIntent continuation)
+        PlaylistHydrationContinuationIntent continuation, OperationProgressRequest progressRequest = null)
     {
         return TryCreateStableReceipt(
             generation,
             shutdownEpoch,
             requestVersion,
             reason,
-            continuation);
+            continuation, progressRequest);
     }
 
     internal PlaylistEntriesHydrationReceipt CreateReceiptForCurrentTables(
@@ -866,7 +908,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                 requiredShutdownEpoch: source.ShutdownEpoch,
                 requestVersion: source.RequestVersion,
                 reason: source.Reason,
-                continuation: continuation)
+                continuation: continuation, progressRequest: source.ProgressRequest)
             ?? throw new InvalidOperationException("Playlist hydration receipt snapshot changed while composing the consumer receipt.");
     }
 
@@ -875,7 +917,7 @@ internal sealed class PlaylistEntriesHydrationOwner
         int? requiredShutdownEpoch,
         int requestVersion,
         string reason,
-        PlaylistHydrationContinuationIntent continuation)
+        PlaylistHydrationContinuationIntent continuation, OperationProgressRequest progressRequest = null)
     {
         for (int attempt = 0; attempt < 8; attempt++)
         {
@@ -910,7 +952,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                 requestVersion,
                 reason,
                 facts,
-                continuation);
+                continuation, progressRequest);
         }
         return null;
     }

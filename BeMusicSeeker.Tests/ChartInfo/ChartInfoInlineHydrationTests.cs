@@ -736,6 +736,8 @@ public sealed class ChartInfoInlineHydrationTests
             var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
             ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
             var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            long operationToken = 11;
+            var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
             var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
             var processedRequests = new ConcurrentQueue<int>();
             var captured = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -755,6 +757,8 @@ public sealed class ChartInfoInlineHydrationTests
                 (_, _) => false,
                 null,
                 _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
             owner.ConfigureWorkflow(
                 gateway, mutationOwner, storageRowsOwner, ownedCollectionOwner, _ => { }, _ => { },
                 beginDigestMutationWindow: () =>
@@ -778,6 +782,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.Fail("Backfillの実処理が要求版捕捉ゲートへ到達しませんでした。");
                 }
                 int firstVersion = await captured.Task;
+                operationToken = 22;
                 owner.QueueBackfill("next");
                 int nextVersion = owner.ChartInfoBackfillRequestedVersion;
                 Assert.IsTrue(nextVersion > firstVersion);
@@ -796,6 +801,11 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(nextVersion, owner.BackfillProgressSnapshot.RequestVersion);
                 Assert.AreEqual(nextVersion, owner.ChartInfoBackfillCompletedVersion);
                 Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(new OperationProgressRequest(7, 11, "chart_info_backfill", firstVersion), retainedFirst.Request);
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_backfill", firstVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_backfill", firstVersion), false)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_backfill", nextVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_backfill", nextVersion), false)));
                 Assert.AreEqual(firstVersion, retainedFirst.RequestVersion);
                 Assert.AreEqual(1, retainedFirst.ProcessedCount);
                 Assert.AreEqual(chartPath, retainedFirst.CurrentPath);
@@ -835,6 +845,8 @@ public sealed class ChartInfoInlineHydrationTests
             var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
             ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
             var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            long operationToken = 11;
+            var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
             var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
             var captured = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var release = new ManualResetEventSlim(false);
@@ -867,6 +879,8 @@ public sealed class ChartInfoInlineHydrationTests
                     return true;
                 },
                 _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
             owner.ConfigureWorkflow(gateway, mutationOwner, storageRowsOwner, ownedCollectionOwner, _ => { }, _ => { });
             owner.QueueDeferredHydration("first", queueFullBackfillAfterHydration: false);
             Assert.IsNotNull(scheduledProcess);
@@ -880,6 +894,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.Fail("Hydrationの実処理が索引変更ゲートへ到達しませんでした。");
                 }
                 int firstVersion = await captured.Task;
+                operationToken = 22;
                 owner.QueueDeferredHydration("next", queueFullBackfillAfterHydration: false);
                 int nextVersion = owner.ChartInfoHydrationRequestedVersion;
                 Assert.IsTrue(nextVersion > firstVersion);
@@ -896,6 +911,11 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(nextVersion, owner.ChartInfoHydrationCompletedVersion);
                 Assert.IsFalse(owner.ChartInfoHydrationRunning);
                 Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                Assert.AreEqual(new OperationProgressRequest(7, 11, "chart_info_hydration", firstVersion), retainedFirst.Request);
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_hydration", firstVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_hydration", firstVersion), false)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_hydration", nextVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_hydration", nextVersion), false)));
                 Assert.AreEqual(firstVersion, retainedFirst.RequestVersion);
                 Assert.AreEqual(1, retainedFirst.TotalCount);
                 Assert.AreEqual(0, retainedFirst.ProcessedCount);

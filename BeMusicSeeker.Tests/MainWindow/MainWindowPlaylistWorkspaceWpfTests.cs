@@ -569,6 +569,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     }
                 };
 
+                var deferredProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+                TaskCompletionSource<object?> deferredProgressTerminal = NewCompletion();
+                workspace.PlaylistSyncProgressChanged += (_, request) =>
+                {
+                    deferredProgress.Enqueue(request.Snapshot);
+                    if (request.Snapshot.Source == "external_playlist_sync" && !request.Snapshot.IsActive)
+                    { deferredProgressTerminal.TrySetResult(null); }
+                };
                 workspace.QueueExternalPlaylistSync(
                     "real_deferred_sync",
                     fromReloadTables: false,
@@ -608,9 +616,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     deferredCompletion.Task.IsCompleted,
                     "Deferred sync must retain its accepted request while the HTTP score response is held.");
 
-                var deferredProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
-                workspace.PlaylistSyncProgressChanged += (_, request) => deferredProgress.Enqueue(request.Snapshot);
-
                 closeNextMutationNotification = true;
                 busyRejection = NewCompletion<PlaylistWorkspaceMutationRejectedEventArgs>();
                 Task deferredBusyRename = workspace.RenameFolderAsync(
@@ -636,10 +641,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     deferredPresentation.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.deferred-ui-terminal");
                 Assert.IsTrue(deferredCompletion.Task.Result.Succeeded);
-                PlaylistSyncProgressSnapshot[] notifications = deferredProgress.ToArray();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(deferredProgressTerminal.Task, "MainWindowPlaylistWorkspaceWpfTests.deferred-progress-terminal");
+                TestUiDispatcherHost.Drain();
+                PlaylistSyncProgressSnapshot[] notifications = deferredProgress.Where(snapshot => snapshot.Source == "external_playlist_sync").ToArray();
                 Assert.IsTrue(notifications.Length > 0);
                 Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "external_playlist_sync"));
                 Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+                Assert.IsTrue(notifications.All(snapshot => snapshot.Request is { } request
+                    && request.OperationToken == 0 && request.Source == "external_playlist_sync" && request.Version > 0));
+                Assert.IsTrue(notifications.All(snapshot => snapshot.Request == notifications[0].Request));
+                Assert.IsFalse(fixture.ViewModel.ProgressHub.Rows.Any(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal)));
                 Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive
                     && snapshot.CurrentUri?.AbsoluteUri == manualServer.PageUri.AbsoluteUri));
                 Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount > 0));
@@ -677,6 +688,55 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     closeNextMutationNotification = false;
                 }
                 Assert.AreEqual("Local after deferred terminal", localTable.entries.Single().folder);
+
+                // MainWindow の実再読込み入口から、要求受付・HTTP・Owner・Hub まで接続する。
+                BlockingPlaylistJsonServer.ResponseStage reloadResponse = manualServer.EnqueueResponse(
+                    "{\"name\":\"Reloaded table\",\"symbol\":\"R\",\"data_url\":\"./score.json\",\"level_order\":[1]}",
+                    "[{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"title\":\"ReloadTables result\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+                TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> reloadCompletion = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+                workspace.PlaylistExternalSyncCompleted += (_, request) =>
+                {
+                    if (request.Reason == "ReloadTables") { reloadCompletion.TrySetResult(request); }
+                };
+                TaskCompletionSource<object?> reloadProgressTerminal = NewCompletion();
+                workspace.PlaylistSyncProgressChanged += (_, request) =>
+                {
+                    if (request.Snapshot.Source == "external_playlist_sync" && !request.Snapshot.IsActive)
+                    { reloadProgressTerminal.TrySetResult(null); }
+                };
+                Task reloadOperation = fixture.ViewModel.ReloadTablesAsync();
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadOperation, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-operation");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadResponse.DataRequestAccepted.Task, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-http");
+                    TestUiDispatcherHost.Drain();
+                    StartupProgressWorkflowOwner progress = fixture.ViewModel.ProgressHub.StartupProgress;
+                    long operationToken = progress.GetActiveStartupProgressOperationToken();
+                    Assert.IsTrue(operationToken > 0);
+                    OperationProgressRow progressRow = fixture.ViewModel.ProgressHub.Rows.Single(row =>
+                        row.Key.StartsWith("background:external_playlist_sync:", StringComparison.Ordinal)
+                        || row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal));
+                    Assert.AreEqual("startup", progressRow.ParentKey);
+                    StringAssert.Contains(progressRow.Label, Resources.Statusbar_progress_task_external_playlist_sync);
+                    Assert.AreEqual(Resources.Statusbar_progress_reload_tables, progress.Label);
+                    reloadResponse.ReleaseResponse();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadCompletion.Task, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-completion");
+                    Assert.IsTrue(reloadCompletion.Task.Result.Succeeded);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadProgressTerminal.Task, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-progress-terminal");
+                    PlaylistSyncProgressSnapshot[] captured = deferredProgress.Where(snapshot => snapshot.Source == "external_playlist_sync"
+                        && snapshot.Request?.OperationToken == operationToken).ToArray();
+                    Assert.IsTrue(captured.Length > 0);
+                    Assert.IsTrue(captured.All(snapshot => snapshot.Request == captured[0].Request));
+                    Assert.IsFalse(captured[^1].IsActive);
+                    TestUiDispatcherHost.Drain();
+                    Assert.IsFalse(fixture.ViewModel.ProgressHub.Rows.Any(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal)));
+                }
+                finally
+                {
+                    reloadResponse.ReleaseResponse();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadOperation, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-drain");
+                }
+
             }
             finally
             {

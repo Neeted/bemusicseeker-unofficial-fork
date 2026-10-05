@@ -247,6 +247,18 @@ internal sealed partial class PackageLifecycleOwner
 
     internal bool IsPendingEstimateQueueIdle => pendingEstimateQueueProcessor.IsIdle;
 
+    /// <summary>受付時の表示識別を要求版と一緒に捕捉します。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
+
+    /// <summary>受付時の実行通知先を捕捉します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
+
+    private OperationProgressRequest installableMaintenanceProgressRequest;
+    private Action<OperationProgressRequest, bool> installableMaintenanceProgressReporter;
+
+    /// <summary>直近の保守要求に捕捉した発生元です。</summary>
+    internal OperationProgressRequest InstallableMaintenanceProgressRequest { get { lock (installableMaintenanceLock) { return installableMaintenanceProgressRequest; } } }
+
     internal bool IsInstallableMaintenanceRunning => installableMaintenanceRunning;
 
     internal int InstallableMaintenanceRequestedVersion => installableMaintenanceRequestedVersion;
@@ -258,6 +270,8 @@ internal sealed partial class PackageLifecycleOwner
         lock (installableMaintenanceLock)
         {
             installableMaintenanceRequestedVersion++;
+            installableMaintenanceProgressRequest = ProgressRequestFactory?.Invoke("installable_maintenance", installableMaintenanceRequestedVersion);
+            installableMaintenanceProgressReporter = RequestProgressReporter;
             bool shouldStartWorker = !installableMaintenanceRunning;
             installableMaintenanceCriticalElapsedMs = criticalElapsedMs;
             QueuePropertyChanged("InstallableMaintenanceDeferredRequestedVersion");
@@ -269,11 +283,11 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
-    internal (int Version, long CriticalElapsedMs) GetInstallableMaintenanceRequest()
+    internal (int Version, long CriticalElapsedMs, OperationProgressRequest ProgressRequest, Action<OperationProgressRequest, bool> ProgressReporter) GetInstallableMaintenanceRequest()
     {
         lock (installableMaintenanceLock)
         {
-            return (installableMaintenanceRequestedVersion, installableMaintenanceCriticalElapsedMs);
+            return (installableMaintenanceRequestedVersion, installableMaintenanceCriticalElapsedMs, installableMaintenanceProgressRequest, installableMaintenanceProgressReporter);
         }
     }
 

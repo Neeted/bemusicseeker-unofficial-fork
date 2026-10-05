@@ -2069,14 +2069,19 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 scheduledWork = work;
                 return true;
             };
+            playlist.BmtOutput.ExecutionProgressRequestProvider = () => new(4, 11, "scheduler:beatoraja_bmt_export_all", 13);
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            playlist.BmtOutput.RequestProgressReporter = (request, running) => execution.Add((request, running));
             var progress = new List<PlaylistSyncProgressSnapshot>();
             playlist.BmtOutput.ExportProgressReporter = snapshot => progress.Add(snapshot);
 
-            playlist.BmtOutput.QueueBeatorajaBmtExportAll("empty_playlist");
+            playlist.BmtOutput.QueueBeatorajaBmtExportAll("empty_playlist", originatingRequest: new(5, 22, "playlist_entries_hydration", 3));
 
             Assert.IsNotNull(scheduledWork);
             await scheduledWork!().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(0, progress.Count);
+            var expected = new OperationProgressRequest(5, 22, "scheduler:beatoraja_bmt_export_all", 13);
+            CollectionAssert.AreEqual(new[] { (expected, true), (expected, false) }, execution);
             Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
         }
         finally

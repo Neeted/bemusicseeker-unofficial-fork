@@ -220,6 +220,41 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     internal Func<string, Action<int, bool>> StartupExecutionProgressReporterFactory { get; set; }
 
+    /// <summary>受付時の表示識別を捕捉します。各要求主体は既存要求スロット内で使用します。</summary>
+    internal Func<string, long, OperationProgressRequest> StartupProgressRequestFactory { get; set; }
+
+    /// <summary>捕捉済みの機能要求の実行境界を表示先へ渡します。</summary>
+    internal Action<OperationProgressRequest, bool> StartupRequestProgressReporter { get; set; }
+
+    /// <summary>現在受け付けたスコア要求の表示識別です。</summary>
+    internal OperationProgressRequest ScoreHydrationProgressRequest { get; private set; }
+
+    /// <summary>現在受け付けた順位要求の表示識別です。</summary>
+    internal OperationProgressRequest RankingRefreshProgressRequest { get; private set; }
+
+    /// <summary>現在受け付けた保守読込み要求の表示識別です。</summary>
+    internal OperationProgressRequest MaintenanceHydrationProgressRequest => catalogMaintenanceOwner.HydrationProgressRequest;
+
+    /// <summary>現在受け付けた導入可能譜面保守要求の表示識別です。</summary>
+    internal OperationProgressRequest InstallableMaintenanceProgressRequest => packageLifecycleOwner.InstallableMaintenanceProgressRequest;
+
+    /// <summary>現在受け付けた譜面情報要求の表示識別です。</summary>
+    internal OperationProgressRequest ChartInfoBackfillProgressRequest => catalogChartInfoOwner.BackfillProgressRequest;
+
+    /// <summary>現在受け付けた譜面情報読込み要求の表示識別です。</summary>
+    internal OperationProgressRequest ChartInfoHydrationProgressRequest => catalogChartInfoOwner.HydrationProgressRequest;
+
+    /// <summary>既存の機能所有者へ、要求時に捕捉する表示窓口を接続します。</summary>
+    internal void AttachStartupRequestProgressSources()
+    {
+        catalogChartInfoOwner.ProgressRequestFactory = StartupProgressRequestFactory;
+        catalogChartInfoOwner.RequestProgressReporter = StartupRequestProgressReporter;
+        catalogMaintenanceOwner.ProgressRequestFactory = StartupProgressRequestFactory;
+        catalogMaintenanceOwner.RequestProgressReporter = StartupRequestProgressReporter;
+        packageLifecycleOwner.ProgressRequestFactory = StartupProgressRequestFactory;
+        packageLifecycleOwner.RequestProgressReporter = StartupRequestProgressReporter;
+    }
+
     private int shutdownRequested;
 
     public enum LibraryInitializeMode
@@ -7033,6 +7068,7 @@ public partial class BMSLibrary : ObservableObject
         {
             deferredScoreHydrationRequestedVersion++;
             version = deferredScoreHydrationRequestedVersion;
+            ScoreHydrationProgressRequest = StartupProgressRequestFactory?.Invoke("score_hydration_deferred", version);
             deferredScoreHydrationProgressReporter = progressReporter;
             if (!deferredScoreHydrationRunning)
             {
@@ -7226,6 +7262,7 @@ public partial class BMSLibrary : ObservableObject
         {
             deferredRankingRefreshRequestedVersion++;
             version = deferredRankingRefreshRequestedVersion;
+            RankingRefreshProgressRequest = StartupProgressRequestFactory?.Invoke("ranking_refresh_deferred", version);
             deferredRankingRefreshProgressReporter = progressReporter;
             if (!deferredRankingRefreshRunning && !ScoreHydrationRunning)
             {

@@ -14,6 +14,10 @@ public partial class BMSLibrary
     {
         internal int Version { get; init; }
 
+        internal OperationProgressRequest ProgressRequest { get; init; }
+
+        internal Action<OperationProgressRequest, bool> ProgressReporter { get; init; }
+
         internal long CriticalElapsedMs { get; init; }
     }
 
@@ -78,10 +82,12 @@ public partial class BMSLibrary
 
     private InstallableMaintenanceRequestState GetInstallableMaintenanceRequest()
     {
-        (int Version, long CriticalElapsedMs) request = packageLifecycleOwner.GetInstallableMaintenanceRequest();
+        (int Version, long CriticalElapsedMs, OperationProgressRequest ProgressRequest, Action<OperationProgressRequest, bool> ProgressReporter) request = packageLifecycleOwner.GetInstallableMaintenanceRequest();
         return new InstallableMaintenanceRequestState
         {
             Version = request.Version,
+            ProgressReporter = request.ProgressReporter,
+            ProgressRequest = request.ProgressRequest,
             CriticalElapsedMs = request.CriticalElapsedMs
         };
     }
@@ -117,6 +123,7 @@ public partial class BMSLibrary
             var maintenanceResult = new MaintenanceWorkflowResult();
             InstallableMaintenanceSnapshot snapshot = null;
             List<Action> postLeaseEffects = [];
+            request.ProgressReporter?.Invoke(request.ProgressRequest, true);
             try
             {
                 using (LibraryFileMutationLease mutationLease = lr2SynchronizationOwner.BeginMutationWhenAvailable(
@@ -160,6 +167,7 @@ public partial class BMSLibrary
             }
             finally
             {
+                request.ProgressReporter?.Invoke(request.ProgressRequest, false);
                 ResetInstallableMaintenanceWriteLockFlags();
                 snapshot?.Files?.Clear();
                 LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");

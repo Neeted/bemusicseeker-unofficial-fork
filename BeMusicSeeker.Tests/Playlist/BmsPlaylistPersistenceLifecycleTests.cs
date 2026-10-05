@@ -1442,6 +1442,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             var scheduled = new List<(string Owner, Func<Task> Work)>();
             var repairProgress = new List<PlaylistSyncProgressSnapshot>();
+            playlist.ProgressRequestFactory = (name, version) => new(7, 22, name, version);
+            playlist.ExecutionProgressRequestProvider = () => new(8, 31, "scheduler:playlist_custom_folder_output_repair", 9);
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            playlist.RequestProgressReporter = (request, running) => execution.Add((request, running));
             object schedulerSync = new();
             PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt? receipt = null;
             int completionVersionAtReceipt = -1;
@@ -1506,6 +1510,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 .Where(snapshot => snapshot.IsActive)
                 .ToArray();
             Assert.IsTrue(activeProgress.Length > 0);
+            var repairRequest = new OperationProgressRequest(7, 22, "scheduler:playlist_custom_folder_output_repair", 9);
+            Assert.IsTrue(repairProgress.All(snapshot => snapshot.Request == repairRequest));
+            CollectionAssert.AreEqual(new[] { (repairRequest, true), (repairRequest, false) },
+                execution.Where(item => item.Request.Source == "scheduler:playlist_custom_folder_output_repair").ToArray());
             Assert.AreEqual(1, activeProgress.Select(snapshot => snapshot.TotalTableCount).Distinct().Count());
             Assert.IsTrue(activeProgress.All(snapshot => snapshot.TotalTableCount > 0));
             Assert.IsTrue(activeProgress.All(snapshot => snapshot.CompletedTableCount > 0));
@@ -1874,6 +1882,13 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            playlist.ProgressRequestFactory = (name, version) => new(8, 31, name, version);
+            playlist.RequestProgressReporter = (request, running) => execution.Add((request, running));
+            var requestNotifications = new List<OperationProgressRequest>();
+            var completedNotifications = new List<OperationProgressRequest>();
+            playlist.PlaylistEntriesHydrationRequested += (_, args) => requestNotifications.Add(args.Request);
+            playlist.PlaylistEntriesHydrationCompleted += (_, args) => completedNotifications.Add(args.Request);
             Task? scheduledWork = null;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -1896,6 +1911,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsNotNull(receipt);
             PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt completedReceipt = receipt!;
             Assert.AreEqual(1, completedReceipt.RequestVersion);
+            var expectedRequest = new OperationProgressRequest(8, 31, "playlist_entries_hydration", 1);
+            Assert.AreEqual(expectedRequest, completedReceipt.ProgressRequest);
+            CollectionAssert.AreEqual(new[] { expectedRequest }, requestNotifications);
+            CollectionAssert.AreEqual(new[] { expectedRequest }, completedNotifications);
+            CollectionAssert.AreEqual(new[] { (expectedRequest, true), (expectedRequest, false) }, execution);
             Assert.AreEqual("receipt_test", completedReceipt.Reason);
             Assert.AreEqual(1, completedReceipt.Tables.Count);
             Assert.AreSame(table, completedReceipt.Tables[0].Table);

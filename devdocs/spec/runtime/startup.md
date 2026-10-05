@@ -146,7 +146,7 @@ flowchart TB
 
 ### 必須の処理と後続処理
 
-起動時のスケジューラーは `startup_ready_operable` で開始します。モデルへ注入した受付を `StartupBackgroundTaskSchedulerOwner.Queue` に接続し、依存と分類ごとに実行します。
+起動時のスケジューラーは `startup_ready_operable` で開始します。表示では必須操作の「初期化」と後続の「起動に伴う追加処理」を別の親で追い、親子の要求対応と終了は[進捗仕様](progress.md)に従います。モデルへ注入した受付を `StartupBackgroundTaskSchedulerOwner.Queue` に接続し、依存と分類ごとに実行します。
 
 | 分類 | 主な処理 | 完了条件 |
 | --- | --- | --- |

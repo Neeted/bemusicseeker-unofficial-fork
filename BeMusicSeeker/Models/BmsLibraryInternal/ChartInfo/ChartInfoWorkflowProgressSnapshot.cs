@@ -4,13 +4,17 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class ChartInfoWorkflowProgressSnapshot
 {
     /// <summary>workerが捕捉した要求版と、その処理の進捗から値を構築します。</summary>
-    internal ChartInfoWorkflowProgressSnapshot(int requestVersion, int totalCount, int processedCount, string currentPath)
+    internal ChartInfoWorkflowProgressSnapshot(int requestVersion, int totalCount, int processedCount, string currentPath, OperationProgressRequest request = null)
     {
+        Request = request;
         RequestVersion = requestVersion;
         TotalCount = totalCount;
         ProcessedCount = processedCount;
         CurrentPath = currentPath ?? string.Empty;
     }
+
+    /// <summary>受付時に捕捉した要求の発生元です。</summary>
+    internal OperationProgressRequest Request { get; }
 
     /// <summary>件数の送出元である既存要求の版です。受信時の最新要求で付け直しません。</summary>
     internal int RequestVersion { get; }

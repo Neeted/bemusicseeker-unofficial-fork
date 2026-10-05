@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -69,7 +72,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         var notifications = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
         owner.ProgressChanged += _ => throw new InvalidOperationException("display failure");
         owner.ProgressChanged += notifications.Enqueue;
-        owner.Reset(false);
+        owner.Reset(false, 11);
         long oldGeneration = owner.CurrentGeneration;
         Action<int, bool> oldReporter = owner.CaptureExecutionProgressReporter(name);
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -86,7 +89,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         try
         {
             await entered.Task;
-            owner.Reset(false);
+            owner.Reset(false, 22);
             Action<int, bool> currentReporter = owner.CaptureExecutionProgressReporter(name);
             nextReporter.TrySetResult(currentReporter);
             await reusedWorker;
@@ -94,6 +97,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             Assert.AreEqual(4, captured.Length);
             Assert.IsTrue(captured.Take(2).All(snapshot => snapshot.Generation == oldGeneration && snapshot.Version == 11));
             Assert.IsTrue(captured.Skip(2).All(snapshot => snapshot.Generation == owner.CurrentGeneration && snapshot.Version == 22));
+            Assert.IsTrue(captured.Take(2).All(snapshot => snapshot.Request == new OperationProgressRequest(oldGeneration, 11, name, 11)));
+            Assert.IsTrue(captured.Skip(2).All(snapshot => snapshot.Request == new OperationProgressRequest(owner.CurrentGeneration, 22, name, 22)));
             notifications.Clear();
             bool dependencyRan = false;
             owner.Queue(name, "test", null, () =>
@@ -146,6 +151,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
                 ended.TrySetResult(snapshot);
             }
         };
+        owner.Reset(false, 17);
         long generation = owner.CurrentGeneration;
         owner.Queue("playlist_library_index_prewarm", "startup", null, async () =>
         {
@@ -160,6 +166,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             Assert.IsTrue(running.IsRunning);
             Assert.IsTrue(running.IsPostInitialization);
             Assert.AreEqual(generation, running.Generation);
+            Assert.AreEqual(new OperationProgressRequest(generation, 17, "scheduler:playlist_library_index_prewarm", running.Version), running.Request);
         }
         finally { release.TrySetResult(true); }
         StartupBackgroundTaskProgressSnapshot terminal = await ended.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -168,6 +175,104 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(terminal.IsRunning);
         Assert.AreEqual(generation, terminal.Generation);
         Assert.IsTrue(terminal.Version > 0);
+        Assert.AreEqual(notifications.First().Request, terminal.Request);
+    }
+
+    [TestMethod]
+    public async Task Reset_QueuedExecutionKeepsAcceptanceOriginWhileReservationGenerationChanges()
+    {
+        var notifications = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        owner.ProgressChanged += notifications.Enqueue;
+        owner.Reset(false, 41);
+        long acceptedGeneration = owner.CurrentGeneration;
+        owner.Queue("playlist_library_index_prewarm", "accepted", null, () => Task.CompletedTask);
+        owner.Reset(false, 42);
+        Assert.AreNotEqual(acceptedGeneration, owner.CurrentGeneration);
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+        StartupBackgroundTaskProgressSnapshot[] execution = notifications.ToArray();
+        Assert.AreEqual(2, execution.Length);
+        Assert.IsTrue(execution.All(snapshot => snapshot.Generation == acceptedGeneration));
+        Assert.IsTrue(execution.All(snapshot => snapshot.Request?.OperationToken == 41));
+        Assert.AreEqual(execution[0].Request, execution[1].Request);
+        Assert.IsTrue(owner.IsFullyIdle);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistUrlCompletion_RealAcceptanceCapturesIndependentCurrentGenerationOrRetainsOldContext(bool oldContext)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(StartupBackgroundTaskSchedulerOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? acceptance = null;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        try
+        {
+            string songDbPath = Path.Combine(directory, "song.db");
+            using (var db = new LR2SongDBExtended(songDbPath)) { }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(),
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => owner.Queue(name, reason, dependency, work);
+            var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+            var notifications = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
+            bool displayed = false;
+            bool displayedAsChild = false;
+            owner.ProgressChanged += status =>
+            {
+                if (status.Name != "playlist_url_completion") { return; }
+                notifications.Enqueue(status);
+                hub.UpdateBackgroundTaskProgress(status);
+                if (status.IsRunning)
+                {
+                    displayed = hub.Rows.Any(row => row.Key.StartsWith("background:playlist_url_completion:", StringComparison.Ordinal));
+                    displayedAsChild = hub.Rows.Any(row => row.Key.StartsWith("background:playlist_url_completion:", StringComparison.Ordinal) && row.IsChild);
+                }
+            };
+            owner.Reset(false, 11);
+            long originalGeneration = owner.CurrentGeneration;
+            async Task accept()
+            {
+                await release.Task;
+                playlist.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
+            }
+            if (oldContext) { acceptance = Task.Run(accept); }
+            else { using (ExecutionContext.SuppressFlow()) { acceptance = Task.Run(accept); } }
+            owner.Reset(false, 22);
+            long currentGeneration = owner.CurrentGeneration;
+            hub.BeginBackgroundProgressGeneration(currentGeneration);
+            hub.BeginStartupBackgroundInitializationPresentation(22, currentGeneration);
+            owner.Queue("playlist_entries_hydration", "startup_completed", null, () => Task.CompletedTask);
+            owner.Start();
+            await WaitForFullyIdleAsync(owner).WaitAsync(TimeSpan.FromSeconds(5));
+            release.TrySetResult(true);
+            await acceptance.WaitAsync(TimeSpan.FromSeconds(5));
+            await WaitForFullyIdleAsync(owner).WaitAsync(TimeSpan.FromSeconds(5));
+            StartupBackgroundTaskProgressSnapshot[] captured = notifications.ToArray();
+            Assert.AreEqual(2, captured.Length);
+            Assert.AreEqual(oldContext ? originalGeneration : currentGeneration, captured[0].Generation);
+            Assert.AreEqual(oldContext ? 11L : 0L, captured[0].Request.OperationToken);
+            Assert.AreEqual("scheduler:playlist_url_completion", captured[0].Request.Source);
+            Assert.AreEqual(captured[0].Request, captured[1].Request);
+            Assert.AreEqual(!oldContext, displayed);
+            Assert.IsFalse(displayedAsChild);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("background:playlist_url_completion:", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            if (acceptance != null) { await acceptance; }
+            owner.RequestShutdown("test_cleanup");
+            if (owner.IsStarted) { await WaitForFullyIdleAsync(owner); }
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [TestMethod]

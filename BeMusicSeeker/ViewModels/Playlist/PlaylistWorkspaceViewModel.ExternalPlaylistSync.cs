@@ -8,6 +8,16 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>要求受付時に表示識別を捕捉する窓口です。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
+
+    /// <summary>捕捉した要求の実行境界を表示先へ通知します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
+
+    private OperationProgressRequest deferredExternalSyncProgressRequest;
+
+    private Action<OperationProgressRequest, bool> deferredExternalSyncProgressReporter;
+
     private const string ExternalPlaylistSyncProgressSource = "external_playlist_sync";
 
     private readonly object deferredExternalSyncLock = new();
@@ -65,6 +75,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool queuedFromReloadTables;
         bool queuedPublishesReferenceReceipt;
         long queuedOperationToken;
+        OperationProgressRequest queuedProgressRequest;
         lock (deferredExternalSyncLock)
         {
             version = ++deferredExternalSyncRequestedVersion;
@@ -72,10 +83,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             deferredExternalSyncFromReloadTables = fromReloadTables;
             deferredExternalSyncPublishesReferenceReceipt = publishReferenceReceipt;
             deferredExternalSyncOperationToken = operationToken;
+            deferredExternalSyncProgressRequest = ProgressRequestFactory == null ? null
+                : ProgressRequestFactory(ExternalPlaylistSyncProgressSource, version) with { OperationToken = operationToken };
             queuedReason = deferredExternalSyncReason;
             queuedFromReloadTables = deferredExternalSyncFromReloadTables;
             queuedPublishesReferenceReceipt = deferredExternalSyncPublishesReferenceReceipt;
             queuedOperationToken = deferredExternalSyncOperationToken;
+            queuedProgressRequest = deferredExternalSyncProgressRequest;
+            deferredExternalSyncProgressReporter = RequestProgressReporter;
             if (!deferredExternalSyncRunning)
             {
                 deferredExternalSyncRunning = true;
@@ -90,7 +105,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 version,
                 queuedFromReloadTables,
                 queuedPublishesReferenceReceipt,
-                queuedOperationToken));
+                queuedOperationToken, queuedProgressRequest));
         if (!shouldStartWorker)
         {
             return;
@@ -113,9 +128,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                 using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
                 bool succeeded = false;
                 int updatedCount = 0;
+                request.ProgressReporter?.Invoke(request.ProgressRequest, true);
                 try
                 {
-                    BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource);
+                    BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request.ProgressRequest);
                     string operationKind = GetPlaylistReloadOperationKindText(
                         request.Reason,
                         request.FromReloadTables);
@@ -144,10 +160,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                             RecordPlaylistSyncResult(result);
                         },
                         snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
-                            BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync),
+                            BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync, request.ProgressRequest),
                         publishReferenceReceipts: request.PublishesReferenceReceipt).ConfigureAwait(false);
                     updatedCount = tables?.Count ?? 0;
-                    currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason);
+                    currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason,
+                        originatingRequest: request.ProgressRequest);
                     if (request.PublishesReferenceReceipt)
                     {
                         PlaylistExternalSyncReferenceApplied?.Invoke(
@@ -218,7 +235,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 finally
                 {
-                    EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource);
+                    EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request.ProgressRequest);
+                    request.ProgressReporter?.Invoke(request.ProgressRequest, false);
                     RaisePlaylistOperationNotificationPresentationRequested(
                         notificationSession.TakeReceipt(),
                         "external playlist sync notification");
@@ -306,7 +324,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 deferredExternalSyncReason ?? string.Empty,
                 deferredExternalSyncFromReloadTables,
                 deferredExternalSyncPublishesReferenceReceipt,
-                deferredExternalSyncOperationToken);
+                deferredExternalSyncOperationToken, deferredExternalSyncProgressRequest, deferredExternalSyncProgressReporter);
         }
         PlaylistExternalSyncCompleted?.Invoke(
             this,
@@ -361,7 +379,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 deferredExternalSyncReason ?? string.Empty,
                 deferredExternalSyncFromReloadTables,
                 deferredExternalSyncPublishesReferenceReceipt,
-                deferredExternalSyncOperationToken);
+                deferredExternalSyncOperationToken, deferredExternalSyncProgressRequest, deferredExternalSyncProgressReporter);
         }
     }
 
@@ -444,14 +462,21 @@ public sealed partial class PlaylistWorkspaceViewModel
             string reason,
             bool fromReloadTables,
             bool publishesReferenceReceipt,
-            long operationToken)
+            long operationToken, OperationProgressRequest progressRequest = null,
+            Action<OperationProgressRequest, bool> progressReporter = null)
         {
+            ProgressRequest = progressRequest;
+            ProgressReporter = progressReporter;
             Version = version;
             Reason = reason;
             FromReloadTables = fromReloadTables;
             PublishesReferenceReceipt = publishesReferenceReceipt;
             OperationToken = operationToken;
         }
+
+        internal OperationProgressRequest ProgressRequest { get; }
+
+        internal Action<OperationProgressRequest, bool> ProgressReporter { get; }
 
         internal int Version { get; }
 
@@ -467,19 +492,23 @@ public sealed partial class PlaylistWorkspaceViewModel
 
 internal sealed class PlaylistExternalSyncRequestEventArgs : EventArgs
 {
+    /// <summary>既存の受付・完了情報に、同じ要求の捕捉済み表示識別を添えます。</summary>
     internal PlaylistExternalSyncRequestEventArgs(
         string reason,
         int version,
         bool fromReloadTables,
         bool publishesReferenceReceipt,
-        long operationToken)
+        long operationToken, OperationProgressRequest progressRequest = null)
     {
+        ProgressRequest = progressRequest;
         Reason = reason;
         Version = version;
         FromReloadTables = fromReloadTables;
         PublishesReferenceReceipt = publishesReferenceReceipt;
         OperationToken = operationToken;
     }
+
+    internal OperationProgressRequest ProgressRequest { get; }
 
     internal string Reason { get; }
 

@@ -9,6 +9,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -371,7 +372,7 @@ public sealed class OperationProgressHubViewModelTests
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         hub.StartupProgress.ApplyPresentation(true, "required", "required phase", 1.0, 2.0);
-        hub.BeginStartupBackgroundInitializationPresentation();
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
 
         Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
 
@@ -443,7 +444,7 @@ public sealed class OperationProgressHubViewModelTests
             }
         };
 
-        hub.BeginStartupBackgroundInitializationPresentation();
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
         Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
 
         hub.CompleteStartupBackgroundInitializationPresentation();
@@ -598,34 +599,73 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistRows_KeepIndependentSourcesAndOperationsAndMergeDedicatedSchedulerWork()
+    public void Lr2Rows_AttachOnlyAssociatedStartupExecutionAndLeaveTerminalWarningIndependent()
     {
+        TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(action => action());
-        hub.AttachPlaylistProgressSources(workspace, action => action(), () => false);
         hub.BeginBackgroundProgressGeneration(1);
-        hub.UpdateBackgroundTaskProgress(new("beatoraja_bmt_export", 1, 1, true, true));
-        hub.UpdateBackgroundTaskProgress(new("playlist_custom_folder_output_repair", 1, 2, true, true));
+        hub.BeginStartupBackgroundInitializationPresentation(11, 1);
+        var request = new OperationProgressRequest(1, 11, "scheduler:lr2_song_db_sync", 3);
+        hub.UpdateBackgroundTaskProgress(new("lr2_song_db_sync", 1, 3, true, true, request));
+        OperationProgressRow generic = hub.Rows.Single(row => row.Key.StartsWith("background:"));
+        Assert.AreEqual("startup_background", generic.ParentKey);
+        hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+        {
+            Status = Lr2SongDbSyncStatusKind.Running,
+            Stage = "song_rows",
+            StageTotalCount = 5,
+            StageProcessedCount = 2
+        }, DateTime.UtcNow));
+        OperationProgressRow dedicated = hub.Rows.Single(row => row.Key == "lr2");
+        Assert.AreEqual(generic.Label, dedicated.Label);
+        Assert.AreEqual(generic.ParentKey, dedicated.ParentKey);
+        Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("background:")));
+        hub.UpdateBackgroundTaskProgress(new("lr2_song_db_sync", 1, 3, true, false, request));
+        hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+        {
+            Status = Lr2SongDbSyncStatusKind.Incomplete
+        }, DateTime.UtcNow));
+        OperationProgressRow warning = hub.Rows.Single(row => row.Key == "lr2");
+        Assert.IsFalse(warning.IsChild);
+        Assert.IsTrue(warning.CanRetry);
+        hub.CompleteStartupBackgroundInitializationPresentation();
+        Assert.AreEqual("lr2", hub.Rows.Single().Key);
+    }
+
+    [TestMethod]
+    public void PlaylistRows_KeepIndependentRequestsAndMergeOnlyMatchingDedicatedWork()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
+        var bmt = new OperationProgressRequest(1, 1, "scheduler:beatoraja_bmt_export_all", 1);
+        var repair = new OperationProgressRequest(1, 1, "scheduler:playlist_custom_folder_output_repair", 2);
+        OperationProgressRequest other = bmt with { Version = 3 };
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
+        hub.UpdateBackgroundTaskProgress(new("beatoraja_bmt_export_all", 1, 1, true, true, bmt));
+        hub.UpdateBackgroundTaskProgress(new("playlist_custom_folder_output_repair", 1, 2, true, true, repair));
         workspace.BeginPlaylistSyncProgressOperation();
         workspace.ReportPlaylistSyncProgress(new() { Source = "playlist", IsActive = true, TotalTableCount = 3, CompletedTableCount = 1 });
-        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, IsActive = true, TotalTableCount = 2, CompletedTableCount = 1 });
-        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 8, IsActive = true, TotalTableCount = 4, CompletedTableCount = 2 });
-        workspace.ReportPlaylistSyncProgress(new() { Source = "custom_folder_repair", IsActive = true, TotalTableCount = 5, CompletedTableCount = 1 });
-        Assert.AreEqual(4, hub.Rows.Count);
+        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, Request = bmt, SingleLabel = Resources.Statusbar_progress_task_bmt_output, LabelFormat = Resources.Statusbar_progress_task_bmt_output + " {0}/{1}", IsActive = true, TotalTableCount = 2, CompletedTableCount = 1 });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 8, Request = other, IsActive = true, TotalTableCount = 4, CompletedTableCount = 2 });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "custom_folder_repair", Request = repair, SingleLabel = Resources.Statusbar_progress_task_custom_folder_repair, LabelFormat = Resources.Statusbar_progress_task_custom_folder_repair + " {0}/{1}", IsActive = true, TotalTableCount = 5, CompletedTableCount = 1 });
+        Assert.AreEqual(5, hub.Rows.Count);
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("background:")));
-        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, IsActive = false });
-        Assert.IsFalse(hub.Rows.Any(row => row.Key == "playlist:bmt:7"));
-        Assert.IsTrue(hub.Rows.Any(row => row.Key == "playlist:bmt:8"));
-        Assert.IsTrue(hub.Rows.Any(row => row.Key == "playlist:playlist:0"));
+        Assert.IsTrue(hub.Rows.Where(row => row.Key.StartsWith("playlist:bmt:")).All(row => row.ParentKey == "startup_background"));
+        StringAssert.Contains(hub.Rows.Single(row => row.Key.StartsWith("playlist:bmt:7:")).Label, Resources.Statusbar_progress_task_bmt_output);
+        StringAssert.Contains(hub.Rows.Single(row => row.Key.StartsWith("playlist:custom_folder_repair:")).Label, Resources.Statusbar_progress_task_custom_folder_repair);
+        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, Request = bmt, IsActive = false });
+        Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:bmt:7:")));
+        Assert.IsTrue(hub.Rows.Any(row => row.Key.StartsWith("playlist:bmt:8:")));
         workspace.EndPlaylistSyncProgressOperation();
-        Assert.IsFalse(hub.Rows.Any(row => row.Key == "playlist:playlist:0"));
-        Assert.IsTrue(hub.Rows.Any(row => row.Key.StartsWith("playlist:")));
-        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 8, IsActive = false });
-        workspace.ReportPlaylistSyncProgress(new() { Source = "custom_folder_repair", IsActive = false });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 8, Request = other, IsActive = false });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "custom_folder_repair", Request = repair, IsActive = false });
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:")));
-        Assert.AreEqual(2, hub.Rows.Count, "専用進捗が終わっても実行中の仕事はスケジューラー行に残る。");
-        hub.UpdateBackgroundTaskProgress(new("beatoraja_bmt_export", 1, 1, true, false));
-        hub.UpdateBackgroundTaskProgress(new("playlist_custom_folder_output_repair", 1, 2, true, false));
+        Assert.AreEqual(3, hub.Rows.Count, "専用件数通知だけの終端では実行中の汎用処理を消さない。");
+        hub.UpdateBackgroundTaskProgress(new("beatoraja_bmt_export_all", 1, 1, true, false, bmt));
+        hub.UpdateBackgroundTaskProgress(new("playlist_custom_folder_output_repair", 1, 2, true, false, repair));
+        hub.CompleteStartupBackgroundInitializationPresentation();
         Assert.IsFalse(hub.HasRows);
     }
 
@@ -640,15 +680,16 @@ public sealed class OperationProgressHubViewModelTests
         PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(action => action());
         hub.AttachPlaylistProgressSources(workspace, presentation.Enqueue, () => false);
         hub.BeginBackgroundProgressGeneration(1);
-        hub.BeginStartupBackgroundInitializationPresentation();
-        const string genericKey = "background:external_playlist_sync:1";
-        const string syncKey = "playlist:external_playlist_sync:0";
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
+        var request = new OperationProgressRequest(1, 1, "external_playlist_sync", 1);
+        const string genericKey = "background:external_playlist_sync:1:1:1:external_playlist_sync:1";
+        const string syncKey = "playlist:external_playlist_sync:0:1:1:external_playlist_sync:1";
         const string importKey = "playlist:beatoraja_table_url_import:0";
-        workspace.BeginPlaylistSyncProgressOperation("external_playlist_sync");
+        workspace.BeginPlaylistSyncProgressOperation("external_playlist_sync", request);
         workspace.BeginPlaylistSyncProgressOperation("beatoraja_table_url_import");
         try
         {
-            hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, true));
+            hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, true, request));
             workspace.ReportPlaylistSyncProgress(new()
             {
                 Source = "beatoraja_table_url_import",
@@ -666,6 +707,7 @@ public sealed class OperationProgressHubViewModelTests
             workspace.ReportPlaylistSyncProgress(new()
             {
                 Source = "external_playlist_sync",
+                Request = request,
                 IsActive = true,
                 TotalTableCount = 4,
                 CompletedTableCount = 1,
@@ -681,10 +723,10 @@ public sealed class OperationProgressHubViewModelTests
             Assert.AreEqual(syncCompletesFirst ? 5d : 4d, surviving.Maximum);
             StringAssert.Contains(surviving.Detail, syncCompletesFirst ? "ImportTarget" : "SyncTarget");
 
-            workspace.EndPlaylistSyncProgressOperation(syncCompletesFirst ? "external_playlist_sync" : "beatoraja_table_url_import");
+            workspace.EndPlaylistSyncProgressOperation(syncCompletesFirst ? "external_playlist_sync" : "beatoraja_table_url_import", syncCompletesFirst ? request : null);
             if (syncCompletesFirst)
             {
-                hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false));
+                hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false, request));
             }
             Assert.IsTrue(hub.Rows.Any(row => row.Key == syncKey) && hub.Rows.Any(row => row.Key == importKey),
                 "終端の受付は表示callbackの排出を待たない。");
@@ -697,10 +739,10 @@ public sealed class OperationProgressHubViewModelTests
             Assert.AreEqual(surviving.ParentKey, remaining.ParentKey);
             Assert.IsFalse(hub.Rows.Any(row => row.Key == genericKey));
 
-            workspace.EndPlaylistSyncProgressOperation(syncCompletesFirst ? "beatoraja_table_url_import" : "external_playlist_sync");
+            workspace.EndPlaylistSyncProgressOperation(syncCompletesFirst ? "beatoraja_table_url_import" : "external_playlist_sync", syncCompletesFirst ? null : request);
             if (!syncCompletesFirst)
             {
-                hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false));
+                hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false, request));
             }
             Assert.IsTrue(hub.Rows.Any(row => row.Key == surviving.Key));
             DrainProgressPresentation(presentation);
@@ -708,9 +750,9 @@ public sealed class OperationProgressHubViewModelTests
         }
         finally
         {
-            workspace.EndPlaylistSyncProgressOperation("external_playlist_sync");
+            workspace.EndPlaylistSyncProgressOperation("external_playlist_sync", request);
             workspace.EndPlaylistSyncProgressOperation("beatoraja_table_url_import");
-            hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false));
+            hub.UpdateBackgroundTaskProgress(new("external_playlist_sync", 1, 1, true, false, request));
             DrainProgressPresentation(presentation);
             hub.CompleteStartupBackgroundInitializationPresentation();
         }
@@ -758,11 +800,13 @@ public sealed class OperationProgressHubViewModelTests
     {
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
-        hub.StartupProgress.TrackStartupProgressScoreHydrationRequested(2);
-        hub.BeginStartupBackgroundInitializationPresentation();
+        var score = new OperationProgressRequest(2, 1, "score_hydration_deferred", 2);
+        var index = new OperationProgressRequest(2, 1, "scheduler:playlist_library_index_prewarm", 2);
+        hub.StartupProgress.TrackStartupProgressScoreHydrationRequested(2, score);
+        hub.BeginStartupBackgroundInitializationPresentation(1, 2);
         hub.BeginBackgroundProgressGeneration(2);
-        hub.UpdateBackgroundTaskProgress(new("score_hydration_deferred", 2, 2, false, true));
-        hub.UpdateBackgroundTaskProgress(new("playlist_library_index_prewarm", 2, 2, true, true));
+        hub.UpdateBackgroundTaskProgress(new("score_hydration_deferred", 2, 2, false, true, score));
+        hub.UpdateBackgroundTaskProgress(new("playlist_library_index_prewarm", 2, 2, true, true, index));
         Assert.AreEqual(4, hub.Rows.Count);
         Assert.AreEqual("startup", hub.Rows.Single(row => row.Key.Contains("score_hydration")).ParentKey);
         Assert.AreEqual("startup_background", hub.Rows.Single(row => row.Key.Contains("playlist_library_index")).ParentKey);
@@ -778,7 +822,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsTrue(hub.Rows.All(row => !row.IsChild));
         hub.UpdateBackgroundTaskProgress(new("score_hydration_deferred", 1, 1, false, false));
         Assert.AreEqual(2, hub.Rows.Count);
-        hub.UpdateBackgroundTaskProgress(new("score_hydration_deferred", 2, 2, false, false));
+        hub.UpdateBackgroundTaskProgress(new("score_hydration_deferred", 2, 2, false, false, score));
         Assert.AreEqual(1, hub.Rows.Count);
         hub.BeginBackgroundProgressGeneration(3);
         Assert.IsFalse(hub.HasRows);
@@ -795,16 +839,56 @@ public sealed class OperationProgressHubViewModelTests
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         hub.StartupProgress.StartStartupProgressOperation(fullReinitialize
             ? StartupProgressOperationKind.FullReinitialize : StartupProgressOperationKind.Startup);
-        hub.StartupProgress.TrackStartupProgressScoreHydrationRequested(2);
-        hub.StartupProgress.TrackStartupProgressRankingRefreshRequested(2);
+        hub.StartupProgress.TrackStartupProgressScoreHydrationRequested(2, new(1, 1, "score_hydration_deferred", 2));
+        hub.StartupProgress.TrackStartupProgressRankingRefreshRequested(2, new(1, 1, "ranking_refresh_deferred", 2));
         double parentValue = hub.StartupProgress.Value;
         double parentMaximum = hub.StartupProgress.Maximum;
         hub.BeginBackgroundProgressGeneration(1);
-        hub.UpdateBackgroundTaskProgress(new(name, 1, reportedVersion, false, true));
+        hub.UpdateBackgroundTaskProgress(new(name, 1, reportedVersion, false, true, new(1, 1, name, reportedVersion)));
         OperationProgressRow execution = hub.Rows.Single(row => row.Key.StartsWith("background:"));
         Assert.AreEqual(expectedChild, execution.IsChild);
         Assert.AreEqual(parentValue, hub.StartupProgress.Value);
         Assert.AreEqual(parentMaximum, hub.StartupProgress.Maximum);
+    }
+
+    [DataTestMethod]
+    [DataRow(0L)]
+    [DataRow(7L)]
+    public void PlaylistRows_LateTerminalWithSameSourceAndOperationIdKeepsDifferentAcceptedRequest(long operationId)
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
+        var first = new OperationProgressRequest(1, 11, "external_playlist_sync", 1);
+        var next = new OperationProgressRequest(1, 12, "external_playlist_sync", 2);
+        workspace.ReportPlaylistSyncProgress(new() { Source = "external_playlist_sync", OperationId = operationId, Request = first, IsActive = true, TotalTableCount = 2 });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "external_playlist_sync", OperationId = operationId, Request = next, IsActive = true, TotalTableCount = 4, CompletedTableCount = 1, CurrentTableName = "next" });
+        Assert.AreEqual(2, hub.Rows.Count);
+        workspace.ReportPlaylistSyncProgress(new() { Source = "external_playlist_sync", OperationId = operationId, Request = first, IsActive = false });
+        OperationProgressRow remaining = hub.Rows.Single();
+        Assert.AreEqual(4d, remaining.Maximum);
+        Assert.AreEqual(1d, remaining.Value);
+        Assert.AreEqual("next", remaining.Detail);
+        workspace.ReportPlaylistSyncProgress(new() { Source = "external_playlist_sync", OperationId = operationId, Request = next, IsActive = false });
+        Assert.IsFalse(hub.HasRows);
+    }
+
+    [DataTestMethod]
+    [DataRow("score_hydration_deferred")]
+    [DataRow("ranking_refresh_deferred")]
+    public void ExecutionRows_ScoreOnlyAttachesOnlyMatchingModelRequest(string name)
+    {
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
+        owner.StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
+        var request = new OperationProgressRequest(1, owner.GetActiveStartupProgressOperationToken(), name, 3);
+        if (name == "score_hydration_deferred") { owner.TrackStartupProgressScoreHydrationRequested(3, request); }
+        else { owner.TrackStartupProgressRankingRefreshRequested(3, request); }
+        var hub = new OperationProgressHubViewModel(owner);
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.UpdateBackgroundTaskProgress(new(name, 1, 3, false, true, request));
+        Assert.AreEqual("startup", hub.Rows.Single(row => row.Key.StartsWith("background:")).ParentKey);
+        hub.UpdateBackgroundTaskProgress(new(name, 1, 4, false, true, request with { Version = 4 }));
+        Assert.AreEqual(2, hub.Rows.Count(row => row.Key.StartsWith("background:")));
+        Assert.IsFalse(hub.Rows.Single(row => row.Key.StartsWith("background:") && row.Key.Contains(":4:")).IsChild);
     }
 
     private static OperationProgressRow? GetRow(OperationProgressHubViewModel hub, string key) =>

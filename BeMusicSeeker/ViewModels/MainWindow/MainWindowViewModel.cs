@@ -414,7 +414,7 @@ public partial class MainWindowViewModel : ViewModel,
             }
             startupPostInitializationWarmupOwner?.Reset("startup_operation_reset");
             startupBackgroundTaskScheduler.Reset(
-                operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached);
+                operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached, operationToken);
             ProgressHub?.BeginBackgroundProgressGeneration(startupBackgroundTaskScheduler.CurrentGeneration);
             lock (startupInitializationCompletionLock)
             {
@@ -1839,7 +1839,7 @@ public partial class MainWindowViewModel : ViewModel,
         startupReadyOperableReached = true;
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
         startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
-        ProgressHub.BeginStartupBackgroundInitializationPresentation();
+        ProgressHub.BeginStartupBackgroundInitializationPresentation(operationToken, startupBackgroundTaskScheduler.CurrentGeneration);
         startupBackgroundTaskScheduler.Start();
         startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
     }
@@ -2963,6 +2963,10 @@ public partial class MainWindowViewModel : ViewModel,
                 shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
             () => uiScheduler.CanExecuteInline);
+        PlaylistWorkspace.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
+        PlaylistWorkspace.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
+        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
+        PlaylistWorkspace.PlaylistReferenceApplyWorkflow.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
         PlaylistWorkspace.ConfigureCatalogNotificationQueue(QueueMainChartListAction);
         PlaylistTablesReloadWorkflow = new PlaylistTablesReloadWorkflowOwner(
             request => Task.Run(() =>
@@ -4187,8 +4191,16 @@ public partial class MainWindowViewModel : ViewModel,
         files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
         files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
         files.StartupExecutionProgressReporterFactory = startupBackgroundTaskScheduler.CaptureExecutionProgressReporter;
+        files.StartupProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
+        files.StartupRequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
+        files.AttachStartupRequestProgressSources();
         files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
         tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
+        tables.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
+        tables.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
+        tables.ExecutionProgressRequestProvider = startupBackgroundTaskScheduler.CaptureCurrentProgressRequest;
+        tables.BmtOutput.ExecutionProgressRequestProvider = startupBackgroundTaskScheduler.CaptureCurrentProgressRequest;
+        tables.BmtOutput.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
         tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
         tables.BmtOutput.FailureReporter = PlaylistWorkspace.ReportBmtOutputFailures;
         tables.CustomFolderOutputRepairProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
@@ -4426,7 +4438,7 @@ public partial class MainWindowViewModel : ViewModel,
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationRequestedVersion, delegate
         {
-            startupProgressWorkflowOwner.TrackStartupProgressScoreHydrationRequested(files.ScoreHydrationRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressScoreHydrationRequested(files.ScoreHydrationRequestedVersion, files.ScoreHydrationProgressRequest);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationCompletedVersion, delegate
         {
@@ -4458,7 +4470,7 @@ public partial class MainWindowViewModel : ViewModel,
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshRequestedVersion, delegate
         {
-            startupProgressWorkflowOwner.TrackStartupProgressRankingRefreshRequested(files.RankingRefreshRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressRankingRefreshRequested(files.RankingRefreshRequestedVersion, files.RankingRefreshProgressRequest);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshCompletedVersion, delegate
         {
@@ -4479,7 +4491,7 @@ public partial class MainWindowViewModel : ViewModel,
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
         {
-            startupProgressWorkflowOwner.TrackStartupProgressMaintenanceRequested(files.MaintenanceHydrationRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressMaintenanceRequested(files.MaintenanceHydrationRequestedVersion, files.MaintenanceHydrationProgressRequest);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationCompletedVersion, delegate
         {
@@ -4487,7 +4499,7 @@ public partial class MainWindowViewModel : ViewModel,
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
         {
-            startupProgressWorkflowOwner.TrackStartupProgressInstallableMaintenanceRequested(files.InstallableMaintenanceDeferredRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressInstallableMaintenanceRequested(files.InstallableMaintenanceDeferredRequestedVersion, files.InstallableMaintenanceProgressRequest);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredCompletedVersion, delegate
         {
@@ -4501,21 +4513,9 @@ public partial class MainWindowViewModel : ViewModel,
         {
             startupProgressWorkflowOwner.TryCompleteStartupProgressChartDigestBackfill(files.ChartDigestBackfillCompletedVersion);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillTotalCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillProcessedCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillCurrentPath, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillRequestedVersion, delegate
         {
-            startupProgressWorkflowOwner.TrackStartupProgressChartInfoBackfillRequested(files.ChartInfoBackfillRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressChartInfoBackfillRequested(files.ChartInfoBackfillRequestedVersion, files.ChartInfoBackfillProgressRequest);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCompletedVersion, delegate
         {
@@ -4532,7 +4532,7 @@ public partial class MainWindowViewModel : ViewModel,
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationRequestedVersion, delegate
         {
-            startupProgressWorkflowOwner.TrackStartupProgressChartInfoHydrationRequested(files.ChartInfoHydrationRequestedVersion);
+            startupProgressWorkflowOwner.TrackStartupProgressChartInfoHydrationRequested(files.ChartInfoHydrationRequestedVersion, files.ChartInfoHydrationProgressRequest);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationCompletedVersion, delegate
         {
@@ -4834,7 +4834,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 startupProgressWorkflowOwner.TrackStartupProgressPlaylistEntriesHydrationRequested(
                     e?.Version ?? 0,
-                    startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
+                    e?.Request?.OperationToken ?? 0, e?.Request);
             });
     }
 
@@ -4850,7 +4850,7 @@ public partial class MainWindowViewModel : ViewModel,
         void ApplyHydrationLifecycle()
         {
             int version = e?.Version ?? 0;
-            long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+            long operationToken = e?.Request?.OperationToken ?? 0;
             startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistEntriesHydration(version, operationToken);
             startupProgressWorkflowOwner.TryCompleteStartupProgressPlaylistReferenceFromHydration(version, operationToken);
             if (PlayHistory.SelectedDisplayTarget.UsesProjection)
@@ -4880,13 +4880,13 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        startupProgressWorkflowOwner.TrackStartupProgressExternalSyncRequest(request.Reason, request.Version, request.OperationToken);
+        startupProgressWorkflowOwner.TrackStartupProgressExternalSyncRequest(request.Reason, request.Version, request.OperationToken, request.ProgressRequest);
         if (request.PublishesReferenceReceipt)
         {
             startupProgressWorkflowOwner.TrackStartupProgressPlaylistReferenceRequest(
                 "DeferredExternalSync:" + request.Reason,
                 request.Version,
-                request.OperationToken);
+                request.OperationToken, request.ProgressRequest);
         }
     }
 
@@ -4924,11 +4924,11 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        startupProgressWorkflowOwner.TrackStartupProgressPlaylistReferenceRequest(request.Reason, request.Version, request.OperationToken);
+        startupProgressWorkflowOwner.TrackStartupProgressPlaylistReferenceRequest(request.Reason, request.Version, request.OperationToken, request.ProgressRequest);
         startupProgressWorkflowOwner.TrackStartupProgressPlaylistEntriesHydrationDirectRequest(
             request.Version,
             "playlist_ref_deferred:" + request.Reason,
-            request.OperationToken);
+            request.OperationToken, request.ProgressRequest);
     }
 
     private void PlaylistReferenceApplyWorkflowCompleted(

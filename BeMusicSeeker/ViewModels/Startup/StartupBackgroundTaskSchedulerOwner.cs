@@ -76,6 +76,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
         internal long Generation;
 
+        internal OperationProgressRequest ProgressRequest;
+
         internal StartupBackgroundTaskReservation Reservation;
 
         // A reserved identity is a one-shot submit receipt. The state is only
@@ -200,13 +202,42 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             if (context != null)
             {
-                PublishProgress(new(name, context.Generation, requestVersion, IsPostInitializationTask(name), running));
+                PublishProgress(new(name, context.Generation, requestVersion, IsPostInitializationTask(name), running,
+                    context.Request with { Source = name, Version = requestVersion }));
             }
         };
     }
 
+    /// <summary>受付時の呼出し文脈から、機能要求版の発生元を捕捉します。</summary>
+    /// <param name="source">要求版の発行主体と処理。</param>
+    /// <param name="requestVersion">同じ主体の要求版。</param>
+    /// <returns>呼出し元の世代と操作を保持した識別。文脈がなければ受付時の現世代で、操作トークン0の独立した要求です。</returns>
+    internal OperationProgressRequest CaptureProgressRequest(string source, long requestVersion)
+    {
+        StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        return new(context?.Generation ?? CurrentGeneration, context?.Request?.OperationToken ?? 0, source, requestVersion);
+    }
+
+    /// <summary>捕捉済みの機能要求の実行境界を、その要求のまま表示先へ通知します。</summary>
+    internal void ReportRequestProgress(OperationProgressRequest request, bool running)
+    {
+        if (request != null)
+        {
+            string name = request.Source.StartsWith("scheduler:", StringComparison.Ordinal) ? request.Source[10..] : request.Source;
+            PublishProgress(new(name, request.Generation, request.Version,
+                IsPostInitializationTask(name), running, request));
+        }
+    }
+
+    /// <summary>実行中のスケジューラー要求を専用件数通知へ渡します。</summary>
+    internal OperationProgressRequest CaptureCurrentProgressRequest() => progressContext.Value?.Request;
+
     private static bool UsesExecutionProgressReporter(string name) =>
-        name is "score_hydration_deferred" or "ranking_refresh_deferred";
+        name is "score_hydration_deferred" or "ranking_refresh_deferred"
+            or "chart_info_hydration" or "chart_info_backfill" or "chart_info_backfill_after_hydration"
+            or "maintenance_hydration" or "installable_maintenance" or "playlist_entries_hydration"
+            or "external_playlist_sync" or "playlist_ref_apply"
+            or "playlist_custom_folder_output_repair" or "beatoraja_bmt_export_all";
 
     private void PublishProgress(Request request, bool running)
     {
@@ -215,8 +246,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             return;
         }
 
-        var status = new StartupBackgroundTaskProgressSnapshot(request.Name, request.Generation,
-            request.Version, request.IsPostInitialization, running);
+        var status = new StartupBackgroundTaskProgressSnapshot(request.Name, request.ProgressRequest.Generation,
+            request.Version, request.IsPostInitialization, running, request.ProgressRequest);
         PublishProgress(status);
     }
 
@@ -471,6 +502,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             existing.IsPostInitialization = isPostInitialization;
                             existing.Priority = priority;
                             existing.Version = requestVersion;
+                            existing.ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion);
                             existing.Work = work;
                             existing.Discard = discard;
                             replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
@@ -490,6 +522,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Priority = priority,
                             Version = requestVersion,
                             Generation = generation,
+                            ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion),
                             Reservation = null,
                             ReservationState = 0,
                             Work = work,
@@ -622,6 +655,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Priority = priority,
                             Version = requestVersion,
                             Generation = generation,
+                            ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion),
                             Reservation = reservation,
                             ReservationState = ReservationStateQueued,
                             Work = work,
@@ -708,7 +742,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     }
 
     /// <summary>既存のスケジュールを再設定し、以後の子Taskへ表示世代を捕捉します。</summary>
-    internal void Reset(bool startImmediately)
+    internal void Reset(bool startImmediately, long operationToken = 0L)
     {
         bool shouldStartWorker;
         lock (progressSynchronization)
@@ -720,7 +754,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 requiredInitializationSchedulingComplete = false;
                 generation++;
                 // 同期の操作開始入口から流すため、後で旧子Taskへ現在世代を付け直しません。
-                progressContext.Value = new StartupBackgroundTaskProgressSnapshot(string.Empty, generation, 0, false, false);
+                progressContext.Value = new StartupBackgroundTaskProgressSnapshot(string.Empty, generation, 0, false, false,
+                    new(generation, operationToken, string.Empty, 0));
                 latestReservationSequenceByName.Clear();
                 idleRevision++;
                 for (int i = 0; i < queue.Count; i++)
@@ -949,7 +984,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             bool running = string.Equals(status, "start", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(status, "running", StringComparison.OrdinalIgnoreCase);
-            PublishProgress(new(name, context.Generation, context.Version, IsPostInitializationTask(name), running));
+            PublishProgress(new(name, context.Generation, context.Version, IsPostInitializationTask(name), running, context.Request));
         }
         lock (syncRoot)
         {
@@ -1151,7 +1186,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         Task.Run(async delegate
         {
-            progressContext.Value = new(request.Name, request.Generation, request.Version, request.IsPostInitialization, true);
+            progressContext.Value = new(request.Name, request.ProgressRequest.Generation, request.Version, request.IsPostInitialization, true, request.ProgressRequest);
             var stopwatch = Stopwatch.StartNew();
             logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
             RecordStarted(request);
@@ -1393,7 +1428,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsPostInitializationTask(string name)
+    /// <summary>既存の後続処理分類を、表示の所属判定でも共用します。</summary>
+    internal static bool IsPostInitializationTask(string name)
     {
         return string.Equals(name, "lr2_song_db_sync_enrollment", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)

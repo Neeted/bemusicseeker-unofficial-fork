@@ -1064,7 +1064,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (snapshot?.IsActive == true)
         {
             ReportPlaylistSyncProgress(snapshot, PlaylistSummaryBulkProgressSource,
-                BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_external_property_initialization);
+                BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization);
         }
     }
 
@@ -1077,8 +1077,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             TotalTableCount = totalTableCount,
             CompletedTableCount = completedTableCount,
             CurrentTableName = currentTableName ?? string.Empty,
-            LabelFormat = BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_external_property_initialization + " {0}/{1}",
-            SingleLabel = BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_external_property_initialization
+            LabelFormat = BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization + " {0}/{1}",
+            SingleLabel = BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization
         });
     }
 

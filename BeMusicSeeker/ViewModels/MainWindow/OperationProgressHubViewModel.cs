@@ -22,7 +22,8 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
     private bool workflowProgressSourcesAttached;
     private bool playlistProgressSourcesAttached;
-    private bool startupBackgroundInitializationPresentationLatched;
+    private long startupBackgroundOperationToken;
+    private long startupBackgroundOriginGeneration;
     private readonly ConcurrentDictionary<string, long> playlistUiVersions = new();
     private long playlistUiVersionSeed;
     private Action<Action> dispatchPlaylistProgressAction;
@@ -88,19 +89,24 @@ public sealed class OperationProgressHubViewModel : ViewModel
     }
 
     /// <summary>起動後グループが既存の複合終端まで存続しているかを取得します。</summary>
-    public bool IsStartupBackgroundInitializationActive => startupBackgroundInitializationPresentationLatched;
+    public bool IsStartupBackgroundInitializationActive => startupBackgroundOperationToken != 0;
 
     /// <summary>起動後グループの親ラベルを取得します。</summary>
-    public string StartupBackgroundInitializationLabel => BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background;
+    public string StartupBackgroundInitializationLabel => BeMusicSeeker.Properties.Resources.Statusbar_progress_startup_additional;
 
     /// <summary>既存の後続グループ開始境界で親行を表示します。</summary>
-    internal void BeginStartupBackgroundInitializationPresentation() { startupBackgroundInitializationPresentationLatched = true; RaiseRowsChanged(); }
+    internal void BeginStartupBackgroundInitializationPresentation(long operationToken, long generation)
+    {
+        startupBackgroundOperationToken = operationToken;
+        startupBackgroundOriginGeneration = generation;
+        RaiseRowsChanged();
+    }
 
     /// <summary>既存の複合終端で後続グループ親行を消します。</summary>
-    internal void CompleteStartupBackgroundInitializationPresentation() { startupBackgroundInitializationPresentationLatched = false; RaiseRowsChanged(); }
+    internal void CompleteStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
 
     /// <summary>新しい操作が開始されたとき旧後続グループ親行を消します。</summary>
-    internal void ResetStartupBackgroundInitializationPresentation() { startupBackgroundInitializationPresentationLatched = false; RaiseRowsChanged(); }
+    internal void ResetStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
 
     /// <summary>導入先推定キューを、推定詳細と一つの仕事として反映します。</summary>
     internal void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
@@ -144,6 +150,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
             else
             {
                 playlistStatuses.Remove(key);
+                playlistUiVersions.TryRemove(new KeyValuePair<string, long>(key, version));
             }
 
             RaiseRowsChanged();
@@ -176,12 +183,12 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
             foreach (StartupBackgroundTaskProgressSnapshot status in backgroundStatuses.Values.OrderBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.Version))
             {
-                if (HasDedicatedPresentation(status.Name, rows))
+                if (HasDedicatedPresentation(status, rows))
                 {
                     continue;
                 }
 
-                rows.Add(new("background:" + status.Name + ":" + status.Version,
+                rows.Add(new("background:" + status.Name + ":" + status.Version + (status.Request == null ? string.Empty : ":" + GetRequestKey(status.Request)),
                     GetBackgroundTaskLabel(status.Name), string.Empty, IsIndeterminate: true,
                     ParentKey: GetBackgroundParentKey(status)));
             }
@@ -230,7 +237,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
                     ? string.Format(format, completed, status.TotalTableCount) : single,
                     !string.IsNullOrWhiteSpace(status.CurrentTableName) ? status.CurrentTableName : status.CurrentUri?.ToString() ?? string.Empty,
                     completed, Math.Max(1, status.TotalTableCount), status.TotalTableCount <= 0,
-                    ParentKey: GetPlaylistParentKey(status.Source)));
+                    ParentKey: GetRequestParentKey(status.Request)));
             }
             if (maintenanceProgress is { IsCompleted: false } maintenance)
             {
@@ -244,7 +251,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
             {
                 int total = Math.Max(0, rename.TotalCount);
                 int processed = Math.Clamp(rename.ProcessedCount, 0, Math.Max(1, total));
-                rows.Add(new("rename", BeMusicSeeker.Properties.Resources.Rename_folder_auto + " " + processed + "/" + total,
+                rows.Add(new("rename", BeMusicSeeker.Properties.Resources.Statusbar_progress_task_folder_rename + " " + processed + "/" + total,
                     rename.CurrentPath ?? string.Empty, processed, Math.Max(1, total), total <= 0));
             }
             if (latestLr2SongDbSyncStatus.HasWarningStatus)
@@ -253,7 +260,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 rows.Add(new("lr2", status.StatusText, status.ProgressText, status.ProgressValue, status.ProgressMaximum,
                     status.Kind == Lr2SongDbSyncStatusKind.Running && !status.HasProgress,
                     status.CanRetry ? OperationProgressAction.RetryLr2 : OperationProgressAction.None, status.Detail,
-                    ParentKey: GetBackgroundParentKey("lr2_song_db_sync"),
+                    ParentKey: GetLr2ParentKey(),
                     HasGauge: status.HasProgress || status.Kind == Lr2SongDbSyncStatusKind.Running));
             }
             // 分類は保持し、表示されていない親への見かけの所属だけを外します。
@@ -271,7 +278,10 @@ public sealed class OperationProgressHubViewModel : ViewModel
     public bool HasRows => Rows.Count != 0;
 
     private static string GetPlaylistKey(PlaylistSyncProgressSnapshot snapshot) =>
-        (snapshot?.Source ?? "playlist") + ":" + (snapshot?.OperationId ?? 0);
+        (snapshot?.Source ?? "playlist") + ":" + (snapshot?.OperationId ?? 0) + (snapshot?.Request == null ? string.Empty : ":" + GetRequestKey(snapshot.Request));
+
+    private static string GetRequestKey(OperationProgressRequest request) => request == null ? string.Empty
+        : request.Generation + ":" + request.OperationToken + ":" + request.Source + ":" + request.Version;
 
     /// <summary>操作開始時に旧世代の表示通知を排除します。</summary>
     internal void BeginBackgroundProgressGeneration(long generation)
@@ -289,7 +299,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
             return;
         }
 
-        string key = status.Name + ":" + status.Version;
+        string key = status.Name + ":" + status.Version + (status.Request == null ? string.Empty : ":" + GetRequestKey(status.Request));
         if (status.IsRunning)
         {
             backgroundStatuses[key] = status;
@@ -302,37 +312,25 @@ public sealed class OperationProgressHubViewModel : ViewModel
         RaiseRowsChanged();
     }
 
-    private bool HasDedicatedPresentation(string name, IReadOnlyList<OperationProgressRow> rows)
+    private bool HasDedicatedPresentation(StartupBackgroundTaskProgressSnapshot status, IReadOnlyList<OperationProgressRow> rows)
     {
-        if (name == "lr2_song_db_sync")
+        if (status.Name == "lr2_song_db_sync")
         {
-            return latestLr2SongDbSyncStatus.HasWarningStatus;
+            return latestLr2SongDbSyncStatus.Kind == Lr2SongDbSyncStatusKind.Running;
         }
-
-        if (name == "external_playlist_sync")
+        if (playlistStatuses.Values.Any(value => value.Request != null && value.Request == status.Request))
         {
-            return playlistStatuses.Values.Any(s => s.Source == "external_playlist_sync");
+            return true;
         }
-
-        if (name == "playlist_custom_folder_output_repair")
-        {
-            return playlistStatuses.Values.Any(s => s.Source == "custom_folder_repair");
-        }
-
-        if (name.StartsWith("beatoraja_bmt_", StringComparison.Ordinal))
-        {
-            return playlistStatuses.Values.Any(s => s.Source == "bmt");
-        }
-
-        string detailName = name == "chart_info_backfill_after_hydration" ? "chart_info_backfill" : name;
-        return rows.Any(row => row.Key == "task:" + detailName);
+        string detailName = status.Name == "chart_info_backfill_after_hydration" ? "chart_info_backfill" : status.Name;
+        return StartupProgress.IsExecutionProgressPartOfStartup(status.Request)
+            && rows.Any(row => row.Key == "task:" + detailName);
     }
 
     private static string GetBackgroundTaskLabel(string name) => name switch
     {
         "score_hydration_deferred" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_score_hydration,
         "ranking_refresh" or "ranking_refresh_deferred" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ranking_refresh,
-        "chart_digest_backfill" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_digest,
         "chart_info_backfill" or "chart_info_backfill_after_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info,
         "chart_info_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load,
         "playlist_entries_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading,
@@ -439,37 +437,36 @@ public sealed class OperationProgressHubViewModel : ViewModel
         };
     }
 
-    private string GetBackgroundParentKey(string name)
+    private string GetLr2ParentKey()
     {
-        StartupBackgroundTaskProgressSnapshot status = backgroundStatuses.Values.FirstOrDefault(value => value.Name == name);
-        return GetBackgroundParentKey(status);
-    }
-
-    private string GetBackgroundParentKey(StartupBackgroundTaskProgressSnapshot status)
-    {
-        if (status == null)
+        if (latestLr2SongDbSyncStatus.Kind != Lr2SongDbSyncStatusKind.Running)
         {
             return string.Empty;
         }
-
-        if (status.Name is "score_hydration_deferred" or "ranking_refresh_deferred")
-        {
-            return StartupProgress.IsExecutionProgressPartOfStartup(status.Name, status.Version) ? "startup" : string.Empty;
-        }
-
-        return status.IsPostInitialization ? "startup_background" : "startup";
+        // LR2の既存単一実行中だけ対応通知を持ちます。終端後の警告や再試行には所属を引き継ぎません。
+        return backgroundStatuses.Values.Where(status => status.Name == "lr2_song_db_sync")
+            .Select(GetBackgroundParentKey).FirstOrDefault(parent => parent == "startup_background") ?? string.Empty;
     }
 
-    private string GetPlaylistParentKey(string source)
+    private string GetBackgroundParentKey(StartupBackgroundTaskProgressSnapshot status) => GetRequestParentKey(status?.Request);
+
+    private string GetRequestParentKey(OperationProgressRequest request)
     {
-        StartupBackgroundTaskProgressSnapshot status = backgroundStatuses.Values.FirstOrDefault(value => source switch
+        if (request == null || request.OperationToken == 0)
         {
-            "bmt" => value.Name.StartsWith("beatoraja_bmt_", StringComparison.Ordinal),
-            "custom_folder_repair" => value.Name == "playlist_custom_folder_output_repair",
-            "external_playlist_sync" => value.Name == "external_playlist_sync",
-            _ => false
-        });
-        return status == null ? string.Empty : status.IsPostInitialization ? "startup_background" : "startup";
+            return string.Empty;
+        }
+        if (StartupProgress.IsExecutionProgressPartOfStartup(request))
+        {
+            return "startup";
+        }
+        return IsStartupBackgroundInitializationActive
+            && request.OperationToken == startupBackgroundOperationToken
+            && request.Generation == startupBackgroundOriginGeneration
+            && StartupBackgroundTaskSchedulerOwner.IsPostInitializationTask(
+                request.Source.StartsWith("scheduler:", StringComparison.Ordinal) ? request.Source[10..] : request.Source)
+            && request.Source is not "ranking_refresh_deferred" and not "score_hydration_deferred"
+            ? "startup_background" : string.Empty;
     }
 
     private void RaiseRowsChanged()

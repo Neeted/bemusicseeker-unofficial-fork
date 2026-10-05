@@ -15,6 +15,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -125,6 +126,9 @@ public sealed class MainWindowProgressStatusBarWpfTests
             StatusBar statusBar = GetNamedElement<StatusBar>(window, "progressStatusBar");
             Assert.AreSame(hub, statusBar.DataContext);
             Assert.AreEqual(Visibility.Collapsed, statusBar.Visibility);
+            long token = hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            var request = new OperationProgressRequest(1, token, "chart_info_hydration", 1);
+            hub.StartupProgress.TrackStartupProgressChartInfoHydrationRequested(1, request);
             hub.StartupProgress.ApplyPresentation(true, new string('あ', 200), "phase", 2, 13);
             host.UpdateLayout();
             double oneRowHeight = statusBar.ActualHeight;
@@ -136,7 +140,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 CurrentDisplayName = new string('長', 200)
             });
             hub.BeginBackgroundProgressGeneration(1);
-            hub.UpdateBackgroundTaskProgress(new("chart_info_hydration", 1, 1, false, true));
+            hub.UpdateBackgroundTaskProgress(new("chart_info_hydration", 1, 1, false, true, request));
             statusBar.ApplyTemplate();
             host.UpdateLayout();
             Assert.AreEqual(Visibility.Visible, statusBar.Visibility);

@@ -1,37 +1,38 @@
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly object playlistSyncProgressPublicationLock = new();
-    private readonly Dictionary<string, int> playlistSyncProgressActiveOperations = new();
-    private readonly HashSet<(string Source, long OperationId)> activePlaylistProgressIds = [];
+    private readonly Dictionary<(string Source, OperationProgressRequest Request), int> playlistSyncProgressActiveOperations = new();
+    private readonly HashSet<(string Source, long OperationId, OperationProgressRequest Request)> activePlaylistProgressIds = [];
 
     /// <summary>同じ生産元の複合処理が終結するまで、その進捗行を所有します。</summary>
-    internal void BeginPlaylistSyncProgressOperation(string source = "playlist")
+    internal void BeginPlaylistSyncProgressOperation(string source = "playlist", OperationProgressRequest request = null)
     {
         lock (playlistSyncProgressPublicationLock)
         {
-            playlistSyncProgressActiveOperations.TryGetValue(source, out int count);
-            playlistSyncProgressActiveOperations[source] = count + 1;
+            playlistSyncProgressActiveOperations.TryGetValue((source, request), out int count);
+            playlistSyncProgressActiveOperations[(source, request)] = count + 1;
         }
     }
 
     /// <summary>生産元の最後の所有処理が終わったとき、その行だけを消します。</summary>
-    internal void EndPlaylistSyncProgressOperation(string source = "playlist")
+    internal void EndPlaylistSyncProgressOperation(string source = "playlist", OperationProgressRequest request = null)
     {
         lock (playlistSyncProgressPublicationLock)
         {
-            playlistSyncProgressActiveOperations.TryGetValue(source, out int count);
+            playlistSyncProgressActiveOperations.TryGetValue((source, request), out int count);
             if (count > 1)
             {
-                playlistSyncProgressActiveOperations[source] = count - 1;
+                playlistSyncProgressActiveOperations[(source, request)] = count - 1;
                 return;
             }
-            playlistSyncProgressActiveOperations.Remove(source);
-            PublishPlaylistSyncProgress(new PlaylistSyncProgressSnapshot { Source = source, IsActive = false });
+            playlistSyncProgressActiveOperations.Remove((source, request));
+            PublishPlaylistSyncProgress(new PlaylistSyncProgressSnapshot { Source = source, Request = request, IsActive = false });
         }
     }
 
@@ -47,7 +48,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (snapshot.OperationId != 0)
             {
-                (string Source, long OperationId) key = (snapshot.Source, snapshot.OperationId);
+                (string Source, long OperationId, OperationProgressRequest Request) key = (snapshot.Source, snapshot.OperationId, snapshot.Request);
                 if (snapshot.IsActive)
                 {
                     activePlaylistProgressIds.Add(key);
@@ -59,7 +60,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             // ID付きBMT出力と修復は自身の終端を持ち、利用者の複合処理とは別に終結します。
             if (!snapshot.IsActive && snapshot.OperationId == 0
-                && playlistSyncProgressActiveOperations.ContainsKey(snapshot.Source))
+                && playlistSyncProgressActiveOperations.ContainsKey((snapshot.Source, snapshot.Request)))
             {
                 return;
             }
@@ -69,13 +70,14 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     // モデル共通通知の既存操作IDを保ち、呼出し元が所有する仕事だけを識別します。
-    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, string singleLabel = null)
+    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, string singleLabel = null, OperationProgressRequest request = null)
     {
         if (snapshot == null)
         {
             return;
         }
         snapshot.Source = source;
+        snapshot.Request = request;
         if (singleLabel != null)
         {
             snapshot.SingleLabel = singleLabel;

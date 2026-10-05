@@ -192,6 +192,23 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>
     /// Publishes best-effort startup custom-folder repair progress to the shell.
     /// </summary>
+    /// <summary>要求受付時の発生元を既存項目読込み所有者へ渡します。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory
+    {
+        get => playlistEntriesHydrationOwner.ProgressRequestFactory;
+        set => playlistEntriesHydrationOwner.ProgressRequestFactory = value;
+    }
+
+    /// <summary>実行境界を項目読込み所有者から表示先へ接続します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter
+    {
+        get => playlistEntriesHydrationOwner.RequestProgressReporter;
+        set => playlistEntriesHydrationOwner.RequestProgressReporter = value;
+    }
+
+    /// <summary>専用出力が汎用通知と同じ実行要求を捕捉する窓口です。</summary>
+    internal Func<OperationProgressRequest> ExecutionProgressRequestProvider { get; set; }
+
     internal Action<PlaylistSyncProgressSnapshot> CustomFolderOutputRepairProgressReporter { get; set; }
 
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
@@ -926,20 +943,20 @@ public partial class BMSPlaylist : ObservableObject
         playlistAggregatePersistenceOwner.AttachEntriesHydrationOwner(playlistEntriesHydrationOwner);
         playlistEntriesHydrationOwner.RunningChanged += _ =>
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationRunning));
-        playlistEntriesHydrationOwner.HydrationRequested += version =>
+        playlistEntriesHydrationOwner.HydrationRequested += (version, request) =>
         {
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationRequestedVersion));
             PlaylistEntriesHydrationRequested?.Invoke(
                 this,
-                new PlaylistHydrationVersionEventArgs(version));
+                new PlaylistHydrationVersionEventArgs(version, request));
         };
-        playlistEntriesHydrationOwner.HydrationCompleted += version =>
+        playlistEntriesHydrationOwner.HydrationCompleted += (version, request) =>
         {
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationCompletedVersion));
             startupReadinessCoordinator.MarkRequiredPlaylistReady();
             PlaylistEntriesHydrationCompleted?.Invoke(
                 this,
-                new PlaylistHydrationVersionEventArgs(version));
+                new PlaylistHydrationVersionEventArgs(version, request));
         };
         playlistEntriesHydrationOwner.HydrationReceiptPublished += PlaylistEntriesHydrationReceiptPublishedHandler;
         listenerForRwlockBMSTablesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeAll);
@@ -1232,7 +1249,7 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows)
+    private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows, OperationProgressRequest originatingRequest = null)
     {
         if (TrySkipForShutdown("custom_folder_repair_after_hydration", reason))
         {
@@ -1248,6 +1265,13 @@ public partial class BMSPlaylist : ObservableObject
 
         Task work()
         {
+            OperationProgressRequest progressRequest = ExecutionProgressRequestProvider?.Invoke();
+            if (progressRequest != null && originatingRequest != null)
+            {
+                progressRequest = progressRequest with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
+            }
+            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
+            executionReporter?.Invoke(progressRequest, true);
             try
             {
                 if (IsShutdownRequested)
@@ -1263,12 +1287,13 @@ public partial class BMSPlaylist : ObservableObject
                         progressReporter,
                         processed,
                         total,
-                        tableName));
+                        tableName, progressRequest));
                 return Task.CompletedTask;
             }
             finally
             {
-                PublishCustomFolderOutputRepairProgress(progressReporter, 0, 0, string.Empty);
+                PublishCustomFolderOutputRepairProgress(progressReporter, 0, 0, string.Empty, progressRequest);
+                executionReporter?.Invoke(progressRequest, false);
             }
         }
 
@@ -1322,7 +1347,7 @@ public partial class BMSPlaylist : ObservableObject
                 {
                     return;
                 }
-                QueueExternalPlaylistSyncAfterHydration(receipt.Reason);
+                QueueExternalPlaylistSyncAfterHydration(receipt.Reason, receipt.ProgressRequest);
                 if (IsShutdownRequested)
                 {
                     return;
@@ -1407,7 +1432,7 @@ public partial class BMSPlaylist : ObservableObject
             {
                 QueueCustomFolderOutputRepairAfterHydration(
                     receipt.Reason,
-                    effectiveContinuation.VerifyRootOutputDirectoryRows);
+                    effectiveContinuation.VerifyRootOutputDirectoryRows, receipt.ProgressRequest);
             }
             catch (Exception ex)
             {
@@ -1420,7 +1445,7 @@ public partial class BMSPlaylist : ObservableObject
         {
             try
             {
-                BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason);
+                BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason, originatingRequest: receipt.ProgressRequest);
             }
             catch (Exception ex)
             {
@@ -1460,7 +1485,7 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    private void QueueExternalPlaylistSyncAfterHydration(string reason)
+    private void QueueExternalPlaylistSyncAfterHydration(string reason, OperationProgressRequest originatingRequest)
     {
         if (TrySkipForShutdown("external_sync_after_hydration", reason))
         {
@@ -1469,19 +1494,30 @@ public partial class BMSPlaylist : ObservableObject
 
         async Task Work()
         {
-            if (IsShutdownRequested)
+            OperationProgressRequest progressRequest = ExecutionProgressRequestProvider?.Invoke();
+            if (progressRequest != null && originatingRequest != null)
             {
-                return;
+                progressRequest = progressRequest with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
             }
-            using IDisposable admission = await WaitForPlaylistMutationAsync(
-                startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
-            if (IsShutdownRequested)
+            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
+            executionReporter?.Invoke(progressRequest, true);
+            try
             {
-                return;
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                using IDisposable admission = await WaitForPlaylistMutationAsync(
+                    startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                await externalSyncOwner.UpdateBMSTablesInternalAsync(
+                    reloadExtPlaylist: true,
+                    cancellationToken: startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
             }
-            await externalSyncOwner.UpdateBMSTablesInternalAsync(
-                reloadExtPlaylist: true,
-                cancellationToken: startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+            finally { executionReporter?.Invoke(progressRequest, false); }
         }
 
         Func<string, string, string, Func<Task>, bool> startupScheduler = StartupBackgroundTaskScheduler;
@@ -2738,7 +2774,7 @@ public partial class BMSPlaylist : ObservableObject
         Action<PlaylistSyncProgressSnapshot> progressReporter,
         int processed,
         int total,
-        string tableName)
+        string tableName, OperationProgressRequest request = null)
     {
         if (progressReporter == null)
         {
@@ -2758,11 +2794,12 @@ public partial class BMSPlaylist : ObservableObject
             {
                 IsActive = isActive,
                 Source = "custom_folder_repair",
+                Request = request,
                 TotalTableCount = isActive ? total : 0,
                 CompletedTableCount = isActive ? Math.Min(processed, total) : 0,
                 CurrentTableName = isActive ? tableName ?? string.Empty : string.Empty,
-                LabelFormat = Resources.Custom_folder_output_progress_label_format,
-                SingleLabel = Resources.Custom_folder_output_progress_single_label
+                LabelFormat = Resources.Statusbar_progress_task_custom_folder_repair + " {0}/{1}",
+                SingleLabel = Resources.Statusbar_progress_task_custom_folder_repair
             });
         }
         catch (Exception exception)
@@ -6000,8 +6037,13 @@ internal sealed class PlaylistDropMutationResult
 
 internal sealed class PlaylistHydrationVersionEventArgs : EventArgs
 {
-    internal PlaylistHydrationVersionEventArgs(int version)
+    /// <summary>受付・完了通知に捕捉した表示識別です。</summary>
+    internal OperationProgressRequest Request { get; }
+
+    /// <summary>既存の受付・完了情報に、同じ要求の捕捉済み表示識別を添えます。</summary>
+    internal PlaylistHydrationVersionEventArgs(int version, OperationProgressRequest request = null)
     {
+        Request = request;
         Version = version;
     }
 
