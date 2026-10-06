@@ -846,6 +846,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 + "#TITLE Current Directory Resource Path\r\n"
                 + "#ARTIST Test\r\n"
                 + "#WAVAA .\\sound.wav\r\n"
+                + "#WAVAB .wav\r\n#WAVAC .ogg\r\n#BMPAA .png\r\n#BMPAB mystery.xyz\r\n"
                 + "#00111:AA\r\n");
             string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Current Directory Resource Path\r\n#ARTIST Test\r\n");
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");

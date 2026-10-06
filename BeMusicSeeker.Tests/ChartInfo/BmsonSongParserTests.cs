@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -80,21 +81,28 @@ public sealed class BmsonSongParserTests
                 + "\"info\":{"
                 + "\"title\":\"Main\","
                 + "\"artist\":\"Artist\","
-                + "\"preview_music\":\"preview.ogg\""
+                + "\"preview_music\":\"preview.ogg\",\"banner_image\":\".png\",\"back_image\":\"\",\"eyecatch_image\":\".png\""
                 + "},"
-                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],"
-                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"movie.mp4\"},{\"id\":2,\"name\":\"image.png\"}]},"
+                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]},{\"name\":\".wav\",\"notes\":[]},{\"name\":\".ogg\",\"notes\":[]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"movie.mp4\"},{\"id\":2,\"name\":\"image.png\"},{\"id\":3,\"name\":\".png\"},{\"id\":4,\"name\":\"mystery.xyz\"}]},"
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
             Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
-            var snapshot = ChartResourceSnapshot.Create(parsed);
-
-            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, parsed.wav_files.ToArray());
-            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, parsed.bga_files.ToArray());
-            Assert.AreEqual(2, snapshot.AudioReferenceCount);
-            Assert.AreEqual(1, snapshot.VisualReferenceCount);
-            Assert.AreEqual(1, snapshot.MovieReferenceCount);
+            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav", ".wav" }, parsed.wav_files.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4", ".png" }, parsed.bga_files.ToArray());
+            ChartFile chart = ChartFileProjection.FromBmsonSong(parsed, includeWarningSnapshot: false, includeResourceReferences: true);
+            foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(parsed), ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
+            {
+                Assert.AreEqual(2, snapshot.AudioReferenceCount);
+                Assert.AreEqual(1, snapshot.VisualReferenceCount);
+                Assert.AreEqual(1, snapshot.MovieReferenceCount);
+                Assert.AreEqual(0, snapshot.OptionalImageReferenceCount);
+                CollectionAssert.AreEquivalent(new[] { "keysound", "preview", "image", "movie" }, snapshot.EnumerateAllRelativePaths().ToArray());
+                CollectionAssert.AreEquivalent(new[] { "keysound", "preview", "image", "movie" }.Select(ChartResourceKeyHash.GetLookupHash).ToArray(), snapshot.EnumerateAllRelativePathHashes().ToArray());
+                Assert.AreEqual(0, snapshot.UnsupportedResourceReferenceCount);
+                Assert.IsFalse(snapshot.HasUnsupportedParentTraversalReference);
+            }
         }
         finally
         {
