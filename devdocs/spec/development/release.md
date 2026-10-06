@@ -16,7 +16,7 @@
 | --- | --- |
 | `dev` | 次回正式版の開発の起点・統合先。通常の作業ブランチとPRはここを対象にする。 |
 | `main` | 正式公開済みのコードと配信データ。アプリの変更は正式リリース時に反映する。 |
-| 作業ブランチ | `dev` から作り、検証後に `dev` へ統合する。回帰調査に意味のあるコミット単位を残す。 |
+| 通常の作業ブランチ | `dev` から作り、検証後に原則 `git merge --ff-only` で `dev` へ統合する。回帰調査に意味のあるコミット単位を残す。 |
 | 緊急修正 | 公開 `main` から分岐し、必要な修正だけを検証して正式版を公開する。その後 `main` を `dev` へマージする。 |
 | TSV・文書の保守 | アプリの版を上げずに `main` へ反映できる。同じ変更を `dev` にもマージする。更新情報を未公開版へ変更しない。 |
 
@@ -25,6 +25,24 @@
 GitHubの既定ブランチと通常のPR先は `dev` です。閲覧・clone・外部参加の入口を開発の起点に揃え、正式版の配信は引き続き `main` を使います。保護設定で `main` と `dev` の削除・強制更新、リリースタグの削除・付け替えを禁止し、マージコミットと保守者による `dev` への直接送信・リリース時の `main` への直接送信を許可します。
 
 保守者自身の変更は、Issue対応を含め自己PRを作らず、作業ブランチでの検証後にローカルで `dev` へ統合して送信します。外部変更はPRで受け付けます。参加・受入・Issueの完了に関する方針は [CONTRIBUTING.md](../../../CONTRIBUTING.md)を参照してください。
+
+### 通常の作業ブランチの統合
+
+`dev` から分岐した通常の作業ブランチは、個々のコミットを維持して1本の履歴へ統合します。原則として `git merge --ff-only` を使い、通常作業の統合だけを目的とするマージコミットは作りません。
+
+検証後に作業ツリーをクリーンにし、統合先の `dev` を最新にしてから統合します。各コマンドの成功を確認してから次へ進みます。
+
+```powershell
+git switch dev
+git pull --ff-only
+git merge --ff-only codex/変更内容
+```
+
+作業ブランチの統合がfast-forwardできない場合は停止し、自動的にマージコミットを作る方法へ切り替えません。未公開で他者が依存していない作業ブランチは、そのブランチ上で `git rebase dev` により最新の `dev` へ更新します。競合があれば解消し、更新後の版に必要な[検証](testing.md)を行ってから、`dev` 上で `git merge --ff-only` による統合を再実行します。
+
+`dev`・`main` と公開済みの履歴はrebaseしません。公開・共有済みの作業ブランチなど、履歴を書き換えられない場合は更新方法を相談します。通常作業でマージコミットを残すのは、他者が依存する履歴の維持や分岐経緯の記録など、理由を明示して利用者または保守者と合意した場合に限ります。
+
+正式リリースの `dev` から `main` への統合は、下記の手順どおり `--no-ff` を使います。緊急修正や公開後の `main` から `dev` への取り込みも親子関係を保つマージを使い、両ブランチ間の祖先関係を維持します。
 
 ### 維持する配信資源
 
@@ -120,7 +138,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 
 | 仕様項目 | 実装箇所 | テスト・確認方法 |
 | --- | --- | --- |
-| ブランチと作業起点 | [AGENTS.md](../../../AGENTS.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。 |
+| ブランチと作業起点・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージを確認する。 |
 | バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../BeMusicSeeker.Tests/Verification/ReleaseScriptVersionSourceTests.cs): 隔離repoと実Git、GitHub CLIの代替を使い、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
 | 配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | Fullで配布物生成、既存データ利用、更新・起動を確認する。 |
 | 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |

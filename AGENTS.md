@@ -2,7 +2,7 @@
 
 .NET 10 / C# 14 を使う Windows 向け WPF アプリケーションです。作業開始時に `git status --short` と、変更先に適用される `AGENTS.md` を確認してください。
 
-開発の起点・通常のPR先は `dev`、正式公開済みのコードと配信データは `main` です。`dev` と `main` の間は履歴を保つマージを使います。`main` への反映、緊急修正、配信データの更新は[ブランチ運用とリリース手順](devdocs/spec/development/release.md)に従います。
+開発の起点・通常のPR先は `dev`、正式公開済みのコードと配信データは `main` です。`dev` から分岐した通常の作業ブランチは、個々のコミットを残して原則 `git merge --ff-only` で `dev` へ統合します。`dev` と `main` の間は履歴を保つマージを使います。通常作業の統合と例外、`main` への反映、緊急修正、配信データの更新は[ブランチ運用とリリース手順](devdocs/spec/development/release.md)に従います。
 
 ## 変更の原則
 
