@@ -139,7 +139,11 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         }
         catch (Exception ex)
         {
-            if (ex is PortableSettingsException) throw;
+            if (ex is PortableSettingsException)
+            {
+                throw;
+            }
+
             throw new PortableSettingsException(settingsPath, "Save", ex);
         }
     }
@@ -208,16 +212,27 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
     {
         var map = new Dictionary<string, (SettingsSerializeAs, string)>(StringComparer.Ordinal);
         XDocument document = ReadDocument(settingsPath);
-        if (document == null) return map;
+        if (document == null)
+        {
+            return map;
+        }
+
         XElement section = GetRequiredSettingsSection(document);
         // Read-only files still materialize compatible values even when normalization cannot be saved.
         NormalizeSettingsSection(section);
         foreach (XElement setting in section.Elements("setting"))
         {
             string name = (string)setting.Attribute("name");
-            if (string.IsNullOrWhiteSpace(name)) continue;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
             if (!Enum.TryParse((string)setting.Attribute("serializeAs"), out SettingsSerializeAs format))
+            {
                 format = SettingsSerializeAs.String;
+            }
+
             XElement value = setting.Element("value");
             map[name] = (format, value == null ? string.Empty :
                 format == SettingsSerializeAs.Xml ? string.Concat(value.Nodes()) : value.Value);
@@ -361,9 +376,17 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
     internal static int NormalizePortableConfig(string path)
     {
         XDocument document = ReadDocument(path);
-        if (document == null) return 0;
+        if (document == null)
+        {
+            return 0;
+        }
+
         int changed = NormalizeSettingsSection(GetRequiredSettingsSection(document));
-        if (changed > 0) SaveDocument(document, path);
+        if (changed > 0)
+        {
+            SaveDocument(document, path);
+        }
+
         return changed;
     }
 

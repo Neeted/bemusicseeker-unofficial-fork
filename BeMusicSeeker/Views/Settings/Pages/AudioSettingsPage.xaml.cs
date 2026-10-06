@@ -42,4 +42,12 @@ public partial class AudioSettingsPage : UserControl
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
         await viewModel.RunAudioDeviceTestAsync();
     }
+
+    private void AudioSettingsPageIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (DataContext is SettingsDialogViewModel viewModel)
+        {
+            viewModel.SetAudioSettingsPageVisible(e.NewValue is true);
+        }
+    }
 }

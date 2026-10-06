@@ -39,6 +39,16 @@ internal sealed class PlaylistReferenceApplyQueueRequest
 /// </summary>
 internal sealed class PlaylistReferenceApplyWorkflowOwner
 {
+    /// <summary>受付時の表示識別を捕捉します。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
+
+    /// <summary>捕捉済みの要求の実行境界を通知します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
+
+    private OperationProgressRequest requestedProgressRequest;
+
+    private Action<OperationProgressRequest, bool> requestedProgressReporter;
+
     private readonly Func<string, Func<Task>, bool> scheduler;
 
     private readonly Action<Action> dispatchPresentation;
@@ -97,7 +107,11 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
         }
     }
 
-    internal void Queue(string reason, long operationToken)
+    /// <summary>既存の要求版を進め、受付時の発生元と通知先を同時に捕捉します。</summary>
+    /// <param name="reason">既存の要求理由。</param>
+    /// <param name="operationToken">完了計算へ渡す既存の操作トークン。</param>
+    /// <param name="originatingRequest">読込み受領から起こす後続表示の発生元。受付・完了トークンは変更しません。</param>
+    internal void Queue(string reason, long operationToken, OperationProgressRequest originatingRequest = null)
     {
         if (shutdownRequestedProvider())
         {
@@ -111,13 +125,20 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
         bool shouldStartWorker = false;
         string queuedReason;
         long queuedOperationToken;
+        OperationProgressRequest queuedProgressRequest;
         lock (stateSyncRoot)
         {
             version = ++requestedVersion;
             requestedReason = reason ?? string.Empty;
             requestedOperationToken = operationToken;
+            requestedProgressRequest = originatingRequest != null
+                ? originatingRequest with { Source = "playlist_ref_apply", Version = version }
+                : ProgressRequestFactory == null ? null
+                    : ProgressRequestFactory("playlist_ref_apply", version) with { OperationToken = operationToken };
             queuedReason = requestedReason;
             queuedOperationToken = requestedOperationToken;
+            queuedProgressRequest = requestedProgressRequest;
+            requestedProgressReporter = RequestProgressReporter;
             if (!running)
             {
                 running = true;
@@ -130,7 +151,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
             new PlaylistReferenceApplyQueuedEventArgs(
                 queuedReason,
                 version,
-                queuedOperationToken));
+                queuedOperationToken, queuedProgressRequest));
         if (!shouldStartWorker)
         {
             return;
@@ -170,6 +191,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
                 PlaylistReferenceApplyRequestSnapshot request = CaptureRequest();
                 DateTime startedAt = DateTime.UtcNow;
                 bool succeeded = false;
+                request.ProgressReporter?.Invoke(request.ProgressRequest, true);
                 try
                 {
                     PlaylistReferenceApplyContext context = CaptureContext();
@@ -244,6 +266,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
                     lastCompletedVersion = Math.Max(lastCompletedVersion, request.Version);
                 }
 
+                request.ProgressReporter?.Invoke(request.ProgressRequest, false);
                 Completed?.Invoke(
                     this,
                     new PlaylistReferenceApplyCompletedEventArgs(
@@ -301,7 +324,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
         // The hydration receipt only wakes the canonical reference-apply worker. That worker
         // snapshots the current store after it starts, so a reload/edit that races this
         // notification cannot apply an older receipt after the newer playlist state.
-        Queue(receipt.Reason, operationToken: 0L);
+        Queue(receipt.Reason, operationToken: 0L, originatingRequest: receipt.ProgressRequest);
     }
 
     internal bool IsIdle
@@ -415,7 +438,7 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
         return new PlaylistReferenceApplyRequestSnapshot(
             requestedVersion,
             requestedReason ?? string.Empty,
-            requestedOperationToken);
+            requestedOperationToken, requestedProgressRequest, requestedProgressReporter);
     }
 
     private bool TryCompleteWorkerCycle(int version)
@@ -493,12 +516,19 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
 
     private readonly struct PlaylistReferenceApplyRequestSnapshot
     {
-        internal PlaylistReferenceApplyRequestSnapshot(int version, string reason, long operationToken)
+        internal PlaylistReferenceApplyRequestSnapshot(int version, string reason, long operationToken, OperationProgressRequest progressRequest = null,
+            Action<OperationProgressRequest, bool> progressReporter = null)
         {
+            ProgressRequest = progressRequest;
+            ProgressReporter = progressReporter;
             Version = version;
             Reason = reason;
             OperationToken = operationToken;
         }
+
+        internal OperationProgressRequest ProgressRequest { get; }
+
+        internal Action<OperationProgressRequest, bool> ProgressReporter { get; }
 
         internal int Version { get; }
 
@@ -510,12 +540,16 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
 
 internal sealed class PlaylistReferenceApplyQueuedEventArgs : EventArgs
 {
-    internal PlaylistReferenceApplyQueuedEventArgs(string reason, int version, long operationToken)
+    /// <summary>既存の受付・完了情報に、同じ要求の捕捉済み表示識別を添えます。</summary>
+    internal PlaylistReferenceApplyQueuedEventArgs(string reason, int version, long operationToken, OperationProgressRequest progressRequest = null)
     {
+        ProgressRequest = progressRequest;
         Reason = reason;
         Version = version;
         OperationToken = operationToken;
     }
+
+    internal OperationProgressRequest ProgressRequest { get; }
 
     internal string Reason { get; }
 

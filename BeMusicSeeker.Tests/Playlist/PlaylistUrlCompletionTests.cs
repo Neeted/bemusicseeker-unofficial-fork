@@ -5,13 +5,10 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -294,7 +291,6 @@ public sealed class PlaylistUrlCompletionTests
                 null,
                 null,
                 null,
-                null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
@@ -361,7 +357,6 @@ public sealed class PlaylistUrlCompletionTests
                 null,
                 null,
                 null,
-                null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
@@ -424,7 +419,6 @@ public sealed class PlaylistUrlCompletionTests
             };
             var playlist = new TestBmsPlaylist(
                 tempDbPath,
-                null,
                 null,
                 null,
                 null,

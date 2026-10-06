@@ -162,9 +162,6 @@ LR2 連携:
   <data name="Export" xml:space="preserve">
     <value>エクスポート</value>
   </data>
-  <data name="Device_setting_latency" xml:space="preserve">
-    <value>レイテンシ</value>
-  </data>
   <data name="Msg_initsetting_completed" xml:space="preserve">
     <value>設定を保存しました。
 これからBMSファイルの初回スキャンを開始します。
@@ -192,7 +189,7 @@ LR2 連携:
     <value>アーティスト</value>
   </data>
   <data name="Force_install" xml:space="preserve">
-    <value>警告を無視してインストール</value>
+    <value>新規としてインストール</value>
   </data>
   <data name="Record_setting_filetype" xml:space="preserve">
     <value>保存形式:</value>
@@ -217,9 +214,6 @@ LR2 連携:
   </data>
   <data name="Folder" xml:space="preserve">
     <value>フォルダ</value>
-  </data>
-  <data name="Recommended_automatic_update" xml:space="preserve">
-    <value>リコメンド (自動更新)</value>
   </data>
   <data name="PlaylistProp_folder_prefix" xml:space="preserve">
     <value>フォルダ接頭辞: </value>
@@ -258,20 +252,13 @@ LR2 連携:
     <value>ヘッダーファイルを保存</value>
   </data>
   <data name="Load_from_insane_estimation_table" xml:space="preserve">
-    <value>発狂BMS難度推定表から読み込む</value>
+    <value>内蔵の難度推定表・リコメンドから読み込む</value>
   </data>
   <data name="Backup" xml:space="preserve">
     <value>バックアップ</value>
   </data>
   <data name="Reinstall_to_estimation" xml:space="preserve">
     <value>推定先に再インストール</value>
-  </data>
-  <data name="Msg_load_recommended_tables_readonly_mode" xml:space="preserve">
-    <value> のリコメンドを取得します
-
-読み込み専用でリコメンドを取得します
-クリア状況が変化した場合はブックマークレット等で更新してください
-続行しますか？</value>
   </data>
   <data name="Browse" xml:space="preserve">
     <value>参照</value>
@@ -518,7 +505,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 続行しますか？</value>
   </data>
   <data name="Maintenance_rescan_progress_label_format" xml:space="preserve">
-    <value>再スキャン中 {0}/{1}</value>
+    <value>保守情報の再検査 {0}/{1}</value>
   </data>
   <data name="Maintenance_rescan_complete" xml:space="preserve">
     <value>再スキャン完了</value>
@@ -669,7 +656,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>保留</value>
   </data>
   <data name="Msg_failed_play" xml:space="preserve">
-    <value>プレイヤーの起動に失敗しました。</value>
+    <value>再生に失敗しました。</value>
   </data>
   <data name="Mark_fixed" xml:space="preserve">
     <value>修正済みとしてマーク</value>
@@ -688,6 +675,24 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Device_setting_desc1" xml:space="preserve">
     <value>※バッファサイズを大きくすると再生が安定しますが発音精度は悪くなります (0：自動)</value>
+  </data>
+  <data name="Device_setting_resampling_quality" xml:space="preserve">
+    <value>サンプルレート変換品質:</value>
+  </data>
+  <data name="Device_setting_resampling_quality_desc" xml:space="preserve">
+    <value>音声のサンプリングレートを変換するときの品質です。高いほど変換誤差を抑えられますが、CPU負荷が増えます。内蔵プレイヤーでは次回再生、音声ファイルへの変換では次回の変換開始から適用されます。既定値は2です。</value>
+  </data>
+  <data name="Device_setting_resampling_parallelism" xml:space="preserve">
+    <value>再生時SRC並列度:</value>
+  </data>
+  <data name="Device_setting_resampling_parallelism_desc" xml:space="preserve">
+    <value>内蔵プレイヤーの再生ミキサーで使う並列数です。既定は1です。2～4は処理が速くなる場合がありますが、BASSmixには複数スレッド使用時に有限音源の末尾がごく短く欠ける既知の問題があります。音声ファイルへの変換は1スレッド固定です。次回の再生開始から適用され、現在の再生は切り替わりません。</value>
+  </data>
+  <data name="Error_InvalidAudioResamplingQuality" xml:space="preserve">
+    <value>サンプルレート変換品質は2～6で指定してください。</value>
+  </data>
+  <data name="Error_InvalidAudioMixerThreadCount" xml:space="preserve">
+    <value>再生時SRC並列度は1～4で指定してください。</value>
   </data>
   <data name="Msg_error_unexpected" xml:space="preserve">
     <value>予期しないエラーが発生しました。</value>
@@ -931,17 +936,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Tooltip_image_file" xml:space="preserve">
     <value>イメージファイル</value>
   </data>
-  <data name="Msg_load_recommended_tables_update_mode" xml:space="preserve">
-    <value> のリコメンドを取得し自動更新します
-
-ローカルとLR2IRに保存されているクリア状況を送信し取得します
-FAILED等を意図的に送信していない場合は注意してください
-
-LR2IRにスコアやクリアが自動送信されるわけではありません
-問題が生じた場合はブックマークレット等で更新してください
-
-続行しますか？</value>
-  </data>
   <data name="FilePath_songDB" xml:space="preserve">
     <value>song.db パス: </value>
   </data>
@@ -1010,6 +1004,36 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="Device_setting_buffersize" xml:space="preserve">
     <value>バッファサイズ:</value>
   </data>
+  <data name="AudioConversionRangeFailureFormat" xml:space="preserve">
+    <value>音量が整数形式で保存できる上限を超えています。
+対象：{0}件、最大ピークの対象：{2}
+ピーク：＋{1} dB
+次のいずれかを選んで再実行してください。
+・現在の増幅率を約{3}%以下に下げる（追加増幅率の設定値：{4}以下）
+・PEAK正規化を選び、追加増幅率を1.0にする</value>
+  </data>
+  <data name="AudioConversionRangeFailureImpossibleFormat" xml:space="preserve">
+    <value>音量が整数形式で保存できる上限を超えています。
+対象：{0}件、最大ピークの対象：{2}
+ピーク：＋{1} dB
+追加増幅率の設定範囲内では、整数形式で保存できる範囲に調整できません。
+PEAK正規化を選び、追加増幅率を1.0にして再実行してください。</value>
+  </data>
+  <data name="AudioResamplingQualityOptionFormat" xml:space="preserve">
+    <value>{0}（{1}点）</value>
+  </data>
+  <data name="AudioConversionOtherFailureFormat" xml:space="preserve">
+    <value>{0}: {1}</value>
+  </data>
+  <data name="AudioConversionOtherFailuresRemainingFormat" xml:space="preserve">
+    <value>その他の変換失敗は{0}件です。残り{1}件の詳細はログを参照してください。</value>
+  </data>
+  <data name="AudioConversionOmittedSourcesFormat" xml:space="preserve">
+    <value>{0}: 音源を{1}件省略しました。</value>
+  </data>
+  <data name="AudioConversionOmittedSourcesRemainingFormat" xml:space="preserve">
+    <value>音源を省略した譜面は合計{0}件です。残り{1}件の詳細はログを参照してください。</value>
+  </data>
   <data name="Playlist_output_root" xml:space="preserve">
     <value>ルートフォルダ出力先: </value>
   </data>
@@ -1077,7 +1101,13 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>起動時にBMSファイルと構成ファイルのスキャンを行う</value>
   </data>
   <data name="Device_setting_lowlatency" xml:space="preserve">
-    <value>WASAPI低レイテンシモード(要対応デバイス)</value>
+    <value>イベント駆動で再生</value>
+  </data>
+  <data name="Device_setting_lowlatency_desc" xml:space="preserve">
+    <value>Windowsから音声データが必要という合図が来たときに音声を送ります。チェックを外すと一定間隔で音声を送ります。再生が途切れる場合は、チェックを外して切替を試してください。</value>
+  </data>
+  <data name="AudioMixerThreadCountDefaultOptionFormat" xml:space="preserve">
+    <value>{0}（既定）</value>
   </data>
   <data name="Search_duplicates" xml:space="preserve">
     <value>重複ファイルチェック</value>
@@ -1180,9 +1210,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   </data>
   <data name="Tooltip_play" xml:space="preserve">
     <value>再生中</value>
-  </data>
-  <data name="Recommended_read_only" xml:space="preserve">
-    <value>リコメンド (読み込みのみ)</value>
   </data>
   <data name="Record_setting_gain" xml:space="preserve">
     <value>追加ゲイン:</value>
@@ -1366,49 +1393,49 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>閉じる</value>
   </data>
   <data name="Drop_install_queue_label_format" xml:space="preserve">
-    <value>インストール中: {0}/{1}件 (待機 {2} バッチ)</value>
+    <value>パッケージ・フォルダの導入 {0}/{1}件 (待機 {2} バッチ)</value>
   </data>
   <data name="Drop_install_queue_extracting_sub_label_format" xml:space="preserve">
     <value>解凍中: {0}/{1} {2}</value>
   </data>
   <data name="Pending_estimate_queue_label_format" xml:space="preserve">
-    <value>保留推定: {0}/{1}件 (待機 {2} バッチ)</value>
+    <value>保留パッケージの導入先推定 {0}/{1}件 (待機 {2} バッチ)</value>
   </data>
   <data name="Playlist_url_download_progress_label_format" xml:space="preserve">
-    <value>URL取り込み: {0}/{1}件</value>
+    <value>プレイリストURLからの取得 {0}/{1}件</value>
   </data>
   <data name="Playlist_external_package_lookup_progress_label_format" xml:space="preserve">
-    <value>外部API入手先検索: {0}/{1}件</value>
+    <value>外部サービスでパッケージの入手先を検索 {0}/{1}件</value>
   </data>
   <data name="Pending_estimate_queue_startup_display_name" xml:space="preserve">
     <value>起動時の保留</value>
   </data>
   <data name="Playlist_sync_progress_label_format" xml:space="preserve">
-    <value>プレイリスト同期 {0}/{1}</value>
+    <value>プレイリストの同期 {0}/{1}</value>
   </data>
   <data name="Playlist_sync_progress_single_label" xml:space="preserve">
-    <value>プレイリスト同期</value>
+    <value>プレイリストの同期</value>
   </data>
   <data name="Beatoraja_bmt_export_progress_label_format" xml:space="preserve">
-    <value>.bmt出力 {0}/{1}</value>
+    <value>beatoraja BMTの出力 {0}/{1}</value>
   </data>
   <data name="Beatoraja_bmt_export_progress_single_label" xml:space="preserve">
-    <value>.bmt出力</value>
+    <value>beatoraja BMTの出力</value>
   </data>
   <data name="Custom_folder_output_progress_label_format" xml:space="preserve">
-    <value>カスタムフォルダ出力 {0}/{1}</value>
+    <value>LR2カスタムフォルダの出力 {0}/{1}</value>
   </data>
   <data name="Custom_folder_output_progress_single_label" xml:space="preserve">
-    <value>カスタムフォルダ出力</value>
+    <value>LR2カスタムフォルダの出力</value>
   </data>
   <data name="Custom_folder_db_sync_progress_single_label" xml:space="preserve">
-    <value>LR2 folder テーブル同期</value>
+    <value>LR2カスタムフォルダ情報の同期</value>
   </data>
   <data name="Playlist_import_progress_label_format" xml:space="preserve">
-    <value>外部表インポート {0}/{1}</value>
+    <value>表URLの取込み {0}/{1}</value>
   </data>
   <data name="Playlist_import_progress_single_label" xml:space="preserve">
-    <value>外部表インポート</value>
+    <value>表URLの取込み</value>
   </data>
   <data name="Playlist_import_progress_phase_load_tables" xml:space="preserve">
     <value>難易度表を読み込み中</value>
@@ -1426,10 +1453,10 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>完了処理中</value>
   </data>
   <data name="Beatoraja_table_url_import_progress_label_format" xml:space="preserve">
-    <value>beatoraja Table URL インポート {0}/{1}</value>
+    <value>beatorajaの表URLの取込み {0}/{1}</value>
   </data>
   <data name="Beatoraja_table_url_import_progress_single_label" xml:space="preserve">
-    <value>beatoraja Table URL インポート</value>
+    <value>beatorajaの表URLの取込み</value>
   </data>
   <data name="Beatoraja_table_url_import_progress_phase_check_urls" xml:space="preserve">
     <value>Table URL を確認中</value>
@@ -1453,106 +1480,73 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>インポート完了処理中</value>
   </data>
   <data name="Statusbar_progress_startup" xml:space="preserve">
-    <value>初期化中</value>
+    <value>初期化</value>
   </data>
   <data name="Statusbar_progress_reload_files" xml:space="preserve">
-    <value>ライブラリ更新中</value>
+    <value>ファイル差分の再読込み</value>
   </data>
   <data name="Statusbar_progress_reload_tables" xml:space="preserve">
-    <value>ライブラリ更新中</value>
+    <value>プレイリストの再読込み</value>
   </data>
   <data name="Statusbar_progress_reload_scores" xml:space="preserve">
-    <value>スコア更新中</value>
+    <value>スコアの再読込み</value>
   </data>
   <data name="Statusbar_progress_full_reinitialize" xml:space="preserve">
-    <value>初期化再実行中</value>
-  </data>
-  <data name="Statusbar_progress_operable" xml:space="preserve">
-    <value>操作可能</value>
-  </data>
-  <data name="Statusbar_progress_operable_background" xml:space="preserve">
-    <value>操作可能(バックグラウンド更新中)</value>
-  </data>
-  <data name="Statusbar_progress_complete" xml:space="preserve">
-    <value>初期化完了</value>
-  </data>
-  <data name="Statusbar_progress_complete_reload" xml:space="preserve">
-    <value>ライブラリ更新完了</value>
-  </data>
-  <data name="Statusbar_progress_complete_scores" xml:space="preserve">
-    <value>スコア更新完了</value>
-  </data>
-  <data name="Statusbar_progress_complete_reinitialize" xml:space="preserve">
-    <value>初期化再実行完了</value>
-  </data>
-  <data name="Statusbar_progress_failed" xml:space="preserve">
-    <value>初期化失敗</value>
-  </data>
-  <data name="Statusbar_progress_failed_reload" xml:space="preserve">
-    <value>ライブラリ更新失敗</value>
-  </data>
-  <data name="Statusbar_progress_failed_scores" xml:space="preserve">
-    <value>スコア更新失敗</value>
-  </data>
-  <data name="Statusbar_progress_failed_reinitialize" xml:space="preserve">
-    <value>初期化再実行失敗</value>
-  </data>
-  <data name="Statusbar_progress_phase_library_load" xml:space="preserve">
-    <value>ライブラリ読込</value>
+    <value>全再初期化</value>
   </data>
   <data name="Statusbar_progress_phase_library_db_load" xml:space="preserve">
-    <value>DB読み込み</value>
+    <value>目録DBの読込み</value>
   </data>
   <data name="Statusbar_progress_phase_file_enumeration" xml:space="preserve">
-    <value>ファイル列挙</value>
+    <value>譜面・リソースの探索</value>
   </data>
   <data name="Statusbar_progress_phase_file_diff" xml:space="preserve">
-    <value>ファイル差分確認</value>
+    <value>譜面ファイルの差分確認・解析</value>
   </data>
   <data name="Statusbar_progress_phase_ui_prepare" xml:space="preserve">
     <value>画面準備</value>
   </data>
   <data name="Statusbar_progress_phase_playlist_ref" xml:space="preserve">
-    <value>プレイリスト参照更新</value>
+    <value>プレイリスト参照の反映</value>
   </data>
   <data name="Statusbar_progress_phase_maintenance" xml:space="preserve">
-    <value>保守参照更新</value>
+    <value>保守情報の読込み</value>
   </data>
   <data name="Statusbar_progress_phase_installable_maintenance" xml:space="preserve">
-    <value>保守情報更新</value>
+    <value>導入可能譜面の保守情報更新</value>
   </data>
   <data name="Statusbar_progress_phase_score_hydration" xml:space="preserve">
-    <value>スコア反映</value>
+    <value>スコアの読込み・反映</value>
   </data>
   <data name="Statusbar_progress_phase_ranking_refresh" xml:space="preserve">
-    <value>ランキング更新</value>
+    <value>順位の更新</value>
   </data>
   <data name="Statusbar_progress_phase_chart_info" xml:space="preserve">
-    <value>譜面メタデータ解析</value>
+    <value>譜面情報の補完</value>
   </data>
   <data name="Statusbar_progress_phase_chart_info_load" xml:space="preserve">
-    <value>譜面メタデータ反映</value>
+    <value>譜面情報の読込み</value>
   </data>
   <data name="Statusbar_progress_phase_background" xml:space="preserve">
     <value>バックグラウンド更新中</value>
   </data>
   <data name="Statusbar_progress_phase_lr2_song_db_sync" xml:space="preserve">
-    <value>LR2 song.db 同期</value>
+    <value>LR2楽曲DBの同期</value>
   </data>
   <data name="Lr2_song_db_sync_status_needed" xml:space="preserve">
-    <value>LR2 song.db 同期が必要です</value>
+    <value>LR2楽曲DBの同期が必要です</value>
   </data>
   <data name="Lr2_song_db_sync_status_running" xml:space="preserve">
-    <value>LR2 song.db 同期中</value>
+    <value>LR2楽曲DBの同期</value>
   </data>
   <data name="Lr2_song_db_sync_status_completed" xml:space="preserve">
-    <value>LR2 song.db 同期済み</value>
+    <value>LR2楽曲DBの同期が完了しました</value>
   </data>
   <data name="Lr2_song_db_sync_status_failed" xml:space="preserve">
-    <value>LR2 song.db 同期に失敗しました</value>
+    <value>LR2楽曲DBの同期に失敗しました</value>
   </data>
   <data name="Lr2_song_db_sync_status_incomplete" xml:space="preserve">
-    <value>LR2 song.db 同期が未完了です</value>
+    <value>LR2楽曲DBの同期が未完了です</value>
   </data>
   <data name="Lr2_song_db_sync_retry" xml:space="preserve">
     <value>再試行</value>
@@ -1560,8 +1554,8 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="Lr2_song_db_sync_data_resync" xml:space="preserve">
     <value>LR2 song.db データを再同期</value>
   </data>
-  <data name="Lr2_song_db_sync_data_resync_tooltip" xml:space="preserve">
-    <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。メンテナンスの再スキャンや chart_info の全譜面補完ではありません。</value>
+  <data name="Lr2_song_db_sync_data_resync_description" xml:space="preserve">
+    <value>通常は実行する必要はありません。LR2 song.db の初回同期と、本アプリによる通常の更新は自動で行われます。本アプリ以外のツールで song / folder 情報が変更され、LR2 用の生成データに不整合があると考えられる場合に実行してください。</value>
   </data>
   <data name="Msg_confirm_lr2_song_db_sync_data_resync" xml:space="preserve">
     <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。
@@ -1780,9 +1774,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   </data>
   <data name="Backup_lr2backup_optimize" xml:space="preserve">
     <value>LR2のバックアップと最適化</value>
-  </data>
-  <data name="Msg_load_recommended_tables_error" xml:space="preserve">
-    <value>LR2スコアDBに接続されていないためこの機能は利用できません</value>
   </data>
   <data name="Json_file_exts" xml:space="preserve">
     <value>JSONファイル(*.json)|*.json</value>
@@ -2363,13 +2354,12 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
 {1}</value>
   </data>
   <data name="Confirm_NormalInstallOverride" xml:space="preserve">
-    <value>インストール先が推定されていますが、
-通常インストールを実行しようとしています。
-インストールは独立したフォルダに行われます。
+    <value>インストール先が設定されていますが、新規としてインストールしようとしています。
+設定されているインストール先は使用せず、新規インストール先へ導入します。
 続行しますか？</value>
   </data>
   <data name="Confirm_NormalInstallTitle" xml:space="preserve">
-    <value>通常インストール機能の通知</value>
+    <value>新規としてインストール</value>
   </data>
   <data name="Confirm_SelectedPlaylistUrlDownload" xml:space="preserve">
     <value>{1} の対象 URL {0} 件をダウンロードし、対応ファイルのみインストール処理へ渡します。
@@ -2665,37 +2655,14 @@ Everything を使用している場合は、楽曲フォルダが Everything 1.5
   <data name="Error_UnsupportedType" xml:space="preserve">
     <value>非対応のtypeです {0}</value>
   </data>
-  <data name="Error_ScoreDBConnectionFailed" xml:space="preserve">
-    <value>スコアDB接続に失敗しました</value>
-  </data>
-  <data name="Error_LR2IDOrScoreDBFailed" xml:space="preserve">
-    <value>LR2IDの取得またはスコアDB接続に失敗しました</value>
-  </data>
-  <data name="Warn_RecommendUpdateFailed" xml:space="preserve">
-    <value>リコメンドの更新に失敗しました
-{0}</value>
-  </data>
-  <data name="Warn_RecommendFetchFailed" xml:space="preserve">
-    <value>リコメンドの取得に失敗しました
-{0}</value>
-  </data>
-  <data name="Error_RecommendFetchFailed" xml:space="preserve">
-    <value>リコメンドの取得に失敗しました</value>
-  </data>
   <data name="RecommendFormat" xml:space="preserve">
-    <value>リコメンド {0} ★{1}</value>
+    <value>{0} ★{1}</value>
   </data>
   <data name="Recommend_SkillUpdatedMessage" xml:space="preserve">
-    <value>あなたの実力: ★{0}{1}
-(更新: {2})
-
-(このメッセージは[Ctrl]+[C]でコピーできます)</value>
+    <value>あなたの実力: ★{0}{1}</value>
   </data>
   <data name="Recommend_SkillUpdatedTitle" xml:space="preserve">
     <value>リコメンドが更新されました</value>
-  </data>
-  <data name="Error_LocalScoreDataNotFetched" xml:space="preserve">
-    <value>ローカルスコアデータが取得されていません</value>
   </data>
   <data name="Warn_CustomFolderOutputFailed" xml:space="preserve">
     <value>カスタムフォルダの出力に失敗しました。
@@ -2975,11 +2942,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>出力先フォルダ名が空もしくは重複しています。
 入力した値を確認してください。</value>
   </data>
-  <data name="Statusbar_progress_phase_playlist_load" xml:space="preserve">
-    <value>プレイリスト読込</value>
-  </data>
   <data name="Statusbar_progress_phase_playlist_loading" xml:space="preserve">
-    <value>プレイリスト読込中</value>
+    <value>プレイリスト項目の読込み</value>
   </data>
   <data name="Statusbar_progress_detail_separator_format" xml:space="preserve">
     <value>{0} / {1}</value>
@@ -3030,15 +2994,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="AudioDeviceUnavailableFormat" xml:space="preserve">
     <value>利用不可: {0}</value>
   </data>
-  <data name="AudioDeviceTestSuccessFormat" xml:space="preserve">
-    <value>オーディオデバイスのテストに成功しました。バックエンド: {0}、デバイス: {1}、サンプルレート: {2}、エンジン形式: {3}、エンドポイント形式: {4}、チャンネル: {5}、レイテンシ: {6:N1} ms</value>
-  </data>
-  <data name="AudioDeviceTestFallbackFormat" xml:space="preserve">
-    <value>フォールバックしてオーディオデバイスを初期化しました。選択: {0} / {1}、実際: {2} / {3}、理由: {4}</value>
-  </data>
-  <data name="AudioDeviceTestStreamFailureFormat" xml:space="preserve">
-    <value>デバイスの初期化には成功しましたが、テスト音声の再生進行を確認できませんでした。選択: {0}、実際: {1}、理由: {2}</value>
-  </data>
+  <data name="AudioDeviceTestSucceeded" xml:space="preserve"><value>オーディオデバイスを初期化し、テスト音声の再生進行を確認しました。</value></data>
+  <data name="AudioDeviceTestPlaybackFailureReason" xml:space="preserve"><value>テスト音声の再生進行を確認できませんでした。</value></data>
+  <data name="AudioDeviceTestResultDetailsFormat" xml:space="preserve"><value>要求: {0} / {1} / {2} / {3}。実際: {4} / {5} / {6}、エンジン形式 {7}、エンドポイント形式 {8}、精度 {9}、チャンネル {10}、レイテンシ {11:N1} ms</value></data>
   <data name="AudioDeviceTestStreamProgressFailureReason" xml:space="preserve">
     <value>再生位置が正常な速度で進みませんでした。</value>
   </data>
@@ -3046,7 +3004,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>選択した構成をそのまま使用できなかったため、利用可能な構成へ切り替えました。</value>
   </data>
   <data name="AudioDeviceTestInitializationErrorFormat" xml:space="preserve">
-    <value>オーディオの初期化に失敗しました。&#xA;選択したバックエンド: {0}&#xA;失敗したバックエンド: {1}&#xA;ステージ: {2}&#xA;ネイティブエラー: {3} ({4})&#xA;選択したデバイス: {5}&#xA;実際のデバイス: {6}</value>
+    <value>オーディオ初期化に失敗しました。要求: {0} / {1} / {2} / {3}。初期化を試みた方式と機器: {4} / {5}</value>
   </data>
   <data name="AudioDeviceTestTestSoundUnavailableReason" xml:space="preserve">
     <value>設定されたテスト音声ファイルを利用できません。</value>
@@ -3054,14 +3012,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="AudioDeviceTestPlayerCreationFailureReason" xml:space="preserve">
     <value>テスト音声のプレイヤーを作成できませんでした。</value>
   </data>
-  <data name="AudioDeviceTestPlayerCreationFailureReasonFormat" xml:space="preserve">
-    <value>テスト音声のプレイヤーを作成できませんでした。ステージ: {0}、ネイティブエラー: {1} ({2})</value>
-  </data>
   <data name="AudioDeviceTestInvalidDurationReason" xml:space="preserve">
     <value>テスト音声の長さが不正です。</value>
-  </data>
-  <data name="AudioDeviceTestPlaybackStartFailureReasonFormat" xml:space="preserve">
-    <value>テスト音声の再生開始に失敗しました。ステージ: {0}、ネイティブエラー: {1} ({2})</value>
   </data>
   <data name="AudioDeviceTestPlaybackPositionFailureReason" xml:space="preserve">
     <value>テスト音声の再生位置が逆行しました。</value>
@@ -3078,6 +3030,31 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="AudioDeviceTestUnexpectedFailureReason" xml:space="preserve">
     <value>テスト音声の再生中に予期しないエラーが発生しました。</value>
   </data>
+  <data name="AudioDeviceTestStartButton" xml:space="preserve"><value>再生を停止してテスト</value></data>
+  <data name="AudioDeviceTechnicalDetails" xml:space="preserve"><value>技術的な詳細</value></data>
+  <data name="AudioOutputSelectionResetMessage" xml:space="preserve"><value>出力先を変更したため、サンプルレートと形式を自動に戻しました。</value></data>
+  <data name="AudioSampleRateSelectionResetMessage" xml:space="preserve"><value>サンプルレートを変更したため、形式を自動に戻しました。</value></data>
+  <data name="AudioDeviceCapabilityQueryInProgress" xml:space="preserve"><value>選択した機器の対応形式を照会しています。</value></data>
+  <data name="AudioDeviceCapabilityNotQueried" xml:space="preserve"><value>機器の能力は未照会です。</value></data>
+  <data name="AudioDeviceCapabilityUnsupported" xml:space="preserve"><value>選択した機器は照会候補の形式に対応していません。</value></data>
+  <data name="AudioDeviceCapabilityFailed" xml:space="preserve"><value>選択した機器の能力を照会できませんでした。</value></data>
+  <data name="AudioDeviceCapabilityBusy" xml:space="preserve"><value>音声セッションの解放後に、この機器の対応情報を確認します。</value></data>
+  <data name="AudioDeviceCapabilityUnsupportedChoice" xml:space="preserve"><value>非対応</value></data>
+  <data name="AudioDeviceCapabilityUnqueriedChoice" xml:space="preserve"><value>未照会</value></data>
+  <data name="AudioDeviceCapabilityUnavailableChoiceFormat" xml:space="preserve"><value>{0}（{1}）</value></data>
+  <data name="AudioDeviceCapabilityAuto" xml:space="preserve"><value>自動</value></data>
+  <data name="AudioDeviceCapabilityFormatFormat" xml:space="preserve"><value>{0}、{1}チャンネル</value></data>
+  <data name="AudioDeviceCapabilityStereoFormatsFormat" xml:space="preserve"><value>L: {0} / R: {1}、{2}チャンネル</value></data>
+  <data name="AudioDeviceCapabilitySharedRateFormat" xml:space="preserve"><value>{0} Hz（共有ミックス）</value></data>
+  <data name="AudioDeviceCapabilityPrecisionFormat" xml:space="preserve"><value>{0}（有効 {1}/{2} bit）</value></data>
+  <data name="AudioDeviceCapabilityPrecisionPairFormat" xml:space="preserve"><value>{0}/{1} bit</value></data>
+  <data name="AudioDeviceCapabilityPrecisionUnknown" xml:space="preserve"><value>未報告</value></data>
+  <data name="AudioSampleRateOptionFormat" xml:space="preserve"><value>{0} Hz</value></data>
+  <data name="AudioSampleFormat8Bit" xml:space="preserve"><value>8-bit PCM</value></data>
+  <data name="AudioSampleFormat16Bit" xml:space="preserve"><value>16-bit PCM</value></data>
+  <data name="AudioSampleFormat24Bit" xml:space="preserve"><value>24-bit PCM</value></data>
+  <data name="AudioSampleFormat32Bit" xml:space="preserve"><value>32-bit PCM</value></data>
+  <data name="AudioSampleFormatFloat32" xml:space="preserve"><value>32-bit IEEE浮動小数点</value></data>
   <data name="Operation_Mode_Standalone" xml:space="preserve"><value>スタンドアローン</value></data>
   <data name="Operation_Mode_LR2" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="LR2_integration" xml:space="preserve"><value>LR2 連携</value></data>
@@ -3219,8 +3196,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_rank_f" xml:space="preserve"><value>F</value></data>
   <data name="PlaylistLampViewer_rank_np" xml:space="preserve"><value>NP</value></data>
   <data name="PlaylistLampViewer_as_of" xml:space="preserve"><value>基準日</value></data>
+  <data name="PlaylistLampViewer_percentage_mode" xml:space="preserve"><value>割合</value></data>
+  <data name="PlaylistLampViewer_count_mode" xml:space="preserve"><value>曲数</value></data>
   <data name="PlaylistLampViewer_latest" xml:space="preserve"><value>最新</value></data>
-  <data name="PlaylistLampViewer_historical_unavailable" xml:space="preserve"><value>履歴スコア利用不可</value></data>
   <data name="FileDbMutationReport_Title" xml:space="preserve"><value>ファイルとデータベースの操作結果</value></data>
   <data name="FileDbMutationReport_Operation" xml:space="preserve"><value>操作: {0}</value></data>
   <data name="LibraryMutationSessionReport_Counts" xml:space="preserve"><value>確認済みの物理変更: {0} 件
@@ -3344,6 +3322,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   </data>
   <data name="Error_ExecutableNotFound" xml:space="preserve">
     <value>実行ファイルが見つかりません。</value>
+  </data>
+  <data name="Error_InvalidBmsonInputFormat" xml:space="preserve">
+    <value>bmson 入力が不正です: {0}</value>
   </data>
   <data name="Error_BmsFileNotFound" xml:space="preserve">
     <value>BMS ファイルが見つかりません。</value>
@@ -3501,5 +3482,230 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>{0}
 
 続行しますか？</value>
+  </data>
+  <data name="AudioRequiredResourceLoadFailureFormat" xml:space="preserve">
+    <value>必要な音源「{0}」を読み込めませんでした。
+パス: {1}
+処理段階: {2}
+ネイティブエラー: {3}</value>
+  </data>
+  <data name="AudioCallbackOutputFailureFormat" xml:space="preserve">
+    <value>音声出力に失敗しました。
+処理段階: {0}
+ネイティブエラー: {1}</value>
+  </data>
+  <data name="AudioDeviceTestCleanupFailure" xml:space="preserve"><value>音声資源の解放を確認できませんでした。詳細を確認してください。</value></data>
+  <data name="BmsInfiniteStopTimingFailure" xml:space="preserve">
+    <value>STOPの長さが正の無限大のため、このBPMでは停止時間を計算できません。</value>
+  </data>
+  <data name="BmsInfiniteMeasureLengthTimingFailure" xml:space="preserve">
+    <value>小節長が正の無限大のため、譜面の時刻を計算できません。</value>
+  </data>
+  <data name="InstallDestination_SelectCandidate" xml:space="preserve">
+    <value>候補を選択…</value>
+  </data>
+  <data name="Details_show_diag_new_install" xml:space="preserve">
+    <value>新規としてインストールの確認メッセージを表示する</value>
+  </data>
+  <data name="Confirm_NewPackageInstall" xml:space="preserve">
+    <value>このパッケージは自動では新規インストールされず、保留されています。
+推定されたインストール先は使用せず、新規インストール先へ導入します。
+リソース不足などの WARNING がある場合も、その状態のままインストールされます。
+続行しますか？</value>
+  </data>
+  <data name="Recommended_standard" xml:space="preserve">
+    <value>リコメンド (標準)</value>
+  </data>
+  <data name="Recommended_unplayed_as_failed" xml:space="preserve">
+    <value>リコメンド (未プレイをFAILED扱い)</value>
+  </data>
+  <data name="Recommended_failed_as_unplayed" xml:space="preserve">
+    <value>リコメンド (FAILEDを未プレイ扱い)</value>
+  </data>
+  <data name="Error_RecommendationScoreNotConfigured" xml:space="preserve">
+    <value>スコアDBが設定されていません。一般設定でプレイヤーとスコアDBを選択してください。</value>
+  </data>
+  <data name="Error_RecommendationScoreReadFailed" xml:space="preserve">
+    <value>選択中のスコアDBを読み込めませんでした。</value>
+  </data>
+  <data name="Error_RecommendationNoObservations" xml:space="preserve">
+    <value>モデルに一致するプレイ記録がありません。</value>
+  </data>
+  <data name="Error_RecommendationRatingFailed" xml:space="preserve">
+    <value>プレイ記録から実力を推定できませんでした。</value>
+  </data>
+  <data name="Statusbar_progress_phase_lr2_folder_file_check" xml:space="preserve">
+    <value>LR2カスタムフォルダの変更確認</value>
+  </data>
+  <data name="Statusbar_progress_task_external_playlist_sync" xml:space="preserve">
+    <value>外部プレイリストの同期</value>
+  </data>
+  <data name="Statusbar_progress_task_playlist_manual_reload" xml:space="preserve">
+    <value>選択プレイリストの再同期</value>
+  </data>
+  <data name="Statusbar_progress_task_external_table_catalog" xml:space="preserve">
+    <value>外部表一覧の読込み</value>
+  </data>
+  <data name="Statusbar_progress_task_playlist_index" xml:space="preserve">
+    <value>プレイリスト索引の準備</value>
+  </data>
+  <data name="Statusbar_progress_task_chart_list_preparation" xml:space="preserve">
+    <value>譜面一覧の索引・ソートキャッシュの準備</value>
+  </data>
+  <data name="Statusbar_progress_task_playlist_url_completion" xml:space="preserve">
+    <value>プレイリストURLの補完</value>
+  </data>
+  <data name="Statusbar_progress_task_folder_tree" xml:space="preserve">
+    <value>フォルダ一覧の更新</value>
+  </data>
+  <data name="Statusbar_progress_task_custom_folder_repair" xml:space="preserve">
+    <value>LR2カスタムフォルダ出力の修復</value>
+  </data>
+  <data name="Statusbar_progress_task_bmt_output" xml:space="preserve">
+    <value>beatoraja BMTの出力</value>
+  </data>
+  <data name="Statusbar_progress_task_gc" xml:space="preserve">
+    <value>起動後のメモリ整理</value>
+  </data>
+  <data name="Statusbar_progress_task_lr2_sync_enrollment" xml:space="preserve">
+    <value>LR2楽曲DB同期の準備</value>
+  </data>
+  <data name="Statusbar_progress_startup_additional" xml:space="preserve">
+    <value>起動に伴う追加処理</value>
+  </data>
+  <data name="Statusbar_progress_operation_completed_format" xml:space="preserve">
+    <value>{0} 完了</value>
+  </data>
+  <data name="Statusbar_progress_operation_failed_format" xml:space="preserve">
+    <value>{0} 失敗</value>
+  </data>
+  <data name="Statusbar_progress_task_playlist_property_update" xml:space="preserve">
+    <value>プレイリストのプロパティ更新</value>
+  </data>
+  <data name="Statusbar_progress_task_folder_rename" xml:space="preserve">
+    <value>フォルダ名の自動変更</value>
+  </data>
+  <data name="Statusbar_progress_task_playlist_external_property_initialization" xml:space="preserve">
+    <value>プレイリストの外部プロパティ初期化</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_queued" xml:space="preserve">
+    <value>同期の開始待ち</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_preparing" xml:space="preserve">
+    <value>同期の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_materialization" xml:space="preserve">
+    <value>プレイリストのカスタムフォルダ出力</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_builtin_folder_preparation" xml:space="preserve">
+    <value>組込みカスタムフォルダの準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_chart_info_hydration" xml:space="preserve">
+    <value>譜面情報の読込み</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_input_surface" xml:space="preserve">
+    <value>同期対象の取得</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_compatibility_projection_index" xml:space="preserve">
+    <value>LR2向け譜面情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_chart_info_resolver_snapshot" xml:space="preserve">
+    <value>譜面情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_folder_projection_preparation" xml:space="preserve">
+    <value>フォルダ情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_directory_metadata" xml:space="preserve">
+    <value>フォルダ情報の読込み</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_normal_folder_roots" xml:space="preserve">
+    <value>検索ルート情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_normal_folders" xml:space="preserve">
+    <value>通常フォルダ情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_lr2folder_files" xml:space="preserve">
+    <value>カスタムフォルダ定義の読込み</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_folder_projection_candidates" xml:space="preserve">
+    <value>通常フォルダ情報の取りまとめ</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_custom_folder_rows" xml:space="preserve">
+    <value>カスタムフォルダ情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_custom_folder_parents" xml:space="preserve">
+    <value>カスタムフォルダの親フォルダ情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_folder_projection_validation" xml:space="preserve">
+    <value>フォルダ情報の確認</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_folder_existing_rows" xml:space="preserve">
+    <value>既存フォルダ情報の読込み</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_folder_reconciliation" xml:space="preserve">
+    <value>既存フォルダ設定の反映</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_folder_saving" xml:space="preserve">
+    <value>フォルダの保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_rows_preparation" xml:space="preserve">
+    <value>楽曲処理の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_rows" xml:space="preserve">
+    <value>楽曲の処理</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_rows_saving" xml:space="preserve">
+    <value>楽曲の保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_final_validation" xml:space="preserve">
+    <value>同期対象の最終確認</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_sync_state_saving" xml:space="preserve">
+    <value>同期状態の保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_source_stale" xml:space="preserve">
+    <value>同期対象の変更を検出</value>
+  </data>
+  <data name="Lr2_song_db_sync_saved_position" xml:space="preserve">
+    <value>保存位置 [{0}/{1}]</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_projection" xml:space="preserve">
+    <value>プレイリストのフォルダ情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_output_discovery" xml:space="preserve">
+    <value>カスタムフォルダファイルの確認</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_files" xml:space="preserve">
+    <value>カスタムフォルダファイルの確認・出力</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_output_cleanup" xml:space="preserve">
+    <value>不要なカスタムフォルダファイルの整理</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_directory_metadata" xml:space="preserve">
+    <value>カスタムフォルダ情報の取得</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_state_saving" xml:space="preserve">
+    <value>カスタムフォルダ出力結果の保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_result_preparation" xml:space="preserve">
+    <value>カスタムフォルダ情報の準備</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_chart_info_saving" xml:space="preserve">
+    <value>譜面情報の保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_type_saving" xml:space="preserve">
+    <value>譜面種別の保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_playlist_level_saving" xml:space="preserve">
+    <value>プレイリストの難易度の保存</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_location_update" xml:space="preserve">
+    <value>楽曲の場所情報の更新</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_removal" xml:space="preserve">
+    <value>楽曲の削除情報の反映</value>
+  </data>
+  <data name="Lr2_song_db_sync_stage_song_encoding_saving" xml:space="preserve">
+    <value>文字コード情報の保存</value>
   </data>
 </root>

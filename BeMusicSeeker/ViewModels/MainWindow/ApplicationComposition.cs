@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +11,6 @@ using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
-using Livet;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
 using Ribbit.Net;
@@ -402,7 +400,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
         Action<Exception> reportMaintenanceRescanWorkflowFailure = null,
-        Func<Action, Task> folderAutoRenameScheduler = null,
+        Func<Func<Task>, Task> folderAutoRenameScheduler = null,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
@@ -673,7 +671,7 @@ internal sealed class MainWindowChildComposition
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
         Action<Exception> reportMaintenanceRescanWorkflowFailure = null,
-        Func<Action, Task> folderAutoRenameScheduler = null,
+        Func<Func<Task>, Task> folderAutoRenameScheduler = null,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
@@ -755,7 +753,7 @@ internal sealed class MainWindowChildComposition
             PendingPackageWorkflow,
             chartFileOperations,
             ChartMutationActivity,
-            (IFolderAutoRenamePlaybackPort)PlaybackPanel,
+            (IChartMutationPlaybackPort)PlaybackPanel,
             uiScheduler,
             installDestinationDialogService);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
@@ -763,6 +761,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             packageInstallMutationPort ?? new BmsLibraryPackageInstallMutationPort(),
+            PlaybackPanel,
             dispatchPackageInstallUi,
             reportPackageInstallWorkflowNotificationFailure);
         MaintenanceRescanWorkflow = new MaintenanceRescanWorkflowOwner(
@@ -777,7 +776,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             new BmsLibraryFolderAutoRenameMutationPort(),
-            (IFolderAutoRenamePlaybackPort)PlaybackPanel,
+            (IChartMutationPlaybackPort)PlaybackPanel,
             folderAutoRenameScheduler ?? (action => Task.Run(action)),
             dispatchMainChartListAction,
             folderAutoRenameDialogService ?? throw new ArgumentNullException(nameof(folderAutoRenameDialogService)),

@@ -49,14 +49,26 @@ public partial class PlaybackPanelView : UserControl
     public Visibility OverlayVisibility { get => (Visibility)GetValue(OverlayVisibilityProperty); set => SetValue(OverlayVisibilityProperty, value); }
     public PlayerPanelState EffectivePlayerPanelState { get => (PlayerPanelState)GetValue(EffectivePlayerPanelStateProperty); private set => SetValue(EffectivePlayerPanelStateProperty, value); }
     public ICommand SettingsCommand { get => (ICommand)GetValue(SettingsCommandProperty); set => SetValue(SettingsCommandProperty, value); }
-    public IntPtr PlayerHostHandle => _panel.Handle;
+    /// <summary>WPFへの接続時に生成される外部プレーヤーの親HWNDを返します。未接続時はゼロです。</summary>
+    public IntPtr PlayerHostHandle => externalPlayerHost.Handle;
+
+    /// <summary>外部プレーヤーの終了後、最終ウィンドウ終了時にUIスレッド上でホストを解放します。</summary>
+    internal void DisposePlayerHost()
+    {
+        Dispatcher.VerifyAccess();
+        externalPlayerHost.Dispose();
+    }
     private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
 
     private BitmapSource PanelImage
     {
         get
         {
-            if (_panelImage != null) return _panelImage;
+            if (_panelImage != null)
+            {
+                return _panelImage;
+            }
+
             if (PlaybackPanel.UseExternalPanelImage)
             {
                 try
@@ -113,9 +125,9 @@ public partial class PlaybackPanelView : UserControl
             useTransitions: false);
         ResetPanelImage();
         ApplyEmptyArtwork(showDefaultImage: dataContext != null);
-        if (playbackPanel?.DisplayedBmsPlayerFile != null)
+        if (playbackPanel?.DisplayedChart != null)
         {
-            RefreshArtwork(playbackPanel.DisplayedBmsPlayerFile);
+            RefreshArtwork(playbackPanel.DisplayedChart);
         }
     }
 
@@ -215,10 +227,9 @@ public partial class PlaybackPanelView : UserControl
         {
             ResetPanelImage();
         }
-        if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedBmsPlayerFile)
-            && expectedPanel.DisplayedBmsPlayerFile != null)
+        if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedChart))
         {
-            RefreshArtwork(expectedPanel.DisplayedBmsPlayerFile);
+            RefreshArtwork(expectedPanel.DisplayedChart);
         }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.UsesUbMplay)
             || e.PropertyName == nameof(PlaybackPanelViewModel.UsesLr2Body)
@@ -389,7 +400,12 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerImage.Effect as BlurEffect
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
-    public void RefreshArtwork(BMSFile bmsFile)
+    /// <summary>BMSの既存呼出元を形式共通の表示素材へ投影します。</summary>
+    public void RefreshArtwork(BMSFile bmsFile) => RefreshArtwork(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false));
+
+    /// <summary>選曲中・再生中の共通譜面からstagefileとbannerを表示し、前曲の素材を残しません。</summary>
+#nullable enable annotations
+    internal void RefreshArtwork(ChartFile? bmsFile)
     {
         if (bmsFile == null)
         {
@@ -399,7 +415,7 @@ public partial class PlaybackPanelView : UserControl
         WriteableBitmap stage = null;
         try
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.stagefile) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.stagefile);
+            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Stagefile) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Stagefile);
             if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
                 using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
@@ -410,7 +426,7 @@ public partial class PlaybackPanelView : UserControl
         catch { gridBMSPlayerImage.Source = PanelImage; }
         try
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.banner) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.banner);
+            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Banner) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Banner);
             ImageSource banner = null;
             if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
@@ -426,6 +442,7 @@ public partial class PlaybackPanelView : UserControl
         }
         gridBMSPlayerControlsBanner.BorderThickness = gridBMSPlayerControlsBanner.Background == null ? new Thickness(0) : new Thickness(1, 0, 1, 0);
     }
+#nullable restore annotations
 
     private void ApplyEmptyArtwork(bool showDefaultImage)
     {
@@ -433,14 +450,21 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerControlsBanner.Background = null;
         gridBMSPlayerControlsBanner.BorderThickness = new Thickness(0);
     }
-    private void ShowBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Visible);
-    private void CollapseBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Collapsed);
+    private void ShowBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Visible);
+    private void CollapseBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Collapsed);
     private static void RestoreVisibilityBinding(UIElement element, Visibility visibility)
     {
-        if (element == null) return;
+        if (element == null)
+        {
+            return;
+        }
+
         MultiBinding binding = BindingOperations.GetMultiBindingExpression(element, UIElement.VisibilityProperty)?.ParentMultiBinding;
         element.Visibility = visibility;
-        if (binding != null) BindingOperations.SetBinding(element, UIElement.VisibilityProperty, binding);
+        if (binding != null)
+        {
+            BindingOperations.SetBinding(element, UIElement.VisibilityProperty, binding);
+        }
     }
 
     public void RestoreSelectedSurface() => ApplySelectedSurface(PlaybackPanel, PlaybackPanel.PlayerPanelState);
@@ -455,10 +479,26 @@ public partial class PlaybackPanelView : UserControl
 
     private bool IsBmsPlayerSurfaceAvailable(PlaybackPanelViewModel playbackPanel)
     {
-        if (playbackPanel == null || windowsFormsHost == null || !windowsFormsHost.IsEnabled) return false;
-        if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay) return false;
-        if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay) return true;
-        if (playbackPanel.UsesLr2Body) return false;
+        if (playbackPanel == null || externalPlayerHost == null || !externalPlayerHost.IsEnabled)
+        {
+            return false;
+        }
+
+        if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
+        {
+            return false;
+        }
+
+        if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
+        {
+            return true;
+        }
+
+        if (playbackPanel.UsesLr2Body)
+        {
+            return false;
+        }
+
         return playbackPanel.UsesBmiIdxView;
     }
 
@@ -486,15 +526,26 @@ public partial class PlaybackPanelView : UserControl
             state,
             IsBmsPlayerSurfaceAvailable(playbackPanel));
         EffectivePlayerPanelState = resolvedState;
-        if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
+        if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER))
+        {
+            ShowBmsPlayer();
+        }
+        else
+        {
+            CollapseBmsPlayer();
+        }
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
-        if (isClosingOrClosed) return;
+        if (isClosingOrClosed)
+        {
+            return;
+        }
+
         PlaybackPanel.RotatePanelState(IsBmsPlayerSurfaceAvailable(PlaybackPanel));
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender, RoutedEventArgs e) => PlaybackPanel.ToggleCompactPanel();
-    private void windowsFormsHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private void externalPlayerHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (DataContext is PlaybackPanelViewModel playbackPanel)
         {

@@ -16,6 +16,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
         List<string> roots = NormalizeRoots(rootDirectories, result);
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
+        RootFileEnumerationService.LogSearchConditions(result.BackendName, roots, groupList);
         foreach (RootFileEnumerationGroup group in groupList)
         {
             result.InitializeGroup(group.Name);

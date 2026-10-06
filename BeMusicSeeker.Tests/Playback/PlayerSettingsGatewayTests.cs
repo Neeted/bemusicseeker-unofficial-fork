@@ -48,6 +48,8 @@ public sealed class PlayerSettingsGatewayTests
         string originalDeviceName = settings.PlayerDeviceName;
         SampleRate originalRate = settings.PlayerSampleRate;
         SampleFormat originalFormat = settings.PlayerFormat;
+        int originalResamplingQuality = settings.PlayerResamplingQuality;
+        int originalMixerThreadCount = settings.PlayerMixerThreadCount;
         int originalVolume = settings.uBMplayVolume;
         System.Windows.Point originalResolution = settings.LR2bodyResolution;
         try
@@ -57,17 +59,25 @@ public sealed class PlayerSettingsGatewayTests
             settings.PlayerDeviceName = "Device before";
             settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
             settings.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
+            settings.PlayerResamplingQuality = 2;
+            settings.PlayerMixerThreadCount = 3;
             settings.uBMplayVolume = 37;
             settings.LR2bodyResolution = new System.Windows.Point(1234.5, 678.25);
 
             var gateway = new SettingsPlayerSettingsGateway(() => settings);
             PlayerSettingsSnapshot snapshot = gateway.CaptureSnapshot();
+            settings.PlayerResamplingQuality = 4;
+            settings.PlayerMixerThreadCount = 1;
 
             Assert.AreEqual(AudioDriver.WasapiShared, snapshot.PlayerDriver);
             Assert.IsNull(snapshot.PlayerDevice);
             Assert.IsNull(snapshot.PlayerDeviceName);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, snapshot.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, snapshot.PlayerFormat);
+            Assert.AreEqual(2, snapshot.SampleRateConversionQuality);
+            Assert.AreEqual(3, snapshot.PlayerMixerThreadCount);
+            Assert.AreEqual(2, snapshot.AudioOutputRequest.SampleRateConversionQuality);
+            Assert.AreEqual(3, snapshot.AudioOutputRequest.PlayerMixerThreadCount);
             Assert.AreEqual(37, snapshot.PlayerVolume);
             Assert.AreEqual(1234.5, snapshot.LR2bodyResolution.Width);
             Assert.AreEqual(678.25, snapshot.LR2bodyResolution.Height);
@@ -77,6 +87,8 @@ public sealed class PlayerSettingsGatewayTests
             Assert.AreEqual("Device before", settings.PlayerDeviceName);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
+            Assert.AreEqual(4, settings.PlayerResamplingQuality);
+            Assert.AreEqual(1, settings.PlayerMixerThreadCount);
         }
         finally
         {
@@ -85,6 +97,8 @@ public sealed class PlayerSettingsGatewayTests
             settings.PlayerDeviceName = originalDeviceName;
             settings.PlayerSampleRate = originalRate;
             settings.PlayerFormat = originalFormat;
+            settings.PlayerResamplingQuality = originalResamplingQuality;
+            settings.PlayerMixerThreadCount = originalMixerThreadCount;
             settings.uBMplayVolume = originalVolume;
             settings.LR2bodyResolution = originalResolution;
         }

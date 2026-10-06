@@ -1,13 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.ExceptionServices;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -18,28 +11,12 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using System.Xml.Linq;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Update;
-using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
-using Livet;
-using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NLog;
-using NLog.Config;
-using NLog.Targets;
-using Ribbit.Logging;
-using Ribbit.Media;
-using Ribbit.Media.Audio;
-using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -211,6 +188,7 @@ public sealed class SettingsControlPresentationTests
             const string sentinel = "OuterImplicitStyleSentinel";
             Application application = Application.Current;
             Assert.IsNotNull(application);
+            ResourceDictionary[] previousDictionaries = application.Resources.MergedDictionaries.ToArray();
             Type[] sentinelTypes =
             [
                 typeof(ScrollViewer),
@@ -237,7 +215,8 @@ public sealed class SettingsControlPresentationTests
             Window? sectionWindow = null;
             try
             {
-                Grid host = CreateSettingsControlHost();
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                Grid host = CreateSettingsControlHost(useApplicationTheme: true);
                 var comboBoxItemStyle = (Style)host.Resources["SettingsComboBoxItemStyle"];
                 var listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
                 var listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
@@ -452,6 +431,7 @@ public sealed class SettingsControlPresentationTests
 
                 expander.ApplyTemplate();
                 var headerSite = (ToggleButton)expander.Template.FindName("HeaderSite", expander);
+                Assert.IsNotNull(headerSite);
                 headerSite.IsChecked = true;
                 window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
                 Assert.IsTrue(expander.IsExpanded);
@@ -462,10 +442,38 @@ public sealed class SettingsControlPresentationTests
                 expanderProvider.Collapse();
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsFalse(expander.IsExpanded);
+                Assert.IsFalse(headerSite.IsChecked);
+                Assert.IsFalse(((UIElement)expander.Content).IsVisible);
                 Assert.AreEqual(ExpandCollapseState.Collapsed, expanderProvider.ExpandCollapseState);
                 expanderProvider.Expand();
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(expander.IsExpanded);
+                Assert.IsTrue(headerSite.IsChecked);
+                Assert.IsTrue(((UIElement)expander.Content).IsVisible);
+
+                foreach (string theme in new[] { AppThemeService.Light, AppThemeService.Dark, AppThemeService.Light })
+                {
+                    AppThemeService.ApplyTheme(theme);
+                    PumpDispatcher(window.Dispatcher);
+                    foreach (bool expanded in new[] { false, true })
+                    {
+                        expander.IsExpanded = expanded;
+                        PumpDispatcher(window.Dispatcher);
+                        window.UpdateLayout();
+                        Assert.AreEqual(expanded, headerSite.IsChecked);
+                        Assert.AreEqual(expanded, ((UIElement)expander.Content).IsVisible);
+                        AssertExpanderHeaderPalette(headerSite, "App.TextBrush");
+
+                        expander.IsEnabled = false;
+                        PumpDispatcher(window.Dispatcher);
+                        window.UpdateLayout();
+                        AssertExpanderHeaderPalette(headerSite, "App.DisabledTextBrush");
+                        expander.IsEnabled = true;
+                        PumpDispatcher(window.Dispatcher);
+                        window.UpdateLayout();
+                        AssertExpanderHeaderPalette(headerSite, "App.TextBrush");
+                    }
+                }
 
                 slider.ApplyTemplate();
                 var topTickBar = (TickBar)slider.Template.FindName("TopTickBar", slider);
@@ -633,17 +641,28 @@ public sealed class SettingsControlPresentationTests
             }
             finally
             {
-                sectionWindow?.Close();
-                window?.Close();
-                foreach (Type type in sentinelTypes)
+                try
                 {
-                    application.Resources.Remove(type);
-                    if (previousResources.TryGetValue(type, out object? previous))
+                    sectionWindow?.Close();
+                    window?.Close();
+                }
+                finally
+                {
+                    application.Resources.MergedDictionaries.Clear();
+                    foreach (ResourceDictionary dictionary in previousDictionaries)
                     {
-                        application.Resources[type] = previous;
+                        application.Resources.MergedDictionaries.Add(dictionary);
+                    }
+
+                    foreach (Type type in sentinelTypes)
+                    {
+                        application.Resources.Remove(type);
+                        if (previousResources.TryGetValue(type, out object? previous))
+                        {
+                            application.Resources[type] = previous;
+                        }
                     }
                 }
-
             }
         });
     }
@@ -683,13 +702,16 @@ public sealed class SettingsControlPresentationTests
         }
     }
 
-    private static Grid CreateSettingsControlHost()
+    private static Grid CreateSettingsControlHost(bool useApplicationTheme = false)
     {
         var host = new Grid();
-        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        if (!useApplicationTheme)
         {
-            Source = new Uri("/BeMusicSeeker;component/Themes/Light.xaml", UriKind.RelativeOrAbsolute)
-        });
+            host.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/BeMusicSeeker;component/Themes/Light.xaml", UriKind.RelativeOrAbsolute)
+            });
+        }
         host.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
             Source = new Uri("/BeMusicSeeker;component/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
@@ -1019,6 +1041,26 @@ public sealed class SettingsControlPresentationTests
         }
 
         return null;
+    }
+
+    private static void AssertExpanderHeaderPalette(ToggleButton header, string textResourceKey)
+    {
+        Assert.IsTrue(header.IsVisible && header.ActualWidth > 0d && header.ActualHeight > 0d);
+        Border surface = FindDescendants<Border>(header)
+            .Single(border => border.IsVisible
+                && border.ActualWidth >= header.ActualWidth - 0.5d
+                && border.ActualHeight >= header.ActualHeight - 0.5d);
+        AssertBrushColor(header, "App.ControlBackgroundBrush", surface.Background);
+        AssertBrushColor(header, "App.BorderBrush", surface.BorderBrush);
+        Assert.AreEqual(new Thickness(1), surface.BorderThickness);
+
+        TextBlock text = FindDescendants<TextBlock>(header)
+            .Single(candidate => candidate.IsVisible && candidate.Text == (string)header.Content);
+        System.Windows.Shapes.Path glyph = FindDescendants<System.Windows.Shapes.Path>(header)
+            .Single(candidate => candidate.IsVisible && candidate.ActualWidth > 0d && candidate.ActualHeight > 0d);
+        AssertBrushColor(header, textResourceKey, header.Foreground);
+        AssertBrushColor(header, textResourceKey, text.Foreground);
+        AssertBrushColor(header, textResourceKey, glyph.Fill);
     }
 
     private static void AssertBrushColor(FrameworkElement resourceOwner, string resourceKey, Brush actual)

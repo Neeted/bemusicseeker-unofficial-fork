@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "revision": "648b1cffc0f1d01e6c8df17ba836ba7e46d0be23",
+  "files": [
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/BMSFile.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/BMSFile.cs",
+      "blob": "22b28e8d3ea055b894f024e4c96e83ebaddb1f5d",
+      "originalSha256": "a06e12e01fe93c0868a9807616aaf45216393792a55597733cc9a924241fe450",
+      "frozenSha256": "de9f6119ffd5fb2a7b80385f39f822149e88b8e788b8cca43bec6e134fd03704",
+      "connectionChanges": [
+        "static ParsePreparedForAudit: prepared source constructor entry",
+        "source constructor: independent Random source only",
+        "ParseMain: use supplied Random source or original default"
+      ]
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/BMSBase64.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/BMSBase64.cs",
+      "blob": "874d6fe57f82f44fc9e0acc388d374c47f1b8605",
+      "originalSha256": "108341a9dda7b658b614e68150e6b43c528ab6acba20151a051adc65ae2f3371",
+      "frozenSha256": "108341a9dda7b658b614e68150e6b43c528ab6acba20151a051adc65ae2f3371",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/BMSBase36.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/BMSBase36.cs",
+      "blob": "e50866d36cbc100ca96f6c847cbed566d94ac5e2",
+      "originalSha256": "32e4e3483a42489844ecc1a4aecc927245fd51e149ee592efe7b4d936366a672",
+      "frozenSha256": "32e4e3483a42489844ecc1a4aecc927245fd51e149ee592efe7b4d936366a672",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/BMSBase16.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/BMSBase16.cs",
+      "blob": "a8c9efade36154a0100f7ae179f27f421c308b93",
+      "originalSha256": "4231083f3f4e480e1d51112f819c0ca59a989170d958ee467ce5e65700b52316",
+      "frozenSha256": "4231083f3f4e480e1d51112f819c0ca59a989170d958ee467ce5e65700b52316",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/IndexEncoding.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/IndexEncoding.cs",
+      "blob": "f98bb24ecda296cbb76fc24bcad8a5f4fd28c738",
+      "originalSha256": "1a1bf9ca01f0e10976edd987ce58091c5f66e381475d084fe4b5cd029d5b25ac",
+      "frozenSha256": "1a1bf9ca01f0e10976edd987ce58091c5f66e381475d084fe4b5cd029d5b25ac",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/IEnumerableExt.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/IEnumerableExt.cs",
+      "blob": "0df4d5d9462b846879b07edff41a29a876d0e75f",
+      "originalSha256": "db1ea4c22f7dfcf0d665f43fb54dfeee21d58d6e39c6fd86d8fae7c74abb7eea",
+      "frozenSha256": "db1ea4c22f7dfcf0d665f43fb54dfeee21d58d6e39c6fd86d8fae7c74abb7eea",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/BMS/Resources.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/BMS/Resources.cs",
+      "blob": "42968bf31b8bce1a2b7391de0f793e7394668fbe",
+      "originalSha256": "b09cf366c2583f646e4863c320977a95a50938c2d715ad47a3683b498b5f3b50",
+      "frozenSha256": "b09cf366c2583f646e4863c320977a95a50938c2d715ad47a3683b498b5f3b50",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Math/Fraction.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Math/Fraction.cs",
+      "blob": "e56f01c8f4b64866c14fb8aef395a4bdd1589e9c",
+      "originalSha256": "81158181b92784e5283de258635672ba4eb97bf336580d7178d81f0058698627",
+      "frozenSha256": "81158181b92784e5283de258635672ba4eb97bf336580d7178d81f0058698627",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Math/FractionException.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Math/FractionException.cs",
+      "blob": "3c20b7ecc71d8d79ddd332abc134e54684cab1e5",
+      "originalSha256": "7c5a9fc6b66fcf910b4a05c78b32e50c0b039c9e76b9f17ca534f8eaa2221063",
+      "frozenSha256": "7c5a9fc6b66fcf910b4a05c78b32e50c0b039c9e76b9f17ca534f8eaa2221063",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Math/Misc.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Math/Misc.cs",
+      "blob": "88b1e9311d14e1ed535ce1c9eb235b68258a237a",
+      "originalSha256": "f5dd7c5172f73b35d04de5cdedcb0dff04b181051ea70d8f0df3b7433d8a8438",
+      "frozenSha256": "f5dd7c5172f73b35d04de5cdedcb0dff04b181051ea70d8f0df3b7433d8a8438",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Util/Extensions/StringExt.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Util/Extensions/StringExt.cs",
+      "blob": "2b22729b7ba0f67fd2ee26f8e10e3b3e0291d76b",
+      "originalSha256": "3d949b469ee6ba07c06ae5f1572b426d967b902f2d82c94624e502fa03d7ff5e",
+      "frozenSha256": "3d949b469ee6ba07c06ae5f1572b426d967b902f2d82c94624e502fa03d7ff5e",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Util/Extensions/EnumerableExt.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Util/Extensions/EnumerableExt.cs",
+      "blob": "60b20548103bde113033b2c4a2339f807969a28e",
+      "originalSha256": "ac361b71d8b5a8f0b008e2abdb7962a8a471761a85118e060b8e56f811c616e2",
+      "frozenSha256": "ac361b71d8b5a8f0b008e2abdb7962a8a471761a85118e060b8e56f811c616e2",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Util/Extensions/ObjectExt.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Util/Extensions/ObjectExt.cs",
+      "blob": "0bec26dc754421e7c59913f4253acca59ae362bf",
+      "originalSha256": "e9dbad93947fb04d73c156c766015dc1b01948796f2bd896a1cb37929f3cf59e",
+      "frozenSha256": "e9dbad93947fb04d73c156c766015dc1b01948796f2bd896a1cb37929f3cf59e",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Models/Utils/FileOperations/LongPathFileSystem.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Models/Utils/FileOperations/LongPathFileSystem.cs",
+      "blob": "92a1d77b3ee9c231d981c604f481cce582fe59f2",
+      "originalSha256": "7a6727d242a2732059deef2eb1b2be32a2cd733df2fd646ea08346868dbe3a51",
+      "frozenSha256": "7a6727d242a2732059deef2eb1b2be32a2cd733df2fd646ea08346868dbe3a51",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Cryptography/xxHash32.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Cryptography/xxHash32.cs",
+      "blob": "6396542ae9bca39a023d7d88f4d3d6ca34dde1bf",
+      "originalSha256": "a90c41ac545c825ef7a80d93f318c228796d87a28a8e34308313f87fadf58dba",
+      "frozenSha256": "a90c41ac545c825ef7a80d93f318c228796d87a28a8e34308313f87fadf58dba",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Logging/NLogWrapper.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Logging/NLogWrapper.cs",
+      "blob": "d5cf7456381b59ad7e97ca92960d5ab0a8d5476d",
+      "originalSha256": "fed1229d5ced72f7aa11dca90450f7c68e8d4d9713b9d9c0a9215622d9bbd911",
+      "frozenSha256": "fed1229d5ced72f7aa11dca90450f7c68e8d4d9713b9d9c0a9215622d9bbd911",
+      "connectionChanges": []
+    },
+    {
+      "originalPath": "BeMusicSeeker/Ribbit/Logging/NetworkTarget.cs",
+      "frozenPath": "tools/chart-parse-audit/Legacy/Source/BeMusicSeeker/Ribbit/Logging/NetworkTarget.cs",
+      "blob": "9d106831379b7d3828085a8dd49c34d6b5635559",
+      "originalSha256": "6d4578592c0a7bf0d28cac618b0b08b5cafcdf2c3d74d913f85db893204c8b49",
+      "frozenSha256": "6d4578592c0a7bf0d28cac618b0b08b5cafcdf2c3d74d913f85db893204c8b49",
+      "connectionChanges": []
+    }
+  ],
+  "packages": {
+    "NLog": "6.1.4"
+  },
+  "build": {
+    "sdk": "global.json 10.0.401/latestFeature",
+    "framework": "net10.0-windows",
+    "language": "14.0",
+    "platform": "x64",
+    "configuration": "Release",
+    "optimize": true,
+    "checked": false,
+    "nullable": "disabled (frozen source)"
+  },
+  "allowedConnections": [
+    "static ParsePreparedForAudit: preparedsource/encoding/md5/Queue entry",
+    "source constructor: independent Random source",
+    "ParseMain: supplied Random or original default"
+  ],
+  "excluded": [
+    "UI, audio, player, application startup (not reached by parser)"
+  ],
+  "closure": "BMSFile includes Chart; Resources -> xxHash32/StringExt; LoadFile -> LongPathFileSystem; sorting -> IEnumerableExt; Fraction -> Misc/FractionException; property delegates -> ObjectExt; logger -> NLog package",
+  "connectionPatch": {
+    "path": "tools/chart-parse-audit/Legacy/connection.patch",
+    "sha256": "35b0207312282e302fb6c579df4e9ea21030920abff9f5bde66a74417ea94141"
+  }
+}

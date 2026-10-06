@@ -665,7 +665,7 @@ try {
         -DeadlinePolicy $script:deadlinePolicy `
         -OwnedProcessRecords $script:ownedProcessRecords
     $beforeSuccess = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
-    # Public v2.1.6.0 migration is covered by accept-v216-first-hop.ps1.
+    # 公開済みv2.1.6.0 updater適用はReleaseAcceptanceレーンで確認する。
     # This checks the current updater's handshake, apply and real app restart.
     $successUpdater = Start-UpdaterHandshake `
         -UpdaterExecutable (Join-Path $successApp 'BeMusicSeeker.Updater.exe') `

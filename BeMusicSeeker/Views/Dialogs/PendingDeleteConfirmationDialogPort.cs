@@ -1,7 +1,6 @@
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Views.Dialogs;
 

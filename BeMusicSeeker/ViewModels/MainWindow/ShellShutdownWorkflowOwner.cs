@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
@@ -347,7 +346,9 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             logShutdown("regularChartListStop_final_failed message=" + exception.Message);
         }
-        await Task.Run(() => TryShutdownStep("player_close", playbackPanel.CloseForShutdown)).ConfigureAwait(true);
+        // 非同期停止も最初の await までは呼出元で動くため、player lock を待つ前から worker へ移します。
+        try { await Task.Run(playbackPanel.CloseForShutdown).ConfigureAwait(true); }
+        catch (Exception exception) { TryShutdownStep("player_close", () => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception).Throw()); }
         try
         {
             settingsEditSession.Save();

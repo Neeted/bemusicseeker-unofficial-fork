@@ -86,6 +86,80 @@ public sealed class ChartResourceSnapshotTests
     }
 
     [TestMethod]
+    [DataRow(@"sound\..\foo.wav", "ParentTraversalUnsupported", "")]
+    [DataRow("foo..bar.wav", "Valid", "foo..bar.wav")]
+    [DataRow("", "Empty", "")]
+    [DataRow("bad\0.wav", "InvalidPath", "")]
+    [DataRow(@"C:\sound\foo.wav", "RootedOrAbsolute", "")]
+    [DataRow(@"\sound\foo.wav", "Valid", @"sound\foo.wav")]
+    public void AnalyzeReferencePathForLookup_PreservesExistingPathClassification(string path, string status, string normalizedPath)
+    {
+        ChartResourcePathNormalizationResult result = ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(path);
+
+        Assert.AreEqual(status, result.Status.ToString());
+        Assert.AreEqual(normalizedPath, result.NormalizedPath);
+    }
+
+    [TestMethod]
+    [DataRow("mystery.xyz", false)]
+    [DataRow("mystery..xyz", false)]
+    [DataRow(@".\mystery.xyz", false)]
+    [DataRow(@"sound\..\mystery.xyz", true)]
+    [DataRow("", false)]
+    [DataRow("bad\0.xyz", false)]
+    [DataRow(@"C:\sound\mystery.xyz", false)]
+    public void Create_UnknownResourcePreservesOnlyActualParentTraversal(string path, bool hasParentTraversal)
+    {
+        BMSFile file = CreateBmsFile(@"C:\Pending\unknown.bms", [], [path]);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
+        foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
+        {
+            Assert.AreEqual(0, snapshot.TotalReferenceCount);
+            Assert.AreEqual(hasParentTraversal, snapshot.HasUnsupportedParentTraversalReference);
+            Assert.AreEqual(hasParentTraversal ? 1 : 0, snapshot.UnsupportedResourceReferenceCount);
+        }
+    }
+
+    [TestMethod]
+    public void Create_ExtensionOnlyBmsResourcesKeepNormalKeysWithoutParentTraversal()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "ChartResourceSnapshotTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string chartPath = Path.Combine(tempDirectory, "resources.bms");
+            File.WriteAllText(chartPath,
+                "#PLAYER 1\r\n#TITLE Resources\r\n"
+                + "#WAVAA .\\sound\\kick.wav\r\n#WAVAB .wav\r\n#WAVAC .ogg\r\n"
+                + "#BMPAA bg.final.png\r\n#BMPAB movie.mpg\r\n#BMPAC .png\r\n#BMPAD mystery.xyz\r\n"
+                + "#BANNER .png\r\n#BACKBMP \r\n#STAGEFILE .png\r\n#00111:AA\r\n");
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
+            Assert.IsTrue(file.BGAfiles.Contains("mystery.xyz"));
+            Assert.IsTrue(file.ResourceReferences.Any(reference => reference.Kind == ChartResourceKind.Unknown && reference.RawPath == "mystery.xyz"));
+
+            foreach (bool includeResourceReferences in new[] { false, true })
+            {
+                ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: includeResourceReferences, includeScoreSnapshot: false);
+                foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
+                {
+                    Assert.AreEqual(1, snapshot.AudioReferenceCount);
+                    Assert.AreEqual(1, snapshot.VisualReferenceCount);
+                    Assert.AreEqual(1, snapshot.MovieReferenceCount);
+                    Assert.AreEqual(0, snapshot.OptionalImageReferenceCount);
+                    CollectionAssert.AreEquivalent(new[] { Path.Combine("sound", "kick"), "bg.final", "movie" }, snapshot.EnumerateAllRelativePaths().ToArray());
+                    CollectionAssert.AreEquivalent(new[] { ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick")), ChartResourceKeyHash.GetLookupHash("bg.final"), ChartResourceKeyHash.GetLookupHash("movie") }, snapshot.EnumerateAllRelativePathHashes().ToArray());
+                    Assert.AreEqual(0, snapshot.UnsupportedResourceReferenceCount);
+                    Assert.IsFalse(snapshot.HasUnsupportedParentTraversalReference);
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void CreateAggregate_PreservesUnsupportedParentTraversalReferencesWithoutLookupKeys()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "ChartResourceSnapshotTests", Guid.NewGuid().ToString("N"));

@@ -178,21 +178,21 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
         BMSPlaylist playlists = playlistProvider()
             ?? throw new InvalidOperationException("LR2 playlist preparation is unavailable.");
 
+        var progress = new Lr2SongDbSyncStageProgressReporter((stage, processed, total) =>
+            library.PublishLr2SongDbSyncExternalStageProgress(stage, processed, total));
+        progress.Begin("playlist_preparation");
         Lr2SongDbSyncPreparedDataSurface playlistSurface =
             playlists.ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
             reason,
             mutationCapability,
-            (processed, total, tableName) => library.PublishLr2SongDbSyncExternalStageProgress(
-                "playlist_materialization",
-                processed,
-                total,
-                tableName));
+            stageProgressReporter: (stage, processed, total) => library.PublishLr2SongDbSyncExternalStageProgress(stage, processed, total));
 
         if (!includeBuiltinGeneratedData)
         {
             return playlistSurface;
         }
 
+        progress.Begin("builtin_folder_preparation");
         return Lr2SongDbSyncPreparedDataSurface.Merge(
             playlistSurface,
             library.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(

@@ -7,6 +7,7 @@ namespace BeMusicSeeker.Models.Utils;
 
 internal static class ChartFileScannerResultBuilder
 {
+    /// <summary>完結した列挙面を譜面探索結果へ投影します。native時間へOS列挙時間を混ぜません。</summary>
     internal static ChartScanExecutionResult Build(RootFileEnumerationResult enumerationResult)
     {
         if (!RootFileEnumerationService.IsAuthoritativeComplete(enumerationResult))
@@ -32,7 +33,7 @@ internal static class ChartFileScannerResultBuilder
             ScanSource = everythingSource ? ChartScanSource.Everything : null,
             Success = true,
             NativeBridgeUsed = everythingSource,
-            NativeBridgeMs = enumerationResult?.EnumerationMs ?? 0L,
+            NativeBridgeMs = everythingSource ? enumerationResult.EnumerationMs : 0L,
             NativeBridgeReason = enumerationResult?.BackendName ?? "unknown",
             BuildResultMs = buildMs,
             HashBuildMs = buildMs,
@@ -51,7 +52,7 @@ internal static class ChartFileScannerResultBuilder
             ImageQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.ImageGroupName) ?? 0L,
             MovieQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.MovieGroupName) ?? 0L,
             TextQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.TextGroupName) ?? 0L,
-            DirectoryQueryMs = ResolveDirectoryQueryMs(enumerationResult),
+            DirectoryQueryMs = enumerationResult?.GetQueryMs(RootFileEnumerationService.DirectoriesGroupName) ?? 0L,
             ChartDirectoryCount = (ulong)(scanResult.ChartDirectories?.Count ?? 0),
             AudioAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName)?.Count ?? 0),
             ImageAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName)?.Count ?? 0),
@@ -70,19 +71,6 @@ internal static class ChartFileScannerResultBuilder
     private static ulong CountHashEntries(Dictionary<string, uint[]> hashesByDirectory)
     {
         return (ulong)((hashesByDirectory ?? []).Values.Sum(hashes => hashes?.Length ?? 0));
-    }
-
-    private static long ResolveDirectoryQueryMs(RootFileEnumerationResult enumerationResult)
-    {
-        long queryMs = enumerationResult?.GetQueryMs(RootFileEnumerationService.DirectoriesGroupName) ?? 0L;
-        if (queryMs > 0L)
-        {
-            return queryMs;
-        }
-
-        return (enumerationResult?.GetQueryHitCount(RootFileEnumerationService.DirectoriesGroupName) ?? 0UL) > 0UL
-            ? enumerationResult?.EnumerationMs ?? 0L
-            : 0L;
     }
 
 }

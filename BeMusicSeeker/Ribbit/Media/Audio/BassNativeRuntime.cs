@@ -16,7 +16,7 @@ internal static class BassNativeRuntime
     private const uint RequiredBassVersion = 0x02041203;
     private const uint RequiredBassAsioVersion = 0x01040300;
     private const uint RequiredBassWasapiVersion = 0x02040401;
-    private const uint RequiredBassMixVersion = 0x02040C00;
+    private const uint RequiredBassMixVersion = 0x02040D00;
     private const uint RequiredBassFxVersion = 0x02040C06;
     private const uint RequiredBassEncVersion = 0x02041100;
 
@@ -27,7 +27,8 @@ internal static class BassNativeRuntime
         "basswasapi.dll",
         "bassmix.dll",
         "bass_fx.dll",
-        "bassenc.dll"
+        "bassenc.dll",
+        "bms_vorbis.dll"
     });
 
     private static readonly object SyncRoot = new();
@@ -137,14 +138,11 @@ internal static class BassNativeRuntime
         }
     }
 
-    /// <summary>
-    /// Keeps the current native generation mapped for the lifetime of the process after a
-    /// ManagedBass import has been bound to it.
-    /// </summary>
+    /// <summary>CLRが解決済みのnative entry pointを使い終えるまで、現在のnative一式をプロセスに保持します。</summary>
     /// <remarks>
-    /// The CLR caches function pointers for resolved DllImport methods and has no public
-    /// unbind operation. The active publication can therefore be cleared during shutdown,
-    /// but the successfully bound native modules must remain mapped until process exit.
+    /// CLRは解決したDllImportの関数ポインターを保持し、公開された解除手段を持ちません。
+    /// またVorbis bridgeのC ABI delegateも同じgenerationの関数ポインターを保持します。
+    /// そのため終了時にactive generationの公開を解除しても、ManagedBass DLLとbridgeはプロセス終了までmapしたままにします。
     /// </remarks>
     internal static void PinManagedBassGeneration()
     {
@@ -169,6 +167,7 @@ internal static class BassNativeRuntime
         ValidateVersion("bassmix.dll", BassMix.Version, RequiredBassMixVersion);
         ValidateVersion("bass_fx.dll", BassFx.Version, RequiredBassFxVersion);
         ValidateVersion("bassenc.dll", BassEnc.Version, RequiredBassEncVersion);
+        _ = VorbisDecoder.NativeBuildInfo;
     }
 
     private static void ValidateVersion(string componentName, Version actualVersion, uint requiredVersion)

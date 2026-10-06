@@ -63,7 +63,13 @@ internal static class Lr2FolderDirectoryMetadataBuilder
 {
     private static readonly Encoding ShiftJis = Encoding.GetEncoding("shift_jis");
 
-    internal static Lr2FolderDirectoryMetadataSnapshot Build(Lr2FolderDirectoryMetadataBuildRequest request)
+    /// <summary>
+    /// ディレクトリの更新時刻とfolderinfoを一回読み込みます。任意の通知先へ確定した確認対象数と処理済み数を渡します。
+    /// 通知失敗でメタデータの欠落や読込み失敗の判定を変更しません。
+    /// </summary>
+    internal static Lr2FolderDirectoryMetadataSnapshot Build(
+        Lr2FolderDirectoryMetadataBuildRequest request,
+        Action<int, int> progressReporter = null)
     {
         request ??= new Lr2FolderDirectoryMetadataBuildRequest();
 
@@ -76,13 +82,17 @@ internal static class Lr2FolderDirectoryMetadataBuilder
         int folderInfoAppliedCount = 0;
         int folderInfoReadFailureCount = 0;
 
-        foreach (string directoryPath in NormalizeDirectoryPaths(request.DirectoryPaths))
+        List<string> directoryPaths = NormalizeDirectoryPaths(request.DirectoryPaths);
+        var progress = new Lr2SongDbSyncStageProgressReporter((_, processed, total) => progressReporter?.Invoke(processed, total));
+        progress.Begin("directory_metadata", directoryPaths.Count);
+        foreach (string directoryPath in directoryPaths)
         {
             requestedDirectoryCount++;
             DateTime? lastWriteTimeUtc = ResolveLastWriteTimeUtc(directoryPath, request.DirectoryLastWriteTimeUtcResolver);
             if (lastWriteTimeUtc == null)
             {
                 missingDirectoryCount++;
+                progress.Advance(requestedDirectoryCount, directoryPaths.Count);
                 continue;
             }
 
@@ -120,6 +130,7 @@ internal static class Lr2FolderDirectoryMetadataBuilder
             }
 
             metadataByDirectory[directoryPath] = new Lr2FolderDirectoryMetadata(lastWriteTimeUtc, folderInfoTitle);
+            progress.Advance(requestedDirectoryCount, directoryPaths.Count);
         }
 
         return new Lr2FolderDirectoryMetadataSnapshot(
@@ -132,13 +143,14 @@ internal static class Lr2FolderDirectoryMetadataBuilder
             folderInfoReadFailureCount);
     }
 
-    private static IEnumerable<string> NormalizeDirectoryPaths(IEnumerable<string> directoryPaths)
+    private static List<string> NormalizeDirectoryPaths(IEnumerable<string> directoryPaths)
     {
-        return (directoryPaths ?? [])
+        List<string> paths = [.. (directoryPaths ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        paths.Sort(StringComparer.OrdinalIgnoreCase);
+        return paths;
     }
 
     private static Dictionary<string, string> CreateFolderInfoPathMap(

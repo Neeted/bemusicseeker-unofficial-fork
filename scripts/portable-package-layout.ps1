@@ -15,7 +15,8 @@ $script:RequiredBassNativeFiles = @(
     "libs/x64/bassenc.dll",
     "libs/x64/bassmix.dll",
     "libs/x64/basswasapi.dll",
-    "libs/x64/bass_fx.dll"
+    "libs/x64/bass_fx.dll",
+    "libs/x64/bms_vorbis.dll"
 )
 
 $script:RequiredLanguageFiles = @(
@@ -70,6 +71,7 @@ function Get-PortableForbiddenPaths {
         "libs/x86/bassenc.dll",
         "libs/x86/bassmix.dll",
         "libs/x86/basswasapi.dll",
+        "libs/x86/bms_vorbis.dll",
         "libs/Bass.Net.dll",
         "libs/DynamicJson.dll",
         "libs/IniLibrary.dll",
@@ -143,6 +145,9 @@ function Get-PortableForbiddenPaths {
         "x64/bassenc.dll",
         "x64/bassmix.dll",
         "x64/basswasapi.dll",
+        "x64/bms_vorbis.dll",
+        "native/bms_vorbis.dll",
+        "bms_vorbis.dll",
         "OggVorbis.NET.dll",
         "config",
         "data",

@@ -3,7 +3,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -17,11 +16,34 @@ using Ribbit.Util.Extensions;
 
 namespace Ribbit.BMS;
 
-public class BMSFile
+public partial class BMSFile
 {
     public sealed class InvalidBmsFileException : Exception
     {
         public string FileName { get; private set; }
+
+        private readonly bool parserInputFailure;
+
+        /// <summary>
+        /// 不正な譜面データ、入力I/O、または譜面時刻の算術処理に由来する失敗かを示します。
+        /// 元例外と従来の受理条件は変えず、環境・資源・原因不明の失敗を入力不良として破棄させません。
+        /// </summary>
+        internal bool IsInputFailure => parserInputFailure || InnerException switch
+        {
+            InvalidBmsFileException nested => nested.IsInputFailure,
+            InvalidDataException or IOException or UnauthorizedAccessException or ArithmeticException => true,
+            _ => false
+        };
+
+        /// <summary>既存の乱数上限計算で拒否された譜面入力を、元の例外を保持して分類します。</summary>
+        internal static InvalidBmsFileException FromInvalidRandomRange(ArgumentOutOfRangeException cause) =>
+            new(cause);
+
+        private InvalidBmsFileException(ArgumentOutOfRangeException cause)
+            : base(cause.Message, cause)
+        {
+            parserInputFailure = true;
+        }
 
         public InvalidBmsFileException()
         {
@@ -411,15 +433,13 @@ public class BMSFile
                 NOTE_2P_OFFSET = 16u
             }
 
+            /// <summary>小節内分数tickを切り捨て、前小節線の確定tickへ加えた絶対時刻です。</summary>
             public TimeSpan AbsoluteTime = TimeSpan.Zero;
 
             public int Index;
 
-            public Fraction MeasurePosition = 0L;
-
+            /// <summary>元の小節内位置を厳密な整数比で保持します。</summary>
             public Fraction Position = 0L;
-
-            public Fraction PositionTime = 0L;
 
             public NoteType Type = type;
 
@@ -427,21 +447,7 @@ public class BMSFile
 
             public Chart Measure { get; } = measure ?? throw new ArgumentNullException("measure");
 
-            public TimeSpan PositionTimeSpan
-            {
-                get
-                {
-                    try
-                    {
-                        return new TimeSpan((600000000L * PositionTime).ToInt64());
-                    }
-                    catch
-                    {
-                        NLogWrapper.DebuggerLogger?.Error("BMS Parser: Arithmetic exception occuered on a fraction multiplying.");
-                        return new TimeSpan((long)(600000000m * PositionTime.ToDecimal()));
-                    }
-                }
-            }
+
         }
 
         public TimeSpan Time = TimeSpan.Zero;
@@ -452,7 +458,8 @@ public class BMSFile
 
         internal const int num2PNoteKeysMax = 9;
 
-        public Fraction Length { get; set; } = 1L;
+        /// <summary>小節長の有限倍率または明示的な正∞です。</summary>
+        public BmsNumber Length { get; set; } = 1L;
 
         public int Index { get; } = int.MaxValue;
 
@@ -1230,11 +1237,14 @@ public class BMSFile
 
     public TimeSpan Duration { get; private set; } = TimeSpan.Zero;
 
-    public Fraction? Bpm { get; private set; }
+    /// <summary>初期BPMの厳密値です。未定義はnullです。</summary>
+    public BmsNumber? Bpm { get; private set; }
 
-    public Fraction? MinBpm { get; private set; }
+    /// <summary>実際の制御で到達する最小BPMです。</summary>
+    public BmsNumber? MinBpm { get; private set; }
 
-    public Fraction? MaxBpm { get; private set; }
+    /// <summary>実際の制御で到達する最大BPMです。</summary>
+    public BmsNumber? MaxBpm { get; private set; }
 
     public KeyType Keys { get; private set; } = KeyType.KEYS7;
 
@@ -1252,9 +1262,11 @@ public class BMSFile
 
     public string[] BmpArray { get; private set; } = new string[4096];
 
-    protected Fraction[] BpmArray { get; private set; } = new Fraction[4096];
+    /// <summary>拡張BPMの定義です。未定義はnullです。</summary>
+    protected BmsNumber?[] BpmArray { get; private set; } = new BmsNumber?[4096];
 
-    protected Fraction[] StopArray { get; private set; } = new Fraction[4096];
+    /// <summary>STOPの定義です。未定義はnullです。</summary>
+    protected BmsNumber?[] StopArray { get; private set; } = new BmsNumber?[4096];
 
     public Resources Resources { get; } = new Resources();
 
@@ -1303,8 +1315,15 @@ public class BMSFile
     {
     }
 
-    public BMSFile(string path, Queue<int> randomPattern = null)
+#nullable enable annotations
+    public BMSFile(string path, Queue<int>? randomPattern = null)
+        : this(path, randomPattern, null) { }
+
+    private readonly BmsParseOptions? parseOptions;
+
+    private BMSFile(string path, Queue<int>? randomPattern, BmsParseOptions? options)
     {
+        parseOptions = options;
         try
         {
             Create(path, randomPattern);
@@ -1314,9 +1333,13 @@ public class BMSFile
             throw new InvalidBmsFileException(ex.Message, path, ex);
         }
     }
+#nullable restore annotations
 
-    private BMSFile(string path, string source, Encoding encode, string md5, Queue<int> randomPattern = null)
+    /// <summary>本文の再読込みを避けて同じ解析へ渡します。cloneのoptions既定nullを保ち、計測入口だけが専用optionsを渡します。</summary>
+#nullable enable annotations
+    private BMSFile(string path, string source, Encoding encode, string md5, Queue<int>? randomPattern = null, BmsParseOptions? options = null)
     {
+        parseOptions = options;
         Path = path;
         Source = source;
         Encode = encode;
@@ -1330,6 +1353,8 @@ public class BMSFile
             throw new InvalidBmsFileException(ex.Message, path, ex);
         }
     }
+
+#nullable restore annotations
 
     public void SetDefaultParameter(double playlevel = 0.0, int rank = 2, double? total = 0.0, int difficulty = 1)
     {
@@ -1379,6 +1404,39 @@ public class BMSFile
         return GetIIDXTotalValue(TotalNoteCount);
     }
 
+    /// <summary>実読込みの識別、乱数源と失敗途中の履歴・数値診断を外部へ渡す解析入口です。</summary>
+#nullable enable annotations
+    public static BMSFile ParseForAudit(string path, BmsParseOptions options, Queue<int>? randomPattern = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return new BMSFile(path, randomPattern, options);
+    }
+    /// <summary>準備済みの同一入力を、通常解析と同じ同期処理へ渡します。読込み・復号・入力通知は呼出側の準備段階です。</summary>
+    /// <param name="path">失敗時の譜面名と解析対象のパスです。</param>
+    /// <param name="source">通常の復号規則で準備した譜面本文です。</param>
+    /// <param name="encoding">本文の復号に採用した文字コードです。</param>
+    /// <param name="md5">実読込みbyteのMD5です。</param>
+    /// <param name="options">この解析だけの乱数源と任意の本番診断接続です。</param>
+    /// <param name="randomPattern">従来の選択規則に従う、呼出しごとに独立したQueueです。</param>
+    /// <returns>通常と同じ解析結果です。解析失敗はInvalidBmsFileExceptionで返します。</returns>
+    public static BMSFile ParsePreparedForAudit(string path, string source, Encoding encoding, string md5, BmsParseOptions options, Queue<int>? randomPattern = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return new BMSFile(path, source, encoding, md5, randomPattern, options);
+    }
+#nullable restore annotations
+
+    /// <summary>通常読込みの自動判別と同じfallbackでbyte列を復号します。空入力の拒否とMD5採取は読込み側の責務です。</summary>
+    /// <param name="data">一度だけ読み込んだ譜面byte列です。</param>
+    /// <param name="encoding">通常の判別またはfallbackで採用した文字コードです。</param>
+    /// <returns>通常読込みと同じ復号本文です。</returns>
+    public static string DecodeForAudit(byte[] data, out Encoding encoding)
+    {
+        string source = getAutoDetectedString(data, out Encoding detected);
+        encoding = detected ?? sjisEncDefault;
+        return detected == null ? sjisEncDefault.GetString(data) : source;
+    }
+
     public static BMSFile Parse(string path)
     {
         return new BMSFile(path);
@@ -1421,10 +1479,6 @@ public class BMSFile
     private string LoadFile(string filePath)
     {
         using FileStream fileStream = LongPathFileSystem.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        if (fileStream.Length == 0L)
-        {
-            throw new InvalidDataException(filePath + " is empty file.");
-        }
         byte[] array = new byte[fileStream.Length];
         fileStream.ReadExactly(array);
         byte[] array2 = MD5.Create().ComputeHash(array);
@@ -1441,13 +1495,14 @@ public class BMSFile
         }
         Md5 = text.ToLowerInvariant();
         string autoDetectedString = getAutoDetectedString(array, out Encoding enc);
-        if (enc == null)
+        Encode = enc ?? sjisEncDefault;
+        parseOptions?.InputRead?.Invoke(new BmsInputIdentity(Md5, array.LongLength, Encode.WebName, Encode.CodePage));
+        if (array.Length == 0)
         {
-            Encode = sjisEncDefault;
-            return sjisEncDefault.GetString(array);
+            throw new InvalidDataException(filePath + " is empty file.");
         }
-        Encode = enc;
-        return autoDetectedString;
+
+        return enc == null ? sjisEncDefault.GetString(array) : autoDetectedString;
     }
 
     private void Analyze(Queue<int> randomPattern = null)
@@ -1469,7 +1524,7 @@ public class BMSFile
     private void ParseMain(string source, Queue<int> pattern = null)
     {
         randomPattern.Clear();
-        var genRan = new Random();
+        Random genRan = parseOptions?.RandomSource ?? new Random();
         object[] selector(string s, int n)
         {
             int length = s.Length;
@@ -1543,7 +1598,7 @@ public class BMSFile
                                         {
                                             pattern.Dequeue();
                                         }
-                                        randomPattern.Add(new RandomNumber
+                                        RecordRandomChoice(new RandomNumber
                                         {
                                             Value = 0,
                                             Range = num,
@@ -1557,7 +1612,7 @@ public class BMSFile
                                         {
                                             value = pattern.Dequeue();
                                         }
-                                        randomPattern.Add(new RandomNumber
+                                        RecordRandomChoice(new RandomNumber
                                         {
                                             Value = value,
                                             Range = num,
@@ -1644,7 +1699,7 @@ public class BMSFile
                                             pattern.Dequeue();
                                         }
                                         num = null;
-                                        randomPattern.Add(new RandomNumber
+                                        RecordRandomChoice(new RandomNumber
                                         {
                                             Value = 0,
                                             Range = num7,
@@ -1653,8 +1708,17 @@ public class BMSFile
                                     }
                                     else
                                     {
-                                        num = ((pattern == null || pattern.Count == 0) ? new int?(genRan.Next(1, num7 + 1)) : new int?(pattern.Dequeue()));
-                                        randomPattern.Add(new RandomNumber
+                                        if (pattern == null || pattern.Count == 0)
+                                        {
+                                            try { num = genRan.Next(1, num7 + 1); }
+                                            catch (ArgumentOutOfRangeException cause) when (num7 == int.MaxValue)
+                                            {
+                                                // 従来の上限overflowによる拒否だけを入力不良にします。乱数実装の任意故障は分類しません。
+                                                throw InvalidBmsFileException.FromInvalidRandomRange(cause);
+                                            }
+                                        }
+                                        else { num = pattern.Dequeue(); }
+                                        RecordRandomChoice(new RandomNumber
                                         {
                                             Value = num.Value,
                                             Range = num7,
@@ -1738,9 +1802,9 @@ public class BMSFile
                                 break;
                             case "#BPM":
                                 {
-                                    if (double.TryParse(parameter, out double result6) && result6 > 0.0)
+                                    if (TryParseNumber(parameter, false, out BmsNumber result6))
                                     {
-                                        Bpm = new Fraction(result6);
+                                        Bpm = result6;
                                     }
                                     else
                                     {
@@ -1845,7 +1909,7 @@ public class BMSFile
                                                         int num5 = BMSBase64.ToInt(s);
                                                         if (num5 != 0)
                                                         {
-                                                            if (decimal.TryParse(parameter, out decimal result4) && result4 > 0m)
+                                                            if (TryParseNumber(parameter, true, out BmsNumber result4))
                                                             {
                                                                 BpmArray[num5] = result4;
                                                             }
@@ -1871,9 +1935,9 @@ public class BMSFile
                                                         {
                                                             case "02":
                                                                 {
-                                                                    if (double.TryParse(parameter, out double result2) && result2 > 0.0)
+                                                                    if (TryParseNumber(parameter, false, out BmsNumber result2))
                                                                     {
-                                                                        Measures[num2].Length = new Fraction(result2);
+                                                                        Measures[num2].Length = result2;
                                                                     }
                                                                     goto end_IL_0c52;
                                                                 }
@@ -2299,7 +2363,7 @@ public class BMSFile
                                             if (text2 == "#STOP")
                                             {
                                                 string s = command.ReplaceFromStart("#STOP", string.Empty, isIgnoreCase: true);
-                                                if (s.IsBMSBase64() && double.TryParse(parameter, out double result) && result > 0.0)
+                                                if (s.IsBMSBase64() && TryParseNumber(parameter, false, out BmsNumber result))
                                                 {
                                                     StopArray[BMSBase64.ToInt(s)] = result;
                                                 }
@@ -2334,10 +2398,10 @@ public class BMSFile
         string[] array2 = new string[4096];
         string[] array3 = new string[4096];
         string[] array4 = new string[4096];
-        var array5 = new Fraction[4096];
-        var array6 = new Fraction[4096];
-        var array7 = new Fraction[4096];
-        var array8 = new Fraction[4096];
+        var array5 = new BmsNumber?[4096];
+        var array6 = new BmsNumber?[4096];
+        var array7 = new BmsNumber?[4096];
+        var array8 = new BmsNumber?[4096];
         static void action(ReadOnlyCollection<int> mapTo1, string[] toAry1, ReadOnlyCollection<int> mapTo2, string[] toAry2, string[] fromAry)
         {
             for (int i = 1; i < mapTo1.Count; i++)
@@ -2357,19 +2421,19 @@ public class BMSFile
                 }
             }
         }
-        static void action2(ReadOnlyCollection<int> mapTo1, Fraction[] toAry1, ReadOnlyCollection<int> mapTo2, Fraction[] toAry2, Fraction[] fromAry)
+        static void action2(ReadOnlyCollection<int> mapTo1, BmsNumber?[] toAry1, ReadOnlyCollection<int> mapTo2, BmsNumber?[] toAry2, BmsNumber?[] fromAry)
         {
             for (int i = 1; i < mapTo1.Count; i++)
             {
-                if (!fromAry[i].IsDefault())
+                if (fromAry[i].HasValue)
                 {
                     int num5 = mapTo1[i];
                     int num6 = mapTo2[i];
-                    if (num5 != 0 && toAry1[num5].IsDefault())
+                    if (num5 != 0 && !toAry1[num5].HasValue)
                     {
                         toAry1[num5] = fromAry[i];
                     }
-                    if (num6 != 0 && toAry2[num6].IsDefault())
+                    if (num6 != 0 && !toAry2[num6].HasValue)
                     {
                         toAry2[num6] = fromAry[i];
                     }
@@ -2382,16 +2446,16 @@ public class BMSFile
         action2(BMSBase64.MapToBase36Subset, array8, BMSBase64.MapToBase16Subset, array7, StopArray);
         int num = WavArray.Count(s => s != null);
         int num2 = BmpArray.Count(s => s != null);
-        int num3 = BpmArray.Count(s => !s.IsDefault());
-        int num4 = StopArray.Count(s => !s.IsDefault());
-        if (num == array2.Count(s => s != null) && num2 == array4.Count(s => s != null) && num3 == array6.Count(s => !s.IsDefault()) && num4 == array8.Count(s => !s.IsDefault()))
+        int num3 = BpmArray.Count(s => s.HasValue);
+        int num4 = StopArray.Count(s => s.HasValue);
+        if (num == array2.Count(s => s != null) && num2 == array4.Count(s => s != null) && num3 == array6.Count(s => s.HasValue) && num4 == array8.Count(s => s.HasValue))
         {
             IndexEncoding = IndexEncoding.Base36;
             WavArray = array2;
             BmpArray = array4;
             BpmArray = array6;
             StopArray = array8;
-            if (num == array.Count(s => s != null) && num2 == array3.Count(s => s != null) && num3 == array5.Count(s => !s.IsDefault()) && num4 == array7.Count(s => !s.IsDefault()))
+            if (num == array.Count(s => s != null) && num2 == array3.Count(s => s != null) && num3 == array5.Count(s => s.HasValue) && num4 == array7.Count(s => s.HasValue))
             {
                 IndexEncoding = IndexEncoding.Base16;
                 WavArray = array;
@@ -2742,106 +2806,8 @@ public class BMSFile
             NLogWrapper.GetLogger()?.Warn("BMS Parser: #BPM is not defined, set BPM=130");
             Bpm = new Fraction(130L);
         }
-        Fraction? fraction = (MaxBpm = Bpm);
-        Fraction curBPM = (MinBpm = fraction).Value;
-        Fraction func() => 4L / curBPM;
-        for (int num = 0; num <= Measures.LastIndex; num++)
-        {
-            Measures[num].Control = [.. Measures[num].GetPropertiesAllControlNotes.SelectMany(c => c()).OrderByNotes()];
-            IList<Chart.Note>[] array = [.. Measures[num].GetPropertiesAllNotes.Select(d => d())];
-            int[] array2 = new int[array.Length];
-            var fraction3 = new Fraction(0L);
-            var fraction4 = new Fraction(0L);
-            Measures[num].Time = ((num == 0) ? TimeSpan.Zero : Measures[num - 1].BarLine.First().AbsoluteTime);
-            foreach (Chart.Note item in Measures[num].Control)
-            {
-                bool flag = false;
-                for (int num2 = 0; num2 < array.Length; num2++)
-                {
-                    IList<Chart.Note> list = array[num2];
-                    while (array2[num2] < list.Count && list[array2[num2]].Position <= item.Position)
-                    {
-                        Chart.Note note = list[array2[num2]];
-                        _ = array2[num2];
-                        _ = 1;
-                        note.MeasurePosition = Measures[num].Length * note.Position;
-                        note.PositionTime = fraction3 + Measures[num].Length * (note.Position - fraction4) * func();
-                        note.AbsoluteTime = Measures[num].Time + note.PositionTimeSpan;
-                        if (note.Type == Chart.Note.NoteType.BAR_LINE)
-                        {
-                            NLogWrapper.DebuggerLogger?.Trace("M:" + num.ToString("000") + " " + note.AbsoluteTime);
-                        }
-                        if (note == item)
-                        {
-                            flag = true;
-                        }
-                        array2[num2]++;
-                    }
-                }
-                Trace.Assert(item.Type != Chart.Note.NoteType.BAR_LINE || flag);
-                fraction3 = item.PositionTime;
-                fraction4 = item.Position;
-                switch (item.Type)
-                {
-                    case Chart.Note.NoteType.BPM:
-                        curBPM = (int)item.Value;
-                        if (MinBpm.Value.ToDouble() > curBPM.ToDouble())
-                        {
-                            MinBpm = curBPM;
-                        }
-                        if (MaxBpm.Value.ToDouble() < curBPM.ToDouble())
-                        {
-                            MaxBpm = curBPM;
-                        }
-                        break;
-                    case Chart.Note.NoteType.EX_BPM:
-                        if (!BpmArray[item.Index].IsDefault())
-                        {
-                            curBPM = BpmArray[item.Index];
-                            if (MinBpm.Value.ToDouble() > curBPM.ToDouble())
-                            {
-                                MinBpm = curBPM;
-                            }
-                            if (MaxBpm.Value.ToDouble() < curBPM.ToDouble())
-                            {
-                                MaxBpm = curBPM;
-                            }
-                            item.Value = curBPM;
-                        }
-                        else
-                        {
-                            NLogWrapper.GetLogger()?.Warn("BMS Parser: #BPM" + BMSBase64.FromInt(item.Index) + " not found.");
-                        }
-                        break;
-                    case Chart.Note.NoteType.STOP:
-                        if (!StopArray[item.Index].IsDefault())
-                        {
-                            Fraction fraction5 = StopArray[item.Index] * func() / 192L;
-                            fraction3 += fraction5;
-                            try
-                            {
-                                item.Value = new TimeSpan((600000000L * fraction5).ToInt64());
-                            }
-                            catch
-                            {
-                                NLogWrapper.DebuggerLogger?.Error("BMS Parser: Arithmetic exception occuered on a fraction multiplying.");
-                                item.Value = new TimeSpan((long)(600000000m * fraction5.ToDecimal()));
-                            }
-                        }
-                        else
-                        {
-                            NLogWrapper.GetLogger()?.Warn("BMS Parser: #STOP" + BMSBase64.FromInt(item.Index) + " not found.");
-                        }
-                        break;
-                }
-            }
-            for (int num3 = 0; num3 < array2.Length; num3++)
-            {
-            }
-        }
-        Fraction? minBpm = MinBpm;
-        fraction = Bpm;
-        if (minBpm.HasValue != fraction.HasValue || (minBpm.HasValue && minBpm.GetValueOrDefault() != fraction.GetValueOrDefault()) || Bpm != MaxBpm)
+        CalculateMeasureTiming();
+        if (MinBpm != Bpm || Bpm != MaxBpm)
         {
             Attribute |= Feature.SOFT_LANDING;
         }
@@ -2905,7 +2871,8 @@ public class BMSFile
         return KeyType.KEYS14;
     }
 
-    private string getAutoDetectedString(byte[] data, out Encoding enc)
+    /// <summary>通常読込みと準備入力が共有する自動判別です。判別不能時のfallbackは呼出側で同じ既定encodingを使います。</summary>
+    private static string getAutoDetectedString(byte[] data, out Encoding enc)
     {
         enc = null;
         if (data.Length == 0)

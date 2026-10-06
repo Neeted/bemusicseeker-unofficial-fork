@@ -16,6 +16,18 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class CatalogMaintenanceOwner
 {
+    /// <summary>既存受付スロットで要求の表示識別と通知先を捕捉します。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
+
+    /// <summary>受付時の実行通知先を捕捉します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
+
+    private OperationProgressRequest hydrationProgressRequest;
+    private Action<OperationProgressRequest, bool> hydrationExecutionReporter;
+
+    /// <summary>直近の保守読込み要求に捕捉した発生元です。</summary>
+    internal OperationProgressRequest HydrationProgressRequest { get { lock (hydrationStateLock) { return hydrationProgressRequest; } } }
+
     private readonly BmsLibraryInitializationService initializationService;
 
     private readonly BmsLibraryMaintenanceService maintenanceService;
@@ -437,6 +449,8 @@ internal sealed class CatalogMaintenanceOwner
         {
             hydrationRequestedVersion++;
             version = hydrationRequestedVersion;
+            hydrationProgressRequest = ProgressRequestFactory?.Invoke("maintenance_hydration", version);
+            hydrationExecutionReporter = RequestProgressReporter;
             if (!hydrationRunning)
             {
                 hydrationRunning = true;
@@ -501,9 +515,13 @@ internal sealed class CatalogMaintenanceOwner
         while (true)
         {
             int requestVersion;
+            OperationProgressRequest progressRequest;
+            Action<OperationProgressRequest, bool> progressReporter;
             lock (hydrationStateLock)
             {
                 requestVersion = hydrationRequestedVersion;
+                progressRequest = hydrationProgressRequest;
+                progressReporter = hydrationExecutionReporter;
             }
             var stopwatch = Stopwatch.StartNew();
             if (isShutdownRequested())
@@ -520,6 +538,7 @@ internal sealed class CatalogMaintenanceOwner
             {
                 reportStartupBackgroundTask?.Invoke("maintenance_hydration", "start", 0L, false, "version=" + requestVersion);
             }
+            progressReporter?.Invoke(progressRequest, true);
             try
             {
                 BmsLibraryOptionsSnapshot options = optionsSnapshotProvider();
@@ -548,6 +567,7 @@ internal sealed class CatalogMaintenanceOwner
                     reportStartupBackgroundTask?.Invoke("maintenance_hydration", "failed", stopwatch.ElapsedMilliseconds, true, ex.Message);
                 }
             }
+            finally { progressReporter?.Invoke(progressRequest, false); }
             if (CompleteHydrationRequest(requestVersion, skipped: false))
             {
                 return;

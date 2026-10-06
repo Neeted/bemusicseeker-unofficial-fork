@@ -13,6 +13,32 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistReloadMergeTests
 {
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_NameDifferencesSaveOnlyHeaderAndPreserveDate(bool changeName, bool changeOrgName)
+    {
+        var lastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+        BMSTable original = CreateTable("自動名 ★6.60", lastUpdate, CreateEntry(new string('a', 32), "NORMAL"));
+        original.playlist_id = 17;
+        original.org_name = "自動名 ★6.60";
+        original.header_sha256 = new string('b', 64);
+        original.data_sha256 = new string('c', 64);
+        BMSTable reloaded = CreateTable(changeName ? "手動名" : original.name, default, CreateEntry(new string('a', 32), "NORMAL"));
+        reloaded.org_name = changeOrgName ? "旧方針 ★6.6" : original.org_name;
+        reloaded.header_sha256 = original.header_sha256;
+        reloaded.data_sha256 = original.data_sha256;
+        BMSTable merged = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(original, reloaded,
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(original.entries), out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
+        Assert.AreEqual(changeName || changeOrgName, decision.NeedsHeaderPersistence);
+        Assert.AreEqual(changeName || changeOrgName, decision.NeedsStatePersistence);
+        Assert.IsFalse(decision.NeedsEntryPersistence);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(lastUpdate, merged.last_update);
+    }
+
     /// <summary>
     /// 再取得側に更新日時が無く差分も無い場合、既存の更新日時とローカル状態を維持することを検証します。
     /// </summary>

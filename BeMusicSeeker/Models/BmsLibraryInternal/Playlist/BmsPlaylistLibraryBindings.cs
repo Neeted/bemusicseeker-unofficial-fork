@@ -1,43 +1,41 @@
 using System;
-using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Carries the library capabilities used by a playlist constructed for startup.
+/// 起動時に構成するプレイリストへ、所有ライブラリの能力を接続します。
 /// </summary>
 internal sealed class BmsPlaylistLibraryBindings
 {
     /// <summary>
-    /// Initializes bindings for one concrete library.
+    /// 一つの所有ライブラリから能力を構成します。
     /// </summary>
-    /// <param name="sourceLibrary">The exact library used by the playlist.</param>
+    /// <param name="sourceLibrary">プレイリストを所有するライブラリ。</param>
     internal BmsPlaylistLibraryBindings(BMSLibrary sourceLibrary)
     {
         SourceLibrary = sourceLibrary ?? throw new ArgumentNullException(nameof(sourceLibrary));
     }
 
     /// <summary>
-    /// Gets the exact library that owns all forwarded capabilities.
+    /// 接続した全能力を所有するライブラリです。
     /// </summary>
     internal BMSLibrary SourceLibrary { get; }
 
-    /// <summary>
-    /// Gets scores from the exact source library.
-    /// </summary>
-    /// <returns>The source library's current score snapshot.</returns>
-    internal List<BMSScore> GetBmsScores()
-        => SourceLibrary.GetBMSScores();
+    /// <summary>選択中のスコア DB を読み直し、推薦用の変更不能な原観測を返します。</summary>
+    internal Task<WalkureScoreInput> ReadRecommendationScoresAsync(CancellationToken cancellationToken)
+        => SourceLibrary.ReadRecommendationScoresAsync(cancellationToken);
 
     /// <summary>
-    /// Creates a beatoraja hash resolver from the exact source library.
+    /// 所有ライブラリのbeatoraja出力ハッシュ照合能力を作ります。
     /// </summary>
-    /// <returns>The source library's resolver.</returns>
+    /// <returns>所有ライブラリの照合関数。</returns>
     internal Func<BmtSongHashResolveRequest, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()
         => SourceLibrary.CreateBeatorajaBmtSongHashResolver();
 
     /// <summary>
-    /// Gets the LR2 playlist-folder synchronization port owned by the source library.
+    /// 所有ライブラリのLR2プレイリストフォルダ同期能力です。
     /// </summary>
     internal ILr2PlaylistFolderSynchronizationPort Lr2PlaylistFolderSynchronization
         => SourceLibrary.Lr2PlaylistFolderSynchronization;

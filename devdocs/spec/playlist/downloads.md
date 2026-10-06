@@ -91,13 +91,11 @@ MD5ごとに逐次処理し、取消後は新しい問合せ・取得を始め�
 
 Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォーム、ブラウザーの取得イベントが必要な配布元は自動解決しません。埋込み解析は現在の形式に依存し、形式変更を成功と推定しません。
 
-### 難易度表取得の通信期限
+### 外部表の通信期限
 
-推定表・おすすめ表のHTTP GETとフォームPOSTは、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文I/Oを取り消してから応答・ストリームを破棄します。待機者だけを切り離したり、途中本文を成功で返したりしません。同じバッファ方式の同期GET・フォームPOST・テキストPOSTにも適用します。大容量取得、multipart送信、ストリームを返すAPIの期限とは区別します。
+通常の外部難度表の HTTP GET と汎用フォーム POST は、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文 I/O を取り消してから応答・ストリームを破棄します。途中本文を成功で返しません。同じバッファ方式の同期 GET・フォーム POST・テキスト POST にも適用します。大容量取得、multipart 送信、ストリームを返す API の期限とは区別します。
 
-Walkureと参照表の共有取得は非同期で接続し、待機者の取消で他の取得を止めません。排他を取った処理だけが `finally` で解放し、通信中にMonitorやモデルロックを保持しません。
-
-おすすめ表のスコアPOSTは通常失敗で初回＋最大5回、100ms間隔の既存再試行を行い、最終警告後もGETへ進みます。要求自身の時間切れは通常失敗、呼出し元の取消は直ちに伝播して再試行・GETを行いません。期限は1要求のもので、参照表や再試行を含む操作全体の上限ではありません。反映前の失敗・取消は既存表とDBを保持し、更新中状態を必ず解除します。
+内蔵の推定表・リコメンド表は通信せず、[ローカル計算の契約](local-recommendations.md)に従います。一般の外部表取込み、URL 補完、利用者のダウンロードの通信と取消は維持します。
 
 ### 診断と検証境界
 
@@ -112,7 +110,7 @@ Walkureと参照表の共有取得は非同期で接続し、待機者の取消�
 | URI境界・共有ページ・サイズ・保存 | [`PlaylistUrlAcquisitionWorkflow`](../../../BeMusicSeeker/Models/Playlist/PlaylistUrlAcquisitionWorkflow.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
 | API候補・優先順・重複・取消 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs) | [`PlaylistExternalPackageLookupServiceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistExternalPackageLookupServiceTests.cs) |
 | 通信中の許可と取得後の導入拒否 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs)、[`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
-| 単一期限・本文取消・共有取得・反映前失敗 | [`AppHttpClient`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs)、[`PlaylistRecommendedTableOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs) |
+| 単一期限・本文取消・接続解放 | [`AppHttpClient`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs) |
 | HTMLの再取得なし・相対URI基準 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) |
 | 外部同期のURL補完とローカルURIの区別 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) |
 

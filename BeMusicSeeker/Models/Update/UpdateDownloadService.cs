@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.Update;

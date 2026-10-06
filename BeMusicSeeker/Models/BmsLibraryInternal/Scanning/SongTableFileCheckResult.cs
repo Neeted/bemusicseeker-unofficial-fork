@@ -97,7 +97,11 @@ internal sealed class SongTableFileCheckResult
 
     public bool Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete { get; set; }
 
+    /// <summary>探索結果のBMS確認候補数です。</summary>
     public int BmsPathCount { get; set; }
+
+    /// <summary>探索結果のbmson確認候補数です。</summary>
+    public int BmsonPathCount { get; set; }
 
     public int DirectoryCount { get; set; }
 

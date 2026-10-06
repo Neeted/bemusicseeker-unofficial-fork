@@ -35,15 +35,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, selectedRequest, progress) =>
                 {
                     observedRequest = selectedRequest;
-                    progress(2, 1, "source");
+                    progress.TryWrite(new FolderAutoRenameProgressUpdate(2, 1, "source"));
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
                 },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
@@ -94,6 +93,88 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task SelectedRequest_IntermediateProgressSubscriberFailureStillCompletesAndReturnsIdle()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
+            var progressSubscriberFailure = new InvalidOperationException("intermediate progress subscriber failure");
+            var mutationReachedProgress = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mutationContinuedAfterProgress = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var mutationReturned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var injectedProgressFailure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var notificationFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var workflowFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var terminalProgress = new TaskCompletionSource<FolderAutoRenameProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<FolderAutoRenameCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var terminalPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+                (current, selectedRequest, progress) =>
+                {
+                    mutationReachedProgress.TrySetResult(true);
+                    progress.TryWrite(new FolderAutoRenameProgressUpdate(2, 1, "source"));
+                    mutationContinuedAfterProgress.TrySetResult(true);
+                    progress.TryWrite(new FolderAutoRenameProgressUpdate(2, 2, "source"));
+                    mutationReturned.TrySetResult(true);
+                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                },
+                (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
+                (current, parentDirectory) => false,
+                action =>
+                {
+                    return action();
+                },
+                action => action(),
+                dialogs: new AcceptedFolderDialogService(),
+                reportNotificationFailure: exception => notificationFailure.TrySetResult(exception),
+                reportWorkflowFailure: exception => workflowFailure.TrySetResult(exception));
+            owner.AttachLibrary(library);
+            owner.ProgressChanged += progress =>
+            {
+                if (progress.IsCompleted)
+                {
+                    terminalProgress.TrySetResult(progress);
+                }
+                else if (progress.ProcessedCount == 1)
+                {
+                    injectedProgressFailure.TrySetResult(true);
+                    throw progressSubscriberFailure;
+                }
+            };
+            owner.CompletionPublished += receipt => completion.TrySetResult(receipt);
+            owner.FailurePublished += failure => failurePublished.TrySetResult(failure);
+            owner.TerminalPublished += () => terminalPublished.TrySetResult(true);
+
+            bool accepted = owner.RequestStartSelected(targets);
+            await owner.WaitForIdleAsync();
+
+            Assert.IsTrue(accepted);
+            Assert.IsTrue(mutationReachedProgress.Task.IsCompleted);
+            Assert.IsTrue(injectedProgressFailure.Task.IsCompleted);
+            Assert.IsTrue(notificationFailure.Task.IsCompleted);
+            Assert.AreSame(progressSubscriberFailure, notificationFailure.Task.Result);
+            Assert.IsTrue(mutationContinuedAfterProgress.Task.IsCompleted);
+            Assert.IsTrue(mutationReturned.Task.IsCompleted);
+            Assert.IsTrue(completion.Task.IsCompleted);
+            Assert.IsTrue(terminalProgress.Task.IsCompleted);
+            Assert.IsTrue(terminalProgress.Task.Result.IsCompleted);
+            Assert.IsTrue(terminalPublished.Task.IsCompleted);
+            Assert.IsFalse(failurePublished.Task.IsCompleted);
+            Assert.IsFalse(workflowFailure.Task.IsCompleted);
+            Assert.IsTrue(owner.IsIdle);
+            Assert.IsTrue(completion.Task.Result.RefreshRequired);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
     public async Task ProgressWriter_BoundsSelectedDispatchAndDropsLateProgressAfterSeal()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -119,14 +200,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 mutationPort,
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     Task scheduled = Task.Factory.StartNew(
                         action,
                         CancellationToken.None,
                         TaskCreationOptions.LongRunning,
-                        TaskScheduler.Default);
+                        TaskScheduler.Default).Unwrap();
                     mutationTask = scheduled;
                     return scheduled;
                 },
@@ -319,7 +400,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                    return CreateCommittedRenameResult();
                 },
                 (current, parentDirectory) =>
                 {
@@ -330,7 +411,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: dialogs);
             owner.AttachLibrary(library);
@@ -368,14 +449,13 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 {
                     observedParentDirectory = parentDirectory;
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+                    return CreateCommittedRenameResult();
                 },
                 (current, parentDirectory) => true,
                 action =>
                 {
                     schedulerCalls++;
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 dialogs: dialogs);
@@ -433,7 +513,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 gate,
                 activity,
                 mutationPort,
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action => Task.Run(action),
                 action => action(),
                 new AcceptedFolderDialogService());
@@ -441,7 +521,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var scopeFailure = new IOException("suppression cleanup failed");
             owner.RefreshSuppressionChanged += (_, args) =>
             {
-                if (failSuppressionCleanup && !args.IsSuppressed) throw scopeFailure;
+                if (failSuppressionCleanup && !args.IsSuppressed)
+                {
+                    throw scopeFailure;
+                }
             };
             var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -452,7 +535,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             {
                 bool acquired = gate.TryEnter(out IDisposable probe);
                 releasedAtPublication = !activity.IsActive && acquired;
-                if (acquired) probe.Dispose();
+                if (acquired)
+                {
+                    probe.Dispose();
+                }
+
                 failurePublished.TrySetResult(failure);
             };
             owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);
@@ -471,7 +558,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsNotNull(failure.MutationResult);
             Assert.AreSame(cleanupFailure, failure.MutationResult.SessionReceipt.CleanupFailure);
             Assert.AreEqual(1, mutationPort.HasTargetsCallCount);
-            Assert.AreEqual(1, mutationPort.RenameAllWithReceiptCallCount);
+            Assert.AreEqual(1, mutationPort.RenameAllWithReceiptWithProgressCallCount);
             Assert.AreEqual(0, completionCount);
             Assert.AreEqual(1, terminalCount);
         }
@@ -499,7 +586,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult();
+                    return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                 },
                 (current, parentDirectory) => true,
                 action => Task.Run(action),
@@ -537,7 +624,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult();
+                    return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                 },
                 (current, parentDirectory) => true,
                 action => Task.Run(action),
@@ -577,7 +664,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory, progress) =>
                 {
                     Interlocked.Increment(ref executorCalls);
-                    return new FolderAutoRenameExecutionResult();
+                    return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                 },
                 (current, parentDirectory) => true,
                 action => Task.Run(action),
@@ -620,8 +707,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action =>
                 {
@@ -684,7 +770,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
@@ -743,7 +829,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
@@ -799,12 +885,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     },
                     (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                     (current, parentDirectory) => false),
-                new NoopFolderAutoRenamePlaybackPort(),
+                new NoOpChartMutationPlaybackPort(),
                 action => Task.Factory.StartNew(
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
@@ -867,7 +953,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action =>
                 {
                     lock (notifications)
@@ -926,7 +1012,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     action,
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default),
+                    TaskScheduler.Default).Unwrap(),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
@@ -962,8 +1048,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 (current, parentDirectory) => false,
                 action =>
                 {
-                    action();
-                    return Task.CompletedTask;
+                    return action();
                 },
                 action => action(),
                 reportWorkflowFailure: exception => observed = exception,
@@ -1015,11 +1100,19 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         }
     }
 
+    private static AutoRenameBatchResult CreateCommittedRenameResult() =>
+        new(
+            hasActionablePlan: true,
+            appliedPlanCount: 1,
+            new LibraryMutationSessionReceipt(
+                [new LibraryMutationSessionTarget("source", "destination")],
+                durableCommit: true));
+
     private static FolderAutoRenameWorkflowOwner CreateOwner(
-        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected,
-        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll,
+        Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected,
+        Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll,
         Func<BMSLibrary, string, bool> hasAllTargets,
-        Func<Action, Task> schedule,
+        Func<Func<Task>, Task> schedule,
         Action<Action> dispatchToUi,
         IUiDialogService dialogs,
         Action<string>? logInfo = null,
@@ -1030,7 +1123,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new DelegateFolderAutoRenameMutationPort(executeSelected, executeAll, hasAllTargets),
-            new NoopFolderAutoRenamePlaybackPort(),
+            new NoOpChartMutationPlaybackPort(),
             schedule,
             dispatchToUi,
             dialogs,
@@ -1101,7 +1194,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
     private sealed class BoundedProgressFolderAutoRenameMutationPort :
         IFolderAutoRenameMutationPort,
-        IFolderAutoRenameProgressMutationPort,
         IDisposable
     {
         private readonly int progressCount;
@@ -1123,30 +1215,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         public bool HasTargets(BMSLibrary library, string parentDirectory) => false;
 
-        public FolderAutoRenameExecutionResult RenameSelected(
-            BMSLibrary library,
-            ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter)
-        {
-            throw new AssertFailedException("The writer-only folder route was not selected.");
-        }
-
-        public bool RenameAll(
-            BMSLibrary library,
-            string parentDirectory,
-            Action<int, int, string> progressReporter)
-        {
-            throw new AssertFailedException("The writer-only folder route was not selected.");
-        }
-
-        public AutoRenameBatchResult RenameAllWithReceipt(
-            BMSLibrary library,
-            string parentDirectory,
-            Action<int, int, string> progressReporter)
-        {
-            throw new AssertFailedException("The writer-only folder route was not selected.");
-        }
-
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
@@ -1164,14 +1232,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             release.Wait();
             Returned.Set();
             return new FolderAutoRenameExecutionResult { RefreshRequired = true };
-        }
-
-        public bool RenameAllWithProgress(
-            BMSLibrary library,
-            string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter)
-        {
-            throw new AssertFailedException("all route was not expected");
         }
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
@@ -1202,13 +1262,13 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
     private sealed class DelegateFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
     {
-        private readonly Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected;
-        private readonly Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll;
+        private readonly Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected;
+        private readonly Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll;
         private readonly Func<BMSLibrary, string, bool> hasAllTargets;
 
         internal DelegateFolderAutoRenameMutationPort(
-            Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> executeSelected,
-            Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> executeAll,
+            Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected,
+            Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll,
             Func<BMSLibrary, string, bool> hasAllTargets)
         {
             this.executeSelected = executeSelected ?? throw new ArgumentNullException(nameof(executeSelected));
@@ -1218,20 +1278,19 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         public bool HasTargets(BMSLibrary library, string parentDirectory) => hasAllTargets(library, parentDirectory);
 
-        public FolderAutoRenameExecutionResult RenameSelected(
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter) => executeSelected(library, request, progressReporter);
+            IFolderAutoRenameProgressWriter progressWriter) => executeSelected(library, request, progressWriter);
 
-        public bool RenameAll(
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            Action<int, int, string> progressReporter) => executeAll(library, parentDirectory, progressReporter)?.RefreshRequired == true;
+            IFolderAutoRenameProgressWriter progressWriter) => executeAll(library, parentDirectory, progressWriter);
     }
 
     private sealed class TerminalFolderAutoRenameMutationPort :
-        IFolderAutoRenameMutationPort,
-        IFolderAutoRenameTerminalMutationPort
+        IFolderAutoRenameMutationPort
     {
         private readonly AutoRenameBatchResult result;
 
@@ -1242,7 +1301,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         internal int HasTargetsCallCount { get; private set; }
 
-        internal int RenameAllWithReceiptCallCount { get; private set; }
+        internal int RenameAllWithReceiptWithProgressCallCount { get; private set; }
 
         public bool HasTargets(BMSLibrary library, string parentDirectory)
         {
@@ -1250,36 +1309,19 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             return true;
         }
 
-        public FolderAutoRenameExecutionResult RenameSelected(
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            Action<int, int, string> progressReporter) =>
+            IFolderAutoRenameProgressWriter progressWriter) =>
             throw new AssertFailedException("selected route was not expected");
 
-        public bool RenameAll(
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            Action<int, int, string> progressReporter) =>
-            throw new AssertFailedException("legacy all-folder route was not expected");
-
-        public AutoRenameBatchResult RenameAllWithReceipt(
-            BMSLibrary library,
-            string parentDirectory,
-            Action<int, int, string> progressReporter)
+            IFolderAutoRenameProgressWriter progressWriter)
         {
-            RenameAllWithReceiptCallCount++;
+            RenameAllWithReceiptWithProgressCallCount++;
             return result;
-        }
-    }
-
-    private sealed class NoopFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort
-    {
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts)
-        {
-        }
-
-        public void StopPlaybackForFolderMutation()
-        {
         }
     }
 

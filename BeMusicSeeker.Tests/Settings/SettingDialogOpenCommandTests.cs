@@ -20,12 +20,17 @@ public sealed class SettingDialogOpenCommandTests
         var catalog = new TestAudioDeviceCatalog();
         var settingsSession = new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings
         {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
+            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
+            PlayerResamplingQuality = 2,
+            PlayerMixerThreadCount = 3
         });
         using SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
         var presentation = new RecordingSettingsDialogPresentationPort();
         dialog.AttachPresentationPort(presentation);
 
+        Assert.AreEqual(2, dialog.PlayerResamplingQuality);
+        Assert.AreEqual(3, dialog.PlayerMixerThreadCount);
+        Assert.IsFalse(dialog.HasPendingSettingChanges());
         Assert.IsTrue(dialog.OpenCommand.CanExecute);
         dialog.OpenCommand.Execute();
 
@@ -48,11 +53,17 @@ public sealed class SettingDialogOpenCommandTests
 
         Assert.AreEqual(3, dialog.PlayerDriverNames.Count);
         Assert.IsFalse(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerSampleRateSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerFormatReadOnly);
+        Assert.IsTrue(dialog.IsPlayerSampleRateReadOnly);
         Assert.IsTrue(dialog.IsPlayerWasapiDriver);
-        Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
+        Assert.IsFalse(dialog.IsPlayerBufferControlEnabled);
 
         dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
         Assert.IsTrue(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerSampleRateSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerFormatReadOnly);
+        Assert.IsFalse(dialog.IsPlayerSampleRateReadOnly);
         Assert.IsTrue(dialog.IsPlayerWasapiDriver);
 
         dialog.PlayerWASAPIParam = true;
@@ -62,7 +73,10 @@ public sealed class SettingDialogOpenCommandTests
         Assert.IsFalse(dialog.IsPlayerBufferControlEnabled);
 
         dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.Asio);
-        Assert.IsTrue(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsFalse(dialog.IsPlayerFormatSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerSampleRateSelectionEnabled);
+        Assert.IsTrue(dialog.IsPlayerFormatReadOnly);
+        Assert.IsFalse(dialog.IsPlayerSampleRateReadOnly);
         Assert.IsFalse(dialog.IsPlayerWasapiDriver);
         Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
     }

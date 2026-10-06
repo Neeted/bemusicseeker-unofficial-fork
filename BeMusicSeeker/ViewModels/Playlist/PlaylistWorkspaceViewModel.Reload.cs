@@ -10,6 +10,8 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private const string ManualPlaylistReloadProgressSource = "playlist_manual_reload";
+
     private readonly Action<Exception, string> playlistSyncFailureLog;
 
     internal event EventHandler<PlaylistSyncProgressChangedEventArgs> PlaylistSyncProgressChanged;
@@ -161,7 +163,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
             try
             {
-                BeginPlaylistSyncProgressOperation();
+                BeginPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
                 WritePlaylistReloadLog(
                     "playlist_reload_operation started operationKind="
                     + GetPlaylistReloadOperationKindText(isFullReload)
@@ -174,7 +176,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                         RecordPlaylistSyncResult(result);
                         LogPlaylistSyncFailure(result);
                     },
-                    ReportPlaylistSyncProgress,
+                    snapshot => ReportPlaylistSyncProgress(snapshot, ManualPlaylistReloadProgressSource,
+                        BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
                     "manual_resync",
                     requireCurrentTargetForApply: true,
                     publishReferenceReceipts: true);
@@ -201,7 +204,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             finally
             {
-                EndPlaylistSyncProgressOperation();
+                EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
                 PublishPlaylistOperationNotificationReceipt(
                     notificationSession,
                     "manual playlist resync notification");

@@ -35,6 +35,9 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool DeletePendingPackageSourceAfterInstall { get; init; }
 
+    /// <summary>導入先未設定の保留パッケージを新規として導入する前に確認します。</summary>
+    public bool ShowNewPackageInstallConfirmMsg { get; init; } = true;
+
     public bool KeepInstallablePackagesPending { get; init; }
 
     public bool AutoApplyAmbiguousInstallDestination { get; init; }
@@ -79,6 +82,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             EnableSmartComponentOverwrite = settings.EnableSmartComponentOverwrite,
             KeepSmartOverwriteProtectedFilesByRenaming = settings.KeepSmartOverwriteProtectedFilesByRenaming,
             DeletePendingPackageSourceAfterInstall = settings.DeletePendingPackageSourceAfterInstall,
+            ShowNewPackageInstallConfirmMsg = settings.ShowNewPackageInstallConfirmMsg,
             KeepInstallablePackagesPending = settings.KeepInstallablePackagesPending,
             AutoApplyAmbiguousInstallDestination = settings.AutoApplyAmbiguousInstallDestination,
             EstimateOfflineScoreRanking = settings.EstimateOfflineScoreRanking,

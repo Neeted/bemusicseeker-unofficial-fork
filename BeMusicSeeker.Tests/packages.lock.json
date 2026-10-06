@@ -79,12 +79,6 @@
         "resolved": "3.6.4",
         "contentHash": "3nV+2CJluKmiJpCSqQfXu5idCq35+vqFywjScyauTIz0Zk7KJw7Qpzv8gtwow0To7pxIlIvwkq9rbMB+V6eOow=="
       },
-      "NVorbis": {
-        "type": "Direct",
-        "requested": "[0.10.5, )",
-        "resolved": "0.10.5",
-        "contentHash": "o+IptCG4Avze39HrGeztC+xIp6fOOwGVAwkoa1J++4Ji1WmZ+KIKlFl5wsgxsXqBkmdpfs/vFSUproiLKYa2bw=="
-      },
       "SevenZipExtractor": {
         "type": "Direct",
         "requested": "[1.0.19, )",
@@ -232,7 +226,6 @@
           "ManagedBass.Wasapi": "[4.0.2, 4.0.2]",
           "Microsoft.Xml.SgmlReader": "[1.8.30, )",
           "NLog": "[6.1.4, )",
-          "NVorbis": "[0.10.5, )",
           "Newtonsoft.Json": "[13.0.4, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.4, )",
           "SevenZipExtractor": "[1.0.19, )",

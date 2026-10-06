@@ -1,16 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -20,10 +17,8 @@ using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
 using Ribbit.Net;
-using Ribbit.Util;
 using Ribbit.Util.Extensions;
 using SQLite;
-using CustomFolderBatchMaterializationResult = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult;
 using CustomFolderBatchOutputResult = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult;
 using CustomFolderDefinition = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderDefinition;
 using CustomFolderOutputFileProjection = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderOutputFileProjection;
@@ -197,6 +192,23 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>
     /// Publishes best-effort startup custom-folder repair progress to the shell.
     /// </summary>
+    /// <summary>要求受付時の発生元を既存項目読込み所有者へ渡します。</summary>
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory
+    {
+        get => playlistEntriesHydrationOwner.ProgressRequestFactory;
+        set => playlistEntriesHydrationOwner.ProgressRequestFactory = value;
+    }
+
+    /// <summary>実行境界を項目読込み所有者から表示先へ接続します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter
+    {
+        get => playlistEntriesHydrationOwner.RequestProgressReporter;
+        set => playlistEntriesHydrationOwner.RequestProgressReporter = value;
+    }
+
+    /// <summary>専用出力が汎用通知と同じ実行要求を捕捉する窓口です。</summary>
+    internal Func<OperationProgressRequest> ExecutionProgressRequestProvider { get; set; }
+
     internal Action<PlaylistSyncProgressSnapshot> CustomFolderOutputRepairProgressReporter { get; set; }
 
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
@@ -651,19 +663,19 @@ public partial class BMSPlaylist : ObservableObject
         => libraryBindings ?? throw new InvalidOperationException("Typed library bindings are unavailable for callback-based playlist construction.");
 
     /// <summary>
-    /// Initializes a playlist with typed capabilities from one concrete library.
+    /// 一つの所有ライブラリの型付き能力でプレイリストを構成します。
     /// </summary>
-    /// <param name="libraryBindings">The exact library capability binding.</param>
-    /// <param name="_lr2SongDB">The song database path.</param>
-    /// <param name="getLR2Config">The LR2 configuration provider.</param>
-    /// <param name="_lr2ScoreDB">The optional LR2 score database path.</param>
-    /// <param name="playlistUrlCompletionOptionsProvider">The playlist URL completion options provider.</param>
-    /// <param name="beatorajaBmtOptionsProvider">The beatoraja BMT options provider.</param>
-    /// <param name="customFolderOutputSettingsProvider">The custom-folder output settings provider.</param>
-    /// <param name="applicationPathSnapshot">The application path snapshot.</param>
-    /// <param name="uiScheduler">The UI scheduler.</param>
-    /// <param name="playlistUrlCompletionTsvContentFetcher">Optional TSV completion fetcher.</param>
-    /// <param name="playlistUrlCompletionStellaContentFetcher">Optional Stella completion fetcher.</param>
+    /// <param name="libraryBindings">所有ライブラリの能力。</param>
+    /// <param name="_lr2SongDB">曲DBのパス。</param>
+    /// <param name="getLR2Config">LR2設定の取得能力。</param>
+    /// <param name="_lr2ScoreDB">任意のLR2スコアDBパス。</param>
+    /// <param name="playlistUrlCompletionOptionsProvider">プレイリストURL補完設定の取得能力。</param>
+    /// <param name="beatorajaBmtOptionsProvider">beatoraja BMT設定の取得能力。</param>
+    /// <param name="customFolderOutputSettingsProvider">カスタムフォルダ出力設定の取得能力。</param>
+    /// <param name="applicationPathSnapshot">アプリケーションのパス設定。</param>
+    /// <param name="uiScheduler">UIスケジューラー。</param>
+    /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
+    /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string _lr2SongDB,
@@ -680,7 +692,6 @@ public partial class BMSPlaylist : ObservableObject
             _lr2SongDB,
             getLR2Config,
             _lr2ScoreDB,
-            RequireLibraryBindings(libraryBindings).GetBmsScores,
             RequireLibraryBindings(libraryBindings).CreateBeatorajaBmtSongHashResolver,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
@@ -696,29 +707,28 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// Initializes a playlist with explicitly supplied persistence and mutation
-    /// capabilities.  This constructor is used by focused test compositions and
-    /// keeps the production library binding out of the playlist owner.
+    /// 明示した保存・変更能力でプレイリストを構成します。
+    /// 独立したテスト構成では推薦用スコアの読取り能力も明示でき、
+    /// 通常の所有ライブラリへの接続をテストの構成へ混入させません。
     /// </summary>
-    /// <param name="_lr2SongDB">The song database path.</param>
-    /// <param name="getLR2Config">The LR2 configuration provider.</param>
-    /// <param name="_lr2ScoreDB">The optional LR2 score database path.</param>
-    /// <param name="getBMSScores">The BMS score provider.</param>
-    /// <param name="getBeatorajaBmtSongHashResolver">The beatoraja hash resolver factory.</param>
-    /// <param name="playlistUrlCompletionOptionsProvider">The playlist URL completion options provider.</param>
-    /// <param name="beatorajaBmtOptionsProvider">The beatoraja BMT options provider.</param>
-    /// <param name="customFolderOutputSettingsProvider">The custom-folder output settings provider.</param>
-    /// <param name="applicationPathSnapshot">The application path snapshot.</param>
-    /// <param name="uiScheduler">The UI scheduler.</param>
-    /// <param name="lr2PlaylistFolderSynchronization">The LR2 playlist-folder synchronization port.</param>
-    /// <param name="tryBeginMutationLease">The nonblocking process-wide file mutation lease provider. The second argument controls whether a busy warning may be shown.</param>
-    /// <param name="playlistUrlCompletionTsvContentFetcher">Optional TSV completion fetcher.</param>
-    /// <param name="playlistUrlCompletionStellaContentFetcher">Optional Stella completion fetcher.</param>
+    /// <param name="_lr2SongDB">曲DBのパス。</param>
+    /// <param name="getLR2Config">LR2設定の取得能力。</param>
+    /// <param name="_lr2ScoreDB">任意のLR2スコアDBパス。</param>
+    /// <param name="getBeatorajaBmtSongHashResolver">beatoraja出力のハッシュ照合能力を作る関数。</param>
+    /// <param name="playlistUrlCompletionOptionsProvider">プレイリストURL補完設定の取得能力。</param>
+    /// <param name="beatorajaBmtOptionsProvider">beatoraja BMT設定の取得能力。</param>
+    /// <param name="customFolderOutputSettingsProvider">カスタムフォルダ出力設定の取得能力。</param>
+    /// <param name="applicationPathSnapshot">アプリケーションのパス設定。</param>
+    /// <param name="uiScheduler">UIスケジューラー。</param>
+    /// <param name="lr2PlaylistFolderSynchronization">LR2プレイリストフォルダの同期能力。</param>
+    /// <param name="tryBeginMutationLease">プロセス共通の非待機の変更権取得能力。第二引数でビジー通知の可否を指定します。</param>
+    /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
+    /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
+    /// <param name="recommendationScoreReader">テスト等の独立構成で使う選択スコアの読取り能力。通常構成では所有ライブラリへ接続します。</param>
     internal BMSPlaylist(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
-        Func<List<BMSScore>> getBMSScores,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
@@ -728,7 +738,8 @@ public partial class BMSPlaylist : ObservableObject
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         Func<string, bool, LibraryFileMutationLease> tryBeginMutationLease,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
-        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
     {
         if (_lr2SongDB == null)
         {
@@ -789,10 +800,7 @@ public partial class BMSPlaylist : ObservableObject
             () => shutdownCoordinator.IsRequested);
         PlaylistExternalSyncOwner externalSyncOwnerLocal = null;
         recommendedTableOwner = new PlaylistRecommendedTableOwner(
-            _lr2ScoreDB,
-            getBMSScores ?? (() => null),
-            (uri, cancellationToken) => externalSyncOwnerLocal.LoadExternalTableAsync(uri, cancellationToken: cancellationToken),
-            new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
+            recommendationScoreReader ?? (cancellationToken => LibraryBindings.ReadRecommendationScoresAsync(cancellationToken)),
             operationNotificationOwner,
             this.customFolderOutputSettingsProvider);
         externalSyncOwnerLocal = new PlaylistExternalSyncOwner(
@@ -935,20 +943,20 @@ public partial class BMSPlaylist : ObservableObject
         playlistAggregatePersistenceOwner.AttachEntriesHydrationOwner(playlistEntriesHydrationOwner);
         playlistEntriesHydrationOwner.RunningChanged += _ =>
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationRunning));
-        playlistEntriesHydrationOwner.HydrationRequested += version =>
+        playlistEntriesHydrationOwner.HydrationRequested += (version, request) =>
         {
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationRequestedVersion));
             PlaylistEntriesHydrationRequested?.Invoke(
                 this,
-                new PlaylistHydrationVersionEventArgs(version));
+                new PlaylistHydrationVersionEventArgs(version, request));
         };
-        playlistEntriesHydrationOwner.HydrationCompleted += version =>
+        playlistEntriesHydrationOwner.HydrationCompleted += (version, request) =>
         {
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationCompletedVersion));
             startupReadinessCoordinator.MarkRequiredPlaylistReady();
             PlaylistEntriesHydrationCompleted?.Invoke(
                 this,
-                new PlaylistHydrationVersionEventArgs(version));
+                new PlaylistHydrationVersionEventArgs(version, request));
         };
         playlistEntriesHydrationOwner.HydrationReceiptPublished += PlaylistEntriesHydrationReceiptPublishedHandler;
         listenerForRwlockBMSTablesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeAll);
@@ -1241,7 +1249,7 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows)
+    private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows, OperationProgressRequest originatingRequest = null)
     {
         if (TrySkipForShutdown("custom_folder_repair_after_hydration", reason))
         {
@@ -1257,6 +1265,13 @@ public partial class BMSPlaylist : ObservableObject
 
         Task work()
         {
+            OperationProgressRequest progressRequest = ExecutionProgressRequestProvider?.Invoke();
+            if (progressRequest != null && originatingRequest != null)
+            {
+                progressRequest = progressRequest with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
+            }
+            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
+            executionReporter?.Invoke(progressRequest, true);
             try
             {
                 if (IsShutdownRequested)
@@ -1272,12 +1287,13 @@ public partial class BMSPlaylist : ObservableObject
                         progressReporter,
                         processed,
                         total,
-                        tableName));
+                        tableName, progressRequest));
                 return Task.CompletedTask;
             }
             finally
             {
-                PublishCustomFolderOutputRepairProgress(progressReporter, 0, 0, string.Empty);
+                PublishCustomFolderOutputRepairProgress(progressReporter, 0, 0, string.Empty, progressRequest);
+                executionReporter?.Invoke(progressRequest, false);
             }
         }
 
@@ -1331,7 +1347,7 @@ public partial class BMSPlaylist : ObservableObject
                 {
                     return;
                 }
-                QueueExternalPlaylistSyncAfterHydration(receipt.Reason);
+                QueueExternalPlaylistSyncAfterHydration(receipt.Reason, receipt.ProgressRequest);
                 if (IsShutdownRequested)
                 {
                     return;
@@ -1416,7 +1432,7 @@ public partial class BMSPlaylist : ObservableObject
             {
                 QueueCustomFolderOutputRepairAfterHydration(
                     receipt.Reason,
-                    effectiveContinuation.VerifyRootOutputDirectoryRows);
+                    effectiveContinuation.VerifyRootOutputDirectoryRows, receipt.ProgressRequest);
             }
             catch (Exception ex)
             {
@@ -1429,7 +1445,7 @@ public partial class BMSPlaylist : ObservableObject
         {
             try
             {
-                BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason);
+                BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason, originatingRequest: receipt.ProgressRequest);
             }
             catch (Exception ex)
             {
@@ -1469,7 +1485,7 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    private void QueueExternalPlaylistSyncAfterHydration(string reason)
+    private void QueueExternalPlaylistSyncAfterHydration(string reason, OperationProgressRequest originatingRequest)
     {
         if (TrySkipForShutdown("external_sync_after_hydration", reason))
         {
@@ -1478,19 +1494,30 @@ public partial class BMSPlaylist : ObservableObject
 
         async Task Work()
         {
-            if (IsShutdownRequested)
+            OperationProgressRequest progressRequest = ExecutionProgressRequestProvider?.Invoke();
+            if (progressRequest != null && originatingRequest != null)
             {
-                return;
+                progressRequest = progressRequest with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
             }
-            using IDisposable admission = await WaitForPlaylistMutationAsync(
-                startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
-            if (IsShutdownRequested)
+            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
+            executionReporter?.Invoke(progressRequest, true);
+            try
             {
-                return;
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                using IDisposable admission = await WaitForPlaylistMutationAsync(
+                    startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                await externalSyncOwner.UpdateBMSTablesInternalAsync(
+                    reloadExtPlaylist: true,
+                    cancellationToken: startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
             }
-            await externalSyncOwner.UpdateBMSTablesInternalAsync(
-                reloadExtPlaylist: true,
-                cancellationToken: startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+            finally { executionReporter?.Invoke(progressRequest, false); }
         }
 
         Func<string, string, string, Func<Task>, bool> startupScheduler = StartupBackgroundTaskScheduler;
@@ -2572,14 +2599,13 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// Rebuilds LR2 custom-folder output and returns the physical surface needed
-    /// by the full LR2 reconciliation.  Folder-row persistence is deferred to
-    /// that reconciliation; progress is an intermediate diagnostic.
+    /// 受理済み予約の下でカスタムフォルダを出力し、全体同期に必要な物理入力を返します。folder表の保存は全体同期へ委ねます。
+    /// LR2専用の任意通知先へ実段階・対象件数を渡します。通知の失敗は出力結果を変更しません。
     /// </summary>
     internal Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
         string reason,
         LibraryFileMutationCapability mutationCapability,
-        Action<int, int, string> progressCallback = null)
+        Action<string, int, int> stageProgressReporter = null)
     {
         if (mutationCapability == null)
         {
@@ -2590,7 +2616,7 @@ public partial class BMSPlaylist : ObservableObject
                 reason,
                 yieldBetweenTables: false,
                 mutationCapability: mutationCapability,
-                progressCallback: progressCallback)
+                stageProgressReporter: stageProgressReporter)
             .GetAwaiter()
             .GetResult();
     }
@@ -2599,7 +2625,7 @@ public partial class BMSPlaylist : ObservableObject
         string reason,
         bool yieldBetweenTables,
         LibraryFileMutationCapability mutationCapability,
-        Action<int, int, string> progressCallback = null)
+        Action<string, int, int> stageProgressReporter = null)
     {
         CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
@@ -2619,7 +2645,8 @@ public partial class BMSPlaylist : ObservableObject
                 "playlist_lr2_song_db_sync_data_resync",
                 forceWriteAllFiles: false,
                 throwOnProjectionFailure: false,
-                settings: settings);
+                settings: settings,
+                stageProgressReporter: stageProgressReporter);
         CustomFolderBatchOutputResult result = await customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync(
             preparation,
             reason,
@@ -2627,7 +2654,7 @@ public partial class BMSPlaylist : ObservableObject
             buildPreparedDataSurface: true,
             yieldBetweenTables: yieldBetweenTables,
             syncMaterialization: null,
-            progressCallback: progressCallback);
+            stageProgressReporter: stageProgressReporter);
         if (result.HasUnverifiedFiles)
         {
             throw new InvalidOperationException(
@@ -2636,11 +2663,6 @@ public partial class BMSPlaylist : ObservableObject
         return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
-    private int RepairMissingCustomFolderOutputsAfterHydration(string reason, bool verifyRootOutputDirectoryRows = false)
-    {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        return RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings);
-    }
 
     private int RepairMissingCustomFolderOutputsAfterHydrationCore(
         string reason,
@@ -2752,7 +2774,7 @@ public partial class BMSPlaylist : ObservableObject
         Action<PlaylistSyncProgressSnapshot> progressReporter,
         int processed,
         int total,
-        string tableName)
+        string tableName, OperationProgressRequest request = null)
     {
         if (progressReporter == null)
         {
@@ -2771,11 +2793,13 @@ public partial class BMSPlaylist : ObservableObject
             progressReporter(new PlaylistSyncProgressSnapshot
             {
                 IsActive = isActive,
+                Source = "custom_folder_repair",
+                Request = request,
                 TotalTableCount = isActive ? total : 0,
                 CompletedTableCount = isActive ? Math.Min(processed, total) : 0,
                 CurrentTableName = isActive ? tableName ?? string.Empty : string.Empty,
-                LabelFormat = Resources.Custom_folder_output_progress_label_format,
-                SingleLabel = Resources.Custom_folder_output_progress_single_label
+                LabelFormat = Resources.Statusbar_progress_task_custom_folder_repair + " {0}/{1}",
+                SingleLabel = Resources.Statusbar_progress_task_custom_folder_repair
             });
         }
         catch (Exception exception)
@@ -3540,8 +3564,8 @@ public partial class BMSPlaylist : ObservableObject
             + " backend=" + QuoteLogValue(result.BackendName)
             + " entries=" + result.GetEntries(CustomFolderOutputLr2FolderEnumerationGroupName).Count
             + " queryHits=" + result.GetQueryHitCount(CustomFolderOutputLr2FolderEnumerationGroupName)
-            + " queryMs=" + result.GetQueryMs(CustomFolderOutputLr2FolderEnumerationGroupName)
-            + " enumerationMs=" + result.EnumerationMs
+            + " queryMs=" + (result.GetMeasuredQueryMs(CustomFolderOutputLr2FolderEnumerationGroupName)?.ToString() ?? "not_measured")
+            + " enumerationMs=" + (result.MeasuredEnumerationMs?.ToString() ?? "not_measured")
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds
             + " reasonDetail=" + QuoteLogValue(result.ErrorReason));
         return result.Success
@@ -4080,40 +4104,6 @@ public partial class BMSPlaylist : ObservableObject
         item.ParentHash = classification.ParentHash;
     }
 
-    private void SyncCustomFolderRows(
-        string outputDir,
-        IReadOnlyCollection<Lr2FolderFileSyncItem> items,
-        LibraryFileMutationCapability mutationCapability,
-        BMSTable bmsTable = null,
-        IReadOnlyCollection<string> directoryRowGenerationScopes = null,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> ownedDirectoryEntries = null)
-    {
-        ArgumentNullException.ThrowIfNull(mutationCapability);
-        if (string.IsNullOrWhiteSpace(outputDir))
-        {
-            return;
-        }
-
-        directoryRowGenerationScopes ??= CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable);
-        Lr2FolderDirectoryMetadataSnapshot directoryMetadata = CreateCustomFolderParentDirectoryMetadataSnapshot(
-            items,
-            directoryRowGenerationScopes,
-            [outputDir],
-            ownedDirectoryEntries);
-        Lr2FolderFileDbSyncResult result = GetLr2PlaylistFolderSynchronization().SyncPlaylistLr2FolderFileRows(
-            "playlist_lr2folder_sync",
-            new Lr2FolderFileDbSyncRequest
-            {
-                Items = items ?? [],
-                ScopeDirectories = [outputDir],
-                DirectoryRowScopeDirectories = [outputDir],
-                DirectoryRowGenerationScopeDirectories = directoryRowGenerationScopes,
-                DirectoryMetadataResolver = directoryMetadata.Resolve,
-                AllowPrune = true
-            },
-            mutationCapability);
-        LogLr2FolderSyncResult("playlist_lr2folder_sync", result, 1, items?.Count ?? 0);
-    }
 
     private Lr2FolderFileDbSyncResult SyncCustomFolderRowsBatch(
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchMaterializationRequest request,
@@ -6047,8 +6037,13 @@ internal sealed class PlaylistDropMutationResult
 
 internal sealed class PlaylistHydrationVersionEventArgs : EventArgs
 {
-    internal PlaylistHydrationVersionEventArgs(int version)
+    /// <summary>受付・完了通知に捕捉した表示識別です。</summary>
+    internal OperationProgressRequest Request { get; }
+
+    /// <summary>既存の受付・完了情報に、同じ要求の捕捉済み表示識別を添えます。</summary>
+    internal PlaylistHydrationVersionEventArgs(int version, OperationProgressRequest request = null)
     {
+        Request = request;
         Version = version;
     }
 

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -15,716 +15,418 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
 using SQLite;
+using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class PlaylistRecommendedTableOwnerTests
 {
-    public TestContext TestContext { get; set; } = null!;
-
     [TestMethod]
-    public async Task LoadWalkureTable_RejectsNonBmseekerUri()
+    public async Task LocalTables_CompleteWithUnavailableNetworkWithoutSendingRequests()
     {
-        PlaylistRecommendedTableOwner owner = CreateOwner();
-
-        ArgumentException exception = await Assert.ThrowsExceptionAsync<ArgumentException>(
-            () => owner.LoadWalkureTableAsync(new Uri("https://example.invalid/table.json")));
-
-        StringAssert.StartsWith(exception.Message, Resources.Error_SchemeMustBeBemusic);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RejectsUnsupportedRoute()
-    {
-        PlaylistRecommendedTableOwner owner = CreateOwner();
-
-        ArgumentException exception = await Assert.ThrowsExceptionAsync<ArgumentException>(
-            () => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.unsupported")));
-
-        StringAssert.StartsWith(exception.Message, Resources.Error_UnsupportedURI);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RecommendedWithoutScoreDatabaseFailsBeforeFetch()
-    {
-        PlaylistRecommendedTableOwner owner = CreateOwner();
-
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?id=0")));
-
-        Assert.AreEqual(Resources.Error_ScoreDBConnectionFailed, exception.Message);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RecommendedBuildsEntriesAndPreservesBaseProperties()
-    {
-        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
-        BMSTable overjoy = CreateTable();
-        var httpClient = new FakeHttpClient
+        using var handler = new UnavailableNetworkHandler();
+        using var client = new HttpClient(handler);
+        var external = new PlaylistExternalSyncOwner(new AppHttpClient(client, TimeProvider.System), CreateOwner(),
+            (_, _) => { }, () => false, _ => { });
+        foreach (string query in new[] { "table.estimation?type=easy", "table.estimation?type=normal", "table.estimation?type=hard",
+            "table.estimation?type=fc", "table.recommended", "table.recommended?base=failed", "table.recommended?failed=noplay" })
         {
-            GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote〜Name\",\"recommended\":[{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"hard\",\"p\":4.25}]}",
-        };
-        PlaylistRecommendedTableOwner owner = CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : overjoy);
-        var baseTable = new BMSTable
+            BMSTable table = await external.LoadExternalTableAsync(new Uri("bmseeker:" + query));
+            Assert.IsNotNull(table.entries);
+        }
+        Assert.AreEqual(0, handler.Requests);
+    }
+
+    private sealed class UnavailableNetworkHandler : HttpMessageHandler
+    {
+        internal int Requests { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Requests++;
+            return Task.FromException<HttpResponseMessage>(new HttpRequestException("network is unavailable"));
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("easy", .73)]
+    [DataRow("normal", 2.56)]
+    [DataRow("hard", 4.34)]
+    [DataRow("fc", 23.40)]
+    public async Task LoadWalkureTable_EstimationUsesStoredStarsWithoutScores(string type, double expected)
+    {
+        int reads = 0;
+        PlaylistRecommendedTableOwner owner = CreateOwner(_ => { reads++; throw new InvalidOperationException(); });
+        BMSTable table = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.estimation?type=" + type + "&name=ignored&unknown=x"));
+        Assert.AreEqual(0, reads);
+        Assert.AreEqual(expected, table.entries.Single(row => row.md5 == "621ad2a006a4d39a57749c5f8dcc11b6").level);
+        Assert.AreEqual(1252, table.entries.Select(row => row.md5).Distinct().Count());
+        BMSTableEntry[] dual = table.entries.Where(row => row.md5 == "a4a9c721a726435eaf37b62b1768b4e1").ToArray();
+        Assert.AreEqual(2, dual.Length);
+        Assert.IsTrue(dual.Any(row => row.folder.StartsWith("INSANE", StringComparison.Ordinal)));
+        Assert.IsTrue(dual.Any(row => row.folder.StartsWith("Overjoy", StringComparison.Ordinal)));
+        Assert.IsTrue(table.entries.All(row => row.md5.Length == 32));
+        Assert.IsTrue(table.entries.All(row => string.IsNullOrEmpty(row.artist) && string.IsNullOrEmpty(row.url)));
+        if (type == "fc")
+        {
+            Assert.IsTrue(table.entries.Where(row => row.md5 == "ac29456828fbd27bb27bd99d52a666c4").All(row => row.level == null));
+        }
+        BMSTable renamed = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.estimation?type=" + type),
+            new BMSTable { name = "手動の推定表名", org_name = "元の推定表名" });
+        Assert.AreEqual("手動の推定表名", renamed.name);
+        Assert.AreEqual(table.org_name, renamed.org_name);
+        Assert.AreEqual(0, reads);
+    }
+
+    [DataTestMethod]
+    [DataRow("https://example.invalid/table.json")]
+    [DataRow("bmseeker:table.unsupported")]
+    [DataRow("bmseeker:table.estimation?type=unsupported")]
+    [DataRow("bmseeker:table.recommended?base=failed&failed=noplay")]
+    public async Task LoadWalkureTable_RejectsUnsupportedInputBeforeReading(string uri)
+    {
+        int reads = 0;
+        PlaylistRecommendedTableOwner owner = CreateOwner(_ => { reads++; throw new InvalidOperationException(); });
+        await Assert.ThrowsExceptionAsync<ArgumentException>(() => owner.LoadWalkureTableAsync(new Uri(uri)));
+        Assert.AreEqual(0, reads);
+    }
+
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(2)]
+    [DataRow(1)]
+    public async Task LoadWalkureTable_MissingFailedOrEmptyScoresFail(int status)
+    {
+        PlaylistRecommendedTableOwner owner = CreateOwner(_ => Task.FromResult(new WalkureScoreInput((ScoreTableLoadStatus)status, ImmutableDictionary<string, WalkureLamp>.Empty)));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
+    }
+
+    [TestMethod]
+    public async Task LoadWalkureTable_RecommendedPreservesBasePropertiesAndIgnoresLegacyParameters()
+    {
+        PlaylistRecommendedTableOwner owner = CreateOwner();
+        var original = new BMSTable
+        {
+            name = "手動名 ★999.00",
+            org_name = "旧取得元名 ★0.00",
             compat_prefix = "BASE ",
             playlist_id = 17,
             symbol = "BASE",
+            Output_dir = "original-output",
             ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
             is_external_sync = false,
             custom_folder_output_base_name = "base-output",
             bmt_sort = 4,
             is_bmt_output = true
         };
-
-        BMSTable table = await owner.LoadWalkureTableAsync(
-            new Uri("bmseeker:table.recommended?id=123&mode=readonly&name=Shown"),
-            baseTable);
-
-        Assert.AreEqual(1, table.entries.Count);
-        Assert.AreEqual(md5, table.entries.Single().md5);
-        Assert.AreEqual("HARD", table.entries.Single().folder);
-        Assert.AreEqual(4.25, table.entries.Single().level);
-        Assert.AreEqual("BASE ", table.compat_prefix);
-        Assert.AreEqual(17, table.playlist_id);
-        Assert.AreEqual("BASE", table.symbol);
-        Assert.AreEqual(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, table.ignore_folder_output);
-        Assert.IsFalse(table.is_external_sync);
-        Assert.AreEqual("base-output", table.custom_folder_output_base_name);
-        Assert.AreEqual(4, table.bmt_sort);
-        Assert.IsTrue(table.is_bmt_output);
-        Assert.AreEqual(1, httpClient.GetUris.Count);
-        StringAssert.Contains(httpClient.GetUris.Single().Query, "id=123");
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RecommendedSkipsInvalidRowsAndKeepsNumericContract()
-    {
-        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
-        var httpClient = new FakeHttpClient
+        BMSTable baseline = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended"), original);
+        Assert.AreEqual(baseline.org_name, baseline.name);
+        StringAssert.Contains(baseline.name, "★" + (ReadWalkureCase("mixed")["rating"]?.Value<double>("playerStarRating")
+            ?? throw new FormatException()).ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+        foreach (string query in new[] { "mode=readonly&id=999&name=other", "mode=update&filter=hard", "mode=unknown&unknown=x" })
         {
-            GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote\",\"recommended\":[null,{\"bms\":{\"type\":\"normal\",\"bmsid\":\"1001\"},\"new_lamp\":\"hard\",\"p\":4.25},{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"clear\",\"p\":3.5}]}"
-        };
-        PlaylistRecommendedTableOwner owner = CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : CreateTable());
-
-        BMSTable table = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?id=123&mode=readonly"));
-
-        Assert.AreEqual(1, table.entries.Count);
-        Assert.AreEqual("CLEAR", table.entries.Single().folder);
-        Assert.AreEqual(3.5, table.entries.Single().level);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RecommendedSkipsRowsWithMissingRequiredFields()
-    {
-        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
-        var httpClient = new FakeHttpClient
-        {
-            GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0.5,\"name\":\"Remote\",\"recommended\":["
-                + "{\"bms\":{\"bmsid\":1001},\"new_lamp\":\"hard\",\"p\":4.25},"
-                + "{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"p\":4.25},"
-                + "{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"hard\"},"
-                + "{\"bms\":{\"type\":\"normal\",\"bmsid\":1001.5},\"new_lamp\":\"clear\",\"p\":null}]}"
-        };
-        PlaylistRecommendedTableOwner owner = CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : CreateTable());
-
-        BMSTable table = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?id=123&mode=readonly"));
-
-        Assert.AreEqual(1, table.entries.Count);
-        Assert.AreEqual("CLEAR", table.entries.Single().folder);
-        Assert.IsNull(table.entries.Single().level);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_EstimationSkipsRowsWithMissingRequiredFields()
-    {
-        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
-        var httpClient = new FakeHttpClient
-        {
-            GetStringHandler = _ => "{\"1\":{\"bmsid\":999,\"hoshi\":{\"easy\":1.5,\"normal\":null,\"hard\":3,\"fc\":4},\"type\":\"normal\"},"
-                + "\"2\":{\"bmsid\":1001,\"hoshi\":{\"easy\":2.5,\"normal\":null,\"hard\":3,\"fc\":4}},"
-                + "\"3\":{\"bmsid\":1001.5,\"hoshi\":{\"easy\":3.5,\"normal\":null,\"hard\":3,\"fc\":4},\"type\":\"normal\"}}"
-        };
-        PlaylistRecommendedTableOwner owner = CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : CreateTable());
-
-        BMSTable table = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.estimation?type=easy"));
-
-        Assert.AreEqual(1, table.entries.Count);
-        Assert.AreEqual(3.5, table.entries.Single().level);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RecommendedFetchFailureQueuesWarningAndThrows()
-    {
-        var httpClient = new FakeHttpClient
-        {
-            GetStringHandler = _ => "{\"status\":\"failed\",\"message\":\"offline\"}"
-        };
-        var notificationOwner = new PlaylistOperationNotificationOwner();
-        PlaylistRecommendedTableOwner owner = CreateOwner(
-            httpClient: httpClient,
-            notificationOwner: notificationOwner);
-
-        using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?id=123&mode=readonly")));
-
-        Assert.AreEqual(Resources.Error_RecommendFetchFailed, exception.Message);
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-        Assert.AreEqual(1, receipt.Notifications.Count);
-        StringAssert.Contains(receipt.Notifications[0].Message, "offline");
-        Assert.AreEqual(1, httpClient.GetUris.Count);
-    }
-
-    [TestMethod]
-    public async Task LoadWalkureTable_RecommendedMissingDocumentFieldsFailsWithoutWarning()
-    {
-        foreach (string response in new[]
-        {
-            "{\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote\",\"recommended\":[]}",
-            "{\"status\":\"failed\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote\",\"recommended\":[]}",
-            "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"recommended\":[]}"
-        })
-        {
-            var httpClient = new FakeHttpClient { GetStringHandler = _ => response };
-            var notificationOwner = new PlaylistOperationNotificationOwner();
-            PlaylistRecommendedTableOwner owner = CreateOwner(
-                httpClient: httpClient,
-                notificationOwner: notificationOwner);
-
-            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
-            await Assert.ThrowsExceptionAsync<FormatException>(
-                () => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?id=123&mode=readonly")));
-
-            Assert.AreEqual(0, session.TakeReceipt().Notifications.Count);
+            BMSTable result = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?" + query), original);
+            Assert.AreEqual(baseline.data_sha256, result.data_sha256);
+            Assert.AreEqual(baseline.org_name, result.org_name);
+            Assert.AreEqual(result.org_name, result.name);
+            Assert.AreEqual(original.compat_prefix, result.compat_prefix);
+            Assert.AreEqual(original.playlist_id, result.playlist_id);
+            Assert.AreEqual(original.symbol, result.symbol);
+            Assert.AreEqual(original.ignore_folder_output, result.ignore_folder_output);
+            Assert.AreEqual(original.is_external_sync, result.is_external_sync);
+            Assert.AreEqual(original.Output_dir, result.Output_dir);
+            Assert.AreEqual(original.custom_folder_output_base_name, result.custom_folder_output_base_name);
+            Assert.AreEqual(original.bmt_sort, result.bmt_sort);
+            Assert.AreEqual(original.is_bmt_output, result.is_bmt_output);
         }
+        Assert.AreEqual("R★", baseline.org_symbol);
+        CollectionAssert.AreEqual(new[] { "EASY", "NORMAL", "HARD", "FC" }, baseline.Folder_order);
     }
 
     [TestMethod]
-    public async Task LoadWalkureTable_EstimationLoadsJsonOnceForConcurrentRequests()
+    public async Task LoadExternalTableSnapshotsAsync_CapturesOnceAcrossPoliciesAndRefreshesNextOperation()
     {
-        int getCount = 0;
-        var firstRequestEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseFirstRequest = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var httpClient = new FakeHttpClient
+        int reads = 0;
+        WalkureScoreInput input = ReadWalkureInput("standard");
+        PlaylistRecommendedTableOwner owner = CreateOwner(_ => { reads++; return Task.FromResult(input); });
+        PlaylistExternalSyncOwner external = External(owner);
+        BMSTable[] targets = [.. new[] { "", "?base=failed", "?failed=noplay" }.Select(query => new BMSTable
+        { Page_url = new Uri("bmseeker:table.recommended" + query), name = "手動名", org_name = "旧取得元名" })];
+        List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> results = await external.LoadExternalTableSnapshotsAsync(targets, true);
+        Assert.AreEqual(1, reads);
+        foreach ((PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult? result, string? expectedCase) in results.Zip(new[] { "standard", "baseFailed", "omitFailed" }))
         {
-            GetStringAsyncHandler = async (_, cancellationToken) =>
-            {
-                Interlocked.Increment(ref getCount);
-                firstRequestEntered.TrySetResult();
-                await releaseFirstRequest.Task.WaitAsync(cancellationToken);
-                return "{}";
-            }
-        };
-        PlaylistRecommendedTableOwner owner = CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: _ => CreateTable());
-        Uri uri = new("bmseeker:table.estimation?type=easy");
-        Task<BMSTable>[] loadTasks = Enumerable.Range(0, 8)
-            .Select(_ => owner.LoadWalkureTableAsync(uri))
-            .ToArray();
-        Exception? primaryFailure = null;
-        try
-        {
-            await firstRequestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.AreEqual(1, Volatile.Read(ref getCount));
-
-            releaseFirstRequest.TrySetResult();
-            BMSTable[] tables = await Task.WhenAll(loadTasks).WaitAsync(TimeSpan.FromSeconds(5));
-
-            Assert.AreEqual(1, Volatile.Read(ref getCount));
-            Assert.IsTrue(tables.All(table => table.entries.Count == 0));
+            Assert.IsTrue(result.Succeeded);
+            JObject independent = ReadWalkureCase(expectedCase);
+            string star = (independent["rating"]?.Value<double>("playerStarRating") ?? throw new FormatException()).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            StringAssert.Contains(result.ExternalTable.org_name, "★" + star);
+            Assert.AreEqual(result.ExternalTable.org_name, result.ExternalTable.name);
         }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            releaseFirstRequest.TrySetResult();
-            await ObserveRequestForCleanupAsync(Task.WhenAll(loadTasks), primaryFailure);
-        }
+        Assert.AreEqual(3, results.Select(row => row.ExternalTable.name).Distinct().Count());
+        input = ReadWalkureInput("mixed");
+        BMSTable next = await external.LoadExternalTableAsync(targets[0].Page_url);
+        Assert.AreEqual(2, reads);
+        Assert.AreNotEqual(results[0].ExternalTable.data_sha256, next.data_sha256);
+        await external.LoadExternalTableAsync(new Uri("bmseeker:table.estimation?type=easy"));
+        Assert.AreEqual(2, reads);
     }
 
     [TestMethod]
-    public async Task LoadWalkureTable_RecommendedUpdatesClearedSongsAndNotifiesSkillChange()
+    public async Task LoadExternalTableSnapshotsAsync_SharesReadFailureWithoutCachingAcrossOperations()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistRecommendedTableOwnerTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        string scoreDbPath = Path.Combine(tempDirectory, "score.db");
-        const string md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        try
-        {
-            using (var db = new LR2ScoreDBExtended(scoreDbPath))
-            {
-                db.CreateTable<LR2ScoreDB.player>();
-                db.Insert(new LR2ScoreDB.player { id = "player", irid = 321, name = "Player" });
-            }
-            BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
-            BMSTable overjoy = CreateTable();
-            var httpClient = new FakeHttpClient
-            {
-                GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote Name\",\"recommended\":[{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"clear\",\"p\":3.5}]}",
-            };
-            httpClient.PostFormHandler = (_, form) => string.Empty;
-            var postForms = new List<NameValueCollection>();
-            httpClient.PostFormObserver = form => postForms.Add(form);
-            var notificationOwner = new PlaylistOperationNotificationOwner();
-            PlaylistRecommendedTableOwner owner = CreateOwner(
-                scoreDbPath,
-                () =>
-                [new BMSScore
-                {
-                    hash = md5,
-                    clear = ClearType.HARD,
-                    rank = RankType.A
-                }],
-                httpClient,
-                uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : overjoy,
-                notificationOwner: notificationOwner,
-                settings: new CustomFolderOutputSettingsSnapshot { ShowRecommUpdatedMsg = true });
-            var baseTable = new BMSTable { org_name = "Recommended ★11.00" };
-
-            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
-            BMSTable table = await owner.LoadWalkureTableAsync(
-                new Uri("bmseeker:table.recommended?mode=normal&filter=clear&base=failed"),
-                baseTable);
-
-            Assert.AreEqual(1, postForms.Count);
-            Assert.AreEqual("321", postForms[0].Get("id"));
-            Assert.AreEqual("Player", postForms[0].Get("name"));
-            StringAssert.Contains(postForms[0].Get("data"), "1001-4");
-            Assert.AreEqual(1, table.entries.Count);
-            Assert.AreEqual("CLEAR", table.entries.Single().folder);
-            Assert.AreEqual(3.5, table.entries.Single().level);
-            PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-            Assert.AreEqual(1, receipt.Notifications.Count);
-            StringAssert.Contains(receipt.Notifications[0].Message, "12.50");
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+        int reads = 0;
+        bool fail = true;
+        PlaylistRecommendedTableOwner owner = CreateOwner(_ => { reads++; return fail ? Task.FromException<WalkureScoreInput>(new IOException("read failed")) : Task.FromResult(ReadWalkureInput()); });
+        PlaylistExternalSyncOwner external = External(owner);
+        BMSTable[] targets = [.. new[] { "", "?base=failed", "?failed=noplay" }.Select(query => new BMSTable { Page_url = new Uri("bmseeker:table.recommended" + query) })];
+        List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> results = await external.LoadExternalTableSnapshotsAsync(targets, false);
+        Assert.AreEqual(1, reads);
+        Assert.IsTrue(results.All(result => !result.Succeeded && result.Exception is IOException));
+        fail = false;
+        await external.LoadExternalTableAsync(targets[0].Page_url);
+        Assert.AreEqual(2, reads);
     }
 
     [DataTestMethod]
-    [DataRow("bmseeker:table.estimation?type=easy")]
-    [DataRow("bmseeker:table.recommended?id=123&mode=readonly")]
-    public async Task LoadExternalTableAsync_CancellationReachesWalkureGetAndAllowsNextLoad(string address)
+    [DataRow(ClearType.NO_PLAY, 0)]
+    [DataRow(ClearType.FAILED, 1)]
+    [DataRow(ClearType.INVALID, 1)]
+    [DataRow(ClearType.L_ASSIST, 1)]
+    [DataRow(ClearType.EASY, 2)]
+    [DataRow(ClearType.CLEAR, 3)]
+    [DataRow(ClearType.HARD, 4)]
+    [DataRow(ClearType.EX_HARD, 4)]
+    [DataRow(ClearType.FC, 5)]
+    [DataRow(ClearType.PA, 5)]
+    [DataRow(ClearType.MAX, 5)]
+    public void RecommendationScores_NormalizeExistingClearSemantics(ClearType clear, int expected)
+        => Assert.AreEqual(expected == 0 ? (WalkureLamp?)null : (WalkureLamp)expected, BMSLibrary.NormalizeRecommendationLamp(clear));
+
+    [TestMethod]
+    public async Task RecommendationScores_ReadFreshLr2IncludingCourseAndRankZeroWithoutUpdatingGlobalScores()
     {
-        using var cancellation = new CancellationTokenSource();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var response = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        int activeRequests = 0;
-        var httpClient = new FakeHttpClient
-        {
-            GetStringAsyncHandler = async (_, token) =>
-            {
-                Interlocked.Increment(ref activeRequests);
-                entered.TrySetResult();
-                try { return await response.Task.WaitAsync(token); }
-                finally { Interlocked.Decrement(ref activeRequests); }
-            }
-        };
-        PlaylistExternalSyncOwner externalOwner = CreateExternalOwner(CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: _ => CreateTable()));
-        Task<BMSTable> request = externalOwner.LoadExternalTableAsync(new Uri(address), cancellationToken: cancellation.Token);
-        Exception? primaryFailure = null;
+        string directory = NewDirectory();
+        BMSLibrary? library = null;
         try
         {
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            cancellation.Cancel();
-            await AssertCanceledAsync(request.WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.AreEqual(0, Volatile.Read(ref activeRequests));
-
-            // 取消し済み取得を cache / single-flight gate に残さない。
-            response.TrySetResult(address.Contains("table.estimation", StringComparison.Ordinal) ? "{}" : EmptyRecommendationJson);
-            BMSTable next = await externalOwner.LoadExternalTableAsync(new Uri(address)).WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.AreEqual(0, next.entries.Count);
-            Assert.AreEqual(2, httpClient.GetUris.Count);
-        }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            cancellation.Cancel();
-            response.TrySetResult("{}");
-            await ObserveRequestForCleanupAsync(request, primaryFailure);
-        }
-    }
-
-    [DataTestMethod]
-    [DataRow(1)]
-    [DataRow(2)]
-    public async Task LoadExternalTableAsync_CancellationReachesReferenceTable(int blockedReference)
-    {
-        using var cancellation = new CancellationTokenSource();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        int referenceCalls = 0;
-        PlaylistExternalSyncOwner externalOwner = CreateExternalOwner(CreateOwner(
-            httpClient: new FakeHttpClient { GetStringHandler = _ => "{}" },
-            externalTableLoaderAsync: async (_, token) =>
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            string scorePath = Path.Combine(directory, "score.db");
+            WalkureRecommendationModel model = WalkureRecommendationModel.Bundled;
+            string course = model.Entries.First(row => row.IsCourse).Md5;
+            using (var db = new SQLiteConnection(scorePath))
             {
-                if (Interlocked.Increment(ref referenceCalls) == blockedReference)
+                db.RunInTransaction(() =>
                 {
-                    entered.TrySetResult();
-                    await release.Task.WaitAsync(token);
-                }
-                return CreateTable();
-            }));
-        Task<BMSTable> request = externalOwner.LoadExternalTableAsync(
-            new Uri("bmseeker:table.estimation?type=easy"), cancellationToken: cancellation.Token);
-        Exception? primaryFailure = null;
-        try
-        {
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            cancellation.Cancel();
-            await AssertCanceledAsync(request.WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.AreEqual(blockedReference, referenceCalls);
+                    db.CreateTable<BMSScore>(); db.CreateTable<LR2ScoreDB.player>();
+                    db.Insert(new LR2ScoreDB.player { id = "player", irid = 0 });
+                    db.Insert(new BMSScore { hash = model.Entries[0].Md5, clear = ClearType.EASY, op_history = ClearTypeStorageConverter.OptionHistoryEasy });
+                    db.Insert(new BMSScore { hash = model.Entries[1].Md5, clear = ClearType.EASY, op_history = 0 });
+                    db.Insert(new BMSScore { hash = course, clear = ClearType.HARD });
+                });
+            }
+
+            library = NewLibrary(songPath, scorePath, () => new BmsLibraryOptionsSnapshot());
+            var binding = new BmsPlaylistLibraryBindings(library);
+            WalkureScoreInput first = await binding.ReadRecommendationScoresAsync(CancellationToken.None);
+            Assert.AreEqual(ScoreTableLoadStatus.Loaded, first.Status);
+            Assert.AreEqual(WalkureLamp.Easy, first.Scores[model.Entries[0].Md5]);
+            Assert.AreEqual(WalkureLamp.Failed, first.Scores[model.Entries[1].Md5]);
+            Assert.AreEqual(WalkureLamp.Hard, first.Scores[course]);
+            Assert.AreEqual(0, library.GetBMSScores().Count);
+            using (var db = new SQLiteConnection(scorePath))
+            {
+                db.Execute("UPDATE score SET clear=3 WHERE hash=?", model.Entries[0].Md5);
+            }
+
+            WalkureScoreInput next = await binding.ReadRecommendationScoresAsync(CancellationToken.None);
+            Assert.AreEqual(WalkureLamp.Normal, next.Scores[model.Entries[0].Md5]);
+            Assert.AreEqual(WalkureLamp.Easy, first.Scores[model.Entries[0].Md5]);
+            BMSTable table = await CreateOwner(binding.ReadRecommendationScoresAsync).LoadWalkureTableAsync(new Uri("bmseeker:table.recommended"));
+            Assert.IsTrue(table.entries.All(row => row.md5.Length == 32));
+            Assert.AreEqual(0, library.GetBMSScores().Count);
         }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            cancellation.Cancel();
-            release.TrySetResult();
-            await ObserveRequestForCleanupAsync(request, primaryFailure);
-        }
+        finally { library?.RequestShutdown("test_cleanup"); Directory.Delete(directory, true); }
     }
 
     [TestMethod]
-    public async Task LoadExternalTableAsync_CanceledEstimationWaiterDoesNotCancelLeader()
+    public async Task RecommendationScores_SelectsBeatorajaModeZeroAndExistingHashInformation()
     {
-        using var cancellation = new CancellationTokenSource();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var httpClient = new FakeHttpClient
-        {
-            GetStringAsyncHandler = async (_, token) =>
-            {
-                entered.TrySetResult();
-                await release.Task.WaitAsync(token);
-                return "{}";
-            }
-        };
-        PlaylistExternalSyncOwner externalOwner = CreateExternalOwner(CreateOwner(
-            httpClient: httpClient,
-            externalTableLoader: _ => CreateTable()));
-        Task<BMSTable> leader = externalOwner.LoadExternalTableAsync(new Uri("bmseeker:table.estimation?type=easy"));
-        Task<BMSTable>? waiter = null;
-        Exception? primaryFailure = null;
+        string directory = NewDirectory();
+        BMSLibrary? library = null;
         try
         {
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            waiter = externalOwner.LoadExternalTableAsync(new Uri("bmseeker:table.estimation?type=hard"), cancellationToken: cancellation.Token);
-            cancellation.Cancel();
-            await AssertCanceledAsync(waiter.WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.IsFalse(leader.IsCompleted);
-            Assert.AreEqual(1, httpClient.GetUris.Count);
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            string scorePath = Path.Combine(directory, "score.db");
+            ImmutableArray<WalkureModelEntry> entries = WalkureRecommendationModel.Bundled.Entries;
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDBExtended.chart_info>();
+                    db.Insert(new LR2SongDBExtended.chart_info { md5 = entries[0].Md5, sha256 = new string('a', 64) });
+                    db.Insert(new LR2SongDBExtended.chart_info { md5 = entries[1].Md5, sha256 = new string('b', 64) });
+                });
+            }
 
-            release.TrySetResult();
-            await leader.WaitAsync(TimeSpan.FromSeconds(5));
-            await externalOwner.LoadExternalTableAsync(new Uri("bmseeker:table.estimation?type=fc")).WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.AreEqual(1, httpClient.GetUris.Count);
+            using (var db = new SQLiteConnection(scorePath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                    db.Execute("INSERT INTO score VALUES (?,0,5,0,0,0,0,0,0,0,1,1)", new string('a', 64));
+                    db.Execute("INSERT INTO score VALUES (?,0,2,0,0,0,0,0,0,0,1,0)", new string('b', 64));
+                    db.Execute("INSERT INTO score VALUES (?,10000,8,0,0,0,0,0,0,0,1,1)", new string('b', 64));
+                    db.Execute("INSERT INTO score VALUES (?,0,8,0,0,0,0,0,0,0,1,1)", new string('c', 64));
+                });
+            }
+
+            BmsLibraryOptionsSnapshot options = new() { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scorePath };
+            library = NewLibrary(songPath, null, () => options);
+            WalkureScoreInput input = await library.ReadRecommendationScoresAsync(CancellationToken.None);
+            Assert.AreEqual(ScoreTableLoadStatus.Loaded, input.Status, input.FailureMessage);
+            Assert.AreEqual(2, input.Scores.Count);
+            Assert.AreEqual(WalkureLamp.Normal, input.Scores[entries[0].Md5]);
+            Assert.AreEqual(WalkureLamp.Failed, input.Scores[entries[1].Md5]);
+            Assert.AreEqual(0, library.GetBMSScores().Count);
+            PlaylistRecommendedTableOwner owner = CreateOwner(library.ReadRecommendationScoresAsync);
+            await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended"));
+            using (var db = new SQLiteConnection(scorePath))
+            {
+                db.Execute("UPDATE score SET clear=6 WHERE sha256=? AND mode=0", new string('a', 64));
+            }
+
+            WalkureScoreInput next = await library.ReadRecommendationScoresAsync(CancellationToken.None);
+            Assert.AreEqual(WalkureLamp.Hard, next.Scores[entries[0].Md5]);
+            string secondPlayerDirectory = Path.Combine(directory, "second-player");
+            Directory.CreateDirectory(secondPlayerDirectory);
+            string secondPlayerScore = Path.Combine(secondPlayerDirectory, "score.db");
+            File.Copy(scorePath, secondPlayerScore);
+            using (var db = new SQLiteConnection(secondPlayerScore))
+            {
+                db.RunInTransaction(() => db.Execute("UPDATE score SET clear=8 WHERE sha256=? AND mode=0", new string('a', 64)));
+            }
+            options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = secondPlayerScore };
+            Assert.AreEqual(WalkureLamp.FullCombo, (await library.ReadRecommendationScoresAsync(CancellationToken.None)).Scores[entries[0].Md5]);
+            options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scorePath };
+            Assert.AreEqual(WalkureLamp.Hard, (await library.ReadRecommendationScoresAsync(CancellationToken.None)).Scores[entries[0].Md5]);
+            options = new BmsLibraryOptionsSnapshot();
+            Assert.AreEqual(ScoreTableLoadStatus.NotConfigured, (await library.ReadRecommendationScoresAsync(CancellationToken.None)).Status);
         }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            cancellation.Cancel();
-            release.TrySetResult();
-            await ObserveRequestForCleanupAsync(waiter == null ? leader : Task.WhenAll(leader, waiter), primaryFailure);
-        }
+        finally { library?.RequestShutdown("test_cleanup"); Directory.Delete(directory, true); }
     }
 
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task LoadExternalTableAsync_RecommendedPostDistinguishesCallerCancellationFromTimeout(bool cancelCaller)
+    public async Task ReloadPlaylistTargetsAsync_LocalReadFailurePreservesDataAndExitsUpdating(bool cancelCaller)
     {
-        string directory = Path.Combine(Path.GetTempPath(), "PlaylistRecommendedTableOwnerTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        string directory = NewDirectory();
         using var cancellation = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<BMSTable>? request = null;
-        Exception? primaryFailure = null;
-        try
-        {
-            string scoreDbPath = Path.Combine(directory, "score.db");
-            using (var db = new LR2ScoreDBExtended(scoreDbPath))
-            {
-                db.CreateTable<LR2ScoreDB.player>();
-                db.Insert(new LR2ScoreDB.player { id = "player", irid = 321, name = "Player" });
-            }
-            int postCount = 0;
-            var httpClient = new FakeHttpClient
-            {
-                GetStringHandler = _ => EmptyRecommendationJson,
-                PostFormAsyncHandler = async (_, _, token) =>
-                {
-                    Interlocked.Increment(ref postCount);
-                    entered.TrySetResult();
-                    if (!cancelCaller) throw new OperationCanceledException("HTTP request deadline expired.");
-                    return await release.Task.WaitAsync(token);
-                }
-            };
-            var notifications = new PlaylistOperationNotificationOwner();
-            PlaylistExternalSyncOwner externalOwner = CreateExternalOwner(CreateOwner(
-                lr2ScoreDbPath: scoreDbPath,
-                bmsScoresProvider: () => [],
-                httpClient: httpClient,
-                externalTableLoader: _ => CreateTable(),
-                notificationOwner: notifications));
-            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notifications.BeginSession();
-            request = externalOwner.LoadExternalTableAsync(
-                new Uri("bmseeker:table.recommended?mode=normal"), cancellationToken: cancellation.Token);
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            if (cancelCaller)
-            {
-                cancellation.Cancel();
-                await AssertCanceledAsync(request.WaitAsync(TimeSpan.FromSeconds(5)));
-                Assert.AreEqual(1, postCount);
-                Assert.AreEqual(0, httpClient.GetUris.Count);
-                Assert.IsTrue(session.TakeReceipt().IsEmpty);
-            }
-            else
-            {
-                BMSTable table = await request.WaitAsync(TimeSpan.FromSeconds(5));
-                Assert.AreEqual(0, table.entries.Count);
-                Assert.AreEqual(6, postCount); // 既存契約の初回 + 最大5回を増減させない。
-                Assert.AreEqual(1, httpClient.GetUris.Count);
-                PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-                Assert.AreEqual(1, receipt.Notifications.Count);
-                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, receipt.Notifications[0].Severity);
-            }
-        }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            cancellation.Cancel();
-            release.TrySetResult(string.Empty);
-            if (request != null) await ObserveRequestForCleanupAsync(request, primaryFailure);
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [DataTestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task ReloadPlaylistTargetsAsync_WalkureReadFailurePreservesDataAndExitsUpdating(bool cancelCaller)
-    {
-        string directory = Path.Combine(Path.GetTempPath(), "PlaylistRecommendedTableOwnerTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        using var cancellation = new CancellationTokenSource();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var response = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<WalkureScoreInput>(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? request = null;
         Exception? primaryFailure = null;
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var repository = new PlaylistPersistenceRepository(songDbPath);
-            var aggregate = new PlaylistAggregatePersistenceOwner(
-                repository,
-                new ReaderWriterLockSlimWrapper(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
-            const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            BMSTable table = CreateTable(CreateEntry(md5, "1001", "Original"));
-            table.name = "Original table";
-            table.Page_url = new Uri("bmseeker:table.estimation?type=easy");
-            aggregate.MarkActiveTables([table]);
-            aggregate.ReplaceTablesWithEntries([table]);
-            int updating = 0;
-            int exitCount = 0;
-            var attempts = new List<PlaylistSyncAttemptResult>();
-            var httpClient = new FakeHttpClient
-            {
-                GetStringAsyncHandler = async (_, token) =>
-                {
-                    entered.TrySetResult();
-                    return await response.Task.WaitAsync(token);
-                }
-            };
-            var externalOwner = new PlaylistExternalSyncOwner(
-                AppHttpClient.Shared,
-                CreateOwner(httpClient: httpClient),
-                (_, _) => { },
-                () => false,
-                _ => { },
-                playlistAggregatePersistenceOwner: aggregate,
-                isActiveTable: aggregate.IsActive,
-                enterPlaylistUpdating: () => Interlocked.Increment(ref updating),
-                exitPlaylistUpdating: () => { Interlocked.Decrement(ref updating); Interlocked.Increment(ref exitCount); });
-            request = externalOwner.ReloadPlaylistTargetsAsync([table], attempts.Add, cancellationToken: cancellation.Token);
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            var repository = new PlaylistPersistenceRepository(songPath);
+            var aggregate = new PlaylistAggregatePersistenceOwner(repository, new ReaderWriterLockSlimWrapper(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            var table = new BMSTable { name = "Original", org_name = "旧方針 ★3.87", Page_url = new Uri("bmseeker:table.recommended"), entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Original song", memo = "keep" }] };
+            aggregate.MarkActiveTables([table]); aggregate.ReplaceTablesWithEntries([table]);
+            int updating = 0, reads = 0;
+            var notifications = new PlaylistOperationNotificationOwner();
+            PlaylistRecommendedTableOwner owner = CreateOwner(async token => { reads++; if (reads > 1) { return ReadWalkureInput("standard"); } entered.TrySetResult(); return await release.Task.WaitAsync(token); }, notifications, showSkillUpdates: true);
+            var external = new PlaylistExternalSyncOwner(AppHttpClient.Shared, owner, (_, _) => { }, () => false, _ => { },
+                playlistAggregatePersistenceOwner: aggregate, isActiveTable: aggregate.IsActive,
+                enterPlaylistUpdating: () => updating++, exitPlaylistUpdating: () => updating--);
+            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notifications.BeginSession();
+            request = external.ReloadPlaylistTargetsAsync([table], cancellationToken: cancellation.Token);
+            await ReachOrComplete(entered.Task, request);
             Assert.AreEqual(1, updating);
-            if (cancelCaller) cancellation.Cancel();
-            else response.TrySetException(new OperationCanceledException("HTTP request deadline expired."));
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await request.WaitAsync(TimeSpan.FromSeconds(5));
+            if (cancelCaller)
+            {
+                cancellation.Cancel();
+            }
+            else
+            {
+                release.TrySetException(new IOException("local read failure"));
+            }
 
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = (await request).Single();
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsFalse(result.StatePersisted);
+            Assert.IsNull(result.UpdateReceipt);
+            Assert.AreSame(table, result.ResultTable);
             Assert.AreEqual(0, updating);
-            Assert.AreEqual(1, exitCount);
-            Assert.AreEqual(1, results.Count);
-            Assert.IsFalse(results[0].Succeeded);
-            Assert.IsFalse(results[0].StatePersisted);
-            Assert.IsTrue(results[0].Exception is OperationCanceledException);
-            Assert.IsNull(results[0].UpdateReceipt);
-            Assert.AreSame(table, results[0].ResultTable);
-            Assert.AreEqual(1, attempts.Count);
-            Assert.IsFalse(attempts[0].Succeeded);
-            Assert.AreEqual(md5, table.entries.Single().md5);
-            Assert.AreEqual(md5, repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single().md5);
-            Assert.AreEqual("Original table", repository.LoadPlaylistHeaders().Single().name);
+            Assert.AreEqual("Original", repository.LoadPlaylistHeaders().Single().name);
+            Assert.AreEqual("keep", repository.LoadPersistedPlaylistEntries(table.playlist_id, true).Single().memo);
+            Assert.IsTrue(session.TakeReceipt().IsEmpty);
+            await external.LoadExternalTableAsync(table.Page_url);
+            Assert.AreEqual(2, reads);
         }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
+        catch (Exception ex) { primaryFailure = ex; throw; }
         finally
         {
-            cancellation.Cancel();
-            response.TrySetResult("{}");
-            if (request != null) await ObserveRequestForCleanupAsync(request, primaryFailure);
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    private const string EmptyRecommendationJson = "{\"status\":\"success\",\"hoshi\":1.0,\"last_modified\":0,\"name\":\"Player\",\"recommended\":[]}";
-
-    private static PlaylistExternalSyncOwner CreateExternalOwner(PlaylistRecommendedTableOwner recommendedOwner)
-    {
-        return new PlaylistExternalSyncOwner(AppHttpClient.Shared, recommendedOwner, (_, _) => { }, () => false, _ => { });
-    }
-
-    private static async Task AssertCanceledAsync(Task request)
-    {
-        try { await request; }
-        catch (OperationCanceledException) { return; }
-        Assert.Fail("Cancellation must terminate the acquisition without returning a table.");
-    }
-
-    private async Task ObserveRequestForCleanupAsync(Task request, Exception? primaryFailure)
-    {
-        try
-        {
-            await request.WaitAsync(TimeSpan.FromSeconds(5));
-        }
-        catch (OperationCanceledException)
-        {
-            // The fixture cancels owned acquisitions before draining them.
-        }
-        catch (Exception cleanupFailure) when (primaryFailure != null)
-        {
-            TestContext.WriteLine("Owned request cleanup: " + cleanupFailure);
-            if (!request.IsCompleted)
+            cancellation.Cancel(); release.TrySetResult(ReadWalkureInput("standard"));
+            if (request != null)
             {
-                // Keep the primary failure, but do not remove a DB directory while
-                // a still-running acquisition may own it. No global SQLite close/retry.
-                ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+                try { await request; } catch when (primaryFailure != null) { }
             }
+
+            Directory.Delete(directory, true);
         }
     }
 
-    private static PlaylistRecommendedTableOwner CreateOwner(
-        string? lr2ScoreDbPath = null,
-        Func<List<BMSScore>>? bmsScoresProvider = null,
-        IPlaylistRecommendedTableHttpClient? httpClient = null,
-        Func<Uri, BMSTable>? externalTableLoader = null,
-        PlaylistOperationNotificationOwner? notificationOwner = null,
-        Func<Uri, CancellationToken, Task<BMSTable>>? externalTableLoaderAsync = null,
-        CustomFolderOutputSettingsSnapshot? settings = null)
+    [DataTestMethod]
+    [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.recommended", 1)]
+    [DataRow("旧方針 ★10.75", "新方針 ★10.00", 10.00, -.75, true, "bmseeker:table.recommended", 1)]
+    [DataRow("旧方針 ★10.0", "新方針 ★10.00", 10.00, 0, true, "bmseeker:table.recommended", 0)]
+    [DataRow("手動名だけ", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.recommended", 0)]
+    [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, false, "bmseeker:table.recommended", 0)]
+    [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.estimation?type=easy", 0)]
+    public void AppliedSkillNotification_UsesOrgNameNumbersAndSettingWithoutDate(
+        string previousName, string currentName, double newSkill, double difference, bool enabled, string uri, int expectedCount)
     {
-        // Every fixture owns its options. Parallel classes can change Settings.Default
-        // without affecting an in-flight asynchronous acquisition in this fixture.
-        settings ??= new CustomFolderOutputSettingsSnapshot();
-        return new PlaylistRecommendedTableOwner(
-            lr2ScoreDbPath: lr2ScoreDbPath,
-            bmsScoresProvider: bmsScoresProvider ?? (() => null!),
-            externalTableLoader: externalTableLoaderAsync ?? ((uri, _) => Task.FromResult(externalTableLoader?.Invoke(uri)!)),
-            httpClient: httpClient ?? new FakeHttpClient(),
-            notificationOwner: notificationOwner ?? new PlaylistOperationNotificationOwner(),
-            playlistSettingsProvider: () => settings);
-    }
-
-    private sealed class FakeHttpClient : IPlaylistRecommendedTableHttpClient
-    {
-        internal Func<Uri, string>? GetStringHandler { get; set; }
-
-        internal Func<Uri, CancellationToken, Task<string>>? GetStringAsyncHandler { get; set; }
-
-        internal Func<Uri, NameValueCollection, string>? PostFormHandler { get; set; }
-
-        internal Func<Uri, NameValueCollection, CancellationToken, Task<string>>? PostFormAsyncHandler { get; set; }
-
-        internal Action<NameValueCollection>? PostFormObserver { get; set; }
-
-        internal List<Uri> GetUris { get; } = [];
-
-        public Task<string> GetStringAsync(Uri uri, CancellationToken cancellationToken)
+        var notifications = new PlaylistOperationNotificationOwner();
+        PlaylistRecommendedTableOwner owner = CreateOwner(notifications: notifications, showSkillUpdates: enabled);
+        using PlaylistOperationNotificationOwner.OperationNotificationSession session = notifications.BeginSession();
+        owner.NotifyAppliedSkillChange(previousName, new BMSTable
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            GetUris.Add(uri);
-            return GetStringAsyncHandler?.Invoke(uri, cancellationToken)
-                ?? Task.FromResult(GetStringHandler?.Invoke(uri) ?? throw new InvalidOperationException("Unexpected HTTP GET: " + uri));
-        }
-
-        public Task<string> PostFormAsync(Uri uri, NameValueCollection formData, CancellationToken cancellationToken)
+            Page_url = new Uri(uri),
+            org_name = currentName,
+            name = "異なる手動名 ★999.00",
+            last_update = new DateTime(2024, 6, 1, 10, 20, 30)
+        });
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+        Assert.AreEqual(expectedCount, receipt.Notifications.Count);
+        if (expectedCount != 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            NameValueCollection copy = new();
-            foreach (string? key in formData.AllKeys)
-            {
-                copy.Add(key, formData.Get(key));
-            }
-            PostFormObserver?.Invoke(copy);
-            return PostFormAsyncHandler?.Invoke(uri, formData, cancellationToken)
-                ?? Task.FromResult(PostFormHandler?.Invoke(uri, formData) ?? throw new InvalidOperationException("Unexpected HTTP POST: " + uri));
+            PlaylistOperationNotificationOwner.OperationNotification notification = receipt.Notifications.Single();
+            Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, notification.Caption);
+            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, notification.Severity);
+            Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, newSkill.ToString("F2"),
+                difference.ToString(" (+#0.00); (-#0.00);")), notification.Message);
         }
     }
 
-    private static BMSTable CreateTable(params BMSTableEntry[] entries)
+    private static PlaylistExternalSyncOwner External(PlaylistRecommendedTableOwner owner)
+        => new(AppHttpClient.Shared, owner, (_, _) => { }, () => false, _ => { });
+    private static PlaylistRecommendedTableOwner CreateOwner(Func<CancellationToken, Task<WalkureScoreInput>>? read = null,
+        PlaylistOperationNotificationOwner? notifications = null, bool showSkillUpdates = false)
+        => new(read ?? (_ => Task.FromResult(ReadWalkureInput())), notifications ?? new PlaylistOperationNotificationOwner(),
+            () => new CustomFolderOutputSettingsSnapshot { ShowRecommUpdatedMsg = showSkillUpdates });
+    private static BMSLibrary NewLibrary(string songPath, string? scorePath, Func<BmsLibraryOptionsSnapshot> options)
+        => new(songPath, null, scorePath, null, options, new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), TestBmsFactory.MissingEverythingBridge);
+    private static string NewDirectory()
     {
-        return new BMSTable { entries = [.. entries] };
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistRecommendedTableOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory); return directory;
     }
-
-    private static BMSTableEntry CreateEntry(string md5, string lr2BmsId, string title)
+    private static async Task ReachOrComplete(Task reached, Task operation)
     {
-        return new BMSTableEntry(JObject.Parse(
-            "{\"md5\":\"" + md5 + "\",\"lr2_bmsid\":\"" + lr2BmsId + "\",\"title\":\"" + title + "\"}"));
+        Task first = await Task.WhenAny(reached, operation);
+        await first;
+        Assert.IsTrue(reached.IsCompletedSuccessfully, "到達前に本体が終結しました。");
     }
 }

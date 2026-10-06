@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Views.Dialogs;
 

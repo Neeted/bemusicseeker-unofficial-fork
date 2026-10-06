@@ -75,7 +75,7 @@ public sealed class WpfTestApplicationHostTests
     [TestMethod]
     public void CompiledDialogSurfaces_ResolveSemanticBrushesOnConstructorOnlyControls()
     {
-        TestUiDispatcherHost.Invoke(() =>
+        TestUiDispatcherHost.RunWindowTest(_ =>
         {
             var settingsWindow = new SettingsWindow();
             var settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");
@@ -139,6 +139,97 @@ public sealed class WpfTestApplicationHostTests
             Assert.IsNull(progressDialogContent.Background);
             Assert.IsNull(progressDialogContent.BorderBrush);
         });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void ShowAndWaitForContentRendered_CompletesWhileApplicationIdleIsBlocked()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var window = new Window { Width = 320, Height = 200, Content = new Border() };
+            Dispatcher dispatcher = window.Dispatcher;
+            bool keepWorking = true;
+            bool idleReached = false;
+            bool contentRendered = false;
+            bool watchdogTriggered = false;
+            int workCount = 0;
+            DispatcherOperation? pendingWork = null;
+            DispatcherOperation? idleBarrier = null;
+            void ContinueWork()
+            {
+                workCount++;
+                if (keepWorking)
+                {
+                    pendingWork = dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(ContinueWork));
+                }
+            }
+            window.ContentRendered += (_, _) =>
+            {
+                contentRendered = true;
+                // 実描画の通知を妨げず、その成立後だけ一般 idle の到達を止める。
+                ContinueWork();
+                idleBarrier = dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle, new Action(() => idleReached = true));
+            };
+            var watchdog = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Send, (_, _) =>
+            {
+                watchdogTriggered = true;
+                keepWorking = false;
+                pendingWork?.Abort();
+            }, dispatcher);
+            watchdog.Start();
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                Assert.IsFalse(watchdogTriggered, "The presentation wait must complete from the real render outcome.");
+                Assert.IsTrue(contentRendered);
+                Assert.IsTrue(window.IsLoaded);
+                Assert.IsTrue(window.ActualWidth > 0 && window.ActualHeight > 0);
+                Assert.IsTrue(workCount > 0);
+                Assert.IsFalse(idleReached);
+                nint handle = TestWindowPresentationScope.GetNativeHandle(window);
+                Assert.AreNotEqual(0, handle);
+                Assert.IsTrue(TestWindowPresentationScope.HasNoActivateStyle(handle));
+                Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(handle));
+                Assert.AreNotEqual(handle, TestWindowPresentationScope.ForegroundWindow);
+            }
+            finally
+            {
+                keepWorking = false;
+                watchdog.Stop();
+                pendingWork?.Abort();
+                idleBarrier?.Abort();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ShowAndWaitForContentRendered_DoesNotSucceedWithoutRenderNotification()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var window = new RenderNotificationSuppressedWindow
+            {
+                Width = 320,
+                Height = 200,
+                Content = new Border()
+            };
+            bool contentRendered = false;
+            window.ContentRendered += (_, _) => contentRendered = true;
+            Assert.ThrowsException<TimeoutException>(() => scope.ShowAndWaitForContentRendered(window));
+            Assert.IsFalse(contentRendered);
+            Assert.IsTrue(window.IsLoaded);
+            Assert.AreNotEqual(0, TestWindowPresentationScope.GetNativeHandle(window));
+        });
+    }
+
+    private sealed class RenderNotificationSuppressedWindow : Window
+    {
+        protected override void OnContentRendered(EventArgs e)
+        {
+            // 実レイアウトが成立しても完了通知だけを欠いた場合を検査します。
+        }
     }
 
     [TestMethod]

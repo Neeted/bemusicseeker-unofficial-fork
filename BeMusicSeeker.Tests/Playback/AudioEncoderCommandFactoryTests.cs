@@ -53,7 +53,6 @@ public sealed class AudioEncoderCommandFactoryTests
         EncoderType[] rawInputEncoders =
         [
             EncoderType.MP3_LAME,
-            EncoderType.OPUS,
             EncoderType.FLAC,
             EncoderType.OGG_VORBIS
         ];
@@ -80,6 +79,13 @@ public sealed class AudioEncoderCommandFactoryTests
             AudioTagInfo.Empty));
         Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.PCM));
         Assert.IsFalse(wavCommand.Flags.HasFlag(EncodeFlags.NoHeader));
+
+        AudioEncoderCommand opusCommand = AudioEncoderCommandFactory.Create(CreateRequest(
+            EncoderType.OPUS,
+            @"C:\output\sample.opus",
+            AudioTagInfo.Empty,
+            SampleFormat.SAMPLE_FLOAT_32BIT));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.NoHeader));
     }
 
     [TestMethod]
@@ -92,6 +98,7 @@ public sealed class AudioEncoderCommandFactoryTests
             SampleFormat.SAMPLE_FLOAT_32BIT));
         StringAssert.Contains(lameCommand.CommandLine, "--bitwidth 32");
         Assert.IsTrue(lameCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo32Bit));
+        Assert.IsTrue(lameCommand.Flags.HasFlag(EncodeFlags.Dither));
 
         AudioEncoderCommand flacCommand = AudioEncoderCommandFactory.Create(CreateRequest(
             EncoderType.FLAC,
@@ -100,14 +107,21 @@ public sealed class AudioEncoderCommandFactoryTests
             SampleFormat.SAMPLE_FLOAT_32BIT));
         StringAssert.Contains(flacCommand.CommandLine, "--bps=24");
         Assert.IsTrue(flacCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo24Bit));
+        Assert.IsFalse(flacCommand.Flags.HasFlag(EncodeFlags.Dither));
 
         AudioEncoderCommand opusCommand = AudioEncoderCommandFactory.Create(CreateRequest(
             EncoderType.OPUS,
             @"C:\output\sample.opus",
             AudioTagInfo.Empty,
             SampleFormat.SAMPLE_FLOAT_32BIT));
-        StringAssert.Contains(opusCommand.CommandLine, "--raw-bits 24");
-        Assert.IsTrue(opusCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo24Bit));
+        StringAssert.Contains(opusCommand.CommandLine, " --ignorelength --bitrate ");
+        Assert.IsFalse(opusCommand.CommandLine.Contains("--raw-", System.StringComparison.Ordinal));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.NoHeader));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo8BitInt));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo24Bit));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo32Bit));
+        Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.Dither));
 
         AudioEncoderCommand oggCommand = AudioEncoderCommandFactory.Create(CreateRequest(
             EncoderType.OGG_VORBIS,
@@ -117,6 +131,7 @@ public sealed class AudioEncoderCommandFactoryTests
         StringAssert.Contains(oggCommand.CommandLine, "-r -F 3 -C");
         Assert.IsFalse(oggCommand.CommandLine.Contains(" -B ", System.StringComparison.Ordinal));
         Assert.IsFalse(oggCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+        Assert.IsFalse(oggCommand.Flags.HasFlag(EncodeFlags.Dither));
 
         AudioEncoderCommand neroCommand = AudioEncoderCommandFactory.Create(CreateRequest(
             EncoderType.AAC_NERO,
@@ -125,6 +140,7 @@ public sealed class AudioEncoderCommandFactoryTests
             SampleFormat.SAMPLE_FLOAT_32BIT));
         Assert.IsFalse(neroCommand.Flags.HasFlag(EncodeFlags.NoHeader));
         Assert.IsFalse(neroCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+        Assert.IsFalse(neroCommand.Flags.HasFlag(EncodeFlags.Dither));
 
         AudioEncoderCommand wavCommand = AudioEncoderCommandFactory.Create(CreateRequest(
             EncoderType.WAVE,
@@ -134,6 +150,35 @@ public sealed class AudioEncoderCommandFactoryTests
             requestedOutputFormat: SampleFormat.SAMPLE_INT_16BIT));
         Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.PCM));
         Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.ConvertFloatTo16BitInt));
+        Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.Dither));
+    }
+
+    [TestMethod]
+    public void IntegerConversionFlagsUse24BitSoftwareDitherWithoutNativeDither()
+    {
+        (SampleFormat Format, EncodeFlags Conversion, bool NativeDither)[] formats =
+        [
+            (SampleFormat.SAMPLE_INT_8BIT, EncodeFlags.ConvertFloatTo8BitInt, true),
+            (SampleFormat.SAMPLE_INT_16BIT, EncodeFlags.ConvertFloatTo16BitInt, true),
+            (SampleFormat.SAMPLE_INT_24BIT, EncodeFlags.ConvertFloatTo24Bit, false),
+            (SampleFormat.SAMPLE_INT_32BIT, EncodeFlags.ConvertFloatTo32Bit, true)
+        ];
+        const EncodeFlags conversionMask =
+            EncodeFlags.ConvertFloatTo8BitInt
+            | EncodeFlags.ConvertFloatTo16BitInt
+            | EncodeFlags.ConvertFloatTo32Bit;
+
+        foreach ((SampleFormat format, EncodeFlags conversion, bool nativeDither) in formats)
+        {
+            AudioEncoderCommand command = AudioEncoderCommandFactory.Create(CreateRequest(
+                EncoderType.WAVE,
+                @"C:\output\sample.wav",
+                AudioTagInfo.Empty,
+                requestedOutputFormat: format));
+
+            Assert.AreEqual(conversion, command.Flags & conversionMask, format.ToString());
+            Assert.AreEqual(nativeDither, command.Flags.HasFlag(EncodeFlags.Dither), format.ToString());
+        }
     }
 
     [TestMethod]
@@ -184,11 +229,12 @@ public sealed class AudioEncoderCommandFactoryTests
                 quality: 0.6f)).CommandLine);
 
         Assert.AreEqual(
-            @"""C:\encoder tools\opusenc.exe"" --raw --raw-bits 16 --raw-rate 44100 --raw-chan 2 --ignorelength --bitrate 106 - ""C:\output folder\sample file.opus""",
+            @"""C:\encoder tools\opusenc.exe"" --ignorelength --bitrate 106 - ""C:\output folder\sample file.opus""",
             AudioEncoderCommandFactory.Create(CreateRequest(
                 EncoderType.OPUS,
                 @"C:\output folder\sample file.opus",
                 tags,
+                SampleFormat.SAMPLE_FLOAT_32BIT,
                 quality: 0.4f)).CommandLine);
 
         Assert.AreEqual(
@@ -214,6 +260,19 @@ public sealed class AudioEncoderCommandFactoryTests
             quality: 0.4f)).CommandLine;
         StringAssert.Contains(oggWithTags, "--utf8 -t \"title value\" -a \"artist value\"");
         StringAssert.Contains(oggWithTags, "-c \"COMMENT=comment value\" -c \"BPM=120\"");
+    }
+
+    [TestMethod]
+    public void EncoderFactoryRejectsUnspecifiedSampleRateInsteadOfAssuming44100Hz()
+    {
+        AudioEncoderCommandRequest request = CreateRequest(
+            EncoderType.OPUS,
+            @"C:\output\sample.opus",
+            AudioTagInfo.Empty) with
+        { SampleRate = 0 };
+
+        Assert.ThrowsException<System.ArgumentOutOfRangeException>(
+            () => AudioEncoderCommandFactory.Create(request));
     }
 
     private static string CreateCommand(EncoderType encoderType, float quality)

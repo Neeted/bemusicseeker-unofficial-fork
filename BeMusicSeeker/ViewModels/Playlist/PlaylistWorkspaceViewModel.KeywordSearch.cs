@@ -17,57 +17,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal KeywordSearchAssistanceOwner PlaylistSummaryKeywordSearchAssistanceOwner
         => playlistSummaryKeywordSearchAssistanceOwner;
 
-    /// <summary>
-    /// Marks playlist-summary keyword assistance focused and returns its immutable presentation.
-    /// </summary>
-    internal KeywordSearchPresentationState FocusPlaylistSummaryKeywordSearch(string text, int caretIndex)
-        => playlistSummaryKeywordSearchAssistanceOwner.Focus(text, caretIndex);
-
-    /// <summary>
-    /// Closes playlist-summary keyword assistance on focus loss.
-    /// </summary>
-    internal KeywordSearchPresentationState BlurPlaylistSummaryKeywordSearch()
-        => playlistSummaryKeywordSearchAssistanceOwner.Blur();
-
-    /// <summary>
-    /// Refreshes playlist-summary keyword assistance for the current editor snapshot.
-    /// </summary>
-    internal KeywordSearchPresentationState RefreshPlaylistSummaryKeywordSearchAssistance(string text, int caretIndex)
-        => playlistSummaryKeywordSearchAssistanceOwner.Refresh(text, caretIndex);
-
-    /// <summary>
-    /// Applies a playlist-summary keyword presentation item after revision validation.
-    /// </summary>
-    internal KeywordSearchApplyResult TryApplyPlaylistSummaryKeywordSearchPresentationItem(
-        KeywordSearchPresentationItem item,
-        string text,
-        int caretIndex,
-        long catalogRevision)
-        => playlistSummaryKeywordSearchAssistanceOwner.TryApply(
-            item,
-            text,
-            caretIndex,
-            GridKeywordSearchContext.PlaylistSummary,
-            catalogRevision);
-
-    /// <summary>
-    /// Adds a playlist-summary keyword query to favorites.
-    /// </summary>
-    internal KeywordSearchSavedQueryMutationResult TryAddPlaylistSummaryKeywordSearchFavorite(string query)
-        => playlistSummaryKeywordSearchAssistanceOwner.TryAddFavorite(query);
-
-    /// <summary>
-    /// Removes a playlist-summary keyword query from favorites.
-    /// </summary>
-    internal KeywordSearchSavedQueryMutationResult TryRemovePlaylistSummaryKeywordSearchFavorite(string query)
-        => playlistSummaryKeywordSearchAssistanceOwner.TryRemoveFavorite(query);
-
-    /// <summary>
-    /// Deletes a playlist-summary keyword history query.
-    /// </summary>
-    internal KeywordSearchSavedQueryMutationResult TryDeletePlaylistSummaryKeywordSearchHistory(string query)
-        => playlistSummaryKeywordSearchAssistanceOwner.TryDeleteHistory(query);
-
     internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()
     {
         BMSPlaylist playlistStore = getPlaylistStore();
@@ -92,15 +41,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 playlistStore.FreeReaderLockBMSTables();
             }
-        }
-    }
-
-    internal void CommitPlaylistSummaryKeywordSearchHistory(string keywordFilter)
-    {
-        KeywordSearchSavedQueryMutationResult result = playlistSummaryKeywordSearchSavedQueryOwner.TryCommitHistory(keywordFilter);
-        if (!result.Succeeded)
-        {
-            throw result.Exception ?? new InvalidOperationException("Playlist summary keyword search history persistence failed.");
         }
     }
 

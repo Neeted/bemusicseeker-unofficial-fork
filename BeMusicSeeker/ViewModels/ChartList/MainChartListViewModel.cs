@@ -353,6 +353,7 @@ public sealed class MainChartListViewModel : ViewModel
         {
             if (!ReferenceEquals(rows, value))
             {
+                PrepareRowsReplacement();
                 DisposeRows(rows);
                 rows = value ?? new List<object>();
                 RaisePropertyChanged(nameof(Rows));

@@ -66,23 +66,23 @@ public sealed class ChartListFilterViewModelTests
         StringAssert.Contains(filters.KeywordSearchHelpText, "memo");
 
         const string valueText = "playlist:a";
-        KeywordSearchPresentationState valueState = filters.FocusKeywordSearch(valueText, valueText.Length);
+        KeywordSearchPresentationState valueState = filters.KeywordSearchAssistanceOwner.Focus(valueText, valueText.Length);
         KeywordSearchPresentationSection values = valueState.Sections.Single(
             section => section.Kind == KeywordSearchPresentationSectionKind.Values);
         Assert.AreEqual(1, values.Items.Count);
         Assert.AreEqual("Alpha", values.Items[0].DisplayText);
 
-        KeywordSearchPresentationState emptyState = filters.FocusKeywordSearch(string.Empty, 0);
+        KeywordSearchPresentationState emptyState = filters.KeywordSearchAssistanceOwner.Focus(string.Empty, 0);
         KeywordSearchPresentationSection history = emptyState.Sections.Single(
             section => section.Kind == KeywordSearchPresentationSectionKind.History);
         Assert.AreEqual("title:old", history.Items.Single().Query);
 
-        filters.CommitKeywordSearchHistory("title:new");
+        Assert.IsTrue(filters.KeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("title:new").Succeeded);
         Assert.AreEqual("title:new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
     }
 
     [TestMethod]
-    public void KeywordSearchAssistanceAdapter_UsesImmutableContextSnapshotAndRevision()
+    public void KeywordSearchAssistanceOwner_UsesImmutableContextSnapshotAndRevision()
     {
         var filters = new ChartListFilterViewModel(
             new InMemoryKeywordSearchHistorySettingsStore(),
@@ -93,14 +93,14 @@ public sealed class ChartListFilterViewModelTests
             [" Beta ", "Alpha", "alpha"]);
 
         const string text = "playlist:a";
-        KeywordSearchPresentationState state = filters.FocusKeywordSearch(text, text.Length);
+        KeywordSearchPresentationState state = filters.KeywordSearchAssistanceOwner.Focus(text, text.Length);
         KeywordSearchPresentationItem candidate = state.VisibleItems.Single(item => item.DisplayText == "Alpha");
 
         Assert.AreEqual(GridKeywordSearchContext.PlaylistDetail, state.Context);
         Assert.AreEqual(1L, state.CatalogRevision);
         Assert.AreEqual(1, state.VisibleItems.Count);
 
-        KeywordSearchApplyResult result = filters.TryApplyKeywordSearchPresentationItem(
+        KeywordSearchApplyResult result = filters.KeywordSearchAssistanceOwner.TryApply(
             candidate,
             text,
             text.Length,
@@ -111,7 +111,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.AreEqual("playlist:Alpha ", result.Text);
         Assert.AreEqual(result.Text.Length, result.CaretIndex);
 
-        KeywordSearchPresentationState closed = filters.BlurKeywordSearch();
+        KeywordSearchPresentationState closed = filters.KeywordSearchAssistanceOwner.Blur();
         Assert.IsFalse(closed.IsOpen);
     }
 

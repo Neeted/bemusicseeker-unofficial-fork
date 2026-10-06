@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -8,29 +7,19 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Livet.Commands;
 using Livet.EventListeners;
-using Microsoft.VisualBasic.FileIO;
-using NLog;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
-using Ribbit.Net;
-using Ribbit.Util;
 using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -110,8 +99,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow;
 
-    private string audioDeviceTestStatusMessage;
-
     private readonly IAudioDeviceCatalog audioDeviceCatalog;
 
     private readonly IAudioSettingsGateway audioSettingsGateway;
@@ -155,6 +142,8 @@ public partial class SettingsDialogViewModel : ViewModel
             RaisePropertyChanged(nameof(IsEditCompletionInProgress));
             RaisePropertyChanged(nameof(IsEditCompletionEnabled));
             RaisePropertyChanged(nameof(IsEditCancellationEnabled));
+            RaisePropertyChanged(nameof(IsAudioOutputSelectionEnabled));
+            audioDeviceTestWorkflow.SetSaving(value);
         }
     }
 
@@ -171,31 +160,44 @@ public partial class SettingsDialogViewModel : ViewModel
         && !scoreReloadPending
         && !fileDiffReloadPending;
 
-    /// <summary>
-    /// Gets a value indicating whether the audio-device test is currently running.
-    /// </summary>
-    public bool IsAudioDeviceTestInProgress => audioDeviceTestWorkflow?.IsRunning == true;
+    /// <summary>音声設定担当が所有するIsAudioDeviceTestInProgressを画面へ接続します。</summary>
+    public bool IsAudioDeviceTestInProgress => audioDeviceTestWorkflow.IsAudioDeviceTestInProgress;
 
-    /// <summary>
-    /// Gets a value indicating whether the audio-device test command can start.
-    /// </summary>
-    public bool IsAudioDeviceTestAvailable => !IsAudioDeviceTestInProgress;
+    /// <summary>音声設定担当が所有するIsAudioDeviceTestAvailableを画面へ接続します。</summary>
+    public bool IsAudioDeviceTestAvailable => audioDeviceTestWorkflow.IsAudioDeviceTestAvailable;
 
-    /// <summary>Gets the localized outcome of the most recent audio-device test.</summary>
-    public string AudioDeviceTestStatusMessage
-    {
-        get => audioDeviceTestStatusMessage;
-        private set
-        {
-            if (string.Equals(audioDeviceTestStatusMessage, value, StringComparison.Ordinal))
-            {
-                return;
-            }
+    /// <summary>音声設定担当が所有するAudioDeviceTestButtonContentを画面へ接続します。</summary>
+    public string AudioDeviceTestButtonContent => audioDeviceTestWorkflow.AudioDeviceTestButtonContent;
 
-            audioDeviceTestStatusMessage = value;
-            RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
-        }
-    }
+    /// <summary>音声設定担当が所有するIsAudioOutputSelectionEnabledを画面へ接続します。</summary>
+    public bool IsAudioOutputSelectionEnabled => audioDeviceTestWorkflow.IsAudioOutputSelectionEnabled;
+
+    /// <summary>音声設定担当が所有するAudioOutputSelectionResetMessageを画面へ接続します。</summary>
+    public string AudioOutputSelectionResetMessage => audioDeviceTestWorkflow.AudioOutputSelectionResetMessage;
+
+    /// <summary>音声設定担当が所有するAudioDeviceTestStatusMessageを画面へ接続します。</summary>
+    public string AudioDeviceTestStatusMessage => audioDeviceTestWorkflow.AudioDeviceTestStatusMessage;
+
+    /// <summary>音声設定担当が所有するHasAudioDeviceTestDiagnosticsを画面へ接続します。</summary>
+    public bool HasAudioDeviceTestDiagnostics => audioDeviceTestWorkflow.HasAudioDeviceTestDiagnostics;
+
+    /// <summary>音声設定担当が所有するAudioDeviceTestDiagnosticMessageを画面へ接続します。</summary>
+    public string AudioDeviceTestDiagnosticMessage => audioDeviceTestWorkflow.AudioDeviceTestDiagnosticMessage;
+
+    /// <summary>音声設定担当が所有するAudioDeviceCapabilityStatusMessageを画面へ接続します。</summary>
+    public string AudioDeviceCapabilityStatusMessage => audioDeviceTestWorkflow.AudioDeviceCapabilityStatusMessage;
+
+    /// <summary>音声設定担当が所有するHasAudioDeviceCapabilityDiagnosticsを画面へ接続します。</summary>
+    public bool HasAudioDeviceCapabilityDiagnostics => audioDeviceTestWorkflow.HasAudioDeviceCapabilityDiagnostics;
+
+    /// <summary>音声設定担当が所有するAudioDeviceCapabilityDiagnosticMessageを画面へ接続します。</summary>
+    public string AudioDeviceCapabilityDiagnosticMessage => audioDeviceTestWorkflow.AudioDeviceCapabilityDiagnosticMessage;
+
+    /// <summary>音声設定担当が所有するAudioDeviceCapabilityFormatDescriptionを画面へ接続します。</summary>
+    public string AudioDeviceCapabilityFormatDescription => audioDeviceTestWorkflow.AudioDeviceCapabilityFormatDescription;
+
+    /// <summary>音声設定担当が所有するAudioDeviceCapabilityRateDescriptionを画面へ接続します。</summary>
+    public string AudioDeviceCapabilityRateDescription => audioDeviceTestWorkflow.AudioDeviceCapabilityRateDescription;
 
     internal bool IsScoreReloadPending => scoreReloadPending;
 
@@ -207,14 +209,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="deferPresentation">失敗後の再表示など、呼出元をモーダル表示で待たせない場合は true。</param>
     internal void RequestOpen(bool deferPresentation = false)
     {
-        AudioDeviceTestStatusMessage = null;
-        audioDeviceCatalog.Refresh();
-        playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
-        RaisePlayerDriverStateProperties();
-        RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
-        RaisePropertyChanged(nameof(PlayerDeviceNames));
-        RaisePropertyChanged(nameof(PlayerDevice));
-        RaisePropertyChanged(nameof(SelectedPlayerDevice));
+        audioDeviceTestWorkflow.RefreshDevices();
         presentationPort?.OpenSettingsDialog(deferPresentation);
     }
 
@@ -251,10 +246,15 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ExecuteCancelCommand()
     {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || scoreReloadPending || fileDiffReloadPending)
+        if (IsEditCompletionInProgress
+            || IsAudioDeviceTestInProgress
+            || scoreReloadPending
+            || fileDiffReloadPending)
         {
             return;
         }
+
+        SetAudioSettingsPageVisible(false);
 
         var stopwatch = Stopwatch.StartNew();
         bool reset = false;
@@ -691,6 +691,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private bool tempShowScoreViewerRegisterConfirmMsg;
 
     private bool tempShowDiffBMSInstallConfirmMsg;
+    private bool tempShowNewPackageInstallConfirmMsg;
 
     private bool tempShowDuplicateFileCheckConfirmMsg;
 
@@ -750,15 +751,15 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private AudioOutputSelection savedAudioOutputSelection;
 
-    private AudioOutputSelection audioOutputSelectionDraft;
-
-    private List<AudioDeviceInfo> playerDeviceNames;
-
     private SampleRate tempPlayerSampleRate;
 
     private SampleFormat tempPlayerFormat;
 
     private float tempPlayerBufferSize;
+
+    private int tempPlayerResamplingQuality;
+
+    private int tempPlayerMixerThreadCount;
 
     private bool tempPlayerWASAPIParam;
 
@@ -3173,14 +3174,26 @@ public partial class SettingsDialogViewModel : ViewModel
     public bool IsLightAppearanceTheme
     {
         get => string.Equals(AppearanceTheme, AppThemeService.Light, StringComparison.Ordinal);
-        set { if (value) AppearanceTheme = AppThemeService.Light; }
+        set
+        {
+            if (value)
+            {
+                AppearanceTheme = AppThemeService.Light;
+            }
+        }
     }
 
     /// <summary>Gets or selects the dark appearance theme for choice-tile binding.</summary>
     public bool IsDarkAppearanceTheme
     {
         get => string.Equals(AppearanceTheme, AppThemeService.Dark, StringComparison.Ordinal);
-        set { if (value) AppearanceTheme = AppThemeService.Dark; }
+        set
+        {
+            if (value)
+            {
+                AppearanceTheme = AppThemeService.Dark;
+            }
+        }
     }
 
     public double CustomTableFontSize
@@ -3269,6 +3282,23 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 ApplicationSettings.ShowDiffBMSInstallConfirmMsg = value;
                 RaisePropertyChanged("ShowDiffBMSInstallConfirmMsg");
+            }
+        }
+    }
+
+    /// <summary>保留パッケージを新規として導入するときの確認表示を編集します。</summary>
+    public bool ShowNewPackageInstallConfirmMsg
+    {
+        get
+        {
+            return ApplicationSettings.ShowNewPackageInstallConfirmMsg;
+        }
+        set
+        {
+            if (ApplicationSettings.ShowNewPackageInstallConfirmMsg != value)
+            {
+                ApplicationSettings.ShowNewPackageInstallConfirmMsg = value;
+                RaisePropertyChanged("ShowNewPackageInstallConfirmMsg");
             }
         }
     }
@@ -3623,7 +3653,8 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public ReadOnlyDictionary<SampleRate, string> PlayerSampleRateNames { get; } = new ReadOnlyDictionary<SampleRate, string>(new Dictionary<SampleRate, string>
+    /// <summary>音声ファイル書出しで選択できるサンプルレート名を取得します。</summary>
+    public ReadOnlyDictionary<SampleRate, string> EncoderSampleRateNames { get; } = new ReadOnlyDictionary<SampleRate, string>(new Dictionary<SampleRate, string>
         {
             {
                 SampleRate.AUTO,
@@ -3666,6 +3697,18 @@ public partial class SettingsDialogViewModel : ViewModel
                 "192000Hz"
             }
         });
+
+    /// <summary>音声設定担当が所有するPlayerSampleRateNamesを画面へ接続します。</summary>
+    public ReadOnlyDictionary<SampleRate, string> PlayerSampleRateNames => audioDeviceTestWorkflow.PlayerSampleRateNames;
+
+    /// <summary>音声設定担当が所有するIsPlayerSampleRateReadOnlyを画面へ接続します。</summary>
+    public bool IsPlayerSampleRateReadOnly => audioDeviceTestWorkflow.IsPlayerSampleRateReadOnly;
+
+    /// <summary>音声設定担当が所有するIsPlayerFormatReadOnlyを画面へ接続します。</summary>
+    public bool IsPlayerFormatReadOnly => audioDeviceTestWorkflow.IsPlayerFormatReadOnly;
+
+    /// <summary>音声設定担当が所有するPlayerFormatNamesを画面へ接続します。</summary>
+    public ReadOnlyDictionary<SampleFormat, string> PlayerFormatNames => audioDeviceTestWorkflow.PlayerFormatNames;
 
     public SampleRate EncoderSampleRate
     {
@@ -3715,7 +3758,8 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    public ReadOnlyDictionary<SampleFormat, string> PlayerFormatNames { get; } = new ReadOnlyDictionary<SampleFormat, string>(new Dictionary<SampleFormat, string>
+    /// <summary>音声ファイル書出しで選択できるサンプル形式名を取得します。</summary>
+    public ReadOnlyDictionary<SampleFormat, string> EncoderFormatNames { get; } = new ReadOnlyDictionary<SampleFormat, string>(new Dictionary<SampleFormat, string>
         {
             {
                 SampleFormat.AUTO,
@@ -3865,252 +3909,65 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>Gets the localized names in the selectable backend order.</summary>
-    public ReadOnlyObservableCollection<string> PlayerDriverNames
-        => new(
-        [.. AudioDriverPolicy.SelectableDrivers.Select(AudioDriverDisplayNames.Get)]);
+    /// <summary>音声設定担当が所有するPlayerDriverNamesを画面へ接続します。</summary>
+    public ReadOnlyObservableCollection<string> PlayerDriverNames => audioDeviceTestWorkflow.PlayerDriverNames;
 
-    /// <summary>Gets whether sample-rate and format selection applies to the current backend.</summary>
-    public bool IsPlayerFormatSelectionEnabled
-        => audioOutputSelectionDraft.Backend is AudioDriver.WasapiExclusive or AudioDriver.Asio;
+    /// <summary>音声設定担当が所有するIsPlayerSampleRateSelectionEnabledを画面へ接続します。</summary>
+    public bool IsPlayerSampleRateSelectionEnabled => audioDeviceTestWorkflow.IsPlayerSampleRateSelectionEnabled;
 
-    /// <summary>Gets whether the WASAPI low-latency option applies to the current backend.</summary>
-    public bool IsPlayerWasapiDriver
-        => audioOutputSelectionDraft.Backend is AudioDriver.WasapiShared or AudioDriver.WasapiExclusive;
+    /// <summary>音声設定担当が所有するIsPlayerFormatSelectionEnabledを画面へ接続します。</summary>
+    public bool IsPlayerFormatSelectionEnabled => audioDeviceTestWorkflow.IsPlayerFormatSelectionEnabled;
 
-    /// <summary>Gets whether the player buffer slider is active for the current latency mode.</summary>
-    public bool IsPlayerBufferControlEnabled
-        => audioOutputSelectionDraft.Backend != AudioDriver.WasapiShared || !PlayerWASAPIParam;
+    /// <summary>音声設定担当が所有するIsPlayerWasapiDriverを画面へ接続します。</summary>
+    public bool IsPlayerWasapiDriver => audioDeviceTestWorkflow.IsPlayerWasapiDriver;
 
-    /// <summary>Gets a localized description for a saved backend that is not audible.</summary>
-    public string UnavailablePlayerDriverDescription => AudioDriverPolicy.IsSelectable(audioOutputSelectionDraft.Backend)
-        ? null
-        : string.Format(
-            BeMusicSeeker.Properties.Resources.AudioDeviceUnavailableFormat,
-            audioOutputSelectionDraft.Backend);
+    /// <summary>音声設定担当が所有するIsPlayerBufferControlEnabledを画面へ接続します。</summary>
+    public bool IsPlayerBufferControlEnabled => audioDeviceTestWorkflow.IsPlayerBufferControlEnabled;
 
-    public int PlayerDriverIndex
-    {
-        get
-        {
-            AudioDriver draftDriver = audioOutputSelectionDraft.Backend;
-            return AudioDriverPolicy.IndexOf(draftDriver);
-        }
-        set
-        {
-            if (value < 0 || value >= AudioDriverPolicy.SelectableDrivers.Count)
-            {
-                return;
-            }
-            AudioDriver driver = AudioDriverPolicy.SelectableDrivers[value];
-            if (audioOutputSelectionDraft.Backend != driver)
-            {
-                audioOutputSelectionDraft = new AudioOutputSelection(driver, null, null);
-                playerDeviceNames = BuildPlayerDeviceNames(driver);
-                RaisePlayerDriverStateProperties();
-                RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
-                RaisePropertyChanged(nameof(PlayerDeviceNames));
-                RaisePropertyChanged(nameof(PlayerDevice));
-                RaisePropertyChanged(nameof(SelectedPlayerDevice));
-            }
-        }
-    }
+    /// <summary>音声設定担当が所有するUnavailablePlayerDriverDescriptionを画面へ接続します。</summary>
+    public string UnavailablePlayerDriverDescription => audioDeviceTestWorkflow.UnavailablePlayerDriverDescription;
 
-    private void RaisePlayerDriverStateProperties()
-    {
-        RaisePropertyChanged(nameof(PlayerDriverNames));
-        RaisePropertyChanged(nameof(PlayerDriverIndex));
-        RaisePropertyChanged(nameof(IsPlayerFormatSelectionEnabled));
-        RaisePropertyChanged(nameof(IsPlayerWasapiDriver));
-        RaisePropertyChanged(nameof(IsPlayerBufferControlEnabled));
-    }
+    /// <summary>音声設定担当が所有するPlayerDriverIndexを画面へ接続します。</summary>
+    public int PlayerDriverIndex { get => audioDeviceTestWorkflow.PlayerDriverIndex; set => audioDeviceTestWorkflow.PlayerDriverIndex = value; }
 
-    public List<AudioDeviceInfo> PlayerDeviceNames
-    {
-        get
-        {
-            return playerDeviceNames ??= BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
-        }
-        private set
-        {
-            playerDeviceNames = value;
-        }
-    }
+    /// <summary>音声設定担当が所有するPlayerDeviceNamesを画面へ接続します。</summary>
+    public List<AudioDeviceInfo> PlayerDeviceNames => audioDeviceTestWorkflow.PlayerDeviceNames;
 
-    /// <summary>
-    /// Gets or sets the persisted device identity represented by the selected device option.
-    /// The Default option is represented by a null identity.
-    /// </summary>
-    public string PlayerDevice
-    {
-        get
-        {
-            return ResolvePlayerDeviceDescriptor().Driver ?? audioOutputSelectionDraft.DeviceIdentity;
-        }
-        set
-        {
-            int selectedIndex = FindPlayerDeviceIndex(value);
-            if (selectedIndex < 0)
-            {
-                return;
-            }
+    /// <summary>音声設定担当が所有するPlayerDeviceを画面へ接続します。</summary>
+    public string PlayerDevice { get => audioDeviceTestWorkflow.PlayerDevice; set => audioDeviceTestWorkflow.PlayerDevice = value; }
 
-            SelectedPlayerDevice = PlayerDeviceNames[selectedIndex];
-        }
-    }
+    /// <summary>音声設定担当が所有するSelectedPlayerDeviceを画面へ接続します。</summary>
+    public AudioDeviceInfo? SelectedPlayerDevice { get => audioDeviceTestWorkflow.SelectedPlayerDevice; set => audioDeviceTestWorkflow.SelectedPlayerDevice = value; }
 
-    /// <summary>
-    /// Gets or sets the device option selected in the settings dialog.
-    /// A transient null published while WPF replaces the catalog is ignored.
-    /// </summary>
-    public AudioDeviceInfo? SelectedPlayerDevice
-    {
-        get
-        {
-            int selectedIndex = FindPlayerDeviceIndex(audioOutputSelectionDraft.DeviceIdentity);
-            return selectedIndex < 0 ? null : PlayerDeviceNames[selectedIndex];
-        }
-        set
-        {
-            if (!value.HasValue)
-            {
-                return;
-            }
+    /// <summary>音声設定担当が所有するPlayerSampleRateを画面へ接続します。</summary>
+    public SampleRate PlayerSampleRate { get => audioDeviceTestWorkflow.PlayerSampleRate; set => audioDeviceTestWorkflow.PlayerSampleRate = value; }
 
-            AudioDeviceInfo deviceDescriptor = value.Value;
-            if (!deviceDescriptor.IsDefaultPlaceholder
-                && string.IsNullOrWhiteSpace(deviceDescriptor.Driver))
-            {
-                return;
-            }
+    /// <summary>音声設定担当が所有するSelectedPlayerSampleRateを画面へ接続します。</summary>
+    public SampleRate? SelectedPlayerSampleRate { get => audioDeviceTestWorkflow.SelectedPlayerSampleRate; set => audioDeviceTestWorkflow.SelectedPlayerSampleRate = value; }
 
-            string nextDevice = deviceDescriptor.IsDefaultPlaceholder
-                ? null
-                : deviceDescriptor.Driver;
-            string nextDeviceName = deviceDescriptor.IsDefaultPlaceholder
-                ? null
-                : deviceDescriptor.Name;
-            var nextSelection = new AudioOutputSelection(
-                audioOutputSelectionDraft.Backend,
-                nextDevice,
-                nextDeviceName);
-            if (audioOutputSelectionDraft == nextSelection)
-            {
-                return;
-            }
+    /// <summary>音声設定担当が所有するPlayerFormatを画面へ接続します。</summary>
+    public SampleFormat PlayerFormat { get => audioDeviceTestWorkflow.PlayerFormat; set => audioDeviceTestWorkflow.PlayerFormat = value; }
 
-            audioOutputSelectionDraft = nextSelection;
-            RaisePropertyChanged(nameof(PlayerDevice));
-            RaisePropertyChanged(nameof(SelectedPlayerDevice));
-        }
-    }
+    /// <summary>音声設定担当が所有するSelectedPlayerFormatを画面へ接続します。</summary>
+    public SampleFormat? SelectedPlayerFormat { get => audioDeviceTestWorkflow.SelectedPlayerFormat; set => audioDeviceTestWorkflow.SelectedPlayerFormat = value; }
 
-    private int FindPlayerDeviceIndex(string deviceIdentity)
-    {
-        if (string.IsNullOrWhiteSpace(deviceIdentity))
-        {
-            return PlayerDeviceNames.FindIndex(device => device.IsDefaultPlaceholder);
-        }
+    /// <summary>音声設定担当が所有するPlayerBufferSizeを画面へ接続します。</summary>
+    public float PlayerBufferSize { get => audioDeviceTestWorkflow.PlayerBufferSize; set => audioDeviceTestWorkflow.PlayerBufferSize = value; }
 
-        return PlayerDeviceNames.FindIndex(device =>
-            !device.IsDefaultPlaceholder
-            && string.Equals(device.Driver, deviceIdentity, StringComparison.Ordinal));
-    }
+    /// <summary>音声設定担当が所有するPlayerResamplingQualityを画面へ接続します。</summary>
+    public int PlayerResamplingQuality { get => audioDeviceTestWorkflow.PlayerResamplingQuality; set => audioDeviceTestWorkflow.PlayerResamplingQuality = value; }
 
-    private AudioDeviceInfo ResolvePlayerDeviceDescriptor()
-    {
-        return PlayerDeviceNames.FirstOrDefault(d =>
-            string.Equals(d.Driver, audioOutputSelectionDraft.DeviceIdentity, StringComparison.Ordinal));
-    }
+    /// <summary>音声設定担当が所有するPlayerResamplingQualityNamesを画面へ接続します。</summary>
+    public ReadOnlyDictionary<int, string> PlayerResamplingQualityNames => audioDeviceTestWorkflow.PlayerResamplingQualityNames;
 
-    private List<AudioDeviceInfo> BuildPlayerDeviceNames(AudioDriver driver)
-    {
-        List<AudioDeviceInfo> devices = AudioDriverPolicy.IsSelectable(driver)
-            ? new List<AudioDeviceInfo>(audioDeviceCatalog.GetDevices(driver))
-            : [];
-        string savedIdentity = audioOutputSelectionDraft.DeviceIdentity;
-        if (!string.IsNullOrWhiteSpace(savedIdentity)
-            && !devices.Any(device => string.Equals(device.Driver, savedIdentity, StringComparison.Ordinal)))
-        {
-            devices.Add(new AudioDeviceInfo(
-                string.IsNullOrWhiteSpace(audioOutputSelectionDraft.DeviceName)
-                    ? savedIdentity
-                    : audioOutputSelectionDraft.DeviceName,
-                savedIdentity,
-                -1,
-                isDefaultPlaceholder: false,
-                isNativeDefault: false,
-                isAvailable: false));
-        }
-        return devices;
-    }
+    /// <summary>音声設定担当が所有するPlayerMixerThreadCountを画面へ接続します。</summary>
+    public int PlayerMixerThreadCount { get => audioDeviceTestWorkflow.PlayerMixerThreadCount; set => audioDeviceTestWorkflow.PlayerMixerThreadCount = value; }
 
-    public SampleRate PlayerSampleRate
-    {
-        get
-        {
-            return ApplicationSettings.PlayerSampleRate;
-        }
-        set
-        {
-            if (ApplicationSettings.PlayerSampleRate != value)
-            {
-                ApplicationSettings.PlayerSampleRate = value;
-                RaisePropertyChanged("PlayerSampleRate");
-            }
-        }
-    }
+    /// <summary>音声設定担当が所有するPlayerMixerThreadCountNamesを画面へ接続します。</summary>
+    public ReadOnlyDictionary<int, string> PlayerMixerThreadCountNames => audioDeviceTestWorkflow.PlayerMixerThreadCountNames;
 
-    public SampleFormat PlayerFormat
-    {
-        get
-        {
-            return ApplicationSettings.PlayerFormat;
-        }
-        set
-        {
-            if (ApplicationSettings.PlayerFormat != value)
-            {
-                ApplicationSettings.PlayerFormat = value;
-                RaisePropertyChanged("PlayerFormat");
-            }
-        }
-    }
-
-    public float PlayerBufferSize
-    {
-        get
-        {
-            return ApplicationSettings.PlayerBufferSize;
-        }
-        set
-        {
-            if (ApplicationSettings.PlayerBufferSize != value)
-            {
-                ApplicationSettings.PlayerBufferSize = value;
-                RaisePropertyChanged("PlayerBufferSize");
-            }
-        }
-    }
-
-    public double PlayerLatency { get; private set; }
-
-    public bool PlayerWASAPIParam
-    {
-        get
-        {
-            return ApplicationSettings.PlayerWASAPIParam;
-        }
-        set
-        {
-            if (ApplicationSettings.PlayerWASAPIParam != value)
-            {
-                ApplicationSettings.PlayerWASAPIParam = value;
-                RaisePropertyChanged("PlayerWASAPIParam");
-                RaisePropertyChanged(nameof(IsPlayerBufferControlEnabled));
-            }
-        }
-    }
+    /// <summary>音声設定担当が所有するPlayerWASAPIParamを画面へ接続します。</summary>
+    public bool PlayerWASAPIParam { get => audioDeviceTestWorkflow.PlayerWASAPIParam; set => audioDeviceTestWorkflow.PlayerWASAPIParam = value; }
 
     public ListenerCommand<string> RemoveDirCommand
     {
@@ -4130,7 +3987,10 @@ public partial class SettingsDialogViewModel : ViewModel
             // 表示名が保存されている場合はそれを優先（同一カルチャ名の重複対策）
             string savedDisplayName = ApplicationSettings.LangDisplayName;
             if (!string.IsNullOrEmpty(savedDisplayName) && cultureCatalog.Cultures.ContainsKey(savedDisplayName))
+            {
                 return savedDisplayName;
+            }
+
             return cultureCatalog.Cultures.FirstOrDefault(kv => kv.Value == ApplicationSettings.Lang).Key;
         }
         set
@@ -4215,6 +4075,8 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
             ?? throw new ArgumentNullException(nameof(audioDeviceTestWorkflow));
+        this.audioDeviceTestWorkflow.ConfigurePresentation(() => ApplicationSettings, this.audioDeviceCatalog);
+        this.audioDeviceTestWorkflow.PropertyChanged += AudioSettingsPropertyChanged;
         appearanceThemeOptions =
         [
             new AppearanceThemeOption(AppThemeService.Light),
@@ -4361,10 +4223,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return StandaloneBmsRootPathSettings.Normalize(paths);
     }
 
-    private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPaths(IEnumerable<string> paths)
-    {
-        return StandaloneBmsRootPathSettings.Normalize(paths);
-    }
 
     private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(IEnumerable<string> paths)
     {
@@ -4555,6 +4413,7 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         bool presentationOpening = active && !isPresentationActive;
         isPresentationActive = active;
+        audioDeviceTestWorkflow.SetPresentationActive(active);
         if (presentationOpening)
         {
             ClearTransientPlaylistUriValidationState();
@@ -4563,6 +4422,15 @@ public partial class SettingsDialogViewModel : ViewModel
             RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty();
         }
     }
+
+    /// <summary>ページ表示と明示テストを音声担当へ接続します。</summary>
+    internal void SetAudioSettingsPageVisible(bool visible) => audioDeviceTestWorkflow.SetAudioSettingsPageVisible(visible);
+
+    /// <summary>固定した下書きでテストし、音声担当が解放完了まで追跡します。</summary>
+    internal Task RunAudioDeviceTestAsync() => audioDeviceTestWorkflow.RunAudioDeviceTestAsync();
+
+    /// <summary>受理済みの音声テストが表示処理とnative後片付けを終えるTaskを取得します。</summary>
+    internal Task AudioDeviceTestCompletionTask => audioDeviceTestWorkflow.AudioDeviceTestCompletionTask;
 
     private void ClearTransientPlaylistUriValidationState()
     {
@@ -5200,7 +5068,9 @@ public partial class SettingsDialogViewModel : ViewModel
     public void SetFilePathFromPicker(string propertyName, string path)
     {
         if (path == null)
+        {
             return;
+        }
 
         SetSettingProperty(propertyName, path);
     }
@@ -5208,7 +5078,9 @@ public partial class SettingsDialogViewModel : ViewModel
     public void SetDirectoryPathFromPicker(string propertyName, string path)
     {
         if (path == null)
+        {
             return;
+        }
 
         SetSettingProperty(propertyName, path);
     }
@@ -6027,267 +5899,6 @@ public partial class SettingsDialogViewModel : ViewModel
         UiDialogRoute.ThrowIfNotShown(result, "treeViewLibraryFolderContextMenuItemUnregisterRootFolder failure notification");
     }
 
-    internal async Task RunAudioDeviceTestAsync()
-    {
-        if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress)
-        {
-            return;
-        }
-
-        AudioDeviceTestRequest request = new(
-            audioOutputSelectionDraft.Backend,
-            audioOutputSelectionDraft.DeviceIdentity,
-            audioOutputSelectionDraft.DeviceName,
-            ApplicationSettings.PlayerSampleRate,
-            ApplicationSettings.PlayerFormat,
-            ApplicationSettings.PlayerBufferSize,
-            ApplicationSettings.PlayerWASAPIParam,
-            ApplicationSettings.uBMplayVolume,
-            playSound: true);
-        AudioDeviceTestStatusMessage = null;
-        Task<AudioDeviceTestResult> testTask = audioDeviceTestWorkflow.TryRunAsync(request);
-        RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
-        RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
-        RaisePropertyChanged(nameof(IsEditCompletionEnabled));
-        RaisePropertyChanged(nameof(IsEditCancellationEnabled));
-        try
-        {
-            AudioDeviceTestResult result = await testTask;
-            if (result == null)
-            {
-                return;
-            }
-
-            AudioDeviceTestStatusMessage = FormatAudioDeviceTestResult(result);
-
-            if (!CanApplyAudioDeviceTestResult(request, result))
-            {
-                return;
-            }
-
-            audioOutputSelectionDraft = new AudioOutputSelection(
-                result.ActualBackend,
-                request.PlayerDevice == null ? null : result.ActualDevice,
-                request.PlayerDevice == null ? null : result.ActualDeviceName);
-            if (!string.IsNullOrWhiteSpace(request.PlayerDevice))
-            {
-                playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
-            }
-            if (request.PlayerSampleRate != SampleRate.AUTO)
-            {
-                ApplicationSettings.PlayerSampleRate = result.ActualRate;
-            }
-            if (request.PlayerFormat != SampleFormat.AUTO)
-            {
-                ApplicationSettings.PlayerFormat = result.EngineFormat;
-            }
-            PlayerLatency = result.Latency;
-            RaisePlayerDriverStateProperties();
-            RaisePropertyChanged(nameof(PlayerDeviceNames));
-            RaisePropertyChanged(nameof(PlayerDevice));
-            RaisePropertyChanged(nameof(SelectedPlayerDevice));
-            RaisePropertyChanged(nameof(PlayerSampleRate));
-            RaisePropertyChanged(nameof(PlayerFormat));
-            RaisePropertyChanged(nameof(PlayerLatency));
-        }
-        catch (AudioInitializationException exception)
-        {
-            string message = FormatAudioInitializationFailure(exception);
-            AudioDeviceTestStatusMessage = message;
-            UiDialogResult dialogResult = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-                message,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK));
-            UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device initialization failure notification");
-        }
-        catch (BassAudioPlaybackException exception)
-        {
-            string message = FormatAudioPlaybackFailure(exception);
-            AudioDeviceTestStatusMessage = message;
-            UiDialogResult dialogResult = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-                message,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK));
-            UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device playback failure notification");
-        }
-        catch (Exception exception)
-        {
-            try
-            {
-                NLogWrapper.GetLogger(nameof(SettingsDialogViewModel)).Error(
-                    exception,
-                    "Audio device test failed outside its result boundary.");
-            }
-            catch
-            {
-                // Diagnostics must not replace the settings-dialog failure message.
-            }
-
-            string message = BeMusicSeeker.Properties.Resources.AudioDeviceTestUnexpectedFailureReason;
-            AudioDeviceTestStatusMessage = message;
-            UiDialogResult dialogResult = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-                message,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK));
-            UiDialogRoute.ThrowIfNotShown(dialogResult, "Audio device unexpected failure notification");
-        }
-        finally
-        {
-            RaisePropertyChanged(nameof(IsAudioDeviceTestInProgress));
-            RaisePropertyChanged(nameof(IsAudioDeviceTestAvailable));
-            RaisePropertyChanged(nameof(IsEditCompletionEnabled));
-            RaisePropertyChanged(nameof(IsEditCancellationEnabled));
-        }
-    }
-
-    private static string FormatAudioDeviceTestResult(AudioDeviceTestResult result)
-    {
-        string requestedDevice = DescribeAudioDevice(result.RequestedDevice, result.RequestedDeviceName);
-        string actualDevice = DescribeAudioDevice(result.ActualDevice, result.ActualDeviceName);
-        if (!result.Succeeded)
-        {
-            return string.Format(
-                BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamFailureFormat,
-                AudioDriverDisplayNames.Get(result.RequestedBackend),
-                AudioDriverDisplayNames.Get(result.ActualBackend),
-                FormatAudioDeviceTestFailureReason(result));
-        }
-        if (result.FallbackOccurred)
-        {
-            return string.Format(
-                BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackFormat,
-                AudioDriverDisplayNames.Get(result.RequestedBackend),
-                requestedDevice,
-                AudioDriverDisplayNames.Get(result.ActualBackend),
-                actualDevice,
-                BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackReason);
-        }
-        return string.Format(
-            BeMusicSeeker.Properties.Resources.AudioDeviceTestSuccessFormat,
-            AudioDriverDisplayNames.Get(result.ActualBackend),
-            actualDevice,
-            result.ActualRate,
-            result.EngineFormat,
-            result.EndpointFormat,
-            result.ActualChannels,
-            result.Latency);
-    }
-
-    private static string FormatAudioDeviceTestFailureReason(AudioDeviceTestResult result)
-    {
-        return result.FailureKind switch
-        {
-            AudioDeviceTestFailureKind.TestSoundUnavailable
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestTestSoundUnavailableReason,
-            AudioDeviceTestFailureKind.PlayerCreationFailed
-                => result.PlaybackStage.HasValue
-                    || !string.IsNullOrWhiteSpace(result.NativeErrorSource)
-                    || result.NativeErrorCode.HasValue
-                    ? string.Format(
-                        BeMusicSeeker.Properties.Resources.AudioDeviceTestPlayerCreationFailureReasonFormat,
-                        result.PlaybackStage?.ToString() ?? "-",
-                        result.NativeErrorSource ?? "-",
-                        BassNativeErrorFormatter.Format(result.NativeErrorCode))
-                    : BeMusicSeeker.Properties.Resources.AudioDeviceTestPlayerCreationFailureReason,
-            AudioDeviceTestFailureKind.InvalidDuration
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestInvalidDurationReason,
-            AudioDeviceTestFailureKind.PlaybackStartFailed
-                => string.Format(
-                    BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStartFailureReasonFormat,
-                    result.PlaybackStage?.ToString() ?? "-",
-                    result.NativeErrorSource ?? "-",
-                    BassNativeErrorFormatter.Format(result.NativeErrorCode)),
-            AudioDeviceTestFailureKind.PlaybackPositionMovedBackwards
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackPositionFailureReason,
-            AudioDeviceTestFailureKind.PlaybackStoppedEarly
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStoppedEarlyReason,
-            AudioDeviceTestFailureKind.PlaybackRateOutOfRange
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestRateFailureReason,
-            AudioDeviceTestFailureKind.ObservationTimedOut
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestObservationTimeoutReason,
-            AudioDeviceTestFailureKind.PlaybackDidNotAdvance
-                => BeMusicSeeker.Properties.Resources.AudioDeviceTestStreamProgressFailureReason,
-            _ => BeMusicSeeker.Properties.Resources.AudioDeviceTestUnexpectedFailureReason
-        };
-    }
-
-    private static string FormatAudioPlaybackFailure(BassAudioPlaybackException exception)
-    {
-        return string.Format(
-            BeMusicSeeker.Properties.Resources.AudioDeviceTestPlaybackStartFailureReasonFormat,
-            exception.Stage,
-            exception.NativeErrorSource ?? "-",
-            BassNativeErrorFormatter.Format(exception.NativeErrorCode));
-    }
-
-    private static string FormatAudioInitializationFailure(AudioInitializationException exception)
-    {
-        return string.Format(
-            BeMusicSeeker.Properties.Resources.AudioDeviceTestInitializationErrorFormat,
-            AudioDriverDisplayNames.Get(exception.RequestedBackend),
-            AudioDriverDisplayNames.Get(exception.ActualBackend),
-            exception.Stage,
-            exception.NativeErrorSource,
-            BassNativeErrorFormatter.Format(exception.NativeErrorCode),
-            DescribeAudioDevice(exception.RequestedDevice.Driver, exception.RequestedDevice.Name),
-            DescribeAudioDevice(exception.ActualDevice.Driver, exception.ActualDevice.Name));
-    }
-
-    private static string DescribeAudioDevice(string identity, string name)
-    {
-        if (string.IsNullOrWhiteSpace(identity) && string.IsNullOrWhiteSpace(name))
-        {
-            return BeMusicSeeker.Properties.Resources.AudioDeviceDefault;
-        }
-        return string.IsNullOrWhiteSpace(name) ? identity : name;
-    }
-
-    private bool CanApplyAudioDeviceTestResult(
-        AudioDeviceTestRequest request,
-        AudioDeviceTestResult result)
-    {
-        if (!result.Succeeded
-            || result.FallbackOccurred
-            || result.IsSilentFallback
-            || result.RequestedBackend != request.PlayerDriver
-            || result.ActualBackend != request.PlayerDriver
-            || !IsCurrentAudioDeviceTestRequest(request))
-        {
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.PlayerDevice)
-            && !string.Equals(result.ActualDevice, request.PlayerDevice, StringComparison.Ordinal))
-        {
-            return false;
-        }
-        if (request.PlayerSampleRate != SampleRate.AUTO
-            && result.ActualRate != request.PlayerSampleRate)
-        {
-            return false;
-        }
-        return request.PlayerFormat == SampleFormat.AUTO
-            || result.EngineFormat == request.PlayerFormat;
-    }
-
-    private bool IsCurrentAudioDeviceTestRequest(AudioDeviceTestRequest request)
-    {
-        return audioOutputSelectionDraft.Backend == request.PlayerDriver
-            && string.Equals(audioOutputSelectionDraft.DeviceIdentity, request.PlayerDevice, StringComparison.Ordinal)
-            && string.Equals(audioOutputSelectionDraft.DeviceName, request.PlayerDeviceName, StringComparison.Ordinal)
-            && ApplicationSettings.PlayerSampleRate == request.PlayerSampleRate
-            && ApplicationSettings.PlayerFormat == request.PlayerFormat
-            && ApplicationSettings.PlayerBufferSize.Equals(request.PlayerBufferSize)
-            && ApplicationSettings.PlayerWASAPIParam == request.PlayerWASAPIParam
-            && ApplicationSettings.uBMplayVolume == request.PlayerVolume;
-    }
-
     [Flags]
     private enum SettingsPostSaveImpact
     {
@@ -6441,6 +6052,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempUseOnlyShiftJISChars = ApplicationSettings.UseOnlyShiftJISChars;
         tempShowScoreViewerRegisterConfirmMsg = ApplicationSettings.ShowScoreViewerRegisterConfirmMsg;
         tempShowDiffBMSInstallConfirmMsg = ApplicationSettings.ShowDiffBMSInstallConfirmMsg;
+        tempShowNewPackageInstallConfirmMsg = ApplicationSettings.ShowNewPackageInstallConfirmMsg;
         tempShowDuplicateFileCheckConfirmMsg = ApplicationSettings.ShowDuplicateFileCheckConfirmMsg;
         tempShowRecommUpdatedMsg = ApplicationSettings.ShowRecommUpdatedMsg;
         tempScanBmsFilesOnStartup = ApplicationSettings.ScanBmsFilesOnStartup;
@@ -6466,10 +6078,13 @@ public partial class SettingsDialogViewModel : ViewModel
         tempEncodeFileNameFormat = ApplicationSettings.EncodeFileNameFormat;
         savedAudioOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
             audioSettingsGateway.CaptureOutputSelection());
-        audioOutputSelectionDraft = savedAudioOutputSelection;
+        audioDeviceTestWorkflow.OutputSelection = savedAudioOutputSelection;
         tempPlayerSampleRate = ApplicationSettings.PlayerSampleRate;
         tempPlayerFormat = ApplicationSettings.PlayerFormat;
         tempPlayerBufferSize = ApplicationSettings.PlayerBufferSize;
+        tempPlayerResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
+        tempPlayerMixerThreadCount = ApplicationSettings.PlayerMixerThreadCount;
+        audioDeviceTestWorkflow.RefreshPlaybackSettingDrafts();
         tempPlayerWASAPIParam = ApplicationSettings.PlayerWASAPIParam;
         tempLanguage = ApplicationSettings.Lang;
         tempLanguageDisplayName = ApplicationSettings.LangDisplayName;
@@ -6571,6 +6186,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempUseOnlyShiftJISChars != ApplicationSettings.UseOnlyShiftJISChars
             || tempShowScoreViewerRegisterConfirmMsg != ApplicationSettings.ShowScoreViewerRegisterConfirmMsg
             || tempShowDiffBMSInstallConfirmMsg != ApplicationSettings.ShowDiffBMSInstallConfirmMsg
+            || tempShowNewPackageInstallConfirmMsg != ApplicationSettings.ShowNewPackageInstallConfirmMsg
             || tempShowDuplicateFileCheckConfirmMsg != ApplicationSettings.ShowDuplicateFileCheckConfirmMsg
             || tempShowRecommUpdatedMsg != ApplicationSettings.ShowRecommUpdatedMsg
             || tempScanBmsFilesOnStartup != ApplicationSettings.ScanBmsFilesOnStartup
@@ -6594,10 +6210,12 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempEncoderAmplifier != ApplicationSettings.EncoderAmplifier
             || tempEncoderQuality != ApplicationSettings.EncoderQuality
             || !string.Equals(tempEncodeFileNameFormat, ApplicationSettings.EncodeFileNameFormat, StringComparison.Ordinal)
-            || savedAudioOutputSelection != audioOutputSelectionDraft
+            || savedAudioOutputSelection != audioDeviceTestWorkflow.OutputSelection
             || tempPlayerSampleRate != ApplicationSettings.PlayerSampleRate
             || tempPlayerFormat != ApplicationSettings.PlayerFormat
             || tempPlayerBufferSize != ApplicationSettings.PlayerBufferSize
+            || tempPlayerResamplingQuality != audioDeviceTestWorkflow.PlayerResamplingQuality
+            || tempPlayerMixerThreadCount != audioDeviceTestWorkflow.PlayerMixerThreadCount
             || tempPlayerWASAPIParam != ApplicationSettings.PlayerWASAPIParam
             || !string.Equals(tempLanguage, ApplicationSettings.Lang, StringComparison.Ordinal)
             || !string.Equals(tempLanguageDisplayName, ApplicationSettings.LangDisplayName, StringComparison.Ordinal);
@@ -6680,7 +6298,9 @@ public partial class SettingsDialogViewModel : ViewModel
         bool forceInternalPlayerForStandaloneModeChange =
             !ApplicationSettings.OperationModeLR2DB
             && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-        if (playerSelectionChanged || playerRuntimePathChanged || forceInternalPlayerForStandaloneModeChange)
+        if (playerSelectionChanged
+            || playerRuntimePathChanged
+            || forceInternalPlayerForStandaloneModeChange)
         {
             impact |= SettingsPostSaveImpact.PlayerRuntime;
         }
@@ -6900,12 +6520,6 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSync()
-    {
-        return PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-            customFolderOutputPort.CustomFolderOutputSettings
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
-    }
 
     private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
         CustomFolderOutputSettingsSnapshot settings)
@@ -6933,13 +6547,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return plan;
     }
 
-    private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSync(CustomFolderOutputBaseSearchRootSyncPlan plan)
-    {
-        return CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-            plan,
-            customFolderOutputPort.CustomFolderOutputSettings
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
-    }
 
     private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
         CustomFolderOutputBaseSearchRootSyncPlan plan,
@@ -7211,7 +6818,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool HasValidationRelevantSettingChanges()
     {
-        return rightClickActionSettingsEditor.IsDirty
+        return !AudioResamplingQuality.IsValid(audioDeviceTestWorkflow.PlayerResamplingQuality)
+            || !BassMixerThreadConfigurator.IsValidRealtimeThreadCount(audioDeviceTestWorkflow.PlayerMixerThreadCount)
+            || rightClickActionSettingsEditor.IsDirty
             || tempOperationModeLR2DB != operationModeLR2DB
             || HasSearchRootSettingsChanged()
             || HasCustomFolderOutputBaseSettingsChanged()
@@ -7255,6 +6864,20 @@ public partial class SettingsDialogViewModel : ViewModel
         if (!CheckRightClickActionSettings(out string rightClickError))
         {
             errMsg += rightClickError + Environment.NewLine;
+            result = false;
+        }
+        if (!AudioResamplingQuality.IsValid(audioDeviceTestWorkflow.PlayerResamplingQuality))
+        {
+            errMsg += FormatSettingValidationMessage(
+                BeMusicSeeker.Properties.Resources.Device_setting,
+                BeMusicSeeker.Properties.Resources.Error_InvalidAudioResamplingQuality) + Environment.NewLine;
+            result = false;
+        }
+        if (!BassMixerThreadConfigurator.IsValidRealtimeThreadCount(audioDeviceTestWorkflow.PlayerMixerThreadCount))
+        {
+            errMsg += FormatSettingValidationMessage(
+                BeMusicSeeker.Properties.Resources.Device_setting,
+                BeMusicSeeker.Properties.Resources.Error_InvalidAudioMixerThreadCount) + Environment.NewLine;
             result = false;
         }
         if (OperationModeLR2DB)
@@ -7512,15 +7135,20 @@ public partial class SettingsDialogViewModel : ViewModel
                 var userConfigStopwatch = Stopwatch.StartNew();
                 AudioOutputSelection previousOutputSelection = AudioDriverPolicy.NormalizePersistedSelection(
                     audioSettingsGateway.CaptureOutputSelection());
-                audioSettingsGateway.ApplyOutputSelection(
-                    AudioDriverPolicy.NormalizePersistedSelection(audioOutputSelectionDraft));
+                int previousResamplingQuality = ApplicationSettings.PlayerResamplingQuality;
+                int previousMixerThreadCount = ApplicationSettings.PlayerMixerThreadCount;
+                audioDeviceTestWorkflow.ApplyPlaybackSettingDraftsToSettings();
                 try
                 {
+                    audioSettingsGateway.ApplyOutputSelection(
+                        AudioDriverPolicy.NormalizePersistedSelection(audioDeviceTestWorkflow.OutputSelection));
                     settingsEditSession.Save();
                 }
                 catch
                 {
                     audioSettingsGateway.ApplyOutputSelection(previousOutputSelection);
+                    ApplicationSettings.PlayerResamplingQuality = previousResamplingQuality;
+                    ApplicationSettings.PlayerMixerThreadCount = previousMixerThreadCount;
                     throw;
                 }
                 userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
@@ -7677,6 +7305,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.UseOnlyShiftJISChars = tempUseOnlyShiftJISChars;
         ApplicationSettings.ShowScoreViewerRegisterConfirmMsg = tempShowScoreViewerRegisterConfirmMsg;
         ApplicationSettings.ShowDiffBMSInstallConfirmMsg = tempShowDiffBMSInstallConfirmMsg;
+        ApplicationSettings.ShowNewPackageInstallConfirmMsg = tempShowNewPackageInstallConfirmMsg;
         ApplicationSettings.ShowDuplicateFileCheckConfirmMsg = tempShowDuplicateFileCheckConfirmMsg;
         ApplicationSettings.ShowRecommUpdatedMsg = tempShowRecommUpdatedMsg;
         ApplicationSettings.ScanBmsFilesOnStartup = tempScanBmsFilesOnStartup;
@@ -7701,14 +7330,13 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.EncoderAmplifier = tempEncoderAmplifier;
         ApplicationSettings.EncoderQuality = tempEncoderQuality;
         ApplicationSettings.EncodeFileNameFormat = tempEncodeFileNameFormat;
-        audioOutputSelectionDraft = savedAudioOutputSelection;
-        if (playerDeviceNames != null)
-        {
-            playerDeviceNames = BuildPlayerDeviceNames(audioOutputSelectionDraft.Backend);
-        }
+        audioDeviceTestWorkflow.OutputSelection = savedAudioOutputSelection;
+        audioDeviceTestWorkflow.RestoreSelection();
         ApplicationSettings.PlayerSampleRate = tempPlayerSampleRate;
         ApplicationSettings.PlayerFormat = tempPlayerFormat;
         ApplicationSettings.PlayerBufferSize = tempPlayerBufferSize;
+        ApplicationSettings.PlayerResamplingQuality = tempPlayerResamplingQuality;
+        ApplicationSettings.PlayerMixerThreadCount = tempPlayerMixerThreadCount;
         ApplicationSettings.PlayerWASAPIParam = tempPlayerWASAPIParam;
         ApplicationSettings.Lang = tempLanguage;
         ApplicationSettings.LangDisplayName = tempLanguageDisplayName;
@@ -7779,6 +7407,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(UseOnlyShiftJISChars));
         RaisePropertyChanged(nameof(ShowScoreViewerRegisterConfirmMsg));
         RaisePropertyChanged(nameof(ShowDiffBMSInstallConfirmMsg));
+        RaisePropertyChanged(nameof(ShowNewPackageInstallConfirmMsg));
         RaisePropertyChanged(nameof(ShowDuplicateFileCheckConfirmMsg));
         RaisePropertyChanged(nameof(ShowRecommUpdatedMsg));
         RaisePropertyChanged(nameof(ScanBmsFilesOnStartup));
@@ -7802,14 +7431,17 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(EncoderAmplifier));
         RaisePropertyChanged(nameof(EncoderQuality));
         RaisePropertyChanged(nameof(EncodeFileNameFormat));
-        RaisePlayerDriverStateProperties();
+        audioDeviceTestWorkflow.RefreshSelectionProperties();
         RaisePropertyChanged(nameof(UnavailablePlayerDriverDescription));
         RaisePropertyChanged(nameof(PlayerDevice));
         RaisePropertyChanged(nameof(PlayerDeviceNames));
         RaisePropertyChanged(nameof(SelectedPlayerDevice));
         RaisePropertyChanged(nameof(PlayerSampleRate));
         RaisePropertyChanged(nameof(PlayerFormat));
+        RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
         RaisePropertyChanged(nameof(PlayerBufferSize));
+        RaisePropertyChanged(nameof(PlayerResamplingQuality));
+        RaisePropertyChanged(nameof(PlayerMixerThreadCount));
         RaisePropertyChanged(nameof(PlayerWASAPIParam));
         RaisePropertyChanged(nameof(Languages));
         RaisePropertyChanged(nameof(IsOperationModeChanged));
@@ -7984,10 +7616,21 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    private void AudioSettingsPropertyChanged(object sender, PropertyChangedEventArgs args)
+    {
+        RaisePropertyChanged(args.PropertyName);
+        if (args.PropertyName == nameof(IsAudioDeviceTestInProgress))
+        {
+            RaisePropertyChanged(nameof(IsEditCompletionEnabled));
+        }
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            audioDeviceTestWorkflow.PropertyChanged -= AudioSettingsPropertyChanged;
+            audioDeviceTestWorkflow.Dispose();
             workspacePort.PlaylistCatalogChanged -= playlistCatalogChangedHandler;
             statePort.LibraryOperationAvailabilityChanged -= libraryOperationAvailabilityChangedHandler;
             statePort.Lr2PlayHistorySchemaStatusChanged -= lr2PlayHistorySchemaStatusChangedHandler;

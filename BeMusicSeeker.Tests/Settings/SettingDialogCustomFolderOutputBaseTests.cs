@@ -6,14 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -28,6 +25,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     [TestMethod]
     public void HasPendingSettingChanges_UsesSnapshotDiffsAndReset()
     {
+        bool previousShowNewPackageInstallConfirmMsg = testSettings.ShowNewPackageInstallConfirmMsg;
         bool previousOperationMode = testSettings.OperationModeLR2DB;
         bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
         bool previousShowDuplicateFileCheckConfirmMsg = testSettings.ShowDuplicateFileCheckConfirmMsg;
@@ -57,6 +55,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
 
+            dialog.ShowNewPackageInstallConfirmMsg = !previousShowNewPackageInstallConfirmMsg;
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            dialog.ResetSettings();
+            Assert.AreEqual(previousShowNewPackageInstallConfirmMsg, dialog.ShowNewPackageInstallConfirmMsg);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+
             dialog.OperationModeLR2DB = !previousOperationMode;
 
             Assert.IsTrue(dialog.HasPendingSettingChanges());
@@ -70,6 +74,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         finally
         {
             testSettings.OperationModeLR2DB = previousOperationMode;
+            testSettings.ShowNewPackageInstallConfirmMsg = previousShowNewPackageInstallConfirmMsg;
             testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
             testSettings.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
         }

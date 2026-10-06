@@ -404,7 +404,10 @@ public sealed class RootFileEnumerationTests
             Assert.IsTrue(result.Success);
             Assert.IsNull(result.ScanSource);
             Assert.IsTrue(result.DirectoryQueryHitCount >= 2UL);
-            Assert.AreEqual(result.NativeBridgeMs, result.DirectoryQueryMs);
+            Assert.IsFalse(result.NativeBridgeUsed);
+            Assert.AreEqual(0L, result.NativeBridgeMs);
+            Assert.AreEqual(0L, result.DirectoryQueryMs);
+            CollectionAssert.Contains(result.Result.ChartFilePaths.ToList(), chartPath);
             Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(tempRoot, out RootFileEnumerationEntry? rootEntry));
             Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(nestedDirectory, out RootFileEnumerationEntry? nestedEntry));
             Assert.AreEqual(ToUnixSeconds(rootWriteTimeUtc), rootEntry!.LastWriteTimeUnixSeconds);
@@ -417,6 +420,69 @@ public sealed class RootFileEnumerationTests
                 Directory.Delete(tempRoot, recursive: true);
             }
         }
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OsEnumerator_MeasuresEnumerationWithoutInventingDirectoryQuery(bool bounded)
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_EnumerationTiming_" + Guid.NewGuid().ToString("N"));
+        string nestedDirectory = Path.Combine(tempRoot, "Song");
+        Directory.CreateDirectory(nestedDirectory);
+        File.WriteAllText(Path.Combine(nestedDirectory, "chart.bms"), "#TITLE Timing");
+        try
+        {
+            IRootFileEnumerator enumerator = bounded
+                ? new BoundedSourceSurfaceEnumerator(maxVisitedFileSystemEntryCount: 100)
+                : new FastRootFileEnumerator();
+            RootFileEnumerationResult enumeration = enumerator.EnumerateFiles(
+                [tempRoot],
+                [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)]);
+
+            Assert.IsTrue(RootFileEnumerationService.IsAuthoritativeComplete(enumeration));
+            CollectionAssert.Contains(enumeration.GetPaths(RootFileEnumerationService.DirectoriesGroupName).ToList(), nestedDirectory);
+            Assert.IsTrue(enumeration.MeasuredEnumerationMs.HasValue);
+            Assert.IsTrue(enumeration.MeasuredEnumerationMs >= 0L);
+            Assert.IsNull(enumeration.GetMeasuredQueryMs(RootFileEnumerationService.DirectoriesGroupName));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("fast", null, false)]
+    [DataRow("bounded_fast_source_surface", null, false)]
+    [DataRow(EverythingNative.GroupedEnumerationBackendName, null, true)]
+    [DataRow(EverythingNative.GroupedEnumerationBackendName, 0, true)]
+    [DataRow(EverythingNative.GroupedEnumerationBackendName, 7, true)]
+    public void ChartScannerResult_PreservesBackendAndMeasuredQueryIntervals(string backend, int? queryMs, bool nativeBridgeUsed)
+    {
+        var enumeration = new RootFileEnumerationResult
+        {
+            Success = true,
+            BackendName = backend,
+            EnumerationMs = 13L
+        };
+        enumeration.InitializeGroup(RootFileEnumerationService.DirectoriesGroupName);
+        enumeration.AddEntry(RootFileEnumerationService.DirectoriesGroupName, new RootFileEnumerationEntry(@"C:\BMS\Song"));
+        if (queryMs.HasValue)
+        {
+            enumeration.QueryMsByGroup[RootFileEnumerationService.DirectoriesGroupName] = queryMs.Value;
+        }
+
+        ChartScanExecutionResult result = ChartFileScannerResultBuilder.Build(enumeration);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(nativeBridgeUsed, result.NativeBridgeUsed);
+        Assert.AreEqual(nativeBridgeUsed ? 13L : 0L, result.NativeBridgeMs);
+        Assert.AreEqual(queryMs.HasValue ? (long?)queryMs.Value : null,
+            enumeration.GetMeasuredQueryMs(RootFileEnumerationService.DirectoriesGroupName));
+        Assert.AreEqual((long)queryMs.GetValueOrDefault(), result.DirectoryQueryMs);
+        Assert.AreEqual(13L, enumeration.MeasuredEnumerationMs);
+        Assert.IsTrue(result.Result.DirectoryEntriesByPath.ContainsKey(@"C:\BMS\Song"));
     }
 
     [TestMethod]

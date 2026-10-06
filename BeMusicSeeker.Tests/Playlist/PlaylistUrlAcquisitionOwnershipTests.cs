@@ -6,13 +6,12 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
-using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -996,18 +995,18 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 isDiffUrl: false);
             await gateway.ReadStarted.Task;
 
-            Assert.IsTrue(hub.IsInstallPipelineStatusActive);
-            Assert.IsTrue(hub.InstallPipelineCanCancel);
+            Assert.IsTrue(hub.Rows.Any(row => row.Key == "url"));
+            Assert.IsTrue(hub.Rows.Single(row => row.Key == "url").CanCancel);
             workspace.CancelPlaylistUrlDownload();
-            Assert.IsFalse(hub.InstallPipelineCanCancel);
+            Assert.IsFalse(hub.Rows.Single(row => row.Key == "url").CanCancel);
 
             gateway.Response.TrySetResult(new AppHttpResponse(
                 new Uri("https://example.invalid/running.zip"),
                 new MemoryStream([1, 2, 3], writable: false)));
             await acquisition;
 
-            Assert.IsFalse(hub.IsInstallPipelineStatusActive);
-            Assert.AreEqual(0, hub.InstallPipelineValue);
+            Assert.IsFalse(hub.Rows.Any(row => row.Key == "url"));
+            Assert.IsFalse(hub.HasRows);
         }
         finally
         {
@@ -1295,11 +1294,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             int installCount = 0;
             installOwner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     installCount++;
-                    return [];
-                }), action => { action(); return true; });
+                    return new PackageInstallCommandResult([], null);
+                }), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
             installOwner.AttachLibrary(library);
             var gateway = new RecordingPlaylistUrlDownloadGateway(root);
             Uri first = new("https://example.invalid/first.zip");
@@ -1385,7 +1384,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         {
             competingOperation?.Dispose();
             if (installOwner != null)
+            {
                 await installOwner.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }

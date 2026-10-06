@@ -463,7 +463,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             foreach (object row in rows)
             {
-                if (row is PlaylistDetailRow) count++;
+                if (row is PlaylistDetailRow)
+                {
+                    count++;
+                }
             }
         }
         return count;

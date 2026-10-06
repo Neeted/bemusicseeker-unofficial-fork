@@ -416,7 +416,8 @@ internal sealed class TestWindowPresentationScope
     }
 
     /// <summary>
-    /// 非アクティブ・画面外に表示し、HWNDを持つ画面の描画完了を待ちます。
+    /// 非アクティブ・画面外に表示し、HWNDを持つ画面の実際の描画完了通知を待ちます。
+    /// アニメーション中にも発生する描画完了を、Dispatcher全体のidle到達から推測しません。
     /// </summary>
     internal void ShowAndWaitForContentRendered(
         Window window)
@@ -424,16 +425,30 @@ internal sealed class TestWindowPresentationScope
         ArgumentNullException.ThrowIfNull(window);
         PrepareForOwnedPresentation(window);
 
-        bool contentRendered = false;
-        EventHandler handler = (_, _) => contentRendered = true;
+        var presentationCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler handler = (_, _) => presentationCompleted.TrySetResult(true);
+        DependencyPropertyChangedEventHandler visibilityChanged = (_, _) =>
+        {
+            if (!window.IsVisible)
+            {
+                presentationCompleted.TrySetResult(false);
+            }
+        };
         window.ContentRendered += handler;
+        window.IsVisibleChanged += visibilityChanged;
         try
         {
             window.Show();
             window.UpdateLayout();
-            PumpUntil(window.Dispatcher, () => contentRendered || !window.IsVisible);
+            if (!window.IsVisible)
+            {
+                presentationCompleted.TrySetResult(false);
+            }
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                presentationCompleted.Task,
+                $"{window.GetType().Name}.ContentRendered");
 
-            if (!contentRendered)
+            if (!presentationCompleted.Task.GetAwaiter().GetResult())
             {
                 throw new InvalidOperationException(
                     $"The displayed {window.GetType().Name} did not reach ContentRendered.");
@@ -451,6 +466,7 @@ internal sealed class TestWindowPresentationScope
         finally
         {
             window.ContentRendered -= handler;
+            window.IsVisibleChanged -= visibilityChanged;
         }
     }
 
@@ -674,18 +690,6 @@ internal sealed class TestWindowPresentationScope
             throw failures.Count == 1
                 ? failures[0]
                 : new AggregateException("Window presentation cleanup failed.", failures);
-        }
-    }
-
-    private static void PumpUntil(Dispatcher dispatcher, Func<bool> completed)
-    {
-        for (int barrier = 0; barrier < 8 && !completed(); barrier++)
-        {
-            var frame = new DispatcherFrame();
-            dispatcher.BeginInvoke(
-                DispatcherPriority.ApplicationIdle,
-                new Action(() => frame.Continue = false));
-            Dispatcher.PushFrame(frame);
         }
     }
 

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -41,7 +40,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         {
             releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
             lease?.Dispose();
-            if (reportThrows) throw new IOException("optional report failed");
+            if (reportThrows)
+            {
+                throw new IOException("optional report failed");
+            }
         };
         SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
         ChartOperationTarget target = CreateTarget("deleted.bms", ChartOperationSourceScope.Library, false,
@@ -153,7 +155,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             presentation.Events.Count,
             string.Join("|", presentation.Events));
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "pending-playback", "pending-refresh-start", "pending-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "pending-refresh-start", "pending-refresh-end", "activity-end" },
             presentation.Events);
     }
 
@@ -183,7 +185,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task DeleteLibraryAsync_StopsSelectedChartsAndApprovedDirectoriesBeforeStoreWrite()
+    public async Task DeleteLibraryAsync_StopsPlaybackBeforeApprovedFolderDeletion()
     {
         var events = new List<string>();
         var store = new RecordingStore(events) { WholeFolderDeletePaths = [@"C:\Songs\Folder"] };
@@ -202,9 +204,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
 
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual(7, events.Count, string.Join("|", events));
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-directories", "library-refresh-start", "store-library-delete", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "store-library-delete", "library-refresh-end", "activity-end" },
             events);
     }
 
@@ -223,7 +224,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         Assert.IsTrue(result.Succeeded);
         CollectionAssert.AreEqual(new[] { "library:.bmx", "library:.pmx" }, store.RenameOperations);
-        Assert.AreEqual(2, store.RenameCallCount);
+        Assert.AreEqual(1, store.RenameCallCount);
     }
 
     [TestMethod]
@@ -243,7 +244,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameTerminalCalls);
         CollectionAssert.AreEqual(new[] { "pending:.bmx", "pending:.pmx" }, store.RenameOperations);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "pending-playback", "pending-refresh-start", "store-pending-rename", "store-pending-rename", "pending-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "pending-refresh-start", "store-pending-rename", "store-pending-rename", "pending-refresh-end", "activity-end" },
             events);
     }
 
@@ -429,7 +430,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         Assert.IsFalse(result.Succeeded);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-refresh-start", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "library-refresh-end", "activity-end" },
             presentation.Events);
     }
 
@@ -449,7 +450,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(@"D:\Moved", store.MovedDirectory);
         Assert.AreEqual(1, presentation.PathRefreshCalls);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
             events);
     }
 
@@ -484,7 +485,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             owner.WorkflowChanged += (_, change) =>
             {
                 if (change is SelectedChartMutationRefreshSuppressionChangedEventArgs { IsSuppressed: false })
+                {
                     throw new IOException("optional observer failed");
+                }
             };
         }
 
@@ -515,7 +518,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             cleanupFailure: new IOException("cleanup failed"));
         var store = new TerminalRecordingStore(receipt);
         FakeUiDialogService dialogs = AcceptedMessageDialogs();
-        if (reporterThrows) dialogs.OnMessage = () => throw new IOException("report failed");
+        if (reporterThrows)
+        {
+            dialogs.OnMessage = () => throw new IOException("report failed");
+        }
+
         SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
             [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
@@ -682,7 +689,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(0, presentation.PathRefreshCalls);
         CollectionAssert.AreEqual(
-            new[] { "activity-start", "library-playback", "library-refresh-start", "library-refresh-end", "activity-end" },
+            new[] { "activity-start", "playback-stop", "library-refresh-start", "library-refresh-end", "activity-end" },
             presentation.Events);
     }
 
@@ -774,7 +781,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             null);
     }
 
-    private sealed class RecordingPresentation : ISelectedChartMutationPlaybackPort
+    private sealed class RecordingPresentation : IChartMutationPlaybackPort
     {
         internal List<string> Events { get; }
 
@@ -835,13 +842,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             }
         }
 
-        public void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts) => Events.Add("pending-playback");
-
-        public void StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts) => Events.Add("library-playback");
-
-        public void StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
+        public Task StopPlaybackForMutationAsync()
         {
-            Events.Add("library-directories");
+            Events.Add("playback-stop");
+            return Task.CompletedTask;
         }
     }
 
@@ -898,12 +902,15 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             DeleteContainingPackageFoldersWhenNoBms = deleteContainingPackageFoldersWhenNoBms;
         }
 
-        public void RenameLibraryCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
+        public virtual LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+            BMSLibrary library,
+            IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
         {
             ThrowIfConfigured();
             events?.Add("store-library-rename");
-            RenameOperations.Add("library:" + newExtension);
+            RenameOperations.AddRange(batches.Select(batch => "library:" + batch.NewExtension));
             RenameCallCount++;
+            return LibraryMutationSessionReceipt.Empty;
         }
 
         public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
@@ -914,11 +921,17 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             RenameCallCount++;
         }
 
-        public void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request)
+        public virtual LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
+            BMSLibrary library, ChartLibraryMoveRequest request)
         {
             ThrowIfConfigured();
             events?.Add("store-move");
             MovedDirectory = request.NewParentDirectory;
+            return new LibraryMutationSessionReceipt(
+                [new LibraryMutationSessionTarget(request.Charts[0].Path, request.NewParentDirectory)],
+                durableCommit: true,
+                catalogChartPathChangeCount: 1,
+                folderReferenceMoveCount: 1);
         }
 
         public void SetBMSFilesEncoding(
@@ -949,7 +962,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     private sealed class TerminalRecordingStore(
         LibraryMutationSessionReceipt receipt,
         List<string>? events = null)
-        : RecordingStore(events), ISelectedChartMutationTerminalStore
+        : RecordingStore(events)
     {
         internal int Calls { get; private set; }
 
@@ -957,7 +970,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal IReadOnlyList<LibraryFileExtensionRenameBatch> RenameBatches { get; private set; } = [];
 
-        public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+        public override LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
             BMSLibrary library,
             IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
         {
@@ -966,7 +979,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             return receipt;
         }
 
-        public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
+        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
         {
             Calls++;
             return receipt;

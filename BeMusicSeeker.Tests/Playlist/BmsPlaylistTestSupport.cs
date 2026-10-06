@@ -1,25 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views.Dialogs;
-using Livet;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Tests;
 
@@ -28,6 +21,17 @@ namespace BeMusicSeeker.Tests;
 /// </summary>
 internal static class BmsPlaylistTestSupport
 {
+    /// <summary>固定上流から採取した原観測と期待値を、計算せずテスト出力から読みます。</summary>
+    internal static JObject ReadWalkureCase(string name) => (JObject)JArray.Parse(File.ReadAllText(
+        Path.Combine(AppContext.BaseDirectory, "TestData", "Walkure", "math-cases.json")))
+        .Single(row => row.Value<string>("name") == name);
+
+    /// <summary>独立入力だけを変更不能なスコア境界へ渡します。期待実力値は含めません。</summary>
+    internal static WalkureScoreInput ReadWalkureInput(string name = "mixed") => new(ScoreTableLoadStatus.Loaded,
+        ((JArray)(ReadWalkureCase(name)["observations"] ?? throw new FormatException())).ToImmutableDictionary(
+            row => row.Value<string>("md5") ?? throw new FormatException(),
+            row => Enum.Parse<WalkureLamp>(row.Value<string>("clearLamp") ?? throw new FormatException(), true), StringComparer.OrdinalIgnoreCase));
+
     internal static byte[] CreateUtf8BomBytes(string text)
     {
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
@@ -41,7 +45,6 @@ internal static class BmsPlaylistTestSupport
         return new TestBmsPlaylist(
             songDbPath,
             getLr2Config,
-            null,
             null,
             null,
             () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),

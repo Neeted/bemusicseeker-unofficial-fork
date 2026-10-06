@@ -4,7 +4,6 @@ using System.Linq;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32;
-using Parago.Windows;
 
 namespace BeMusicSeeker.Tests;
 

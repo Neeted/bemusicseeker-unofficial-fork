@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -8,16 +7,11 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Ribbit.Util.Extensions;
 using SQLite;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -1342,9 +1336,25 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformanceWarn,
             bmsFileScanSucceeded);
 
+        logInstallPerformance?.Invoke("song_tbl_file_check_result result=applied"
+            + " checkedCharts=" + (result.BmsPathCount + result.BmsonPathCount)
+            + " checkedBms=" + result.BmsPathCount
+            + " checkedBmson=" + result.BmsonPathCount
+            + " parseTargets=" + (result.BmsAddedTargetCount + result.BmsonUpsertTargetCount)
+            + " bmsUpserted=" + result.DbCommitBmsChangedCount
+            + " bmsDeleted=" + result.DeletedPaths.Count
+            + " bmsDateUpdated=" + result.BmsDateOnlyUpdateCount
+            + " bmsTextUpdated=" + result.BmsTextOnlyUpdateCount
+            + " bmsonUpserted=" + result.AddedBmsonSongs.Count
+            + " bmsonDeleted=" + result.DeletedBmsonPaths.Count
+            + " fileFailures=" + result.FileScanFailures.Count
+            + " dbCommitChunks=" + result.DbCommitChunks
+            + " dbCommitMs=" + (result.DbCommitChunks > 0 ? result.DbCommitMs.ToString() : "not_applied"));
+        string nativeBridgeTime = scanResult.NativeBridgeUsed ? result.NativeBridgeMs.ToString() : "not_used";
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs
-            + " native_bridge_ms=" + result.NativeBridgeMs
+            + " native_bridge_used=" + scanResult.NativeBridgeUsed.ToString().ToLowerInvariant()
+            + " native_bridge_ms=" + nativeBridgeTime
             + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
             + " fallback_used=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
             + " fallback_reason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
@@ -1484,7 +1494,8 @@ internal sealed class BmsLibraryInitializationService
             + " imageResourceKeyEntries=" + result.ImageResourceKeyHashEntryCount
             + " movieResourceKeyEntries=" + result.MovieResourceKeyHashEntryCount);
         logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs
-            + " nativeBridgeMs=" + result.NativeBridgeMs
+            + " nativeBridgeUsed=" + scanResult.NativeBridgeUsed.ToString().ToLowerInvariant()
+            + " nativeBridgeMs=" + nativeBridgeTime
             + " managedDecodeMs=" + result.ManagedDecodeMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " resourceIndexBuildMs=" + result.ResourceIndexBuildMs
@@ -2263,6 +2274,10 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
+    /// <summary>選択したスコアDBを読み直し、接続を解放して読取り結果を返します。</summary>
+    /// <param name="dbGateway">LR2スコアDBの読取り窓口。</param>
+    /// <param name="options">選択したbeatoraja設定と既存読取り設定。未指定ならLR2を使います。</param>
+    /// <returns>未設定・正常読取り（空DBを含む）・失敗を区別した結果。別ソースへ代替しません。</returns>
     public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options = null)
     {
         if (dbGateway == null)
@@ -2282,6 +2297,10 @@ internal sealed class BmsLibraryInitializationService
         if (options?.UseBeatorajaScoreDb == true)
         {
             result.ActiveScoreSource = ActiveScoreSource.Beatoraja;
+            if (string.IsNullOrWhiteSpace(options.BeatorajaScoreDbPath))
+            {
+                return result;
+            }
             if (!IsBeatorajaScoreDbEnabled(options))
             {
                 result.Status = ScoreTableLoadStatus.Failed;
@@ -2821,10 +2840,6 @@ internal sealed class BmsLibraryInitializationService
             && lastWriteTime < new DateTime(lastWriteTime.Year, 3, 2);
     }
 
-    private static bool IsBmsHashAvailable(string hash)
-    {
-        return !string.IsNullOrWhiteSpace(hash) && LR2SongDB.md5HashRegex.IsMatch(hash);
-    }
 
     private static bool TableExists(LR2SongDBExtended songDb, string tableName)
     {

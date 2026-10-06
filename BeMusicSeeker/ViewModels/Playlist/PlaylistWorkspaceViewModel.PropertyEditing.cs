@@ -75,19 +75,26 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void ForwardPlaylistPropertySyncStarted(object sender, EventArgs e)
     {
-        ApplyPlaylistPropertyPresentation(BeginPlaylistSyncProgressOperation);
+        ApplyPlaylistPropertyPresentation(() => BeginPlaylistSyncProgressOperation("property_save"));
     }
 
     private void ForwardPlaylistSyncProgressChanged(
         object sender,
         PlaylistSyncProgressChangedEventArgs request)
     {
-        ApplyPlaylistPropertyPresentation(() => ReportPlaylistSyncProgress(request?.Snapshot));
+        ApplyPlaylistPropertyPresentation(() =>
+        {
+            if (request?.Snapshot is PlaylistSyncProgressSnapshot snapshot)
+            {
+                ReportPlaylistSyncProgress(snapshot, "property_save",
+                    BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_property_update);
+            }
+        });
     }
 
     private void ForwardPlaylistPropertySyncFinished(object sender, EventArgs e)
     {
-        ApplyPlaylistPropertyPresentation(EndPlaylistSyncProgressOperation);
+        ApplyPlaylistPropertyPresentation(() => EndPlaylistSyncProgressOperation("property_save"));
     }
 
     private void ForwardPlaylistPropertyReferenceTableReplaced(

@@ -4,9 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using Ribbit.Util;
 
 namespace BeMusicSeeker.Models;
 
@@ -15,6 +13,10 @@ public partial class BMSLibrary
     private sealed class InstallableMaintenanceRequestState
     {
         internal int Version { get; init; }
+
+        internal OperationProgressRequest ProgressRequest { get; init; }
+
+        internal Action<OperationProgressRequest, bool> ProgressReporter { get; init; }
 
         internal long CriticalElapsedMs { get; init; }
     }
@@ -80,10 +82,12 @@ public partial class BMSLibrary
 
     private InstallableMaintenanceRequestState GetInstallableMaintenanceRequest()
     {
-        (int Version, long CriticalElapsedMs) request = packageLifecycleOwner.GetInstallableMaintenanceRequest();
+        (int Version, long CriticalElapsedMs, OperationProgressRequest ProgressRequest, Action<OperationProgressRequest, bool> ProgressReporter) request = packageLifecycleOwner.GetInstallableMaintenanceRequest();
         return new InstallableMaintenanceRequestState
         {
             Version = request.Version,
+            ProgressReporter = request.ProgressReporter,
+            ProgressRequest = request.ProgressRequest,
             CriticalElapsedMs = request.CriticalElapsedMs
         };
     }
@@ -119,6 +123,7 @@ public partial class BMSLibrary
             var maintenanceResult = new MaintenanceWorkflowResult();
             InstallableMaintenanceSnapshot snapshot = null;
             List<Action> postLeaseEffects = [];
+            request.ProgressReporter?.Invoke(request.ProgressRequest, true);
             try
             {
                 using (LibraryFileMutationLease mutationLease = lr2SynchronizationOwner.BeginMutationWhenAvailable(
@@ -162,6 +167,7 @@ public partial class BMSLibrary
             }
             finally
             {
+                request.ProgressReporter?.Invoke(request.ProgressRequest, false);
                 ResetInstallableMaintenanceWriteLockFlags();
                 snapshot?.Files?.Clear();
                 LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");

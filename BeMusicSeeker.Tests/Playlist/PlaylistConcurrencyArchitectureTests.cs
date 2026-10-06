@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -172,7 +170,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(ownerSource, "new PlaylistReferenceTableSnapshot(");
         StringAssert.Contains(ownerSource, "internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }");
         StringAssert.Contains(referenceApplySource, "ApplyHydrationReceipt(");
-        StringAssert.Contains(referenceApplySource, "Queue(receipt.Reason, operationToken: 0L)");
+        StringAssert.Contains(referenceApplySource, "Queue(receipt.Reason, operationToken: 0L, originatingRequest: receipt.ProgressRequest)");
         StringAssert.Contains(referenceApplySource, "PrepareReferenceBMSTableSynchronization(tables)");
         StringAssert.Contains(referenceApplySource, "TryCommitReferenceBMSTableSynchronization(synchronizationPlan)");
         Assert.IsFalse(workspaceSource.Contains("SynchronizeReferenceBMSTableSnapshots("));
@@ -243,34 +241,6 @@ public sealed class PlaylistConcurrencyArchitectureTests
             Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaBmtHashOutputMode"));
         }
         StringAssert.Contains(ownerSource, "GetOptions()");
-    }
-
-    [TestMethod]
-    public void RecommendedTableWorkflow_IsOwnedByDedicatedOwner()
-    {
-        string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistRecommendedTableOwner.cs"));
-        string externalSyncSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistExternalSyncOwner.cs"));
-
-        StringAssert.Contains(playlistSource, "new PlaylistExternalSyncOwner(");
-        StringAssert.Contains(externalSyncSource, "recommendedTableOwner.LoadWalkureTable");
-        Assert.IsFalse(playlistSource.Contains("public BMSTable LoadWalkureTable"));
-        foreach (string legacyMember in new[]
-        {
-            "estimationTableLock",
-            "insaneTable",
-            "overjoyTable",
-            "updatedClearedSongs",
-            "loadRecommendedTable",
-            "setEstimationTable"
-        })
-        {
-            Assert.IsFalse(playlistSource.Contains(legacyMember), "BMSPlaylist must not retain recommended-table member: " + legacyMember);
-        }
-        StringAssert.Contains(ownerSource, "internal async Task<BMSTable> LoadWalkureTableAsync");
-        StringAssert.Contains(ownerSource, "UpdatedClearedSongs");
-        StringAssert.Contains(ownerSource, "BuildEstimationEntries");
     }
 
     [TestMethod]

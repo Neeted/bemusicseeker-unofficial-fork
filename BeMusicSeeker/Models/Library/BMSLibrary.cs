@@ -1,34 +1,25 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Runtime.ExceptionServices;
-using System.Security;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Microsoft.VisualBasic.FileIO;
 using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
-using Ribbit.Net;
-using Ribbit.Util;
 using Ribbit.Util.Extensions;
-using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -223,6 +214,47 @@ public partial class BMSLibrary : ObservableObject
 
     internal Func<StartupBackgroundWorkSnapshot> StartupBackgroundWorkSnapshotProvider { get; set; }
 
+    /// <summary>
+    /// score/ranking要求の受付時に表示先を捕捉します。返るcallbackには各周で捕捉したモデル要求版と実行中かを渡します。
+    /// 同じworkerが後続要求を処理しても、worker開始時の表示世代を流用しません。捕捉・通知の失敗は処理結果を変えません。
+    /// </summary>
+    internal Func<string, Action<int, bool>> StartupExecutionProgressReporterFactory { get; set; }
+
+    /// <summary>受付時の表示識別を捕捉します。各要求主体は既存要求スロット内で使用します。</summary>
+    internal Func<string, long, OperationProgressRequest> StartupProgressRequestFactory { get; set; }
+
+    /// <summary>捕捉済みの機能要求の実行境界を表示先へ渡します。</summary>
+    internal Action<OperationProgressRequest, bool> StartupRequestProgressReporter { get; set; }
+
+    /// <summary>現在受け付けたスコア要求の表示識別です。</summary>
+    internal OperationProgressRequest ScoreHydrationProgressRequest { get; private set; }
+
+    /// <summary>現在受け付けた順位要求の表示識別です。</summary>
+    internal OperationProgressRequest RankingRefreshProgressRequest { get; private set; }
+
+    /// <summary>現在受け付けた保守読込み要求の表示識別です。</summary>
+    internal OperationProgressRequest MaintenanceHydrationProgressRequest => catalogMaintenanceOwner.HydrationProgressRequest;
+
+    /// <summary>現在受け付けた導入可能譜面保守要求の表示識別です。</summary>
+    internal OperationProgressRequest InstallableMaintenanceProgressRequest => packageLifecycleOwner.InstallableMaintenanceProgressRequest;
+
+    /// <summary>現在受け付けた譜面情報要求の表示識別です。</summary>
+    internal OperationProgressRequest ChartInfoBackfillProgressRequest => catalogChartInfoOwner.BackfillProgressRequest;
+
+    /// <summary>現在受け付けた譜面情報読込み要求の表示識別です。</summary>
+    internal OperationProgressRequest ChartInfoHydrationProgressRequest => catalogChartInfoOwner.HydrationProgressRequest;
+
+    /// <summary>既存の機能所有者へ、要求時に捕捉する表示窓口を接続します。</summary>
+    internal void AttachStartupRequestProgressSources()
+    {
+        catalogChartInfoOwner.ProgressRequestFactory = StartupProgressRequestFactory;
+        catalogChartInfoOwner.RequestProgressReporter = StartupRequestProgressReporter;
+        catalogMaintenanceOwner.ProgressRequestFactory = StartupProgressRequestFactory;
+        catalogMaintenanceOwner.RequestProgressReporter = StartupRequestProgressReporter;
+        packageLifecycleOwner.ProgressRequestFactory = StartupProgressRequestFactory;
+        packageLifecycleOwner.RequestProgressReporter = StartupRequestProgressReporter;
+    }
+
     private int shutdownRequested;
 
     public enum LibraryInitializeMode
@@ -232,24 +264,30 @@ public partial class BMSLibrary : ObservableObject
         ScoreOnly
     }
 
+    /// <summary>並行する初期化詳細の処理種別です。親段階の完了とは独立しています。</summary>
     public enum LibraryInitializationProgressStage
     {
         None = 0,
         DatabaseLoad = 1,
         FileEnumeration = 2,
-        FileDiff = 3
+        FileDiff = 3,
+        Lr2FolderFileCheck = 4
     }
 
+    /// <summary>送出時の操作識別と処理量を保持する変更不能な表示詳細です。</summary>
     public sealed class LibraryInitializationProgressSnapshot
     {
+        /// <summary>一つの処理が送出した最新詳細を構築します。</summary>
         internal LibraryInitializationProgressSnapshot(
             long version,
             LibraryInitializationProgressStage stage,
             string scannerLabel,
             int totalCount,
             int processedCount,
-            string currentPath)
+            string currentPath,
+            long operationToken = 0L)
         {
+            OperationToken = operationToken;
             Version = version;
             Stage = stage;
             ScannerLabel = scannerLabel;
@@ -258,16 +296,25 @@ public partial class BMSLibrary : ObservableObject
             CurrentPath = currentPath;
         }
 
+        /// <summary>送出元の初期化・再読込み操作を識別します。</summary>
+        public long OperationToken { get; }
+
+        /// <summary>詳細が更新された公開集合の版です。</summary>
         public long Version { get; }
 
+        /// <summary>詳細が属する処理です。</summary>
         public LibraryInitializationProgressStage Stage { get; }
 
+        /// <summary>使用する探索方式の表示名です。</summary>
         public string ScannerLabel { get; }
 
+        /// <summary>確定した対象数です。未確定の場合は0です。</summary>
         public int TotalCount { get; }
 
+        /// <summary>確認・解析済みの件数です。保存成功は段階完了通知で判定します。</summary>
         public int ProcessedCount { get; }
 
+        /// <summary>処理中または最後に処理した対象のパスです。</summary>
         public string CurrentPath { get; }
     }
 
@@ -501,6 +548,39 @@ public partial class BMSLibrary : ObservableObject
         GetLr2SynchronizationRuntimeState().ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
     }
 
+    private Action<int, bool> CaptureStartupExecutionProgressReporter(string name)
+    {
+        try
+        {
+            return StartupExecutionProgressReporterFactory?.Invoke(name);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                LogInstallPerformanceWarn("startup_execution_progress capture_failed name=" + name + " message=" + exception.Message);
+            }
+            catch (Exception) { }
+            return null;
+        }
+    }
+
+    private static void ReportStartupExecutionProgress(Action<int, bool> reporter, string name, int requestVersion, bool running)
+    {
+        try
+        {
+            reporter?.Invoke(requestVersion, running);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                LogInstallPerformanceWarn("startup_execution_progress publication_failed name=" + name + " version=" + requestVersion + " message=" + exception.Message);
+            }
+            catch (Exception) { }
+        }
+    }
+
     internal bool IsShutdownRequested => GetLr2SynchronizationRuntimeState().IsShutdownRequested;
 
     /// <summary>新規処理の受付を止め、IR 本文受信を含む終了対象へキャンセルを通知します。</summary>
@@ -655,8 +735,6 @@ public partial class BMSLibrary : ObservableObject
     private long lr2PropertyPublicationVersion;
 
     private bool lr2PropertyPublicationScheduled;
-
-    private UiSchedulePriority pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
 
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
@@ -845,6 +923,8 @@ public partial class BMSLibrary : ObservableObject
 
     private int deferredScoreHydrationRequestedVersion;
 
+    private Action<int, bool> deferredScoreHydrationProgressReporter;
+
     private bool deferredScoreHydrationRunning;
 
     private int deferredScoreHydrationLastCompletedVersion;
@@ -852,6 +932,8 @@ public partial class BMSLibrary : ObservableObject
     private readonly object lockDeferredRankingRefresh = new();
 
     private int deferredRankingRefreshRequestedVersion;
+
+    private Action<int, bool> deferredRankingRefreshProgressReporter;
 
     private bool deferredRankingRefreshRunning;
 
@@ -1055,15 +1137,35 @@ public partial class BMSLibrary : ObservableObject
     private LibraryInitializationProgressSnapshot publishedLibraryInitializationProgress =
         new(0L, LibraryInitializationProgressStage.None, string.Empty, 0, 0, string.Empty);
 
-    private LibraryInitializationProgressSnapshot pendingLibraryInitializationProgress =
-        new(0L, LibraryInitializationProgressStage.None, string.Empty, 0, 0, string.Empty);
+    private readonly Dictionary<LibraryInitializationProgressStage, LibraryInitializationProgressSnapshot> pendingLibraryInitializationProgress = [];
 
-    // A deferred UI dispatcher can leave the latest pending snapshot queued while
-    // the mutation lane advances through the whole diff.  Retain only the first
-    // strict LR2 FileDiff intermediate so that coalescing cannot erase the
-    // observable start of a multi-item apply.  This is deliberately one bounded
-    // slot, not a progress history or replay queue.
-    private LibraryInitializationProgressSnapshot retainedLeadingLr2FileDiffProgress;
+    private IReadOnlyList<LibraryInitializationProgressSnapshot> publishedLibraryInitializationProgressSnapshots =
+        Array.AsReadOnly(Array.Empty<LibraryInitializationProgressSnapshot>());
+
+    private long libraryInitializationProgressOperationToken;
+
+    private long libraryInitializationProgressPendingVersion;
+
+    private readonly Dictionary<LibraryInitializationProgressStage, long> libraryInitializationProgressReportTimestamps = [];
+
+    private readonly AsyncLocal<long?> libraryInitializationProgressContext = new();
+
+    // 操作入口で捕捉した識別を子Taskへ継承し、遅延通知へ現在の操作を付け直さない。
+    private sealed class LibraryInitializationProgressScope : IDisposable
+    {
+        private readonly AsyncLocal<long?> context;
+        private readonly long? previous;
+
+        /// <summary>操作開始時の識別を、その実行と子Taskへ局所的に渡します。</summary>
+        internal LibraryInitializationProgressScope(AsyncLocal<long?> context, long token)
+        {
+            this.context = context;
+            previous = context.Value;
+            context.Value = token;
+        }
+
+        public void Dispose() => context.Value = previous;
+    }
 
     private bool libraryInitializationProgressPublicationScheduled;
 
@@ -1072,8 +1174,6 @@ public partial class BMSLibrary : ObservableObject
     private int _LibraryFileEnumerationCompletedVersion;
 
     private int _LibraryFileDiffCompletedVersion;
-
-    private long lastLibraryInitializationProgressReportTimestamp;
 
     private readonly object lockLibraryInitializationProgress = new();
 
@@ -1841,6 +1941,12 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// chart_info のバックグラウンド構築が実行中かどうかです。
     /// </summary>
+    /// <summary>譜面情報補完の送出元要求版と件数を、同じ要求の変更不能な値として返します。</summary>
+    internal ChartInfoWorkflowProgressSnapshot ChartInfoBackfillProgressSnapshot => catalogChartInfoOwner.BackfillProgressSnapshot;
+
+    /// <summary>譜面情報読込みの送出元要求版と適用数を、同じ要求の変更不能な値として返します。</summary>
+    internal ChartInfoWorkflowProgressSnapshot ChartInfoHydrationProgressSnapshot => catalogChartInfoOwner.HydrationProgressSnapshot;
+
     public bool ChartInfoBackfillRunning
     {
         get
@@ -2107,13 +2213,35 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>処理別最新詳細の公開集合の版です。</summary>
     public long LibraryInitializationProgressVersion =>
         Volatile.Read(ref publishedLibraryInitializationProgress).Version;
 
+    /// <summary>互換参照用に、公開集合の最後に更新された詳細を返します。</summary>
     public LibraryInitializationProgressSnapshot GetLibraryInitializationProgressSnapshot()
     {
         return Volatile.Read(ref publishedLibraryInitializationProgress);
     }
+
+    /// <summary>実行中の操作が送出した各処理の最新詳細を、変更不能な小さい集合で返します。</summary>
+    public IReadOnlyList<LibraryInitializationProgressSnapshot> GetLibraryInitializationProgressSnapshots()
+    {
+        return Volatile.Read(ref publishedLibraryInitializationProgressSnapshots);
+    }
+
+    /// <summary>初期化・再読込みの表示識別を登録し、前の操作の未公開詳細を破棄します。</summary>
+    /// <param name="operationToken">画面の操作開始時に捕捉した既存の識別です。</param>
+    public void BeginLibraryInitializationProgressOperation(long operationToken)
+    {
+        lock (lockLibraryInitializationProgress)
+        {
+            libraryInitializationProgressOperationToken = operationToken;
+            pendingLibraryInitializationProgress.Clear();
+            libraryInitializationProgressReportTimestamps.Clear();
+            libraryInitializationProgressPendingVersion++;
+        }
+    }
+
 
     public int LibraryDatabaseLoadCompletedVersion
     {
@@ -2951,14 +3079,12 @@ public partial class BMSLibrary : ObservableObject
         ScheduleLr2PropertyChanges(publicationVersion);
     }
 
-    private void ScheduleLr2PropertyChanges(
-        long publicationVersion,
-        UiSchedulePriority priority = UiSchedulePriority.Normal)
+    private void ScheduleLr2PropertyChanges(long publicationVersion)
     {
         IUiScheduledOperation publication;
         try
         {
-            publication = uiScheduler.Schedule(DrainLr2PropertyChanges, priority);
+            publication = uiScheduler.Schedule(DrainLr2PropertyChanges);
         }
         catch (Exception ex)
         {
@@ -3012,16 +3138,8 @@ public partial class BMSLibrary : ObservableObject
 
         foreach (string propertyName in propertyNames)
         {
-            bool statusPublicationSelected = false;
             try
             {
-                if (string.Equals(
-                    propertyName,
-                    nameof(BMSLibrary.Lr2SongDbSyncStatusVersion),
-                    StringComparison.Ordinal))
-                {
-                    statusPublicationSelected = lr2SynchronizationOwner.BeginLr2SongDbSyncStatusPublication();
-                }
                 RaisePropertyChanged(propertyName);
             }
             catch (Exception ex)
@@ -3034,44 +3152,23 @@ public partial class BMSLibrary : ObservableObject
                     + " message="
                     + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             }
-            finally
-            {
-                if (statusPublicationSelected
-                    && lr2SynchronizationOwner.EndLr2SongDbSyncStatusPublication())
-                {
-                    lock (lr2PropertyPublicationGate)
-                    {
-                        pendingLr2PropertyNames.Add(nameof(BMSLibrary.Lr2SongDbSyncStatusVersion));
-                        lr2PropertyPublicationVersion++;
-                        // The retained leading frame must be visible before
-                        // the latest/terminal status is raised.  A Background
-                        // continuation leaves the normal UI turn available
-                        // for that frame without delaying the worker.
-                        pendingLr2PropertyPublicationPriority = UiSchedulePriority.Background;
-                    }
-                }
-            }
         }
 
         long nextPublicationVersion = 0;
-        UiSchedulePriority nextPriority = UiSchedulePriority.Normal;
         lock (lr2PropertyPublicationGate)
         {
             if (pendingLr2PropertyNames.Count == 0)
             {
                 lr2PropertyPublicationScheduled = false;
-                pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
             }
             else
             {
                 nextPublicationVersion = lr2PropertyPublicationVersion;
-                nextPriority = pendingLr2PropertyPublicationPriority;
-                pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
             }
         }
         if (nextPublicationVersion != 0)
         {
-            ScheduleLr2PropertyChanges(nextPublicationVersion, nextPriority);
+            ScheduleLr2PropertyChanges(nextPublicationVersion);
         }
     }
 
@@ -3081,9 +3178,7 @@ public partial class BMSLibrary : ObservableObject
         {
             pendingLr2PropertyNames.Clear();
             lr2PropertyPublicationScheduled = false;
-            pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
         }
-        lr2SynchronizationOwner.DiscardLr2SongDbSyncStatusPublication();
     }
 
     /// <summary>
@@ -4857,140 +4952,83 @@ public partial class BMSLibrary : ObservableObject
         string currentPath = null,
         bool force = false)
     {
-        ReportLibraryInitializationProgressCore(
-            stage,
-            scannerLabel,
-            totalCount,
-            processedCount,
-            currentPath,
-            force,
-            retainLeadingLr2FileDiffProgress: false);
-    }
-
-    private void ReportLibraryInitializationProgressCore(
-        LibraryInitializationProgressStage stage,
-        string scannerLabel,
-        int totalCount,
-        int processedCount,
-        string currentPath,
-        bool force,
-        bool retainLeadingLr2FileDiffProgress)
-    {
-        long now = Stopwatch.GetTimestamp();
-        if (!force)
-        {
-            long last = Interlocked.Read(ref lastLibraryInitializationProgressReportTimestamp);
-            double elapsedMs = (now - last) * 1000.0 / Stopwatch.Frequency;
-            if (last != 0L && elapsedMs < 150.0)
-            {
-                return;
-            }
-        }
-        Interlocked.Exchange(ref lastLibraryInitializationProgressReportTimestamp, now);
         bool schedulePublication;
         long publicationVersion;
         lock (lockLibraryInitializationProgress)
         {
-            string normalizedScannerLabel = scannerLabel ?? string.Empty;
-            int normalizedTotalCount = Math.Max(0, totalCount);
-            int normalizedProcessedCount = Math.Max(0, processedCount);
-            string normalizedCurrentPath = currentPath ?? string.Empty;
-            LibraryInitializationProgressSnapshot previous = pendingLibraryInitializationProgress;
-            if (previous.Stage == stage
-                && previous.ScannerLabel == normalizedScannerLabel
-                && previous.TotalCount == normalizedTotalCount
-                && previous.ProcessedCount == normalizedProcessedCount
-                && previous.CurrentPath == normalizedCurrentPath)
+            long token = libraryInitializationProgressContext.Value ?? libraryInitializationProgressOperationToken;
+            if (token != libraryInitializationProgressOperationToken)
             {
                 return;
             }
-
-            publicationVersion = previous.Version + 1L;
-            LibraryInitializationProgressSnapshot next = new(
-                publicationVersion,
-                stage,
-                normalizedScannerLabel,
-                normalizedTotalCount,
-                normalizedProcessedCount,
-                normalizedCurrentPath);
-            if (retainLeadingLr2FileDiffProgress && IsStrictFileDiffIntermediate(next))
+            pendingLibraryInitializationProgress.TryGetValue(stage, out LibraryInitializationProgressSnapshot previous);
+            long now = Stopwatch.GetTimestamp();
+            if (!force && processedCount > 1 && processedCount < totalCount
+                && libraryInitializationProgressReportTimestamps.TryGetValue(stage, out long last)
+                && (now - last) * 1000.0 / Stopwatch.Frequency < 150.0)
             {
-                retainedLeadingLr2FileDiffProgress ??= next;
+                return;
             }
-            else if (!retainLeadingLr2FileDiffProgress
-                || stage != LibraryInitializationProgressStage.FileDiff
-                || normalizedProcessedCount == 0
-                || normalizedTotalCount <= 1)
+            libraryInitializationProgressReportTimestamps[stage] = now;
+            string label = scannerLabel ?? string.Empty;
+            string path = currentPath ?? string.Empty;
+            int total = Math.Max(0, totalCount);
+            int processed = Math.Max(0, processedCount);
+            if (previous != null && previous.ScannerLabel == label
+                && previous.TotalCount == total && previous.ProcessedCount == processed
+                && previous.CurrentPath == path)
             {
-                // A generic progress report, stage transition, or non-counted
-                // FileDiff report makes any earlier leading snapshot stale for
-                // the current presentation.  Only the LR2 folder-file callback
-                // can retain the bounded leading frame; its terminal report is
-                // kept until that frame has drained.
-                retainedLeadingLr2FileDiffProgress = null;
+                return;
             }
-            pendingLibraryInitializationProgress = next;
+            publicationVersion = ++libraryInitializationProgressPendingVersion;
+            pendingLibraryInitializationProgress[stage] = new(
+                publicationVersion, stage, label, total, processed, path, token);
             schedulePublication = !libraryInitializationProgressPublicationScheduled;
             libraryInitializationProgressPublicationScheduled = true;
         }
-        if (!schedulePublication)
+        if (schedulePublication)
         {
-            return;
+            ScheduleLibraryInitializationProgressPublication(publicationVersion);
         }
-        ScheduleLibraryInitializationProgressPublication(publicationVersion);
     }
 
     private void ReportLr2FolderFileDiffProgress(int totalCount, int processedCount, string currentPath)
     {
-        ReportLibraryInitializationProgressCore(
-            LibraryInitializationProgressStage.FileDiff,
-            scannerLabel: null,
+        ReportLibraryInitializationProgress(
+            LibraryInitializationProgressStage.Lr2FolderFileCheck,
             totalCount: totalCount,
             processedCount: processedCount,
-            currentPath: currentPath,
-            force: processedCount == 1 || processedCount >= totalCount,
-            retainLeadingLr2FileDiffProgress: true);
+            currentPath: currentPath);
     }
 
-    private void ScheduleLibraryInitializationProgressPublication(
-        long publicationVersion,
-        UiSchedulePriority priority = UiSchedulePriority.Normal)
+    private void ScheduleLibraryInitializationProgressPublication(long publicationVersion)
     {
         IUiScheduledOperation publication;
         try
         {
-            publication = uiScheduler.Schedule(DrainLibraryInitializationProgressPublication, priority);
+            publication = uiScheduler.Schedule(DrainLibraryInitializationProgressPublication);
         }
         catch (Exception ex)
         {
-            DiscardRetainedLeadingLr2FileDiffProgress(publicationVersion);
             ResetLibraryInitializationProgressPublicationSchedule();
-            LogInstallPerformanceWarn(
-                "library_initialization_progress_publication_schedule_failed version="
-                + publicationVersion
-                + " exception="
-                + ex.GetType().Name);
+            LogInstallPerformanceWarn("library_initialization_progress_publication_schedule_failed version="
+                + publicationVersion + " exception=" + ex.GetType().Name);
             return;
         }
         if (!publication.IsAccepted)
         {
-            DiscardRetainedLeadingLr2FileDiffProgress(publicationVersion);
             ResetLibraryInitializationProgressPublicationSchedule();
-            LogInstallPerformanceWarn(
-                "library_initialization_progress_publication_rejected reason="
-                + publication.RejectionReason);
+            LogInstallPerformanceWarn("library_initialization_progress_publication_rejected reason=" + publication.RejectionReason);
             return;
         }
         _ = publication.Completion.ContinueWith(
             task =>
             {
-                DiscardRetainedLeadingLr2FileDiffProgress(publicationVersion);
                 ResetLibraryInitializationProgressPublicationSchedule();
-                LogInstallPerformanceWarn(
-                    task.IsCanceled || publication.IsAborted
-                        ? "library_initialization_progress_publication_canceled"
-                        : "library_initialization_progress_publication_failed exception="
-                            + (task.Exception?.GetBaseException().GetType().Name ?? "unknown"));
+                LogInstallPerformanceWarn(task.IsCanceled || publication.IsAborted
+                    ? "library_initialization_progress_publication_canceled"
+                    : "library_initialization_progress_publication_failed exception="
+                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown"));
             },
             CancellationToken.None,
             TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
@@ -5005,88 +5043,22 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void DiscardRetainedLeadingLr2FileDiffProgress(long publicationVersion)
-    {
-        lock (lockLibraryInitializationProgress)
-        {
-            if (retainedLeadingLr2FileDiffProgress?.Version == publicationVersion)
-            {
-                retainedLeadingLr2FileDiffProgress = null;
-            }
-        }
-    }
-
-    private static bool IsStrictFileDiffIntermediate(LibraryInitializationProgressSnapshot snapshot)
-    {
-        return snapshot.Stage == LibraryInitializationProgressStage.FileDiff
-            && snapshot.TotalCount > 1
-            && snapshot.ProcessedCount > 0
-            && snapshot.ProcessedCount < snapshot.TotalCount;
-    }
-
     private void DrainLibraryInitializationProgressPublication()
     {
-        LibraryInitializationProgressSnapshot snapshot;
-        bool scheduleBackgroundContinuation = false;
+        long publicationVersion;
         lock (lockLibraryInitializationProgress)
         {
-            if (retainedLeadingLr2FileDiffProgress == null
-                && pendingLibraryInitializationProgress.Version
-                    == Volatile.Read(ref publishedLibraryInitializationProgress).Version)
+            publicationVersion = libraryInitializationProgressPendingVersion;
+            if (publicationVersion == LibraryInitializationProgressVersion)
             {
-                // A completion boundary may synchronously drain a queued
-                // publication.  The already-enqueued operation then becomes
-                // stale and must not replay the same snapshot after completion.
                 libraryInitializationProgressPublicationScheduled = false;
                 return;
             }
-            snapshot = retainedLeadingLr2FileDiffProgress ?? pendingLibraryInitializationProgress;
-            if (retainedLeadingLr2FileDiffProgress != null)
-            {
-                // Publish only the retained leading frame in this UI turn.  If
-                // a newer LR2 frame is pending, keep this bounded owner claimed
-                // and hand that frame to one Background continuation.  This
-                // gives the leading frame a dispatcher/render opportunity
-                // before the terminal frame without retaining a history.
-                scheduleBackgroundContinuation =
-                    pendingLibraryInitializationProgress.Version != snapshot.Version;
-                retainedLeadingLr2FileDiffProgress = null;
-            }
-        }
-
-        PublishLibraryInitializationProgressSnapshot(snapshot);
-
-        long nextVersion = 0L;
-        UiSchedulePriority nextPriority = UiSchedulePriority.Normal;
-        lock (lockLibraryInitializationProgress)
-        {
-            if (scheduleBackgroundContinuation)
-            {
-                // The Background continuation owns the newer pending frame;
-                // do not enqueue another Normal drain from this turn.
-                nextVersion = pendingLibraryInitializationProgress.Version;
-                nextPriority = UiSchedulePriority.Background;
-            }
-            else if (pendingLibraryInitializationProgress.Version == snapshot.Version)
-            {
-                libraryInitializationProgressPublicationScheduled = false;
-            }
-            else
-            {
-                nextVersion = pendingLibraryInitializationProgress.Version;
-            }
-        }
-        if (nextVersion != 0L)
-        {
-            ScheduleLibraryInitializationProgressPublication(nextVersion, nextPriority);
-        }
-    }
-
-    private void PublishLibraryInitializationProgressSnapshot(
-        LibraryInitializationProgressSnapshot snapshot)
-    {
-        lock (lockLibraryInitializationProgress)
-        {
+            LibraryInitializationProgressSnapshot[] snapshots = [.. pendingLibraryInitializationProgress.Values.OrderBy(snapshot => snapshot.Stage)];
+            Volatile.Write(ref publishedLibraryInitializationProgressSnapshots, Array.AsReadOnly(snapshots));
+            LibraryInitializationProgressSnapshot snapshot = snapshots.MaxBy(value => value.Version)
+                ?? new(publicationVersion, LibraryInitializationProgressStage.None, string.Empty, 0, 0, string.Empty,
+                    libraryInitializationProgressOperationToken);
             Volatile.Write(ref publishedLibraryInitializationProgress, snapshot);
             _LibraryInitializationProgressStage = snapshot.Stage;
             _LibraryInitializationProgressScannerLabel = snapshot.ScannerLabel;
@@ -5094,96 +5066,77 @@ public partial class BMSLibrary : ObservableObject
             _LibraryInitializationProgressProcessedCount = snapshot.ProcessedCount;
             _LibraryInitializationProgressCurrentPath = snapshot.CurrentPath;
         }
-
         try
         {
             RaisePropertyChanged(nameof(LibraryInitializationProgressVersion));
         }
         catch (Exception ex)
         {
-            // Progress observation is presentation-only.  A subscriber must
-            // not prevent the next bounded frame or the durable apply from
-            // completing.
-            LogInstallPerformanceWarn(
-                "library_initialization_progress_publication_observer_failed exception="
-                + ex.GetType().Name);
+            // 表示購読者の失敗でDB反映と後続の最新値公開を妨げない。
+            LogInstallPerformanceWarn("library_initialization_progress_publication_observer_failed exception=" + ex.GetType().Name);
         }
+        long nextVersion;
+        lock (lockLibraryInitializationProgress)
+        {
+            nextVersion = libraryInitializationProgressPendingVersion;
+            if (nextVersion == publicationVersion)
+            {
+                libraryInitializationProgressPublicationScheduled = false;
+                return;
+            }
+        }
+        ScheduleLibraryInitializationProgressPublication(nextVersion);
     }
 
     private void CompleteLibraryDatabaseLoadProgress()
     {
-        LibraryDatabaseLoadCompletedVersion++;
+        if (libraryInitializationProgressContext.Value is long token
+            && token != Interlocked.Read(ref libraryInitializationProgressOperationToken))
+        {
+            return;
+        }
+        try
+        {
+            LibraryDatabaseLoadCompletedVersion++;
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformanceWarn("library_initialization_completion_observer_failed stage=DatabaseLoad exception=" + ex.GetType().Name);
+        }
     }
 
     private void CompleteLibraryFileEnumerationProgress()
     {
-        LibraryFileEnumerationCompletedVersion++;
+        if (libraryInitializationProgressContext.Value is long token
+            && token != Interlocked.Read(ref libraryInitializationProgressOperationToken))
+        {
+            return;
+        }
+        try
+        {
+            LibraryFileEnumerationCompletedVersion++;
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformanceWarn("library_initialization_completion_observer_failed stage=FileEnumeration exception=" + ex.GetType().Name);
+        }
     }
 
     private void CompleteLibraryFileDiffProgress()
     {
-        LibraryFileDiffCompletedVersion++;
-    }
-
-    /// <summary>
-    /// Queues the LR2 file-diff completion notification behind the progress
-    /// publication already queued by the prepared apply.  The completion is a
-    /// presentation boundary; the durable apply has already returned when this
-    /// action is scheduled.
-    /// </summary>
-    private void ScheduleLibraryFileDiffCompletionAfterLr2Apply()
-    {
-        int completionInvoked = 0;
-        void CompleteOnce(bool drainPendingProgress)
+        if (libraryInitializationProgressContext.Value is long token
+            && token != Interlocked.Read(ref libraryInitializationProgressOperationToken))
         {
-            if (Interlocked.Exchange(ref completionInvoked, 1) == 0)
-            {
-                if (drainPendingProgress)
-                {
-                    // The apply has already reported its terminal frame, but
-                    // the coalescing publication may still be queued.  Drain
-                    // that bounded owner before exposing FileDiff completion
-                    // so the startup-progress consumer cannot close the phase
-                    // first.
-                    DrainLibraryInitializationProgressPublication();
-                }
-                CompleteLibraryFileDiffProgress();
-            }
+            return;
         }
-
-        IUiScheduledOperation completion;
         try
         {
-            completion = uiScheduler.Schedule(
-                () => CompleteOnce(drainPendingProgress: true),
-                UiSchedulePriority.Background);
+            LibraryFileDiffCompletedVersion++;
         }
         catch (Exception ex)
         {
-            LogInstallPerformanceWarn(
-                "library_file_diff_completion_schedule_failed exception="
-                + ex.GetType().Name);
-            CompleteOnce(drainPendingProgress: false);
-            return;
+            LogInstallPerformanceWarn("library_initialization_completion_observer_failed stage=FileDiff exception=" + ex.GetType().Name);
         }
-        if (completion == null || !completion.IsAccepted)
-        {
-            LogInstallPerformanceWarn(
-                "library_file_diff_completion_schedule_rejected reason="
-                + (completion?.RejectionReason ?? "unknown"));
-            CompleteOnce(drainPendingProgress: false);
-            return;
-        }
-
-        _ = completion.Completion.ContinueWith(
-            task => LogInstallPerformanceWarn(
-                task.IsCanceled || completion.IsAborted
-                    ? "library_file_diff_completion_canceled"
-                    : "library_file_diff_completion_failed exception="
-                        + (task.Exception?.GetBaseException().GetType().Name ?? "unknown")),
-            CancellationToken.None,
-            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
     }
 
     internal static bool ShouldIncludeLr2TextSurface(BmsLibraryOptionsSnapshot options)
@@ -5249,6 +5202,8 @@ public partial class BMSLibrary : ObservableObject
         LibraryInitializeMode mode,
         PerformanceInteraction? parentPerformanceInteraction)
     {
+        using var progressScope = new LibraryInitializationProgressScope(
+            libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
         PerformanceInteraction performanceInteraction =
             parentPerformanceInteraction?.ForRoute("startup_library")
             ?? PerformanceInteraction.Start("startup_library", (long)mode);
@@ -5397,7 +5352,7 @@ public partial class BMSLibrary : ObservableObject
                                     scanPreparation,
                                     mutationCapability,
                                     ReportLr2FolderFileDiffProgress);
-                                ScheduleLibraryFileDiffCompletionAfterLr2Apply();
+                                CompleteLibraryFileDiffProgress();
                             }
                             if (!isScoreOnly)
                             {
@@ -6013,6 +5968,8 @@ public partial class BMSLibrary : ObservableObject
 
     public void ReloadFileDiff()
     {
+        using var progressScope = new LibraryInitializationProgressScope(
+            libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
         if (TryBlockLr2SongDbSyncMutation(nameof(ReloadFileDiff)))
         {
             return;
@@ -6089,7 +6046,7 @@ public partial class BMSLibrary : ObservableObject
                             scanPreparation,
                             mutationCapability,
                             ReportLr2FolderFileDiffProgress);
-                        ScheduleLibraryFileDiffCompletionAfterLr2Apply();
+                        CompleteLibraryFileDiffProgress();
                     }
                     stopwatch.Stop();
                     LogInstallPerformance("library_file_diff_reload done added=" + result.BmsAddedTargetCount
@@ -6444,10 +6401,6 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    private bool IsLr2SongDbSyncMutationBlocked()
-    {
-        return lr2SynchronizationOwner.Running;
-    }
 
     private bool TryBlockLr2SongDbSyncMutation(string operation, bool showMessage = true)
     {
@@ -6778,10 +6731,6 @@ public partial class BMSLibrary : ObservableObject
         catalogChartInfoOwner.QueueDeferredHydration(reason, queueFullBackfillAfterHydration);
     }
 
-    private void CompleteChartInfoHydrationForShutdown(string shutdownReason)
-    {
-        catalogChartInfoOwner.CompleteHydrationForShutdown(shutdownReason);
-    }
 
 
 
@@ -6798,19 +6747,88 @@ public partial class BMSLibrary : ObservableObject
         return catalogChartInfoOwner.ResolveChartInfo(sha256, md5);
     }
 
-    private bool ShouldLazyLoadChartInfoDisplayIndex()
-    {
-        return catalogChartInfoOwner.ShouldLazyLoadDisplayIndex();
-    }
 
-    private void EnsureChartInfoDisplayIndexLoadedForLazyResolve(string reason)
-    {
-        catalogChartInfoOwner.EnsureDisplayIndexLoadedForLazyResolve(reason);
-    }
 
     private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
     {
         return row != null && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
+    }
+
+    /// <summary>
+    /// 取得開始時に選択設定を捕捉し、UI 外で既存 reader を一回呼びます。
+    /// 接続解放後にモデル対象へ射影し、全譜面の表示スコアや IR の状態を変更しません。
+    /// </summary>
+    internal Task<WalkureScoreInput> ReadRecommendationScoresAsync(CancellationToken cancellationToken)
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ScoreTableLoadResult loaded = initializationService.LoadScoreTable(dbGateway, options);
+            cancellationToken.ThrowIfCancellationRequested();
+            ImmutableDictionary<string, WalkureLamp>.Builder scores = ImmutableDictionary.CreateBuilder<string, WalkureLamp>(StringComparer.OrdinalIgnoreCase);
+            WalkureRecommendationModel model = WalkureRecommendationModel.Bundled;
+            if (loaded.Status == ScoreTableLoadStatus.Loaded)
+            {
+                if (loaded.ActiveScoreSource == ActiveScoreSource.Lr2)
+                {
+                    foreach (BMSScore score in loaded.Scores)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (model.EntriesByMd5.ContainsKey(score.hash) && NormalizeRecommendationLamp(score.clear) is WalkureLamp lamp)
+                        {
+                            scores[score.hash] = lamp;
+                        }
+                    }
+                }
+                else if (loaded.ActiveScoreSource == ActiveScoreSource.Beatoraja)
+                {
+                    PlaylistLibraryResolveIndexSnapshot index = GetPlaylistLibraryResolveIndexSnapshot(cancellationToken, out _, out _);
+                    var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (WalkureModelEntry entry in model.Entries.Where(entry => !entry.IsCourse))
+                    {
+                        string sha256 = index?.ResolveChartForPlaylistHash(entry.Md5, null)?.Sha256;
+                        if (!string.IsNullOrWhiteSpace(sha256))
+                        {
+                            hashes[entry.Md5] = sha256;
+                        }
+                    }
+                    string[] missing = model.Entries.Where(entry => !entry.IsCourse && !hashes.ContainsKey(entry.Md5))
+                        .Select(entry => entry.Md5).ToArray();
+                    foreach ((string md5, LR2SongDBExtended.chart_info info) in LoadChartInfosByMd5(missing))
+                    {
+                        if (!string.IsNullOrWhiteSpace(info.sha256))
+                        {
+                            hashes[md5] = info.sha256;
+                        }
+                    }
+
+                    foreach (WalkureModelEntry entry in model.Entries)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (entry.IsCourse)
+                        {
+                            continue;
+                        }
+
+                        if (hashes.TryGetValue(entry.Md5, out string sha256)
+                            && loaded.BeatorajaScoresBySha256.TryGetValue(sha256, out BMSScore score)
+                            && NormalizeRecommendationLamp(score.clear) is WalkureLamp lamp)
+                        {
+                            scores[entry.Md5] = lamp;
+                        }
+                    }
+                }
+            }
+            return new WalkureScoreInput(loaded.Status, scores.ToImmutable(), loaded.FailureMessage);
+        }, cancellationToken);
+    }
+
+    /// <summary>NO PLAY は観測せず、無効・ASSIST は FAILED として、既存ランプの意味を正規化します。</summary>
+    internal static WalkureLamp? NormalizeRecommendationLamp(ClearType clear)
+    {
+        int lamp = ClearTypeStorageConverter.ToLr2Value(clear);
+        return lamp is >= 1 and <= 5 ? (WalkureLamp)lamp : null;
     }
 
     internal Func<BmtSongHashResolveRequest, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()
@@ -6889,10 +6907,6 @@ public partial class BMSLibrary : ObservableObject
         return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
-    private ChartInfoIndexUpdateResult ReplaceChartInfoIndex(IEnumerable<LR2SongDBExtended.chart_info> rows, bool hydrated)
-    {
-        return catalogChartInfoOwner.ReplaceIndex(rows, hydrated);
-    }
 
     private static bool TryGetChartInfoSha256(LR2SongDBExtended.chart_info row, out string sha256)
     {
@@ -7046,6 +7060,7 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
+        Action<int, bool> progressReporter = CaptureStartupExecutionProgressReporter("score_hydration_deferred");
         int version;
         bool shouldStartWorker = false;
         bool markRunning = false;
@@ -7053,6 +7068,8 @@ public partial class BMSLibrary : ObservableObject
         {
             deferredScoreHydrationRequestedVersion++;
             version = deferredScoreHydrationRequestedVersion;
+            ScoreHydrationProgressRequest = StartupProgressRequestFactory?.Invoke("score_hydration_deferred", version);
+            deferredScoreHydrationProgressReporter = progressReporter;
             if (!deferredScoreHydrationRunning)
             {
                 deferredScoreHydrationRunning = true;
@@ -7107,7 +7124,11 @@ public partial class BMSLibrary : ObservableObject
         string scoreDbPathSnapshot = lr2ScoreDBPath;
         lock (lockIrScorePrefetch)
         {
-            if (IsShutdownRequested) return;
+            if (IsShutdownRequested)
+            {
+                return;
+            }
+
             if (irScorePrefetchTask != null
                 && !irScorePrefetchTask.IsCompleted
                 && irScorePrefetchLr2Id == lr2Id
@@ -7233,6 +7254,7 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
+        Action<int, bool> progressReporter = CaptureStartupExecutionProgressReporter("ranking_refresh_deferred");
         int version;
         bool shouldStartWorker = false;
         bool markRunning = false;
@@ -7240,6 +7262,8 @@ public partial class BMSLibrary : ObservableObject
         {
             deferredRankingRefreshRequestedVersion++;
             version = deferredRankingRefreshRequestedVersion;
+            RankingRefreshProgressRequest = StartupProgressRequestFactory?.Invoke("ranking_refresh_deferred", version);
+            deferredRankingRefreshProgressReporter = progressReporter;
             if (!deferredRankingRefreshRunning && !ScoreHydrationRunning)
             {
                 deferredRankingRefreshRunning = true;
@@ -7302,9 +7326,11 @@ public partial class BMSLibrary : ObservableObject
         while (true)
         {
             int requestVersion;
+            Action<int, bool> progressReporter;
             lock (lockDeferredScoreHydration)
             {
                 requestVersion = deferredScoreHydrationRequestedVersion;
+                progressReporter = deferredScoreHydrationProgressReporter;
             }
             var stopwatch = Stopwatch.StartNew();
             if (IsShutdownRequested)
@@ -7315,10 +7341,19 @@ public partial class BMSLibrary : ObservableObject
                 ScoreHydrationRunning = false;
                 LogInstallPerformance("score_hydration_deferred skipped version=" + requestVersion + " reason=shutdown_requested");
                 ReportStartupBackgroundTask("score_hydration_deferred", "skipped", stopwatch.ElapsedMilliseconds, failed: false, detail: "shutdown_requested");
+                ReportStartupExecutionProgress(progressReporter, "score_hydration_deferred", requestVersion, running: false);
+                lock (lockDeferredScoreHydration)
+                {
+                    if (requestVersion == deferredScoreHydrationRequestedVersion)
+                    {
+                        deferredScoreHydrationProgressReporter = null;
+                    }
+                }
                 TryStartDeferredRankingRefreshWorker();
                 return;
             }
             ReportStartupBackgroundTask("score_hydration_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
+            ReportStartupExecutionProgress(progressReporter, "score_hydration_deferred", requestVersion, running: true);
             try
             {
                 LogInstallPerformance("score_hydration_deferred run version=" + requestVersion);
@@ -7339,6 +7374,10 @@ public partial class BMSLibrary : ObservableObject
                 LogInstallPerformance("score_hydration_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
                 ReportStartupBackgroundTask("score_hydration_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
             }
+            finally
+            {
+                ReportStartupExecutionProgress(progressReporter, "score_hydration_deferred", requestVersion, running: false);
+            }
             bool shouldStop = false;
             bool markRunningFalse = false;
             lock (lockDeferredScoreHydration)
@@ -7346,6 +7385,7 @@ public partial class BMSLibrary : ObservableObject
                 deferredScoreHydrationLastCompletedVersion = requestVersion;
                 if (requestVersion == deferredScoreHydrationRequestedVersion)
                 {
+                    deferredScoreHydrationProgressReporter = null;
                     deferredScoreHydrationRunning = false;
                     shouldStop = true;
                     markRunningFalse = true;
@@ -7373,9 +7413,11 @@ public partial class BMSLibrary : ObservableObject
         while (true)
         {
             int requestVersion;
+            Action<int, bool> progressReporter;
             lock (lockDeferredRankingRefresh)
             {
                 requestVersion = deferredRankingRefreshRequestedVersion;
+                progressReporter = deferredRankingRefreshProgressReporter;
             }
             var stopwatch = Stopwatch.StartNew();
             if (IsShutdownRequested)
@@ -7386,9 +7428,18 @@ public partial class BMSLibrary : ObservableObject
                 RankingRefreshRunning = false;
                 LogInstallPerformance("ranking_refresh_deferred skipped version=" + requestVersion + " reason=shutdown_requested");
                 ReportStartupBackgroundTask("ranking_refresh_deferred", "skipped", stopwatch.ElapsedMilliseconds, failed: false, detail: "shutdown_requested");
+                ReportStartupExecutionProgress(progressReporter, "ranking_refresh_deferred", requestVersion, running: false);
+                lock (lockDeferredRankingRefresh)
+                {
+                    if (requestVersion == deferredRankingRefreshRequestedVersion)
+                    {
+                        deferredRankingRefreshProgressReporter = null;
+                    }
+                }
                 return;
             }
             ReportStartupBackgroundTask("ranking_refresh_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
+            ReportStartupExecutionProgress(progressReporter, "ranking_refresh_deferred", requestVersion, running: true);
             try
             {
                 LogInstallPerformance("ranking_refresh_deferred run version=" + requestVersion);
@@ -7430,6 +7481,10 @@ public partial class BMSLibrary : ObservableObject
                 LogInstallPerformance("ranking_refresh_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
                 ReportStartupBackgroundTask("ranking_refresh_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
             }
+            finally
+            {
+                ReportStartupExecutionProgress(progressReporter, "ranking_refresh_deferred", requestVersion, running: false);
+            }
             bool shouldStop = false;
             bool markRunningFalse = false;
             lock (lockDeferredRankingRefresh)
@@ -7437,6 +7492,7 @@ public partial class BMSLibrary : ObservableObject
                 deferredRankingRefreshLastCompletedVersion = requestVersion;
                 if (requestVersion == deferredRankingRefreshRequestedVersion)
                 {
+                    deferredRankingRefreshProgressReporter = null;
                     deferredRankingRefreshRunning = false;
                     shouldStop = true;
                     markRunningFalse = true;
@@ -7729,6 +7785,9 @@ public partial class BMSLibrary : ObservableObject
             + " requestedRoots=" + normalization.RequestedRootCount
             + " existingRoots=" + normalization.ExistingRootCount
             + " chartResourceRoots=" + normalization.RootCount
+            + " rootPaths=" + string.Join(" | ", roots ?? [])
+            + " extensions=" + string.Join(",", ChartDirectoryScanBuilder.ChartExtensions)
+            + " exclusionKind=configured_custom_output_root exclusionCount=" + normalization.ExcludedCustomOutputRootCount
             + " configuredCustomOutputRoots=" + normalization.ConfiguredCustomOutputRootCount
             + " excludedCustomOutputRoots=" + normalization.ExcludedCustomOutputRootCount
             + " lr2FolderDiscoveryRoots=" + lr2FolderDiscoveryRootCount);
@@ -7747,19 +7806,6 @@ public partial class BMSLibrary : ObservableObject
         public int ExcludedCustomOutputRootCount { get; set; }
     }
 
-    private bool IsPendingPackageContainingOnlyInstalledCharts(ChartPackage package)
-    {
-        if (package == null)
-        {
-            return false;
-        }
-        List<PackageChartEntry> entries = package.ChartEntries ?? [];
-        if (entries.Count == 0)
-        {
-            return false;
-        }
-        return entries.All(entry => ContainsInstalledChartUnsafe(entry?.Chart));
-    }
 
 
     internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot()
@@ -8198,27 +8244,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return catalogOwnedCollectionOwner.Collection.CreateStorageTargetsForSubtreeDirectory(directoryPath);
-        }
-    }
 
-    private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe(
-        ISet<string> currentChartInfoSha256s,
-        ISet<string> currentParseFailureMd5s)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return catalogOwnedCollectionOwner.Collection.CreateChartInfoHydrationOwnerSummary(
-                currentChartInfoSha256s,
-                currentParseFailureMd5s);
-        }
-    }
 
     private List<ChartFile> CreateOwnedDirectChildChartFilesUnsafe(
         IEnumerable<string> directoryPaths,
@@ -8641,30 +8667,8 @@ public partial class BMSLibrary : ObservableObject
         return metrics;
     }
 
-    private LR2IRCache getIRCache(string filePath)
-    {
-        return irService.LoadIrCache(filePath);
-    }
 
-    private void setBMSScore(LR2IRData data, LR2IRCache cache)
-    {
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        using (rwlockBMSScores.GetWriterGuard())
-        {
-            List<BMSFile> bmsFilesSnapshot;
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : [.. BMSFiles.Where(f => f != null)]);
-            }
-            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, options.EstimateOfflineScoreRanking);
-        }
-        RefreshScoreSnapshotFromCurrentScores("apply_ir_data");
-    }
 
-    private List<LR2IRScore> updateLR2IRScoreTable()
-    {
-        return updateLR2IRScoreTableWithMetrics().ScoreTable;
-    }
 
     private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics()
     {
@@ -9041,10 +9045,6 @@ public partial class BMSLibrary : ObservableObject
             .Where(chart => chart != null)];
     }
 
-    private static bool ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)
-    {
-        return workflowResult?.HasUpdates == true;
-    }
 
     private ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
     {
@@ -9883,12 +9883,12 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory, bool preserveAmbiguousInstallContext = false)
+    private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
     {
         InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
-            entry.ApplyInstallDestination(destinationDirectory, metadata.Title, metadata.Artist, preserveAmbiguousInstallContext);
+            entry.ApplyInstallDestination(destinationDirectory, metadata.Title, metadata.Artist);
         }
     }
 
@@ -10160,6 +10160,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 検証した編集値を対象パッケージの導入先と代表情報へ反映し、候補と推定警告を保持します。
+    /// 空値は導入先と代表情報だけを消去し、検証拒否時は対象の状態を変更しません。
+    /// </summary>
+    /// <param name="targetEntry">編集対象の保留項目、または全件確認で扱う所持譜面。</param>
+    /// <param name="destinationDirectory">入力された導入先。空値も受け付けます。</param>
+    /// <returns>導入先を検証し、対象へ適用した場合は <see langword="true"/>。</returns>
     internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory)
     {
         if (targetEntry == null)
@@ -10181,11 +10188,7 @@ public partial class BMSLibrary : ObservableObject
                     ShowOperationDialog(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
-                bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
-                    && selection.TargetEntries.Any(entry => entry != null
-                            && entry.HasLowConfidenceInstallEstimationWarning()
-                            && entry.HasInstallDestinationSuggestion(selection.ValidatedDestinationDirectory));
-                ApplyResolvedInstallDestinationToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
+                ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory);
                 ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
                 return true;
             }
@@ -10564,143 +10567,12 @@ public partial class BMSLibrary : ObservableObject
         return libraryMutationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
     }
 
-    /// <summary>
-    /// 譜面ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
-    /// </summary>
-    internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFiles, bool renameRootFolder = false, Action<int, int, string> progressReporter = null)
-    {
-        AutoRenameBatchResult result = AutoRenameChartFoldersWithResult(chartFiles, renameRootFolder, progressReporter);
-        if (result?.HasDurableFinalizationFailure == true)
-        {
-            result.PrimaryFailure?.Throw();
-        }
-    }
-
-    /// <summary>Returns operation-scoped session facts; terminal-owned callers suppress the unexpected-move dialog.</summary>
-    internal AutoRenameBatchResult AutoRenameChartFoldersWithResult(
-        IEnumerable<ChartFile> chartFiles,
-        bool renameRootFolder = false,
-        Action<int, int, string> progressReporter = null,
-        bool reportAtTerminal = false)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
-        {
-            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-        }
-
-        Tuple<int, int, string> latestProgressReport = null;
-        Action<int, int, string> deferredProgressReporter = progressReporter == null
-            ? null
-            : (total, processed, currentPath) => latestProgressReport = Tuple.Create(total, processed, currentPath);
-        AutoRenameBatchResult result = null;
-        ExceptionDispatchInfo primaryFailure = null;
-        List<Action> postLeaseNotifications = [];
-        try
-        {
-            try
-            {
-                libraryMutationOwner.RunWithFolderMoveWriteLocks(
-                    mutationCapability =>
-                    {
-                        List<FolderAutoRenamePlan> plans = null;
-                        libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                            () => plans = libraryMutationOwner.BuildAutoRenamePlans(
-                                chartFiles.Where(chart => chart != null),
-                                getBMSDirectories(),
-                                renameRootFolder));
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
-                            plans,
-                            mutationCapability,
-                            deferredProgressReporter,
-                            postLeaseNotifications);
-                    });
-            }
-            catch (Exception exception)
-            {
-                primaryFailure = ExceptionDispatchInfo.Capture(exception);
-                if (result?.HasDurableCommit == true)
-                {
-                    result = result.WithDurableFinalizationFailure(primaryFailure);
-                }
-            }
-            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-        }
-        finally
-        {
-            FlushAutoRenameProgressReport(progressReporter, latestProgressReport);
-        }
-        return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-    }
-
     internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
     {
         bool hasTargets = false;
         libraryMutationOwner.RunWithFolderMoveReadLocks(
             () => hasTargets = HasActionableAutoRenamePlan(CreateAutoRenameAllChartFolderPlansUnsafe(parentDir)));
         return hasTargets;
-    }
-
-    internal bool AutoRenameAllChartFolders(string parentDir = null, Action<int, int, string> progressReporter = null)
-    {
-        AutoRenameBatchResult result = AutoRenameAllChartFoldersWithResult(parentDir, progressReporter);
-        return result.HasActionablePlan && !result.HasDurableFinalizationFailure;
-    }
-
-    /// <summary>Returns operation-scoped session facts; terminal-owned callers suppress the unexpected-move dialog.</summary>
-    internal AutoRenameBatchResult AutoRenameAllChartFoldersWithResult(
-        string parentDir = null,
-        Action<int, int, string> progressReporter = null,
-        bool reportAtTerminal = false)
-    {
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
-        {
-            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-        }
-        Tuple<int, int, string> latestProgressReport = null;
-        Action<int, int, string> deferredProgressReporter = progressReporter == null
-            ? null
-            : (total, processed, currentPath) => latestProgressReport = Tuple.Create(total, processed, currentPath);
-        AutoRenameBatchResult result = null;
-        ExceptionDispatchInfo primaryFailure = null;
-        List<Action> postLeaseNotifications = [];
-        try
-        {
-            try
-            {
-                libraryMutationOwner.RunWithFolderMoveWriteLocks(mutationCapability =>
-                {
-                    List<FolderAutoRenamePlan> plans = null;
-                    libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                        () => plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir));
-                    if (HasActionableAutoRenamePlan(plans))
-                    {
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
-                            plans,
-                            mutationCapability,
-                            deferredProgressReporter,
-                            postLeaseNotifications);
-                    }
-                });
-            }
-            catch (Exception exception)
-            {
-                primaryFailure = ExceptionDispatchInfo.Capture(exception);
-                if (result?.HasDurableCommit == true)
-                {
-                    result = result.WithDurableFinalizationFailure(primaryFailure);
-                }
-            }
-            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-            return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
-        }
-        finally
-        {
-            FlushAutoRenameProgressReport(progressReporter, latestProgressReport);
-        }
     }
 
     private List<FolderAutoRenamePlan> CreateAutoRenameAllChartFolderPlansUnsafe(string parentDir)
@@ -10712,17 +10584,6 @@ public partial class BMSLibrary : ObservableObject
     {
         return (plans ?? []).Any(plan => !string.IsNullOrWhiteSpace(plan?.SourceDirectory)
             && !string.IsNullOrWhiteSpace(plan.DestinationDirectory));
-    }
-
-    private static void FlushAutoRenameProgressReport(
-        Action<int, int, string> progressReporter,
-        Tuple<int, int, string> report)
-    {
-        if (progressReporter == null || report == null)
-        {
-            return;
-        }
-        ReportAutoRenameProgress(progressReporter, report.Item1, report.Item2, report.Item3);
     }
 
     private void FlushAutoRenamePostCommitEffects(
@@ -10831,24 +10692,6 @@ public partial class BMSLibrary : ObservableObject
                     "auto_rename_progress_report_failed processed=" + diagnostic.Processed
                     + " total=" + diagnostic.Total);
                 break;
-        }
-    }
-
-    private static void ReportAutoRenameProgress(Action<int, int, string> progressReporter, int total, int processed, string currentPath)
-    {
-        if (progressReporter == null || total <= 0)
-        {
-            return;
-        }
-        try
-        {
-            progressReporter(total, Math.Max(0, Math.Min(processed, total)), currentPath ?? string.Empty);
-        }
-        catch (Exception ex)
-        {
-            LogAutoRenameDiagnosticFailure(
-                ex,
-                "auto_rename_progress_report_failed processed=" + processed + " total=" + total);
         }
     }
 

@@ -1,7 +1,5 @@
-using System;
 using System.ComponentModel;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 

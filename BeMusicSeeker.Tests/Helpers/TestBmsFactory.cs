@@ -1,7 +1,6 @@
 #nullable disable
 
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading;
@@ -233,13 +232,12 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         string songDbPath,
         Func<LR2Config> getLr2Config = null,
         string scoreDbPath = null,
-        Func<List<BMSScore>> getBmsScores = null,
-        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null)
+        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null,
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
         : base(
             songDbPath,
             getLr2Config,
             scoreDbPath,
-            getBmsScores,
             getBeatorajaBmtSongHashResolver,
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
@@ -247,7 +245,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
-            CreateTestMutationLease)
+            CreateTestMutationLease,
+            recommendationScoreReader: recommendationScoreReader)
     {
     }
 
@@ -256,7 +255,6 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
         : base(
             songDbPath,
-            null,
             null,
             null,
             null,
@@ -285,7 +283,6 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             null,
             null,
             null,
-            null,
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
@@ -305,7 +302,6 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             getLr2Config,
             null,
             null,
-            null,
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
@@ -325,7 +321,6 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             null,
             scoreDbPath,
             null,
-            null,
             CurrentPlaylistUrlOptions,
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
@@ -336,11 +331,11 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     {
     }
 
+    /// <summary>明示設定と読取り・UI反映の境界を接続し、実保存経路を持つプレイリストを作成します。</summary>
     internal TestBmsPlaylist(
         string songDbPath,
         Func<LR2Config> getLr2Config,
         string scoreDbPath,
-        Func<List<BMSScore>> getBmsScores,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
@@ -349,23 +344,25 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
         Func<string, LibraryFileMutationLease> mutationLeaseProvider = null,
-        Func<string, bool, LibraryFileMutationLease> mutationLeaseProviderWithMessage = null)
+        Func<string, bool, LibraryFileMutationLease> mutationLeaseProviderWithMessage = null,
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
+        IUiScheduler uiScheduler = null)
         : base(
             songDbPath,
             getLr2Config,
             scoreDbPath,
-            getBmsScores,
             getBeatorajaBmtSongHashResolver,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
             TestBmsFactory.MissingEverythingBridge,
-            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
             mutationLeaseProviderWithMessage
                 ?? ((operation, _) => (mutationLeaseProvider ?? CreateTestMutationLease)(operation)),
             playlistUrlCompletionTsvContentFetcher,
-            playlistUrlCompletionStellaContentFetcher)
+            playlistUrlCompletionStellaContentFetcher,
+            recommendationScoreReader)
     {
     }
 }

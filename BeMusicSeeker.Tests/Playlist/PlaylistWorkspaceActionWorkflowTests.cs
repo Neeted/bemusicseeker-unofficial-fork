@@ -1,18 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
-using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -20,6 +17,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 
 using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
 using static BeMusicSeeker.Tests.PlaylistWorkspaceTestDataSupport;
@@ -222,21 +220,20 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual("https://example.test/header.json", headerUri.ToString());
 
         BMSTable estimationTable = new() { Page_url = new Uri("bmseeker:table.estimation") };
-        Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(estimationTable).CanOpenPage);
-        Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(estimationTable, out Uri estimationUri));
-        Assert.AreEqual("http://walkure.net/hakkyou/bms.html", estimationUri.ToString());
+        Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(estimationTable).CanOpenPage);
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(estimationTable, out _));
 
         BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
-        Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(recommendedTable).CanOpenPage);
+        Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(recommendedTable).CanOpenPage);
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out _));
 
         BMSTable unsupportedTable = new() { Page_url = new Uri("bmseeker:table.other") };
-        Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(unsupportedTable).CanOpenPage);
+        Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(unsupportedTable).CanOpenPage);
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(unsupportedTable, out _));
     }
 
     [TestMethod]
-    public void PlaylistTableExternalLinks_UseLibraryPlayerIdForRecommendedRoute()
+    public void PlaylistTableExternalLinks_DisableBuiltInPageEvenWhenPlayerIdIsConfigured()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -255,10 +252,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 playlistLibraryProvider: () => library);
 
             BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
-            Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out Uri recommendedUri));
-            Assert.AreEqual(
-                "http://walkure.net/hakkyou/recommended_mypage.html?playerid=123",
-                recommendedUri.ToString());
+            Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out _));
 
         }
         finally
@@ -282,6 +276,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
 
         await workspace.OpenPlaylistSummaryUriAsync(summaryUri);
         Assert.IsTrue(workspace.OpenPlaylistTablePage(table));
+        await workspace.OpenPlaylistSummaryUriAsync(new Uri("bmseeker:table.recommended"));
+        Assert.IsFalse(workspace.OpenPlaylistTablePage(new BMSTable { Page_url = new Uri("bmseeker:table.estimation?type=easy") }));
 
         CollectionAssert.AreEqual(
             new[] { summaryUri, table.Page_url },
@@ -1966,250 +1962,120 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     [TestMethod]
-    public async Task PlaylistWorkspaceRecommendedImportShowsMissingLr2IdMessageWithoutEnqueueing()
+    public async Task PlaylistWorkspaceRecommendedImportAcceptsThreePoliciesWithoutConfirmationOrPlayerId()
     {
-        string databasePath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerTests",
-            Guid.NewGuid().ToString("N"),
-            "song.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
-        File.WriteAllBytes(databasePath, []);
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        Task<ExternalPlaylistImportQueueSummary>? completion = null;
+        Exception? primaryFailure = null;
         try
         {
-            var playlist = new TestBmsPlaylist(databasePath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
+            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(databasePath);
+            library = new TestBmsLibrary(databasePath, null, null, null, () => new BmsLibraryOptionsSnapshot());
+            playlist = new TestBmsPlaylist(databasePath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(), recommendationScoreReader: _ => Task.FromResult(RecommendedImportScores()));
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistWorkspaceDialogService: dialogs);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
+            completion = summaryReady.Task;
+            playlist.StartupReadiness.BeginPlaylistInitialization("test");
+            foreach (string query in new[] { "", "?base=failed", "?failed=noplay" })
+            {
+                Assert.IsTrue(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended" + query));
+            }
 
-            Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
-                "https://example.test/recommended?mode=update"));
-            Assert.IsNotNull(dialogs.LastMessageRequest);
-            Assert.AreEqual(
-                BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error,
-                dialogs.LastMessageRequest.MessageBoxText);
+            Assert.IsNull(dialogs.LastConfirmationRequest);
+            Assert.IsNull(dialogs.LastMessageRequest);
+            playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            ExternalPlaylistImportQueueSummary summary = await completion;
+            Assert.AreEqual(3, summary.ImportedCount);
+            Assert.AreEqual(0, summary.FailedCount);
+            Assert.AreEqual(3, playlist.BMSTables.Select(table => table.name).Distinct().Count());
+            CollectionAssert.AreEquivalent(new[] { "bmseeker:table.recommended", "bmseeker:table.recommended?base=failed", "bmseeker:table.recommended?failed=noplay" },
+                playlist.BMSTables.Select(table => table.Page_url.AbsoluteUri).ToArray());
         }
+        catch (Exception ex) { primaryFailure = ex; throw; }
         finally
         {
-            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
-        }
-    }
-
-    [TestMethod]
-    public async Task PlaylistWorkspaceRecommendedImportAcceptsConfirmationAndEnqueues()
-    {
-        string databasePath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerTests",
-            Guid.NewGuid().ToString("N"),
-            "song.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
-        File.WriteAllBytes(databasePath, []);
-        try
-        {
-            var playlist = new TestBmsPlaylist(databasePath)
+            playlist?.StartupReadiness.MarkRequiredPlaylistReady();
+            if (completion != null)
             {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
-            {
-                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
-            };
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistLibraryProvider: () => library,
-                playlistWorkspaceDialogService: dialogs);
-            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
-                summaryReady.TrySetResult(request.Summary);
+                try { await completion; } catch when (primaryFailure != null) { }
+            }
 
-            Assert.IsTrue(await workspace.EnqueueRecommendedPlaylistImportAsync(
-                "bmseeker:table.unsupported?mode=readonly"));
-            Assert.IsNotNull(dialogs.LastConfirmationRequest);
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
-                .WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            Assert.AreEqual(1, summary.FailedCount);
-        }
-        finally
-        {
-            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
-        }
-    }
-
-    [TestMethod]
-    public async Task PlaylistWorkspaceRecommendedImportRejectsOrCancelsAfterShowingValidConfirmation()
-    {
-        string databasePath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerTests",
-            Guid.NewGuid().ToString("N"),
-            "song.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
-        File.WriteAllBytes(databasePath, []);
-        try
-        {
-            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
-            string lr2RootPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "lr2");
-            string configPath = Path.Combine(lr2RootPath, "LR2files", "Config", "config.xml");
-            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-            File.WriteAllText(
-                configPath,
-                "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox /></config>",
-                Encoding.UTF8);
-            LR2Config config = new(configPath);
-            var playlist = new TestBmsPlaylist(databasePath, () => config)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
-            {
-                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)
-            };
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistLibraryProvider: () => library,
-                playlistWorkspaceDialogService: dialogs);
-
-            Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
-                "bmseeker:table.recommended?mode=update"));
-            dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
-            Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
-                "bmseeker:table.recommended?mode=update"));
-            Assert.IsNotNull(dialogs.LastConfirmationRequest);
-            StringAssert.Contains(
-                dialogs.LastConfirmationRequest.MessageBoxText,
-                "LR2ID: 123");
-            StringAssert.Contains(
-                dialogs.LastConfirmationRequest.MessageBoxText,
-                BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode);
-            Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
-            Assert.AreEqual(MessageBoxResult.OK, dialogs.LastConfirmationRequest.DefaultResult);
-        }
-        finally
-        {
-            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            playlist?.RequestShutdown("test_cleanup");
+            library?.RequestShutdown("test_cleanup");
+            Directory.Delete(directory, true);
         }
     }
 
     [TestMethod]
     public async Task PlaylistWorkspaceRecommendedImportAdmitsDuringInitializationAndDefersUntilReadiness()
     {
-        string databasePath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerTests",
-            Guid.NewGuid().ToString("N"),
-            "song.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
-        File.WriteAllBytes(databasePath, []);
-        string headerPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "recommended-header.json");
-        string dataPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "recommended-data.json");
-        File.WriteAllText(
-            headerPath,
-            "{\"name\":\"DeferredRecommended\",\"symbol\":\"D\",\"output_dir\":\"DeferredRecommended\",\"data_url\":\"./recommended-data.json\"}");
-        File.WriteAllText(
-            dataPath,
-            "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Deferred song\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        Task<ExternalPlaylistImportQueueSummary>? completion = null;
+        Exception? primaryFailure = null;
         try
         {
+            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
             PlaylistPersistenceRepository.EnsureSchema(databasePath);
-            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
-            playlist = new TestBmsPlaylist(databasePath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            var dialogs = new BlockingConfirmationDialogService();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist!,
-                playlistLibraryProvider: () => library,
-                playlistWorkspaceDialogService: dialogs);
+            library = new TestBmsLibrary(databasePath, null, null, null, () => new BmsLibraryOptionsSnapshot());
+            int reads = 0;
+            playlist = new TestBmsPlaylist(databasePath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(), recommendationScoreReader: _ => { reads++; return Task.FromResult(RecommendedImportScores()); });
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
             workspace.RefreshPlaylistTreeTables(playlist);
-            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
-                summaryReady.TrySetResult(request.Summary);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
+            completion = summaryReady.Task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
-
-            Task<bool> importTask = workspace.EnqueueRecommendedPlaylistImportAsync(
-                new Uri(headerPath).AbsoluteUri);
-            await dialogs.ConfirmationShown.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.IsFalse(playlist.StartupReadiness.IsRequiredPlaylistReady);
-            Assert.IsFalse(importTask.IsCompleted, "The request must remain in confirmation until the user accepts it.");
-
-            dialogs.ReleaseConfirmation();
-            Assert.IsTrue(await importTask.WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.AreEqual(0, playlist.BMSTables.Count, "Admission must not mutate the playlist before readiness.");
-            Assert.IsFalse(summaryReady.Task.IsCompleted, "The import consumer must await readiness.");
-
+            Assert.IsTrue(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended"));
+            Assert.IsNull(dialogs.LastConfirmationRequest);
+            Assert.AreEqual(0, reads);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+            Assert.IsFalse(completion.IsCompleted);
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
-                .WaitAsync(TimeSpan.FromSeconds(30))
-                .ConfigureAwait(false);
+            ExternalPlaylistImportQueueSummary summary = await completion;
             Assert.AreEqual(1, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);
+            Assert.AreEqual(1, reads);
             Assert.AreEqual(1, playlist.BMSTables.Count);
-            Assert.AreEqual("DeferredRecommended", playlist.BMSTables[0].name);
         }
+        catch (Exception ex) { primaryFailure = ex; throw; }
         finally
         {
-            try
+            playlist?.StartupReadiness.MarkRequiredPlaylistReady();
+            if (completion != null)
             {
-                playlist?.RequestShutdown("test_cleanup");
-                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+                try { await completion; } catch when (primaryFailure != null) { }
             }
-            catch
-            {
-                // Preserve the primary test failure while keeping temporary test data disposable.
-            }
+
+            playlist?.RequestShutdown("test_cleanup");
+            library?.RequestShutdown("test_cleanup");
+            Directory.Delete(directory, true);
         }
     }
 
-    [TestMethod]
-    public async Task PlaylistWorkspaceRecommendedImportPropagatesUnavailableConfirmation()
+    private static WalkureScoreInput RecommendedImportScores()
     {
-        string databasePath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerTests",
-            Guid.NewGuid().ToString("N"),
-            "song.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
-        File.WriteAllBytes(databasePath, []);
-        try
-        {
-            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
-            var playlist = new TestBmsPlaylist(databasePath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
-            {
-                ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
-            };
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                playlistLibraryProvider: () => library,
-                playlistWorkspaceDialogService: dialogs);
-
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => workspace.EnqueueRecommendedPlaylistImportAsync(
-                    "bmseeker:table.recommended?mode=readonly"));
-            Assert.IsNotNull(dialogs.LastConfirmationRequest);
-        }
-        finally
-        {
-            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
-        }
+        var input = (JObject)JArray.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Walkure", "math-cases.json")))
+            .Single(row => row.Value<string>("name") == "mixed");
+        return new WalkureScoreInput(ScoreTableLoadStatus.Loaded,
+            ((JArray)(input["observations"] ?? throw new FormatException())).ToImmutableDictionary(
+                row => row.Value<string>("md5") ?? throw new FormatException(),
+                row => Enum.Parse<WalkureLamp>(row.Value<string>("clearLamp") ?? throw new FormatException(), true), StringComparer.OrdinalIgnoreCase));
     }
 
     [TestMethod]

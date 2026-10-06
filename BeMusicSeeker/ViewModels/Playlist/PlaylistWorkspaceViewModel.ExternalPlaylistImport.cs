@@ -6,12 +6,13 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private const string ExternalPlaylistImportProgressSource = "external_playlist_import";
+
     internal event EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> ExternalPlaylistImportQueueSummaryReady;
 
     internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
@@ -25,6 +26,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         return EnqueueExternalPlaylistBMSTableImports([source.url]);
     }
 
+    /// <summary>内蔵表のURIを既存の取込みキューへ受理します。生成完了はキューの終端通知で確認します。</summary>
+    /// <param name="rawTag">種類・推薦方針を指定するメニューのURI。</param>
+    /// <returns>準備待ちも含め、要求を受理した場合は true。</returns>
     internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)
     {
         Uri uri = new(rawTag);
@@ -108,7 +112,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
             notificationSession = tables.OperationNotificationOwner.BeginSession();
-            BeginPlaylistSyncProgressOperation();
+            BeginPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
             progressStarted = true;
             IReadOnlyList<Uri> batch;
             while ((batch = readiness.DequeueExternalPlaylistImportBatch()).Count > 0)
@@ -306,7 +310,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (progressStarted && !readiness.IsShutdownRequested && !tables.IsShutdownRequested)
             {
-                EndPlaylistSyncProgressOperation();
+                EndPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
             }
             if (notificationSession != null
                 && !readiness.IsShutdownRequested
@@ -424,6 +428,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         string detail = BuildExternalPlaylistImportProgressDetail(phaseText, currentTableName);
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
+            Source = ExternalPlaylistImportProgressSource,
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),
             CompletedTableCount = completedCount,

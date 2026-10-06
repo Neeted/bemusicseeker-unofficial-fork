@@ -4,15 +4,17 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Ribbit.Logging;
-using Ribbit.Math;
 using Ribbit.Media;
 
 namespace Ribbit.BMS;
 
-public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where TAudioPlayer : class, IAudioPlayer where TImageLoader : class, IImageLoader
+/// <summary>譜面状態、画面素材、再生Taskの寿命を管理し、音声配置は機能別のplayerへ委ねます。</summary>
+/// <typeparam name="TImageLoader">譜面画像を表示・解放するloader。</typeparam>
+public abstract class BMSPlayer<TImageLoader> : IDisposable where TImageLoader : class, IImageLoader
 {
     protected class NoteQueue : IEnumerable<BMSFile.Chart.Note>, IEnumerable
     {
@@ -143,6 +145,9 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected TimeSpan currentTime = TimeSpan.Zero;
 
+    /// <summary>tick、譜面状態更新、pause、seek、速度変更を一つの制御境界へ直列化します。</summary>
+    protected readonly object playbackControlSync = new();
+
     private TimeSpan musicDuration;
 
     private float playbackRate = 1f;
@@ -164,8 +169,6 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     protected readonly NoteQueue BgaPoorNotesQueue;
 
     protected readonly NoteQueue BgaLayerNotesQueue;
-
-    protected readonly NoteQueue BgmNotesQueue;
 
     protected readonly ReadOnlyCollection<NoteQueue> VisibleNotes1PQueue;
 
@@ -193,7 +196,20 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     private bool disposedValue;
 
-    public BMSFile Bms { get; }
+    private ExceptionDispatchInfo playbackControlFailure;
+
+    /// <summary>BMSだけが持つ従来の画像・分岐データです。bmsonではnullです。</summary>
+#nullable enable annotations
+    public BMSFile? Bms { get; }
+#nullable restore annotations
+
+    /// <summary>一回だけ解析した形式共通の再生入力です。</summary>
+    public PlaybackChart Chart { get; }
+
+    private int commonControlIndex;
+    private int commonCountIndex;
+    private int commonDensityIndex;
+    private TimeSpan commonStopEnd;
 
     public TimeSpan CurrentTime
     {
@@ -207,7 +223,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
     }
 
-    public TimeSpan BmsDuration => Bms.Duration;
+    public TimeSpan BmsDuration => Chart.Duration;
 
     public TimeSpan MusicDuration
     {
@@ -245,21 +261,27 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         get
         {
-            return playbackRate;
+            lock (playbackControlSync)
+            {
+                return playbackRate;
+            }
         }
         set
         {
-            if (playbackRate != value && !(value <= 0f))
+            lock (playbackControlSync)
             {
-                playbackRate = value;
-                ResetTimer();
+                if (playbackRate != value && !(value <= 0f))
+                {
+                    playbackRate = value;
+                    ResetTimer();
+                }
             }
         }
     }
 
     public TimeSpan Duration { get; protected set; }
 
-    public string FileName => Bms.Path;
+    public string FileName => Chart.Path;
 
     public double NoteDensity
     {
@@ -289,8 +311,6 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     public double NoteDensityMax { get; private set; }
 
-    protected ReadOnlyCollection<TAudioPlayer> AudioPlayers { get; set; } = new List<TAudioPlayer>().AsReadOnly();
-
     protected ReadOnlyCollection<TImageLoader> ImageLoaders { get; set; } = new List<TImageLoader>().AsReadOnly();
 
     protected TImageLoader BgaBaseLoader { get; set; }
@@ -311,44 +331,48 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
     }
 
-    public BMSPlayer(BMSFile bms)
+    public BMSPlayer(BMSFile bms) : this(PlaybackChart.FromBms(bms)) { }
+
+    /// <summary>形式共通の解析結果から表示状態を作ります。BMSの既存laneと画像はそのまま維持します。</summary>
+    protected BMSPlayer(PlaybackChart chart)
     {
-        Bms = bms ?? throw new ArgumentNullException("bms");
-        ControlNotesQueue = new NoteQueue(Bms.Measures.ControlNotes);
-        BgaBaseNotesQueue = new NoteQueue(Bms.Measures.BgaBaseNotes);
-        BgaPoorNotesQueue = new NoteQueue(Bms.Measures.BgaPoorNotes);
-        BgaLayerNotesQueue = new NoteQueue(Bms.Measures.BgaLayerNotes);
-        BgmNotesQueue = new NoteQueue(Bms.Measures.BgmNotes);
-        VisibleNotes1PQueue = Bms.Measures.VisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        VisibleNotes2PQueue = Bms.Measures.VisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        InvisibleNotes1PQueue = Bms.Measures.InvisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        InvisibleNotes2PQueue = Bms.Measures.InvisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        LongNotes1PQueue = Bms.Measures.LongNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        LongNotes2PQueue = Bms.Measures.LongNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        MineNotes1PQueue = Bms.Measures.MineNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
-        MineNotes2PQueue = Bms.Measures.MineNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        Chart = chart ?? throw new ArgumentNullException(nameof(chart));
+        Bms = chart.Bms;
+        ControlNotesQueue = new NoteQueue(Bms?.Measures.ControlNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        BgaBaseNotesQueue = new NoteQueue(Bms?.Measures.BgaBaseNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        BgaPoorNotesQueue = new NoteQueue(Bms?.Measures.BgaPoorNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        BgaLayerNotesQueue = new NoteQueue(Bms?.Measures.BgaLayerNotes ?? Enumerable.Empty<BMSFile.Chart.Note>());
+        VisibleNotes1PQueue = Bms?.Measures.VisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        VisibleNotes2PQueue = Bms?.Measures.VisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        InvisibleNotes1PQueue = Bms?.Measures.InvisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        InvisibleNotes2PQueue = Bms?.Measures.InvisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        LongNotes1PQueue = Bms?.Measures.LongNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        LongNotes2PQueue = Bms?.Measures.LongNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        MineNotes1PQueue = Bms?.Measures.MineNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
+        MineNotes2PQueue = Bms?.Measures.MineNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly() ?? new List<NoteQueue>().AsReadOnly();
         InitializeLoaders();
         currentTime = TimeSpan.Zero;
         durationProvider = () => TimeSpan.FromTicks(System.Math.Max(BmsDuration.Ticks, System.Math.Max(BgaDuration.Ticks, MusicDuration.Ticks)));
         MusicDuration = TimeSpan.Zero;
         BgaDuration = TimeSpan.Zero;
-        CurrentBpm = Bms.Bpm?.ToDouble() ?? 0.0;
+        CurrentBpm = Bms?.Bpm?.ToDouble() ?? Chart.Bpm.ToDouble();
     }
 
     private double calculateNotesDensity()
     {
+        if (Bms == null) { return (commonCountIndex - commonDensityIndex) / densityRange.TotalSeconds; }
         return (double)(VisibleNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + VisibleNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS))) / densityRange.TotalSeconds;
     }
 
     private int calculateCombo()
     {
+        if (Bms == null) { return commonCountIndex; }
         return VisibleNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + VisibleNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE));
     }
 
     protected virtual void InitializeLoaders()
     {
-        AudioPlayers = new TAudioPlayer[Bms.WavArray.Length].ToList().AsReadOnly();
-        ImageLoaders = new TImageLoader[Bms.BmpArray.Length].ToList().AsReadOnly();
+        ImageLoaders = new TImageLoader[Bms?.BmpArray.Length ?? 0].ToList().AsReadOnly();
         BgaBaseLoader = null;
         BgaPoorLoader = null;
         BgaLayerLoader = null;
@@ -359,33 +383,52 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     public abstract void LoadResources();
 
-    protected void ForwardTo(TimeSpan time)
+    /// <summary>指定時刻を譜面状態へ適用します。</summary>
+    protected virtual void ForwardTo(TimeSpan time)
     {
-        if (time > Duration)
+        lock (playbackControlSync)
         {
-            time = Duration;
-        }
-        else if (time < TimeSpan.Zero)
-        {
-            time = TimeSpan.Zero;
-        }
-        if (!(time != TimeSpan.Zero) || !(time <= currentTime))
-        {
-            currentTime = time;
-            ForwardControlNotesToCurrentTime();
-            ForwardBgaNotesToCurrentTime();
-            ForwardBgmNotesToCurrentTime();
-            ForwardInvisibleNotesToCurrentTime();
-            ForwardLongNotesToCurrentTime();
-            ForwardMineNotesToCurrentTime();
-            ForwardVisibleNotesToCurrentTime();
-            NoteDensity = calculateNotesDensity();
-            Combo = calculateCombo();
+            if (time > Duration)
+            {
+                time = Duration;
+            }
+            else if (time < TimeSpan.Zero)
+            {
+                time = TimeSpan.Zero;
+            }
+            if (!(time != TimeSpan.Zero) || !(time <= currentTime))
+            {
+                currentTime = time;
+                ForwardControlNotesToCurrentTime();
+                ForwardBgaNotesToCurrentTime();
+                ForwardInvisibleNotesToCurrentTime();
+                ForwardLongNotesToCurrentTime();
+                ForwardMineNotesToCurrentTime();
+                ForwardVisibleNotesToCurrentTime();
+                NoteDensity = calculateNotesDensity();
+                Combo = calculateCombo();
+            }
         }
     }
 
     protected virtual void ForwardControlNotesToCurrentTime()
     {
+        if (Bms == null)
+        {
+            while (commonControlIndex < Chart.Controls.Count && Chart.Controls[commonControlIndex].Time.ToTimeSpan() <= currentTime)
+            {
+                PlaybackControl control = Chart.Controls[commonControlIndex++];
+                switch (control.Kind)
+                {
+                    case PlaybackControlKind.Bpm: CurrentBpm = control.Bpm; break;
+                    case PlaybackControlKind.BarLine: CurrentMeasure++; break;
+                    case PlaybackControlKind.InitialBarLine: break; // pulse0の線情報は保持し、小節番号には加算しません。
+                    case PlaybackControlKind.Stop: commonStopEnd = (control.Time + control.Stop).ToTimeSpan(); break;
+                }
+            }
+            StopTime = commonStopEnd > currentTime ? commonStopEnd - currentTime : TimeSpan.Zero;
+            return;
+        }
         foreach (BMSFile.Chart.Note item in ControlNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             BMSFile.Chart.Note note = (lastCtrlNote = item);
@@ -406,7 +449,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 case BMSFile.Chart.Note.NoteType.EX_BPM:
                     if (note.Value != null)
                     {
-                        CurrentBpm = ((Fraction)note.Value).ToDouble();
+                        CurrentBpm = ((BmsNumber)note.Value).ToDouble();
                     }
                     break;
                 default:
@@ -460,28 +503,21 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
     }
 
-    protected virtual void ForwardBgmNotesToCurrentTime()
-    {
-        foreach (BMSFile.Chart.Note item in BgmNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
-        {
-            AudioPlayers[item.Index]?.Play();
-        }
-    }
-
     protected virtual void ForwardVisibleNotesToCurrentTime()
     {
+        if (Bms == null) { AdvanceCommonCounts(); return; }
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
             foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
-                AudioPlayers[item2.Index]?.Play();
+                _ = item2;
             }
         }
         foreach (NoteQueue item3 in VisibleNotes2PQueue)
         {
             foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
-                AudioPlayers[item4.Index]?.Play();
+                _ = item4;
             }
         }
         foreach (NoteQueue item5 in VisibleNotes1PQueue)
@@ -526,7 +562,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
             {
                 if (((uint)item2.Type & 0xFFFFFFF0u) == 80)
                 {
-                    AudioPlayers[item2.Index]?.Play();
+                    _ = item2;
                 }
             }
         }
@@ -536,7 +572,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
             {
                 if (((uint)item4.Type & 0xFFFFFFF0u) == 96)
                 {
-                    AudioPlayers[item4.Index]?.Play();
+                    _ = item4;
                 }
             }
         }
@@ -574,35 +610,38 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
     }
 
-    protected void MoveTo(TimeSpan time)
+    /// <summary>指定時刻の譜面・画面状態を構成し、再生中なら時計を再開します。</summary>
+    protected virtual void MoveTo(TimeSpan time)
     {
-        if (time > Duration)
+        lock (playbackControlSync)
         {
-            time = Duration;
+            if (time > Duration)
+            {
+                time = Duration;
+            }
+            if (time < TimeSpan.Zero)
+            {
+                time = TimeSpan.Zero;
+            }
+            timer.Stop();
+            ResetPlaybackState();
+            currentTime = time;
+            MoveControlNotesToCurrentTime();
+            MoveBgaNotesToCurrentTime();
+            MoveInvisibleNotesToCurrentTime();
+            MoveLongNotesToCurrentTime();
+            MoveMineNotesToCurrentTime();
+            MoveVisibleNotesToCurrentTime();
+            timerOffset = currentTime;
+            timer.Reset();
+            if (PlayState == PlayState.Playing)
+            {
+                timer.Start();
+                SuspendLoaders();
+            }
+            NoteDensity = calculateNotesDensity();
+            Combo = calculateCombo();
         }
-        if (time < TimeSpan.Zero)
-        {
-            time = TimeSpan.Zero;
-        }
-        timer.Stop();
-        ResetPlaybackState();
-        currentTime = time;
-        MoveControlNotesToCurrentTime();
-        MoveBgaNotesToCurrentTime();
-        MoveBgmNotesToCurrentTime();
-        MoveInvisibleNotesToCurrentTime();
-        MoveLongNotesToCurrentTime();
-        MoveMineNotesToCurrentTime();
-        MoveVisibleNotesToCurrentTime();
-        timerOffset = currentTime;
-        timer.Reset();
-        if (PlayState == PlayState.Playing)
-        {
-            PlayState = PlayState.Paused;
-            Pause();
-        }
-        NoteDensity = calculateNotesDensity();
-        Combo = calculateCombo();
     }
 
     protected virtual void MoveControlNotesToCurrentTime()
@@ -671,23 +710,6 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
     }
 
-    protected virtual void MoveBgmNotesToCurrentTime()
-    {
-        foreach (BMSFile.Chart.Note item in BgmNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
-        {
-            TAudioPlayer val = AudioPlayers[item.Index];
-            if (val != null)
-            {
-                TimeSpan timeSpan = currentTime - item.AbsoluteTime;
-                if (!(val.Duration <= timeSpan))
-                {
-                    val.CurrentTime = timeSpan;
-                    val.Play(PlayWith.PAUSE);
-                }
-            }
-        }
-    }
-
     protected virtual void MoveInvisibleNotesToCurrentTime()
     {
         ForwardInvisibleNotesToCurrentTime();
@@ -703,16 +725,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 {
                     continue;
                 }
-                TAudioPlayer val = AudioPlayers[item2.Index];
-                if (val != null)
-                {
-                    TimeSpan timeSpan = currentTime - item2.AbsoluteTime;
-                    if (!(val.Duration <= timeSpan))
-                    {
-                        val.CurrentTime = timeSpan;
-                        val.Play(PlayWith.PAUSE);
-                    }
-                }
+                _ = item2;
             }
         }
         foreach (NoteQueue item3 in LongNotes2PQueue)
@@ -723,16 +736,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 {
                     continue;
                 }
-                TAudioPlayer val2 = AudioPlayers[item4.Index];
-                if (val2 != null)
-                {
-                    TimeSpan timeSpan2 = currentTime - item4.AbsoluteTime;
-                    if (!(val2.Duration <= timeSpan2))
-                    {
-                        val2.CurrentTime = timeSpan2;
-                        val2.Play(PlayWith.PAUSE);
-                    }
-                }
+                _ = item4;
             }
         }
         foreach (NoteQueue item5 in LongNotes1PQueue)
@@ -758,36 +762,19 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected virtual void MoveVisibleNotesToCurrentTime()
     {
+        if (Bms == null) { AdvanceCommonCounts(); return; }
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
             foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
-                TAudioPlayer val = AudioPlayers[item2.Index];
-                if (val != null)
-                {
-                    TimeSpan timeSpan = currentTime - item2.AbsoluteTime;
-                    if (!(val.Duration <= timeSpan))
-                    {
-                        val.CurrentTime = timeSpan;
-                        val.Play(PlayWith.PAUSE);
-                    }
-                }
+                _ = item2;
             }
         }
         foreach (NoteQueue item3 in VisibleNotes2PQueue)
         {
             foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
-                TAudioPlayer val2 = AudioPlayers[item4.Index];
-                if (val2 != null)
-                {
-                    TimeSpan timeSpan2 = currentTime - item4.AbsoluteTime;
-                    if (!(val2.Duration <= timeSpan2))
-                    {
-                        val2.CurrentTime = timeSpan2;
-                        val2.Play(PlayWith.PAUSE);
-                    }
-                }
+                _ = item4;
             }
         }
         foreach (NoteQueue item5 in VisibleNotes1PQueue)
@@ -806,32 +793,80 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
     }
 
+    /// <summary>再生を取り消し、再生Taskと機能固有の後処理が完了するまで合流します。</summary>
     public virtual void Stop()
     {
-        if (PlayState != PlayState.Stopped)
+        Task playbackCompletion;
+        bool resetPlaybackState;
+        lock (playbackControlSync)
         {
-            try
+            resetPlaybackState = PlayState != PlayState.Stopped;
+            if (resetPlaybackState)
             {
                 taskTokenSource?.Cancel();
-                playTask?.Wait();
+            }
+            playbackCompletion = playTask;
+        }
+
+        Exception completionFailure = null;
+        try
+        {
+            // 再生Taskは後処理を含む。制御lock外で合流し、lock内の終了処理を妨げない。
+            playbackCompletion?.Wait();
+            if (resetPlaybackState)
+            {
                 NLogWrapper.TraceLogger?.Info("BMSPlayer stopped but task did not start");
             }
-            catch (Exception ex)
+        }
+        catch (Exception ex)
+        {
+            Exception taskFailure = UnwrapTaskWaitFailure(ex);
+            if (IsOnlyCancellation(taskFailure))
             {
                 NLogWrapper.TraceLogger?.Info("BMSPlayer stopped and task cancelled : " + ex);
             }
-            ResetPlaybackState();
+            else
+            {
+                completionFailure = taskFailure;
+            }
+        }
+
+        if (resetPlaybackState)
+        {
+            lock (playbackControlSync)
+            {
+                ResetPlaybackState();
+            }
+        }
+
+        if (completionFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(completionFailure).Throw();
+        }
+    }
+
+    private void AdvanceCommonCounts()
+    {
+        while (commonCountIndex < Chart.CountTimes.Count && Chart.CountTimes[commonCountIndex].ToTimeSpan() <= currentTime)
+        {
+            commonCountIndex++;
+        }
+
+        while (commonDensityIndex < Chart.CountTimes.Count && Chart.CountTimes[commonDensityIndex].ToTimeSpan() < currentTime - densityRange)
+        {
+            commonDensityIndex++;
         }
     }
 
     protected virtual void ResetPlaybackState()
     {
+        commonControlIndex = commonCountIndex = commonDensityIndex = 0;
+        commonStopEnd = TimeSpan.Zero;
         currentTime = TimeSpan.Zero;
         ControlNotesQueue.Reset();
         BgaBaseNotesQueue.Reset();
         BgaPoorNotesQueue.Reset();
         BgaLayerNotesQueue.Reset();
-        BgmNotesQueue.Reset();
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
             item.Reset();
@@ -864,10 +899,6 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         {
             item8.Reset();
         }
-        foreach (TAudioPlayer audioPlayer in AudioPlayers)
-        {
-            audioPlayer?.Stop();
-        }
         foreach (TImageLoader imageLoader in ImageLoaders)
         {
             imageLoader?.Detach();
@@ -879,33 +910,37 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         BannerLoader?.Detach();
         BackbmpLoader?.Detach();
         NoteDensity = 0.0;
-        CurrentBpm = Bms.Bpm?.ToDouble() ?? 0.0;
+        CurrentBpm = Bms?.Bpm?.ToDouble() ?? Chart.Bpm.ToDouble();
         StopTime = TimeSpan.Zero;
         CurrentMeasure = 0;
         lastCtrlNote = null;
-        CurrentBpm = Bms.Bpm?.ToDouble() ?? 0.0;
+        CurrentBpm = Bms?.Bpm?.ToDouble() ?? Chart.Bpm.ToDouble();
     }
 
     public virtual void Pause()
     {
-        if (PlayState == PlayState.Stopped)
+        lock (playbackControlSync)
         {
-            return;
+            if (PlayState == PlayState.Stopped)
+            {
+                return;
+            }
+            if (PlayState == PlayState.Playing)
+            {
+                timer.Stop();
+                PlayState = PlayState.Paused;
+            }
+            else
+            {
+                timer.Start();
+                PlayState = PlayState.Playing;
+            }
+            SuspendLoaders();
         }
-        if (PlayState == PlayState.Playing)
-        {
-            timer.Stop();
-            PlayState = PlayState.Paused;
-        }
-        else
-        {
-            timer.Start();
-            PlayState = PlayState.Playing;
-        }
-        foreach (TAudioPlayer audioPlayer in AudioPlayers)
-        {
-            audioPlayer?.Pause();
-        }
+    }
+
+    private void SuspendLoaders()
+    {
         foreach (TImageLoader imageLoader in ImageLoaders)
         {
             imageLoader?.Suspend();
@@ -939,93 +974,282 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
     }
 
-    public virtual async Task Start()
+    /// <summary>現在の再生状態と曲内時刻から再生時計を再設定します。</summary>
+    /// <remarks>派生playerが再生前の準備を終えて再開する直前に呼び、準備時間を再生時間へ含めないために使います。</remarks>
+    protected void ResetPlaybackClock()
     {
-        if (PlayState != PlayState.Stopped)
+        lock (playbackControlSync)
         {
-            return;
-        }
-        PlayState = PlayState.Playing;
-        taskTokenSource = new CancellationTokenSource();
-        CancellationToken token = taskTokenSource.Token;
-        playTask = new Task(delegate
-        {
-            timer.Restart();
-            while (true)
-            {
-                if (timer.IsRunning)
-                {
-                    TimeSpan time = timerOffset + TimeSpan.FromTicks((long)((float)timer.Elapsed.Ticks * PlaybackRate));
-                    ForwardTo(time);
-                    if (currentTime >= Duration)
-                    {
-                        break;
-                    }
-                }
-                token.ThrowIfCancellationRequested();
-                Thread.Sleep(1);
-            }
-        }, token);
-        try
-        {
-            playTask.Start();
-            await playTask;
-        }
-        catch (OperationCanceledException)
-        {
-            NLogWrapper.TraceLogger?.Info("BMSPlayer play cancelled");
-            throw;
-        }
-        finally
-        {
-            playTask = null;
-            PlayState = PlayState.Stopped;
             ResetTimer();
         }
     }
 
-    protected virtual void Dispose(bool disposing)
+    /// <summary>再生を開始し、再生・機能固有の後処理の両方が終わった時点で完了します。</summary>
+    public virtual async Task Start()
     {
-        if (disposedValue)
+        Task playbackCompletion;
+        lock (playbackControlSync)
         {
-            return;
-        }
-        if (disposing)
-        {
+            if (PlayState != PlayState.Stopped)
+            {
+                return;
+            }
+
             try
             {
-                taskTokenSource?.Cancel();
-                playTask?.Wait();
+                playbackControlFailure = null;
+                OnPlaybackStarting();
+                PlayState = PlayState.Playing;
+                taskTokenSource = new CancellationTokenSource();
+                CancellationToken token = taskTokenSource.Token;
+                // tokenはTaskの開始条件にせず、開始前取消でも本体の後処理を必ず通します。
+                playbackCompletion = new Task(() => RunPlaybackAndCleanup(token));
+                playTask = playbackCompletion;
+                playbackCompletion.Start();
+            }
+            catch (Exception playbackFailure)
+            {
+                playTask = null;
+                Exception stoppingFailure = null;
+                try
+                {
+                    OnPlaybackStopping();
+                }
+                catch (Exception exception)
+                {
+                    stoppingFailure = exception;
+                }
+                finally
+                {
+                    PlayState = PlayState.Stopped;
+                    ResetTimer();
+                }
+
+                if (stoppingFailure != null)
+                {
+                    throw new AggregateException(
+                        "BMS playback failed and playback cleanup also failed.",
+                        playbackFailure,
+                        stoppingFailure);
+                }
+
+                ExceptionDispatchInfo.Capture(playbackFailure).Throw();
+                throw;
+            }
+        }
+
+        await playbackCompletion;
+    }
+
+    private void RunPlaybackAndCleanup(CancellationToken token)
+    {
+        ExceptionDispatchInfo playbackFailure = null;
+        Exception stoppingFailure = null;
+        bool completed = false;
+        bool timerStarted = false;
+        while (!completed)
+        {
+            lock (playbackControlSync)
+            {
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (PlayState == PlayState.Playing)
+                    {
+                        if (!timerStarted)
+                        {
+                            timer.Restart();
+                            timerStarted = true;
+                        }
+
+                        TimeSpan wallClockTime = timerOffset
+                            + TimeSpan.FromTicks((long)((float)timer.Elapsed.Ticks * playbackRate));
+                        completed = wallClockTime >= Duration;
+                        TimeSpan playbackTime = completed ? Duration : wallClockTime;
+                        OnPlaybackTick(playbackTime);
+                        ForwardTo(playbackTime);
+                    }
+                }
+                catch (OperationCanceledException exception)
+                {
+                    NLogWrapper.TraceLogger?.Info("BMSPlayer play cancelled");
+                    playbackFailure = playbackControlFailure ?? ExceptionDispatchInfo.Capture(exception);
+                    playbackControlFailure = null;
+                    completed = true;
+                }
+                catch (Exception exception)
+                {
+                    playbackFailure = ExceptionDispatchInfo.Capture(exception);
+                    completed = true;
+                }
+
+                if (completed)
+                {
+                    try
+                    {
+                        OnPlaybackStopping();
+                    }
+                    catch (Exception exception)
+                    {
+                        stoppingFailure = exception;
+                    }
+                    finally
+                    {
+                        PlayState = PlayState.Stopped;
+                        ResetTimer();
+                    }
+                }
+            }
+
+            if (!completed)
+            {
+                Thread.Sleep(1);
+            }
+        }
+
+        ThrowPlaybackFailures(playbackFailure, stoppingFailure);
+    }
+
+    private static void ThrowPlaybackFailures(
+        ExceptionDispatchInfo playbackFailure,
+        Exception stoppingFailure)
+    {
+        if (playbackFailure != null)
+        {
+            if (stoppingFailure != null)
+            {
+                throw new AggregateException(
+                    "BMS playback failed and playback cleanup also failed.",
+                    playbackFailure.SourceException,
+                    stoppingFailure);
+            }
+
+            playbackFailure.Throw();
+        }
+        if (stoppingFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(stoppingFailure).Throw();
+        }
+    }
+
+    /// <summary>再生Task開始前に、機能固有の再生時計と処理資源を準備します。</summary>
+    protected virtual void OnPlaybackStarting()
+    {
+    }
+
+    /// <summary>一回の制御tickで機能固有の状態確認と処理補充を行います。</summary>
+    /// <param name="playbackTime">共通の再生時計から算出し、曲長以内へ制限した曲内時刻。</param>
+    protected virtual void OnPlaybackTick(TimeSpan playbackTime)
+    {
+    }
+
+    /// <summary>再生ループ終了後、再生Taskが完了する前に機能固有の資源を回収します。</summary>
+    protected virtual void OnPlaybackStopping()
+    {
+    }
+
+    /// <summary>制御操作の失敗を再生Taskの終了所有者へ渡し、通常の後処理へ合流させます。</summary>
+    /// <param name="exception">制御操作で発生し、再生Taskへ公開する主失敗。</param>
+    protected void FailPlayback(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        lock (playbackControlSync)
+        {
+            if (PlayState == PlayState.Stopped || playTask == null || playTask.IsCompleted)
+            {
+                return;
+            }
+
+            playbackControlFailure ??= ExceptionDispatchInfo.Capture(exception);
+            taskTokenSource?.Cancel();
+        }
+    }
+
+    /// <summary>再生Taskと後処理へ合流し、画面素材の解放後に通常取消以外の失敗を呼出元へ返します。</summary>
+    protected virtual void Dispose(bool disposing)
+    {
+        Task playbackCompletion = null;
+        Exception completionFailure = null;
+        if (disposing)
+        {
+            lock (playbackControlSync)
+            {
+                if (!disposedValue)
+                {
+                    taskTokenSource?.Cancel();
+                }
+                // 素材の解放済み状態で、再生Taskに残る未回収のnative故障を成功へ変えません。
+                playbackCompletion = playTask;
+            }
+
+            try
+            {
+                // 終了callbackが制御lockを必要とするため、Taskの合流はlock外で行います。
+                playbackCompletion?.Wait();
                 NLogWrapper.TraceLogger?.Info("BMSPlayer disposed but task did not start");
             }
             catch (Exception ex)
             {
-                NLogWrapper.TraceLogger?.Info("BMSPlayer disposed and task stopped: " + ex);
+                Exception taskFailure = UnwrapTaskWaitFailure(ex);
+                if (IsOnlyCancellation(taskFailure))
+                {
+                    NLogWrapper.TraceLogger?.Info("BMSPlayer disposed and task cancelled: " + ex);
+                }
+                else
+                {
+                    completionFailure = taskFailure;
+                }
             }
-            foreach (TAudioPlayer audioPlayer in AudioPlayers)
-            {
-                audioPlayer?.Dispose();
-            }
-            foreach (TImageLoader imageLoader in ImageLoaders)
-            {
-                imageLoader?.Dispose();
-            }
-            BgaBaseLoader?.Dispose();
-            BgaPoorLoader?.Dispose();
-            BgaLayerLoader?.Dispose();
-            StagefileLoader?.Dispose();
-            BannerLoader?.Dispose();
-            BackbmpLoader?.Dispose();
         }
-        AudioPlayers = null;
-        ImageLoaders = null;
-        BgaBaseLoader = null;
-        BgaPoorLoader = null;
-        BgaLayerLoader = null;
-        StagefileLoader = null;
-        BannerLoader = null;
-        BackbmpLoader = null;
-        disposedValue = true;
+
+        try
+        {
+            lock (playbackControlSync)
+            {
+                if (!disposedValue)
+                {
+                    if (disposing)
+                    {
+                        foreach (TImageLoader imageLoader in ImageLoaders)
+                        {
+                            imageLoader?.Dispose();
+                        }
+                        BgaBaseLoader?.Dispose();
+                        BgaPoorLoader?.Dispose();
+                        BgaLayerLoader?.Dispose();
+                        StagefileLoader?.Dispose();
+                        BannerLoader?.Dispose();
+                        BackbmpLoader?.Dispose();
+                    }
+                    ImageLoaders = null;
+                    BgaBaseLoader = null;
+                    BgaPoorLoader = null;
+                    BgaLayerLoader = null;
+                    StagefileLoader = null;
+                    BannerLoader = null;
+                    BackbmpLoader = null;
+                    disposedValue = true;
+                }
+            }
+        }
+        catch (Exception disposalFailure) when (completionFailure != null)
+        {
+            throw new AggregateException(completionFailure, disposalFailure);
+        }
+        if (completionFailure != null) { ExceptionDispatchInfo.Capture(completionFailure).Throw(); }
+    }
+
+    private static Exception UnwrapTaskWaitFailure(Exception exception) =>
+        exception is AggregateException { InnerExceptions.Count: 1 } aggregate
+            ? aggregate.InnerExceptions[0]
+            : exception;
+
+    private static bool IsOnlyCancellation(Exception exception)
+    {
+        IReadOnlyList<Exception> failures = exception is AggregateException aggregate
+            ? aggregate.Flatten().InnerExceptions
+            : [exception];
+        return failures.Count > 0 && failures.All(failure => failure is OperationCanceledException);
     }
 
     public void Dispose()

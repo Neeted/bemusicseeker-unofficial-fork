@@ -13,7 +13,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -78,7 +77,6 @@ public sealed class ApplicationCompositionTests
             Assert.AreSame(
                 library.Lr2PlaylistFolderSynchronization,
                 bindings.Lr2PlaylistFolderSynchronization);
-            CollectionAssert.AreEqual(library.GetBMSScores(), bindings.GetBmsScores());
 
             var request = new BmtSongHashResolveRequest
             {
@@ -1131,7 +1129,6 @@ public sealed class ApplicationCompositionTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot
                 {
@@ -1367,6 +1364,7 @@ public sealed class ApplicationCompositionTests
             EnableBeatorajaBmtOutput = true,
             LR2CustomFolderOutputBaseDir = "session-output-base",
             ShowDiffBMSInstallConfirmMsg = true,
+            ShowNewPackageInstallConfirmMsg = false,
             DeletePendingPackageSourceAfterInstall = true
         };
         var session = new FakeSettingsEditSession { Values = values };
@@ -1390,6 +1388,11 @@ public sealed class ApplicationCompositionTests
         Assert.IsTrue(beatorajaOptions.EnableBeatorajaBmtOutput);
         Assert.AreEqual("session-output-base", customFolderOptions.LR2CustomFolderOutputBaseDir);
         Assert.IsTrue(installDestinationOptions.ShowManualInstallConfirmation);
+        Assert.IsFalse(installDestinationOptions.ShowNewPackageInstallConfirmation);
+        Assert.IsFalse(libraryOptions.ShowNewPackageInstallConfirmMsg);
+        values.ShowNewPackageInstallConfirmMsg = true;
+        Assert.IsTrue(composition.InstallDestinationSettingsProvider().ShowNewPackageInstallConfirmation);
+        Assert.IsTrue(composition.BmsLibraryOptionsProvider().ShowNewPackageInstallConfirmMsg);
         Assert.IsTrue(installDestinationOptions.DeletePendingPackageSourceAfterInstall);
 
         values.PendingInstallEstimateMaxParallelPackages = 13;
@@ -1556,8 +1559,8 @@ public sealed class ApplicationCompositionTests
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        viewModel.ChartFilters.CommitKeywordSearchHistory("new");
-        viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
+        Assert.IsTrue(viewModel.ChartFilters.KeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("new").Succeeded);
+        Assert.IsTrue(viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("summary-new").Succeeded);
 
         Assert.AreEqual("new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
         Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
@@ -1574,9 +1577,9 @@ public sealed class ApplicationCompositionTests
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         KeywordSearchSavedQueryMutationResult normalResult =
-            viewModel.ChartFilters.TryAddKeywordSearchFavorite("title:default");
+            viewModel.ChartFilters.KeywordSearchAssistanceOwner.TryAddFavorite("title:default");
         KeywordSearchSavedQueryMutationResult summaryResult =
-            viewModel.PlaylistWorkspace.TryAddPlaylistSummaryKeywordSearchFavorite("output:default");
+            viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner.TryAddFavorite("output:default");
 
         Assert.IsTrue(normalResult.Succeeded);
         Assert.IsTrue(summaryResult.Succeeded);
@@ -1604,9 +1607,9 @@ public sealed class ApplicationCompositionTests
 
         Assert.AreSame(favoriteStore, composition.KeywordSearchFavoritesSettingsStore);
         KeywordSearchSavedQueryMutationResult normalResult =
-            viewModel.ChartFilters.TryAddKeywordSearchFavorite("title:normal");
+            viewModel.ChartFilters.KeywordSearchAssistanceOwner.TryAddFavorite("title:normal");
         KeywordSearchSavedQueryMutationResult summaryResult =
-            viewModel.PlaylistWorkspace.TryAddPlaylistSummaryKeywordSearchFavorite("output:summary");
+            viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner.TryAddFavorite("output:summary");
 
         Assert.IsTrue(normalResult.Succeeded);
         Assert.IsTrue(summaryResult.Succeeded);
@@ -1646,7 +1649,7 @@ public sealed class ApplicationCompositionTests
         workspace.PlaylistSummaryKeywordFilter = "memo:alpha";
         StringAssert.Contains(workspace.PlaylistSummaryKeywordSearchWarningText, "memo");
 
-        workspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
+        Assert.IsTrue(workspace.PlaylistSummaryKeywordSearchAssistanceOwner.SavedQueryOwner.TryCommitHistory("summary-new").Succeeded);
         Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
     }
 

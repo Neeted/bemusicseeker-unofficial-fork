@@ -1,18 +1,13 @@
 using System;
-using System.CodeDom.Compiler;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,7 +19,6 @@ using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
@@ -34,7 +28,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using NLog;
-using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Windows;
 
@@ -704,7 +697,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playbackPanelView.PlayerHostHandle));
+            IntPtr playerHostHandle = playbackPanelView.PlayerHostHandle;
+            if (playerHostHandle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("The external player host has not been created.");
+            }
+            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playerHostHandle));
             playbackPanelView.EnsureSelectedSurfaceAvailable();
         };
         if (Dispatcher.CheckAccess())
@@ -991,7 +989,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private static void PresentPlaylistOperationNotifications(
+    /// <summary>プレイリスト操作の通知を既存の注入済み表示窓口へ渡し、表示失敗を呼出元へ伝えます。</summary>
+    private void PresentPlaylistOperationNotifications(
         PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
         string routeName)
     {
@@ -1008,7 +1007,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
                 _ => MessageBoxImage.None,
             };
-            ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
+            ShowPlaylistWorkspaceUiMessage(notification.Message, notification.Caption, icon, routeName);
         }
     }
 
@@ -1419,34 +1418,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="root">探索開始要素。</param>
     /// <param name="maxCount">上限件数。</param>
     /// <returns>見つかった要素数。</returns>
-    private static int CountVisualDescendants<T>(DependencyObject root, int maxCount) where T : DependencyObject
-    {
-        if (root == null || maxCount <= 0)
-        {
-            return 0;
-        }
-        int count = 0;
-        var pending = new Queue<DependencyObject>();
-        pending.Enqueue(root);
-        while (pending.Count > 0 && count < maxCount)
-        {
-            DependencyObject current = pending.Dequeue();
-            int childCount = VisualTreeHelper.GetChildrenCount(current);
-            for (int i = 0; i < childCount && count < maxCount; i++)
-            {
-                DependencyObject child = VisualTreeHelper.GetChild(current, i);
-                if (child is T)
-                {
-                    count++;
-                }
-                if (child != null)
-                {
-                    pending.Enqueue(child);
-                }
-            }
-        }
-        return count;
-    }
 
     private void CloseWindow(object sender, ExecutedRoutedEventArgs e)
     {
@@ -1637,6 +1608,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         var viewModel = base.DataContext as MainWindowViewModel;
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
+        Task settingsAudioTestTask = viewModel?.SettingDialog.AudioDeviceTestCompletionTask ?? Task.CompletedTask;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
@@ -1650,7 +1622,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
-        await Task.WhenAll(propertyOperationTask, bulkApplyTask).ConfigureAwait(true);
+        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTestTask).ConfigureAwait(true);
         await Task.WhenAll(propertyCleanupTask, bulkCleanupTask).ConfigureAwait(true);
 
         CaptureWindowStateForClosing();
@@ -1668,6 +1640,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
+        playbackPanelView.DisposePlayerHost();
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.Dispose();
@@ -1689,6 +1662,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
+            settingsWindow?.CloseForOwnerShutdown();
             CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
             if (closeRequestStarted)
@@ -2001,20 +1975,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             MessageBoxResult.OK);
     }
 
+    /// <summary>同期設定変更の既存確認を注入済み窓口へ渡し、表示不能を例外にして肯定結果だけを受理します。</summary>
     private void MainWindow_PlaylistPropertyExternalSyncConfirmationRequested(
         object sender,
         PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
     {
-        MessageBoxResult result = UiDialogRoute.ShowMessageBox(
-            this,
+        UiDialogResult result = playlistWorkspaceDialogService.ConfirmAsync(new UiConfirmationRequest(
             request.Enable
                 ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
                 : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Exclamation,
-            MessageBoxResult.None);
-        request.Confirmed = result is MessageBoxResult.OK or MessageBoxResult.Yes;
+            MessageBoxResult.None,
+            owner: this)).GetAwaiter().GetResult();
+        UiDialogRoute.ThrowIfNotShown(result, "playlist property external sync confirmation");
+        request.Confirmed = result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes;
     }
 
     private void MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
@@ -2552,65 +2528,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         customTableView?.ClearSelection();
     }
 
-    private static object _getValueOfPropertyPath(object value, string path)
-    {
-        if (value == null)
-        {
-            return null;
-        }
-        Type type = value.GetType();
-        string[] array = path.Split('.');
-        foreach (string name in array)
-        {
-            PropertyInfo property = type.GetProperty(name);
-            if (property == null)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
-                return null;
-            }
-            value = property.GetValue(value, null);
-            if (value == null)
-            {
-                return null;
-            }
-            type = property.PropertyType;
-        }
-        return value;
-    }
-    private static Action<T> _getSetterOfPropertyPath<T>(object value, string path)
-    {
-        if (value == null)
-        {
-            return _ => { };
-        }
-        Type type = value.GetType();
-        PropertyInfo propertyInfo = null;
-        object firstArgument = null;
-        string[] array = path.Split('.');
-        foreach (string name in array)
-        {
-            propertyInfo = type.GetProperty(name);
-            if (propertyInfo == null)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
-                return _ => { };
-            }
-            firstArgument = value;
-            value = propertyInfo.GetValue(value, null);
-            if (value == null && name != array.Last())
-            {
-                return _ => { };
-            }
-            type = propertyInfo.PropertyType;
-        }
-        MethodInfo setMethod = propertyInfo?.GetSetMethod();
-        if (setMethod == null)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Set method for property '{propertyInfo?.Name}' not found in path '{path}'");
-            return _ => { };
-        }
-        return Delegate.CreateDelegate(typeof(Action<T>), firstArgument, setMethod) as Action<T>;
-    }
     /// <summary>
     /// 現在 ViewModel で選択されている（再生中の）BMSファイルの情報を取得し、
     /// BMSPlayerコントロールのプレビュー画像やバナーを最新状態に更新します。
@@ -2699,12 +2616,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return section == MainViewOperationSection.ChartInfoParseError;
     }
 
-    private List<ChartFile> GetSelectedBmsFormatCharts(ChartOperationCapabilities capability, bool isPendingSection = false)
-    {
-        return [.. GetSelectedChartTargets(capability, isPendingSection)
-            .Select(target => target.Chart)
-            .Where(ChartFileKindResolver.IsBmsChartFile)];
-    }
 
     private List<string> GetSelectedChartInfoParseFailureMd5s()
     {
@@ -3128,19 +3039,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Handled = true;
     }
 
-    private static T FindTemplateElement<T>(FrameworkElement source, string elementName) where T : class
-    {
-        FrameworkElement current = source;
-        while (current != null)
-        {
-            if (current.FindName(elementName) is T found)
-            {
-                return found;
-            }
-            current = current.Parent as FrameworkElement;
-        }
-        return null;
-    }
     private static T FindNamedDescendant<T>(FrameworkElement root, string elementName) where T : class
     {
         if (root == null)
@@ -3780,22 +3678,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         treeRoot.IsExpanded = true;
     }
 
-    private void artistFolderSelect(object sender, RoutedEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("tree_artist_folder_select"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel
-            && e.Source is TreeViewItem treeViewItem)
-        {
-            regularLibraryTreeTerminal.NavigateTree(
-                RegularChartFolderFilterKind.Artist,
-                treeViewItem.Header.ToString());
-            e.Handled = true;
-        }
-    }
 
     private void rootFolderSelect(object sender, RoutedEventArgs e)
     {
@@ -4965,8 +4847,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>
-    /// プレイリストルートのコンテキストメニュー「Walkure/難易度表を読み込む」に関するメニュー項目（各難易度表単位）のアクション。
-    /// MenuItemのTagプロパティに格納されたURLへアクセスし、プレイリスト情報を非同期で追加・登録します。
+    /// プレイリストルートのコンテキストメニュー「内蔵の難度推定表・リコメンドから読み込む」に関するメニュー項目（各難易度表単位）のアクション。
+    /// MenuItem の Tag に格納された URI を既存の取込みキューへ受理します。
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
     {
@@ -4976,23 +4858,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             playlistWorkspaceTerminals.CollectionImport
                 .TryEnqueueBuiltInExternalPlaylistImport((string)menuItem.Tag);
         }
-    }
-
-    /// <summary>
-    /// プレイリストルートのコンテキストメニューから「Walkureのおすすめフォルダ」関連のテーブル読み込みが選択された場合の処理。
-    /// LR2IDの設定状況のチェックや、更新モード/閲覧モードに応じたユーザー確認ダイアログを挟んだ後、非同期で登録処理へ進みます。
-    /// </summary>
-    private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is not MainWindowViewModel viewModel
-            || viewModel.PlaylistWorkspace == null
-            || sender is not MenuItem menuItem)
-        {
-            return;
-        }
-        await viewModel.PlaylistWorkspace
-            .EnqueueRecommendedPlaylistImportAsync((string)menuItem.Tag)
-            .LoggingAndPropagate("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
     }
 
     /// <summary>
@@ -5140,7 +5005,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>
     /// テーブル階層コンテキストメニュー「配布ページを開く」実行時の処理。
     /// BMSTableに設定されたURL (Page_url または Header_url) を標準ブラウザ等で開きます。
-    /// 特殊スキーム（Walkure難易度表等）の場合は専用のURLへ変換してブラウザ起動します。
+    /// 内蔵表のページを開く操作は利用できません。
     /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
     {
@@ -6934,11 +6799,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     menuItem7.Visibility = Visibility.Collapsed;
                     menuItem7.IsEnabled = false;
                 }
-                if (menuItem19 != null)
-                {
-                    menuItem19.Visibility = Visibility.Collapsed;
-                    menuItem19.IsEnabled = false;
-                }
                 if (menuItemRenameInvalidExt != null)
                 {
                     menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
@@ -7472,20 +7332,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void cancelDropInstallQueueClick(object sender, RoutedEventArgs e)
+    private void progressRowActionClick(object sender, RoutedEventArgs e)
     {
-        progressStatusBarTerminals.CancelInstallPipeline();
+        if (sender is FrameworkElement { DataContext: OperationProgressRow row })
+        {
+            progressStatusBarTerminals.Invoke(row.Action);
+        }
     }
 
-    private void cancelMaintenanceRescanClick(object sender, RoutedEventArgs e)
-    {
-        progressStatusBarTerminals.CancelMaintenanceRescan();
-    }
 
-    private void retryLr2SongDbSyncClick(object sender, RoutedEventArgs e)
-    {
-        progressStatusBarTerminals.RetryLr2Sync();
-    }
 
     private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
     {
@@ -8287,23 +8142,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void RestorePlaybackSurfaceAndFocusTable()
     {
-        if (IsShellClosingOrClosed()) return;
+        if (IsShellClosingOrClosed())
+        {
+            return;
+        }
+
         playbackPanelView.RestoreSelectedSurface();
         IntPtr handle;
         try { handle = new WindowInteropHelper(this).Handle; }
         catch { return; }
-        if (handle != Win32API.GetForegroundWindow()) return;
+        if (handle != Win32API.GetForegroundWindow())
+        {
+            return;
+        }
+
         Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
         {
-            if (IsShellClosingOrClosed()) return;
+            if (IsShellClosingOrClosed())
+            {
+                return;
+            }
+
             for (int i = 1; i <= 10; i++)
             {
-                if (IsShellClosingOrClosed()) break;
+                if (IsShellClosingOrClosed())
+                {
+                    break;
+                }
+
                 NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table");
                 IntPtr currentHandle;
                 try { currentHandle = new WindowInteropHelper(this).Handle; }
                 catch { break; }
-                if (currentHandle != Win32API.GetForegroundWindow()) break;
+                if (currentHandle != Win32API.GetForegroundWindow())
+                {
+                    break;
+                }
+
                 Keyboard.Focus(customTableView);
                 await Task.Delay(100);
             }
@@ -8315,14 +8190,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
         {
             activeOverlayDialog = overlayDialog;
-            if (HidesPlaybackSurface(overlayDialog)) PlaybackOverlayVisibility = Visibility.Visible;
+            if (HidesPlaybackSurface(overlayDialog))
+            {
+                PlaybackOverlayVisibility = Visibility.Visible;
+            }
         }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
             if (ReferenceEquals(activeOverlayDialog, sender))
             {
                 activeOverlayDialog = null;
-                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog)) PlaybackOverlayVisibility = Visibility.Collapsed;
+                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog))
+                {
+                    PlaybackOverlayVisibility = Visibility.Collapsed;
+                }
             }
             playbackPanelView.RestoreSelectedSurface();
         }

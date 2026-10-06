@@ -25,6 +25,12 @@ internal enum BassAudioPlaybackStage
     /// <summary>The source could not be resumed after attachment.</summary>
     MixerResume,
 
+    /// <summary>ソース形式またはサンプルレート変換設定を確認できなかった。</summary>
+    MixerSourceFormat,
+
+    /// <summary>チャンネル行列を設定できなかった。</summary>
+    MixerMatrix,
+
     /// <summary>The source could not be paused.</summary>
     MixerPause,
 
@@ -32,7 +38,13 @@ internal enum BassAudioPlaybackStage
     MixerRemove,
 
     /// <summary>The source position could not be changed.</summary>
-    SetPosition
+    SetPosition,
+
+    /// <summary>旧再生sourceのnative解放を確認できなかった。</summary>
+    SourceRelease,
+
+    /// <summary>BMS sourceの絶対位置予約または締切確認が失敗した。</summary>
+    ScheduledPlayback
 }
 
 /// <summary>
@@ -106,6 +118,7 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
         Backend = session?.ActualBackend;
         SessionState = session?.State;
         CoreDeviceIndex = session?.CoreDeviceIndex;
+        Session = session;
     }
 
     /// <summary>Gets the playback stage that failed.</summary>
@@ -137,6 +150,9 @@ internal sealed class BassAudioPlaybackException : InvalidOperationException
 
     /// <summary>Gets the BASS core device selected by the owning session.</summary>
     internal int? CoreDeviceIndex { get; }
+
+    /// <summary>失敗したhandleを所有していた音声sessionを保持します。</summary>
+    internal BassAudioSession Session { get; }
 }
 
 /// <summary>Provides the small ManagedBass surface needed by mixer-source lifecycle code.</summary>
@@ -151,8 +167,23 @@ internal interface IBassMixerSourceNativeBoundary
     /// <summary>Sets or retrieves mixer-channel flags.</summary>
     BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask);
 
+    /// <summary>BASS channelの周波数、チャンネル数、flagsを取得します。</summary>
+    BassMixerChannelInfo GetChannelInfo(int channelHandle);
+
+    /// <summary>sourceのサンプルレート変換品質を設定します。</summary>
+    bool SetSampleRateConversion(int sourceHandle, float quality);
+
+    /// <summary>sourceのサンプルレート変換品質を取得します。</summary>
+    bool GetSampleRateConversion(int sourceHandle, out float quality);
+
+    /// <summary>pause中のsourceへnative契約のmixer出力行・source入力列の明示行列を設定します。</summary>
+    bool SetMatrix(int sourceHandle, float[,] matrix);
+
     /// <summary>Removes a source from its mixer.</summary>
     bool RemoveChannel(int sourceHandle);
+
+    /// <summary>解放を試みたsource streamをnative ownerから外します。</summary>
+    bool FreeStream(int sourceHandle);
 
     /// <summary>Sets a source position using the supplied native position mode.</summary>
     bool SetPosition(int sourceHandle, long position, PositionFlags mode);
@@ -161,8 +192,22 @@ internal interface IBassMixerSourceNativeBoundary
     Errors GetError();
 }
 
+/// <summary>既存のsource境界へ絶対位置予約とmixer生成直列化を追加します。</summary>
+internal interface IBassScheduledMixerNativeBoundary : IBassMixerSourceNativeBoundary
+{
+    /// <summary>絶対mixer位置と有限出力長を指定してpaused sourceを予約します。</summary>
+    bool AddChannelAt(int mixerHandle, int sourceHandle, BassFlags flags, long startBytes, long lengthBytes);
+
+    /// <summary>他threadのmixer生成を同じthreadのcommit中だけ停止します。</summary>
+    bool LockChannel(int mixerHandle, bool locked);
+
+    /// <summary>mixerの実効出力byte位置を取得します。</summary>
+    long GetPosition(int mixerHandle, PositionFlags mode);
+
+}
+
 /// <summary>Calls ManagedBass mixer-source APIs without hiding their failure contracts.</summary>
-internal sealed class BassMixerSourceNativeBoundary : IBassMixerSourceNativeBoundary
+internal sealed class BassMixerSourceNativeBoundary : IBassScheduledMixerNativeBoundary
 {
     /// <inheritdoc />
     public int GetMixer(int sourceHandle) => BassMix.ChannelGetMixer(sourceHandle);
@@ -172,19 +217,59 @@ internal sealed class BassMixerSourceNativeBoundary : IBassMixerSourceNativeBoun
         => BassMix.MixerAddChannel(mixerHandle, sourceHandle, flags);
 
     /// <inheritdoc />
+    public bool AddChannelAt(int mixerHandle, int sourceHandle, BassFlags flags, long startBytes, long lengthBytes)
+        => BassMix.MixerAddChannel(mixerHandle, sourceHandle, flags, startBytes, lengthBytes);
+
+    /// <inheritdoc />
+    public bool LockChannel(int mixerHandle, bool locked) => Bass.ChannelLock(mixerHandle, locked);
+
+    /// <inheritdoc />
+    public long GetPosition(int mixerHandle, PositionFlags mode) => Bass.ChannelGetPosition(mixerHandle, mode);
+
+    /// <inheritdoc />
     public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask)
         => BassMix.ChannelFlags(sourceHandle, flags, mask);
+
+    /// <inheritdoc />
+    public BassMixerChannelInfo GetChannelInfo(int channelHandle)
+    {
+        ChannelInfo info = Bass.ChannelGetInfo(channelHandle);
+        return new BassMixerChannelInfo(info.Frequency, info.Channels, info.Flags);
+    }
+
+    /// <inheritdoc />
+    public bool SetSampleRateConversion(int sourceHandle, float quality)
+        => Bass.ChannelSetAttribute(sourceHandle, ChannelAttribute.SampleRateConversion, quality);
+
+    /// <inheritdoc />
+    public bool GetSampleRateConversion(int sourceHandle, out float quality)
+        => Bass.ChannelGetAttribute(sourceHandle, ChannelAttribute.SampleRateConversion, out quality);
+
+    /// <inheritdoc />
+    public bool SetMatrix(int sourceHandle, float[,] matrix)
+        => BassMix.ChannelSetMatrix(sourceHandle, matrix);
 
     /// <inheritdoc />
     public bool RemoveChannel(int sourceHandle) => BassMix.MixerRemoveChannel(sourceHandle);
 
     /// <inheritdoc />
+    public bool FreeStream(int sourceHandle) => Bass.StreamFree(sourceHandle);
+
+    /// <inheritdoc />
     public bool SetPosition(int sourceHandle, long position, PositionFlags mode)
-        => Bass.ChannelSetPosition(sourceHandle, position, mode);
+    {
+        // 接続済みsourceはSRCの先読み状態もリセットし、再生ごとの終端を揃えます。
+        return BassMix.ChannelGetMixer(sourceHandle) != 0
+            ? BassMix.ChannelSetPosition(sourceHandle, position, mode)
+            : Bass.ChannelSetPosition(sourceHandle, position, mode);
+    }
 
     /// <inheritdoc />
     public Errors GetError() => Bass.LastError;
 }
+
+/// <summary>BASS channelの形式情報をnative API呼出し直後に保持します。</summary>
+internal readonly record struct BassMixerChannelInfo(int Frequency, int Channels, BassFlags Flags);
 
 /// <summary>Reports whether a source was newly attached to an expected mixer.</summary>
 internal readonly struct BassMixerSourceAttachment
@@ -227,6 +312,10 @@ internal readonly struct BassMixerSourceRemoval
 internal sealed class BassMixerSourceController
 {
     private const BassFlags MixerPauseFlag = BassFlags.MixerChanPause;
+    private const BassFlags MixerSourceCreationFlags = BassFlags.MixerChanPause
+        | BassFlags.MixerChanMatrix
+        | BassFlags.MixerChanNoRampin;
+    // BASS_MIXER_CHAN_NORAMP (0x00100000)。BASS_ChannelFlags用で、NORAMPINとは別のbitです。
 
     private readonly IBassMixerSourceNativeBoundary native;
 
@@ -243,6 +332,12 @@ internal sealed class BassMixerSourceController
         this.native = native ?? throw new ArgumentNullException(nameof(native));
         this.sessionProvider = sessionProvider;
     }
+
+    /// <summary>source境界を通じてnative streamの解放を試みます。</summary>
+    internal bool FreeStream(int sourceHandle) => native.FreeStream(sourceHandle);
+
+    /// <summary>直前のsource境界操作のnative errorを取得します。</summary>
+    internal Errors GetError() => native.GetError();
 
     /// <summary>
     /// Ensures a source is attached to the expected mixer in paused mode and verifies the
@@ -282,7 +377,7 @@ internal sealed class BassMixerSourceController
         bool added;
         try
         {
-            added = native.AddChannel(expectedMixerHandle, sourceHandle, MixerPauseFlag);
+            added = native.AddChannel(expectedMixerHandle, sourceHandle, MixerSourceCreationFlags);
         }
         catch (Exception exception)
         {
@@ -361,6 +456,147 @@ internal sealed class BassMixerSourceController
         }
 
         return new BassMixerSourceAttachment(newlyAttached: true, verifiedMixer);
+    }
+
+    /// <summary>pause 状態で source 形式、SRC 品質、行列を検証して設定します。</summary>
+    internal void ConfigurePausedSource(
+        int expectedMixerHandle,
+        int sourceHandle,
+        AudioChannelLayout sourceLayout,
+        string fileName,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        float[,] preparedMatrix = null)
+    {
+        ArgumentNullException.ThrowIfNull(sourceLayout);
+        AudioResamplingQuality.Validate(sampleRateConversionQuality, nameof(sampleRateConversionQuality));
+        ValidateHandles(expectedMixerHandle, sourceHandle, fileName);
+        EnsureExpectedMixer(
+            expectedMixerHandle,
+            sourceHandle,
+            fileName,
+            BassAudioPlaybackStage.MixerSourceFormat);
+
+        BassMixerChannelInfo sourceInfo = ReadChannelInfo(
+            sourceHandle,
+            expectedMixerHandle,
+            fileName,
+            "BASS_ChannelGetInfo(source)");
+        if (sourceInfo.Frequency <= 0
+            || sourceInfo.Channels != sourceLayout.ChannelCount
+            || (sourceInfo.Flags & (BassFlags.Float | BassFlags.Decode)) != (BassFlags.Float | BassFlags.Decode))
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelGetInfo(source)",
+                null,
+                "The mixer source must be a matching float32 decode channel.");
+        }
+
+        BassMixerChannelInfo mixerInfo = ReadChannelInfo(
+            expectedMixerHandle,
+            expectedMixerHandle,
+            fileName,
+            "BASS_ChannelGetInfo(mixer)");
+        if (mixerInfo.Frequency <= 0 || mixerInfo.Channels is < 1 or > 8)
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelGetInfo(mixer)",
+                null,
+                "The output mixer must expose a known one-to-eight-channel format.");
+        }
+
+        if (sourceInfo.Frequency != mixerInfo.Frequency)
+        {
+            SetAndConfirmSrc(
+                sourceHandle,
+                expectedMixerHandle,
+                fileName,
+                sampleRateConversionQuality);
+        }
+
+        // pause中のmatrix設定はnative仕様上rampされず、開始時はNORAMPINで抑制します。
+        float[,] matrix;
+        if (preparedMatrix != null)
+        {
+            if (preparedMatrix.GetLength(0) != mixerInfo.Channels
+                || preparedMatrix.GetLength(1) != sourceLayout.ChannelCount)
+            {
+                throw Failure(
+                    BassAudioPlaybackStage.MixerMatrix,
+                    fileName,
+                    sourceHandle,
+                    expectedMixerHandle,
+                    expectedMixerHandle,
+                    "prepared matrix dimensions",
+                    null,
+                    "The prepared matrix does not match the source and mixer channel counts.");
+            }
+            matrix = preparedMatrix;
+        }
+        else
+        {
+            try
+            {
+                matrix = AudioChannelMatrix.Create(
+                    sourceLayout,
+                    AudioChannelLayout.CreateBassOutput(mixerInfo.Channels));
+            }
+            catch (ArgumentException exception)
+            {
+                throw Failure(
+                    BassAudioPlaybackStage.MixerMatrix,
+                    fileName,
+                    sourceHandle,
+                    expectedMixerHandle,
+                    expectedMixerHandle,
+                    "AudioChannelMatrix.Create",
+                    null,
+                    "The source or output speaker layout has no defined routing matrix.",
+                    exception);
+            }
+        }
+
+        bool succeeded;
+        try
+        {
+            succeeded = native.SetMatrix(sourceHandle, matrix);
+        }
+        catch (Exception exception)
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerMatrix,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_Mixer_ChannelSetMatrix",
+                null,
+                "Setting the paused source matrix threw an exception.",
+                exception);
+        }
+
+        if (!succeeded)
+        {
+            Errors error = native.GetError();
+            throw Failure(
+                BassAudioPlaybackStage.MixerMatrix,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_Mixer_ChannelSetMatrix",
+                error,
+                "Setting the paused source matrix failed.");
+        }
     }
 
     /// <summary>Verifies that a source belongs to the expected mixer without attaching it.</summary>
@@ -596,6 +832,115 @@ internal sealed class BassMixerSourceController
                 "BASS_Mixer_ChannelFlags",
                 error,
                 paused ? "Pausing the mixer source failed." : "Resuming the mixer source failed.");
+        }
+    }
+
+    private BassMixerChannelInfo ReadChannelInfo(
+        int channelHandle,
+        int expectedMixerHandle,
+        string fileName,
+        string nativeSource)
+    {
+        try
+        {
+            return native.GetChannelInfo(channelHandle);
+        }
+        catch (Exception exception)
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                channelHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                nativeSource,
+                null,
+                "Reading a BASS channel format threw an exception.",
+                exception);
+        }
+    }
+
+    private void SetAndConfirmSrc(
+        int sourceHandle,
+        int expectedMixerHandle,
+        string fileName,
+        int sampleRateConversionQuality)
+    {
+        bool set;
+        try
+        {
+            set = native.SetSampleRateConversion(sourceHandle, sampleRateConversionQuality);
+        }
+        catch (Exception exception)
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelSetAttribute(BASS_ATTRIB_SRC)",
+                null,
+                "Setting the source SRC quality threw an exception.",
+                exception);
+        }
+        if (!set)
+        {
+            Errors error = native.GetError();
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelSetAttribute(BASS_ATTRIB_SRC)",
+                error,
+                $"Setting source SRC quality to {sampleRateConversionQuality} failed.");
+        }
+
+        bool read;
+        float actualQuality;
+        try
+        {
+            read = native.GetSampleRateConversion(sourceHandle, out actualQuality);
+        }
+        catch (Exception exception)
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelGetAttribute(BASS_ATTRIB_SRC)",
+                null,
+                "Reading back source SRC quality threw an exception.",
+                exception);
+        }
+        if (!read)
+        {
+            Errors error = native.GetError();
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelGetAttribute(BASS_ATTRIB_SRC)",
+                error,
+                "Reading back source SRC quality failed.");
+        }
+        if (actualQuality != sampleRateConversionQuality)
+        {
+            throw Failure(
+                BassAudioPlaybackStage.MixerSourceFormat,
+                fileName,
+                sourceHandle,
+                expectedMixerHandle,
+                expectedMixerHandle,
+                "BASS_ChannelGetAttribute(BASS_ATTRIB_SRC)",
+                null,
+                $"BASS reported SRC quality {actualQuality} after requesting {sampleRateConversionQuality}.");
         }
     }
 

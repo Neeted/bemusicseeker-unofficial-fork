@@ -7,7 +7,7 @@ namespace Ribbit.Util;
 /// <summary>
 /// 自然順ソートを行う比較器です。
 /// </summary>
-public class NaturalComparer<T> : Comparer<string>, IDisposable
+public class NaturalComparer : Comparer<string>, IDisposable
 {
     private static readonly Regex SplitRegex = new("([+-]?[0-9]+(\\.[0-9]*)?)", RegexOptions.Compiled);
 

@@ -12,8 +12,119 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
+    [TestMethod]
+    public async Task CapabilityQuery_CancellationReachesRuntimeAndReleasesAdmission()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int calls = 0;
+        int released = 0;
+        using var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => Assert.Fail("Query must not stop playback.")),
+            new RecordingAudioDeviceTestRuntime(() => CreateResult()),
+            new DelegateAudioDeviceCapabilityRuntime((request, token) =>
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    started.TrySetResult();
+                    token.WaitHandle.WaitOne();
+                    token.ThrowIfCancellationRequested();
+                }
+                return new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity,
+                    request.DeviceName, AudioDeviceCapabilityStatus.Available);
+            }));
+        owner.OperationReleased += () => released++;
+        Task<AudioDeviceCapabilityResult> first = owner.TryQueryCapabilitiesAsync(CreateCapabilityRequest());
+        try
+        {
+            await started.Task;
+            Assert.IsTrue(owner.IsRunning);
+            owner.CancelCurrentQuery();
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await first);
+        }
+        finally
+        {
+            owner.CancelCurrentQuery();
+            try { await first; } catch (OperationCanceledException) { }
+        }
+        Assert.IsFalse(owner.IsRunning);
+        Assert.AreEqual(1, released);
+        Assert.AreEqual(AudioDeviceCapabilityStatus.Available,
+            (await owner.TryQueryCapabilitiesAsync(CreateCapabilityRequest())).Status);
+        Assert.AreEqual(2, calls);
+        Assert.AreEqual(2, released);
+    }
+
+    [TestMethod]
+    public async Task ProcessAudioRequestBusy_RejectsTestAndQueryBeforeStoppingOrInitializing()
+    {
+        var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blocker = Task.Run(async () =>
+        {
+            Assert.IsTrue(BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission));
+            using (admission)
+            {
+                accepted.TrySetResult();
+                await release.Task;
+            }
+        });
+        int stops = 0;
+        var runtime = new RecordingAudioDeviceTestRuntime(() => CreateResult());
+        using var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => stops++), runtime);
+        try
+        {
+            await accepted.Task;
+            Assert.IsNull(await owner.TryRunAsync(CreateRequest()));
+            Assert.AreEqual(0, stops);
+            Assert.AreEqual(0, runtime.CallCount);
+            AudioDeviceCapabilityResult query = BassAudioPlayer.QueryAudioDeviceCapabilities(CreateCapabilityRequest());
+            Assert.AreEqual(AudioDeviceCapabilityStatus.Busy, query.Status);
+            AudioDeviceTestRequest request = CreateRequest();
+            AudioInitializationException busy = Assert.ThrowsException<AudioInitializationException>(() =>
+                BassAudioPlayer.InitializeOwned(request.AudioOutputRequest, 50, out _));
+            Assert.AreEqual("audio request busy", busy.Stage);
+            Assert.AreEqual("BassAudioOperationGate", busy.NativeErrorSource);
+            Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, busy.RequestedBackend);
+            Assert.AreEqual("driver", busy.RequestedDevice.Driver);
+            Assert.AreEqual("Device", busy.RequestedDevice.Name);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await blocker;
+        }
+        Assert.IsNotNull(await owner.TryRunAsync(CreateRequest()));
+        Assert.AreEqual(1, stops);
+        Assert.AreEqual(1, runtime.CallCount);
+    }
+
+    [TestMethod]
+    public void StreamObserver_CleanupFailurePreservesEarlierFailureAndProgress()
+    {
+        var cleanup = new InvalidOperationException("source cleanup failed");
+        var successful = new FakeSoundBoundary(elapsed => elapsed) { DisposeException = cleanup };
+        AudioDeviceTestStreamObservation progress = AudioDeviceTestStreamObserver.Observe("test.wav", successful);
+        Assert.IsTrue(progress.Succeeded);
+        Assert.IsTrue(progress.WallClockDuration >= TimeSpan.FromSeconds(1));
+        Assert.AreSame(cleanup, progress.CleanupFailure);
+        Assert.AreEqual(1, successful.DisposedPlayerCount);
+
+        var failed = new FakeSoundBoundary(elapsed => elapsed)
+        {
+            PlayException = new InvalidOperationException("play failed"),
+            DisposeException = cleanup
+        };
+        AudioDeviceTestStreamObservation failure = AudioDeviceTestStreamObserver.Observe("test.wav", failed);
+        Assert.IsFalse(failure.Succeeded);
+        StringAssert.Contains(failure.DiagnosticReason, "play failed");
+        Assert.AreSame(cleanup, failure.CleanupFailure);
+        Assert.AreEqual(1, failed.DisposedPlayerCount);
+    }
+
     [TestMethod]
     public async Task TryRunAsync_StopsPlaybackBeforeRuntimeAndRejectsDuplicate()
     {
@@ -47,24 +158,235 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             Assert.IsFalse(owner.IsRunning);
             CollectionAssert.AreEqual(new[] { "stop", "runtime" }, events);
             Assert.AreEqual(1, runtime.CallCount);
+
+            AudioDeviceTestResult retry = await owner.TryRunAsync(request);
+            Assert.IsTrue(retry.Succeeded);
+            Assert.IsFalse(owner.IsRunning);
+            CollectionAssert.AreEqual(new[] { "stop", "runtime", "stop", "runtime" }, events);
+            Assert.AreEqual(2, runtime.CallCount);
         }
         finally
         {
             releaseRuntime.TrySetResult();
+            await firstTask;
         }
+    }
+
+    [TestMethod]
+    public async Task TryRunAsync_ResultKeepsSavedValuesButReportsEffectiveSharedRequest()
+    {
+        var request = new AudioDeviceTestRequest(
+            AudioDriver.WasapiShared,
+            "shared-device",
+            "Shared device",
+            SampleRate.SAMPLE_RATE_44100Hz,
+            SampleFormat.SAMPLE_INT_16BIT,
+            37,
+            playerWASAPIParam: true,
+            playerVolume: 50,
+            playSound: false,
+            playerMixerThreadCount: 3);
+        var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => { }),
+            new RecordingAudioDeviceTestRuntime(() => AudioDeviceTestResultFactory.CreateSuccessful(request)));
+
+        AudioDeviceTestResult success = await owner.TryRunAsync(request);
+        var failed = new AudioDeviceTestResult(
+            request,
+            initialization: null,
+            streamProgressRequired: false,
+            streamProgressSucceeded: false,
+            TimeSpan.Zero,
+            TimeSpan.Zero,
+            progressRatio: null,
+            failureReason: "initialization failed",
+            failureKind: AudioDeviceTestFailureKind.Unexpected,
+            primaryFailure: new InvalidOperationException("initialization failed"),
+            cleanupFailure: new InvalidOperationException("cleanup failed"));
+
+        foreach (AudioDeviceTestResult result in new[] { success, failed })
+        {
+            Assert.AreEqual(SampleRate.AUTO, result.RequestedRate);
+            Assert.AreEqual(SampleFormat.AUTO, result.RequestedFormat);
+            Assert.AreEqual(0f, result.RequestedBufferSize);
+            Assert.IsTrue(result.RequestedEventMode);
+        }
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, request.PlayerSampleRate);
+        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, request.PlayerFormat);
+        Assert.AreEqual(37f, request.PlayerBufferSize);
+        Assert.IsTrue(request.PlayerWASAPIParam);
+        Assert.AreEqual(3, request.PlayerMixerThreadCount);
+        Assert.AreEqual(3, request.AudioOutputRequest.PlayerMixerThreadCount);
     }
 
     [TestMethod]
     public async Task TryRunAsync_RuntimeFailureReleasesBusyState()
     {
+        int attempts = 0;
         var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => { }),
-            new RecordingAudioDeviceTestRuntime(() => throw new InvalidOperationException("audio test failed")));
+            new RecordingAudioDeviceTestRuntime(request =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                {
+                    throw new InvalidOperationException("audio test failed");
+                }
+                return AudioDeviceTestResultFactory.CreateSuccessful(request);
+            }));
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => owner.TryRunAsync(CreateRequest()));
+        AudioDeviceTestResult result = await owner.TryRunAsync(CreateRequest());
+        Assert.IsNotNull(result);
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsInstanceOfType<InvalidOperationException>(result.PrimaryFailure);
+        Assert.AreEqual("audio test failed", result.PrimaryFailure.Message);
+        Assert.IsNotNull(result.Request);
+        Assert.IsNull(result.Initialization);
+        Assert.IsFalse(owner.IsRunning);
+        AudioDeviceTestResult retry = await owner.TryRunAsync(CreateRequest());
+        Assert.IsTrue(retry.Succeeded);
+        Assert.AreEqual(2, attempts);
+        Assert.IsFalse(owner.IsRunning);
+    }
 
-        Assert.AreEqual("audio test failed", exception.Message);
+    [TestMethod]
+    public async Task TryRunAsync_ObservationTimeoutReleasesPlayerAndAllowsSameOwnerRetry()
+    {
+        int attempts = 0;
+        var timeoutBoundary = new FakeSoundBoundary(elapsed => elapsed)
+        {
+            Duration = TimeSpan.FromSeconds(2),
+            StateProvider = _ => PlayState.Playing
+        };
+        var runtime = new RecordingAudioDeviceTestRuntime(request =>
+        {
+            if (Interlocked.Increment(ref attempts) > 1)
+            {
+                return AudioDeviceTestResultFactory.CreateSuccessful(request);
+            }
+
+            AudioDeviceTestStreamObservation observation = AudioDeviceTestStreamObserver.Observe(
+                "test.wav",
+                timeoutBoundary);
+            return new AudioDeviceTestResult(
+                request,
+                initialization: null,
+                streamProgressRequired: request.PlaySound,
+                streamProgressSucceeded: observation.Succeeded,
+                wallClockDuration: observation.WallClockDuration,
+                playbackPositionDuration: observation.PlaybackPositionDuration,
+                progressRatio: observation.ProgressRatio,
+                failureReason: observation.FailureReason,
+                failureKind: observation.FailureKind,
+                cleanupFailure: observation.CleanupFailure);
+        });
+        using var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => { }),
+            runtime);
+        int releaseNotifications = 0;
+        owner.OperationReleased += () => releaseNotifications++;
+
+        AudioDeviceTestResult timeout = await owner.TryRunAsync(CreateRequest(playSound: true));
+
+        Assert.AreEqual(AudioDeviceTestFailureKind.ObservationTimedOut, timeout.FailureKind);
+        Assert.AreEqual(1, timeoutBoundary.DisposedPlayerCount);
+        Assert.IsFalse(owner.IsRunning);
+        Assert.AreEqual(1, releaseNotifications);
+
+        AudioDeviceTestResult retry = await owner.TryRunAsync(CreateRequest(playSound: true));
+
+        Assert.IsTrue(retry.Succeeded);
+        Assert.IsFalse(owner.IsRunning);
+        Assert.AreEqual(2, attempts);
+        Assert.AreEqual(2, releaseNotifications);
+    }
+
+    [TestMethod]
+    public async Task CapabilityQuery_SharesAcceptanceWithoutStoppingPlayback()
+    {
+        var queryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseQuery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int stopCount = 0;
+        int queryCount = 0;
+        var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
+        {
+            queryCount++;
+            queryStarted.TrySetResult();
+            releaseQuery.Task.GetAwaiter().GetResult();
+            return new AudioDeviceCapabilityResult(
+                request.Backend,
+                request.DeviceIdentity,
+                request.DeviceName,
+                AudioDeviceCapabilityStatus.Available,
+                [SampleRate.SAMPLE_RATE_48000Hz]);
+        });
+        var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => stopCount++),
+            new RecordingAudioDeviceTestRuntime(() => CreateResult()),
+            capabilityRuntime);
+        AudioDeviceCapabilityRequest request = CreateCapabilityRequest();
+
+        Task<AudioDeviceCapabilityResult> queryTask = owner.TryQueryCapabilitiesAsync(request);
+        try
+        {
+            await queryStarted.Task;
+            Assert.IsTrue(owner.IsRunning);
+            Assert.IsNull(await owner.TryQueryCapabilitiesAsync(request));
+            Assert.IsNull(await owner.TryRunAsync(CreateRequest()));
+            Assert.AreEqual(0, stopCount);
+            Assert.AreEqual(1, queryCount);
+
+            releaseQuery.TrySetResult();
+            AudioDeviceCapabilityResult result = await queryTask;
+            Assert.AreEqual(AudioDeviceCapabilityStatus.Available, result.Status);
+            Assert.IsFalse(owner.IsRunning);
+        }
+        finally
+        {
+            releaseQuery.TrySetResult();
+            await queryTask;
+        }
+    }
+
+    [TestMethod]
+    public async Task CapabilityQueryAndDeviceTestCanRepeatThroughOneWorkflowOwner()
+    {
+        int queryCount = 0;
+        int testCount = 0;
+        int stopCount = 0;
+        var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => stopCount++),
+            new RecordingAudioDeviceTestRuntime(() =>
+            {
+                testCount++;
+                return CreateResult();
+            }),
+            new DelegateAudioDeviceCapabilityRuntime(request =>
+            {
+                queryCount++;
+                return new AudioDeviceCapabilityResult(
+                    request.Backend,
+                    request.DeviceIdentity,
+                    request.DeviceName,
+                    AudioDeviceCapabilityStatus.Available,
+                    [SampleRate.SAMPLE_RATE_48000Hz]);
+            }));
+
+        for (int repetition = 0; repetition < 2; repetition++)
+        {
+            AudioDeviceCapabilityResult capability = await owner.TryQueryCapabilitiesAsync(
+                CreateCapabilityRequest());
+            Assert.AreEqual(AudioDeviceCapabilityStatus.Available, capability.Status);
+            AudioDeviceTestResult test = await owner.TryRunAsync(CreateRequest());
+            Assert.IsTrue(test.Succeeded);
+            Assert.IsFalse(owner.IsRunning);
+        }
+
+        AudioDeviceTestResult repeatedTest = await owner.TryRunAsync(CreateRequest());
+
+        Assert.IsTrue(repeatedTest.Succeeded);
+        Assert.AreEqual(2, queryCount);
+        Assert.AreEqual(3, testCount);
+        Assert.AreEqual(3, stopCount);
         Assert.IsFalse(owner.IsRunning);
     }
 
@@ -246,8 +568,10 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     [TestMethod]
     public void AudioDeviceTestResult_PreservesTypedPlaybackDiagnostics()
     {
-        AudioPlaybackInitializationResult initialization = CreateResult().Initialization;
+        AudioPlaybackInitializationResult initialization = CreateResult().Initialization
+            ?? throw new AssertFailedException("The successful test must retain its initialization.");
         var result = new AudioDeviceTestResult(
+            CreateRequest(),
             initialization,
             streamProgressRequired: true,
             streamProgressSucceeded: false,
@@ -437,7 +761,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(ratio, observation.ProgressRatio.GetValueOrDefault(), 0.001);
     }
 
-    private static AudioDeviceTestRequest CreateRequest()
+    private static AudioDeviceTestRequest CreateRequest(bool playSound = false)
     {
         return new AudioDeviceTestRequest(
             AudioDriver.WasapiShared,
@@ -448,8 +772,16 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             10,
             false,
             50,
-            playSound: false);
+            playSound: playSound);
     }
+
+    private static AudioDeviceCapabilityRequest CreateCapabilityRequest()
+        => new(
+            AudioDriver.Asio,
+            "asio-device",
+            "ASIO Device",
+            SampleRate.SAMPLE_RATE_48000Hz,
+            SampleFormat.SAMPLE_INT_16BIT);
 
     private static AudioDeviceTestResult CreateResult(
         AudioDriver driver = AudioDriver.WasapiShared)
@@ -474,17 +806,23 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             this.stopPlayback = stopPlayback;
         }
 
-        public void StopPlayback()
+        public Task StopPlayback()
         {
             stopPlayback();
+            return Task.CompletedTask;
         }
     }
 
     private sealed class RecordingAudioDeviceTestRuntime : IAudioDeviceTestRuntime
     {
-        private readonly Func<AudioDeviceTestResult> run;
+        private readonly Func<AudioDeviceTestRequest, AudioDeviceTestResult> run;
 
         internal RecordingAudioDeviceTestRuntime(Func<AudioDeviceTestResult> run)
+        {
+            this.run = _ => run();
+        }
+
+        internal RecordingAudioDeviceTestRuntime(Func<AudioDeviceTestRequest, AudioDeviceTestResult> run)
         {
             this.run = run;
         }
@@ -494,8 +832,28 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
         {
             CallCount++;
-            return run();
+            return run(request);
         }
+    }
+
+    private sealed class DelegateAudioDeviceCapabilityRuntime : IAudioDeviceCapabilityRuntime
+    {
+        private readonly Func<AudioDeviceCapabilityRequest, CancellationToken, AudioDeviceCapabilityResult> query;
+
+        internal DelegateAudioDeviceCapabilityRuntime(
+            Func<AudioDeviceCapabilityRequest, AudioDeviceCapabilityResult> query)
+            : this((request, _) => query(request))
+        {
+        }
+
+        internal DelegateAudioDeviceCapabilityRuntime(
+            Func<AudioDeviceCapabilityRequest, CancellationToken, AudioDeviceCapabilityResult> query)
+        {
+            this.query = query;
+        }
+
+        public AudioDeviceCapabilityResult Query(AudioDeviceCapabilityRequest request, CancellationToken cancellationToken)
+            => query(request, cancellationToken);
     }
 
     private sealed class FakeSoundBoundary : IAudioDeviceTestSoundBoundary
@@ -514,6 +872,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         internal TimeSpan Elapsed => TimeSpan.FromTicks(timestamp - 1);
 
         internal Exception? PlayException { get; set; }
+
+        internal Exception? DisposeException { get; set; }
 
         internal Exception? CreateException { get; set; }
 
@@ -548,7 +908,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             PlayerCreated = true;
             CreatedPlayerCount++;
             positionReadOrdinal = 0;
-            return new FakeAudioPlayer(
+            var player = new FakeAudioPlayer(
                 ReadPosition,
                 () =>
                 {
@@ -558,13 +918,21 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                         : PlayState.Playing);
                 },
                 () => PlayException,
-                () => Duration,
+                () =>
+                {
+                    return Duration;
+                },
                 () => PlayCount++,
                 () =>
                 {
                     DisposedPlayerCount++;
                     DisposedAt = Elapsed;
+                    if (DisposeException != null)
+                    {
+                        throw DisposeException;
+                    }
                 });
+            return player;
         }
 
         public long GetTimestamp() => timestamp;

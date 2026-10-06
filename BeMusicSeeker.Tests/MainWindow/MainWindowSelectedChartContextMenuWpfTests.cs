@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using System.Windows.Controls.Primitives;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -58,6 +60,108 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.AreEqual(Resources.Open_chart_viewer, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Header);
             },
             selectedChartContextMenuTerminals: terminals);
+    }
+
+    [TestMethod]
+    public void CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(MainWindowSelectedChartContextMenuWpfTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string bmsonPath = Path.Combine(root, "first.bmson");
+            string bmsPath = Path.Combine(root, "second.bms");
+            File.WriteAllText(bmsonPath, "{\"info\":{\"title\":\"First\",\"init_bpm\":120},\"sound_channels\":[]}");
+            File.WriteAllText(bmsPath, "#TITLE Second\n#BPM 120\n");
+            LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, new string('b', 32), bmsonPath);
+            LibraryChartRow bmsRow = CreateChartRow(ChartFileKind.Bms, new string('c', 32), bmsPath);
+            var pendingBmsonRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsonRow.Chart));
+            var pendingBmsRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsRow.Chart));
+            LibraryChartRow missingRow = CreateChartRow(ChartFileKind.Bmson, new string('d', 32), Path.Combine(root, "missing.bmson"));
+            var calls = new List<SelectedChartAudioConversionRequest>();
+            MainWindowSelectedChartAudioConversionTerminal audio = new(
+                (request, _) =>
+                {
+                    calls.Add(request);
+                    return Task.FromResult(SelectedChartAudioConversionResult.Empty);
+                });
+
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    MenuItem convert = FindMenuItem(menu, "tableContextMenuItemConvertToAudioFile");
+                    Separator convertSeparator = menu.Items.OfType<Separator>()
+                        .Single(item => item.Name == "tableContextMenuSeparatorForConvert");
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    table.ItemsSource = new List<object> { bmsonRow, bmsRow };
+                    table.SelectRowsByPredicate(row => ReferenceEquals(row, bmsonRow));
+                    menu.PlacementTarget = new FrameworkElement { DataContext = bmsonRow };
+
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Visible, convert.Visibility);
+                    Assert.IsTrue(convert.IsEnabled);
+                    Assert.AreEqual(Visibility.Visible, convertSeparator.Visibility);
+                    Assert.IsTrue(convertSeparator.IsEnabled);
+                    foreach (string name in new[]
+                    {
+                        "tableContextMenuItemFixEncoding",
+                        "tableContextMenuItemRegisterScore",
+                        "tableContextMenuItemUpdateRankingData",
+                        "tableContextMenuItemRenameInvalidExt"
+                    })
+                    {
+                        MenuItem bmsOnly = FindMenuItem(menu, name);
+                        Assert.AreEqual(Visibility.Collapsed, bmsOnly.Visibility, name);
+                        Assert.IsFalse(bmsOnly.IsEnabled, name);
+                    }
+                    Assert.IsTrue(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(1, calls.Count);
+                    Assert.AreEqual(1, calls[0].Targets.Count);
+                    Assert.AreSame(bmsonRow.Chart, calls[0].Targets[0].Chart);
+                    Assert.IsNull(calls[0].Targets[0].Chart.GetBmsStorageOwner());
+
+                    table.SelectRowsByPredicate(_ => true);
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Visible, convert.Visibility);
+                    Assert.IsTrue(convert.IsEnabled);
+                    Assert.IsTrue(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+                    CollectionAssert.AreEqual(new[] { bmsonRow.Chart, bmsRow.Chart }, calls[1].Targets.Select(target => target.Chart).ToArray());
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    table.ItemsSource = new List<object> { pendingBmsonRow, pendingBmsRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = pendingBmsonRow };
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Collapsed, convert.Visibility);
+                    Assert.IsFalse(convert.IsEnabled);
+                    Assert.AreEqual(Visibility.Collapsed, convertSeparator.Visibility);
+                    Assert.IsFalse(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    table.ItemsSource = new List<object> { missingRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = missingRow };
+                    OpenContextMenu(menu);
+
+                    Assert.IsFalse(convert.IsEnabled);
+                    Assert.IsFalse(convertSeparator.IsEnabled);
+                    Assert.IsFalse(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+                },
+                selectedChartContextMenuTerminals: CreateTerminals(audio: audio));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -408,6 +512,77 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CompiledPendingProgramMenuLaunchesCurrentRightClickedChartWithMultipleSelection(bool bmson)
+    {
+        ChartFileKind kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
+        string extension = kind == ChartFileKind.Bmson ? ".bmson" : ".bms";
+        string chartPath = @"C:\Pending\right clicked" + extension;
+        string updatedPath = @"C:\Pending\current chart" + extension;
+        string otherPath = @"C:\Pending\first selected" + extension;
+        Settings settings = new()
+        {
+            RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+                new RightClickActionSettings([], [new RightClickProgramActionDefinition(
+                    "player", "Player", @"C:\Tools\player.exe", "--chart \"{filePath}\"", enabled: true)]))
+        };
+        var requests = new List<ExternalProgramLaunchRequest>();
+        SelectedChartExternalActionWorkflowOwner owner = new(
+            path => path == chartPath || path == updatedPath || path == otherPath,
+            ExternalShellGatewayPolicy.Current,
+            settingsProvider: () => settings,
+            externalProgramLaunchGateway: new CapturingProgramLaunchGateway(requests));
+        MainWindowSelectedChartExternalActionsTerminal external = new(
+            owner.CanExecute,
+            owner.Execute,
+            _ => false,
+            (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
+            owner.OpenRelatedDocument,
+            owner.CreateResolutionInput,
+            owner.ResolveConfiguredActions,
+            owner.ExecuteConfiguredAction);
+        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(
+            CreateChartRow(kind, new string('c', 32), chartPath).Chart));
+        var otherRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(
+            CreateChartRow(kind, new string('d', 32), otherPath).Chart));
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { otherRow, row };
+                table.SelectRowsByPredicate(_ => true);
+                CollectionAssert.AreEqual(new object[] { otherRow, row }, table.GetSelectedRowsSnapshot().ToArray());
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                OpenContextMenu(menu);
+
+                MenuItem parent = FindMenuItem(menu, "tableContextMenuItemOpenProgramActions");
+                Assert.AreEqual(Visibility.Visible, parent.Visibility);
+                Assert.IsTrue(parent.IsEnabled);
+                Assert.AreEqual(Resources.RightClick_open_with_program, parent.Header);
+                MenuItem child = FindMenuItem(parent, "configuredProgramAction_player");
+                Assert.AreEqual(Visibility.Visible, child.Visibility);
+                Assert.IsTrue(child.IsEnabled);
+                Assert.AreEqual("Player", child.Header);
+                Assert.AreEqual(0, requests.Count);
+
+                row.PackageEntry.ApplyInstalledPath(updatedPath);
+                Assert.AreEqual(updatedPath, row.Chart.Path);
+                Assert.IsTrue(RaiseMenuClick(child).Handled);
+
+                Assert.AreEqual(1, requests.Count);
+                Assert.AreEqual("player", requests[0].ActionId);
+                Assert.AreEqual(updatedPath, requests[0].ChartFilePath);
+                CollectionAssert.AreEqual(new[] { "--chart", updatedPath }, requests[0].Arguments.ToArray());
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    [TestMethod]
     public void CompiledSelectedChartExternalActionsUseEligibilityAndExactRowTargets()
     {
         var localActionCalls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
@@ -674,6 +849,15 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 (_, _, _) => ExternalConfiguredActionResult.Failure(
                     ExternalConfiguredActionFailureKind.ActionUnavailable,
                     string.Empty)));
+    }
+
+    private sealed class CapturingProgramLaunchGateway(List<ExternalProgramLaunchRequest> requests) : IExternalProgramLaunchGateway
+    {
+        public ExternalProgramLaunchResult Launch(ExternalProgramLaunchRequest request)
+        {
+            requests.Add(request);
+            return ExternalProgramLaunchResult.Success;
+        }
     }
 
     private static TaskCompletionSource<T> NewCompletion<T>()

@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -228,10 +227,16 @@ public sealed class Lr2CompatibilityGoldenTests
         BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
         var file = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
         var resources = ChartResourceSnapshot.Create(CreateChart(file));
+        var aggregate = ChartResourceSnapshot.CreateAggregate([CreateChart(file)]);
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, resources);
 
         Assert.IsTrue(file.UnsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+        foreach (ChartResourceSnapshot resourceSnapshot in new[] { resources, aggregate })
+        {
+            Assert.IsTrue(resourceSnapshot.UnsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+            Assert.IsFalse(resourceSnapshot.HasUnsupportedParentTraversalReference);
+        }
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported));
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathTooLong));
         Assert.AreEqual(StrictShiftJisByteCount(longRawPath), evaluation.MaxRelativeCp932Bytes);

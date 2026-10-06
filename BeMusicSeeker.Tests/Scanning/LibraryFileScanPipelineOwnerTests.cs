@@ -175,10 +175,15 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 trackLibraryFileCheckProgress: true,
                 installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
             Assert.IsTrue(first.FileCheckResult.HasDbDiff);
+            Assert.AreEqual(1, first.FileCheckResult.BmsPathCount);
+            Assert.AreEqual(1, first.FileCheckResult.BmsAddedTargetCount);
+            Assert.AreEqual(1, first.FileCheckResult.DbCommitBmsChangedCount);
+            Assert.IsTrue(callbacks.ParseProgress.Any(progress => progress.Total == 1 && progress.Processed == 1));
             Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
             int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
 
+            callbacks.ParseProgress.Clear();
             long secondGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_no_diff");
             Lr2FolderFileDiffPreparationResult second = owner.ApplyActiveFileScan(
                 secondGeneration,
@@ -186,6 +191,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
 
             Assert.IsFalse(second.FileCheckResult.HasDbDiff);
+            Assert.AreEqual(1, second.FileCheckResult.BmsPathCount);
+            Assert.AreEqual(0, second.FileCheckResult.BmsAddedTargetCount);
+            Assert.AreEqual(0, second.FileCheckResult.DbCommitBmsChangedCount);
+            Assert.IsFalse(callbacks.ParseProgress.Any(progress => progress.Total > 0));
             Assert.IsNotNull(callbacks.LastCatalogReplacement);
             Assert.IsFalse(callbacks.LastCatalogReplacement.Receipt.Applied);
             Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
@@ -894,6 +903,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public List<string> EverythingMessages { get; } = [];
 
+        public List<(int Total, int Processed)> ParseProgress { get; } = [];
+
         public CatalogStorageRowsOwner CatalogStorageRowsOwner { get; set; } = null!;
 
         public CatalogOwnedCollectionOwner CatalogOwnedCollectionOwner { get; set; } = null!;
@@ -918,6 +929,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string currentPath = null!,
             bool force = false)
         {
+            if (stage == BMSLibrary.LibraryInitializationProgressStage.FileDiff)
+            {
+                lock (ParseProgress)
+                {
+                    ParseProgress.Add((totalCount, processedCount));
+                }
+            }
         }
 
         public void CompleteLibraryFileEnumerationProgress()

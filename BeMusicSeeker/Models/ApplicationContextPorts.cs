@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Windows.Threading;
-using BeMusicSeeker.Models.Localization;
 
 namespace BeMusicSeeker.Models;
 
@@ -334,12 +332,4 @@ internal interface IApplicationLifetimePort
 internal interface ICultureCatalog
 {
     IReadOnlyDictionary<string, string> Cultures { get; }
-}
-
-internal sealed class JsonCultureCatalog : ICultureCatalog
-{
-    private readonly IReadOnlyDictionary<string, string> cultures =
-        JsonLanguageCatalog.GetLanguagesSnapshot();
-
-    public IReadOnlyDictionary<string, string> Cultures => cultures;
 }

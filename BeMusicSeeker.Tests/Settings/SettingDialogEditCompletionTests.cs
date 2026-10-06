@@ -23,7 +23,6 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
-using BeMusicSeeker.Views.Settings;
 using Livet;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -944,6 +943,121 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void ApplySettingsAsync_AudioProcessingChangesDoNotReplaceCurrentPlaybackRuntime(bool originalEventMode, bool eventOnly)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            async Task VerifyAsync()
+            {
+                string root = CreateTemporaryRoot();
+                PlaybackPanelViewModel? playingPanel = null;
+                var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                try
+                {
+                    Settings values = CreateValidStandaloneSettings(root);
+                    values.PlayerResamplingQuality = 4;
+                    values.PlayerMixerThreadCount = 1;
+                    values.PlayerWASAPIParam = originalEventMode;
+                    var settingsSession = new CountingSettingsEditSession(values);
+                    var sequence = new List<string>();
+                    settingsSession.SaveObserved = () => sequence.Add("save");
+                    var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
+                    var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+                    MainWindowViewModel viewModel = CreateViewModel(
+                        settingsSession,
+                        firstStartup: false,
+                        playerFactoryPort: factory,
+                        playbackRuntimePort: runtime);
+                    SetActiveLibraryProfile(viewModel, true);
+                    AttachPlaylistTables(viewModel, root);
+                    var currentPlayer = new PlaybackPanelViewModelTests.PreloadBmsPlayer
+                    {
+                        BeginOperation = _ => new PlaybackStartOperation(Task.CompletedTask, completion.Task),
+                        CloseCompletion = () => { completion.TrySetCanceled(); return Task.CompletedTask; }
+                    };
+                    playingPanel = viewModel.PlaybackPanel;
+                    await playingPanel.ReplacePlayerAsync(currentPlayer);
+                    string chartPath = Path.Combine(root, "current.bms");
+                    File.WriteAllText(chartPath, "#PLAYER 1\n#BPM 120\n#00111:00\n");
+                    var currentChart = new BeMusicSeeker.Models.BMSFile { path = chartPath };
+                    viewModel.MainChartList.Rows = new List<object> { currentChart };
+                    await playingPanel.StartAtIndex(0);
+                    Assert.AreSame(currentChart, playingPanel.NowPlayingBmsFile);
+                    Assert.IsTrue(playingPanel.IsPlaying);
+                    SettingsDialogViewModel dialog = viewModel.SettingDialog;
+                    dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+                    if (eventOnly) { dialog.PlayerWASAPIParam = !originalEventMode; }
+                    else { dialog.PlayerResamplingQuality = 2; dialog.PlayerMixerThreadCount = 4; }
+
+                    await dialog.ApplySettingsAsync();
+
+                    CollectionAssert.AreEqual(
+                        new[] { "save", "close" },
+                        sequence);
+                    Assert.AreEqual(eventOnly ? 4 : 2, values.PlayerResamplingQuality);
+                    Assert.AreEqual(eventOnly ? 1 : 4, values.PlayerMixerThreadCount);
+                    Assert.AreEqual(eventOnly ? !originalEventMode : originalEventMode, values.PlayerWASAPIParam);
+                    Assert.AreEqual(0, runtime.ApplyCount);
+                    Assert.AreEqual(0, runtime.NotifyCount);
+                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    Assert.IsNull(runtime.LastReplacementPlayer);
+                    Assert.AreSame(currentChart, playingPanel.NowPlayingBmsFile);
+                    Assert.IsTrue(playingPanel.IsPlaying);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+                    CollectionAssert.AreEqual(new[] { chartPath }, currentPlayer.Starts.ToArray());
+                }
+                finally
+                {
+                    if (playingPanel != null) { await playingPanel.StopPlayback(closeProcess: true); }
+                    completion.TrySetCanceled();
+                    try { await completion.Task; } catch (OperationCanceledException) { }
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(VerifyAsync(), "audio-settings-current-playback");
+        });
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_PlayerMixerThreadOnlyChangeIsSaved()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerMixerThreadCount = 1;
+            var settingsSession = new CountingSettingsEditSession(values);
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                playbackRuntimePort: runtime);
+            SetActiveLibraryProfile(viewModel, true);
+            AttachPlaylistTables(viewModel, root);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.PlayerMixerThreadCount = 3;
+
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(new[] { "save", "close" }, sequence);
+            Assert.AreEqual(3, values.PlayerMixerThreadCount);
+            Assert.AreEqual(2, values.PlayerResamplingQuality);
+            Assert.IsNull(runtime.LastReplacementPlayer);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [TestMethod]
     public async Task ApplySettingsAsync_PlayerFactoryFailureLeavesPlaybackUntouched()
     {
@@ -1187,7 +1301,7 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
-    public async Task AudioDeviceTestBusy_BlocksEditCompletionAndCancellation()
+    public async Task AudioDeviceTestBusy_BlocksSaveCancellationAndPresentationCloseUntilRelease()
     {
         string root = CreateTemporaryRoot();
         try
@@ -1195,8 +1309,8 @@ public sealed class SettingDialogEditCompletionTests
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            using var runtimeStarted = new ManualResetEventSlim();
-            using var releaseRuntime = new ManualResetEventSlim();
+            var runtimeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseRuntime = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new BlockingAudioDeviceTestRuntime(runtimeStarted, releaseRuntime));
@@ -1219,24 +1333,39 @@ public sealed class SettingDialogEditCompletionTests
                 audioSettingsGateway: new TestAudioSettingsGateway());
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
+            dialog.SetPresentationActive(active: true);
 
-            Task testTask = dialog.RunAudioDeviceTestAsync();
+            Task? testTask = null;
+            try
+            {
+                testTask = dialog.RunAudioDeviceTestAsync();
+                await runtimeStarted.Task;
 
-            Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsFalse(dialog.IsEditCompletionEnabled);
-            Assert.IsFalse(dialog.IsEditCancellationEnabled);
+                Assert.IsFalse(dialog.IsEditCompletionEnabled);
+                Assert.IsFalse(dialog.IsEditCancellationEnabled);
+                Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
 
-            await dialog.ApplySettingsAsync();
-            dialog.CancelCommand.Execute();
-            Assert.AreEqual(0, settingsSession.SaveCount);
-            CollectionAssert.DoesNotContain(
-                presentation.Requests,
-                "close");
+                await dialog.ApplySettingsAsync();
+                dialog.CancelCommand.Execute();
+                Assert.AreEqual(0, settingsSession.SaveCount);
+                CollectionAssert.DoesNotContain(presentation.Requests, "close");
+                Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
 
-            releaseRuntime.Set();
-            await testTask;
-            Assert.IsTrue(dialog.IsEditCompletionEnabled);
-            Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                releaseRuntime.TrySetResult();
+                await testTask;
+                Assert.IsTrue(dialog.IsEditCompletionEnabled);
+                Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                Assert.IsNotNull(dialog.AudioDeviceTestStatusMessage);
+            }
+            finally
+            {
+                releaseRuntime.TrySetResult();
+                if (testTask != null)
+                {
+                    await testTask;
+                }
+                dialog.Dispose();
+            }
         }
         finally
         {
@@ -1252,6 +1381,8 @@ public sealed class SettingDialogEditCompletionTests
         {
             Settings settings = CreateValidStandaloneSettings(root);
             ConfigureExplicitAudioSettings(settings);
+            int originalResamplingQuality = settings.PlayerResamplingQuality;
+            int originalMixerThreadCount = settings.PlayerMixerThreadCount;
             var settingsSession = new CountingSettingsEditSession(settings);
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             var audioGateway = new TestAudioSettingsGateway
@@ -1261,27 +1392,46 @@ public sealed class SettingDialogEditCompletionTests
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
+            AudioDeviceTestRequest? capturedRequest = null;
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(request =>
-                    AudioDeviceTestResultFactory.CreateSuccessful(
-                        request,
-                        actualDeviceName: "Changed name",
-                        latency: 21,
-                        streamProgressSucceeded: false)));
+                {
+                    capturedRequest = request;
+                    return AudioDeviceTestResultFactory.CreateSuccessful(
+                            request,
+                            actualRate: SampleRate.SAMPLE_RATE_48000Hz,
+                            engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                            endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+                            actualDeviceName: "Changed name",
+                            latency: 21,
+                            streamProgressSucceeded: false);
+                }));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
                 audioGateway);
+            dialog.PlayerResamplingQuality = 3;
+            dialog.PlayerMixerThreadCount = 4;
 
             await dialog.RunAudioDeviceTestAsync();
 
+            Assert.AreEqual(3, capturedRequest?.SampleRateConversionQuality);
+            Assert.AreEqual(4, capturedRequest?.PlayerMixerThreadCount);
+            Assert.AreEqual(3, capturedRequest?.AudioOutputRequest.SampleRateConversionQuality);
+            Assert.AreEqual(4, capturedRequest?.AudioOutputRequest.PlayerMixerThreadCount);
+            Assert.AreEqual(originalResamplingQuality, settings.PlayerResamplingQuality);
+            Assert.AreEqual(originalMixerThreadCount, settings.PlayerMixerThreadCount);
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
-            Assert.AreEqual(0d, dialog.PlayerLatency);
-            StringAssert.Contains(
-                dialog.AudioDeviceTestStatusMessage,
-                Resources.AudioDeviceTestStreamProgressFailureReason);
+            string status = dialog.AudioDeviceTestStatusMessage;
+            StringAssert.Contains(status, Resources.AudioDeviceTestStreamProgressFailureReason);
+            StringAssert.Contains(status, Resources.AudioDeviceCapabilityAuto);
+            StringAssert.Contains(status, SampleFormat.AUTO.ToString());
+            Assert.IsFalse(status.Contains(
+                string.Format(Resources.AudioSampleRateOptionFormat, 44100),
+                StringComparison.Ordinal));
+            Assert.IsFalse(status.Contains(Resources.AudioSampleFormat16Bit, StringComparison.Ordinal));
         }
         finally
         {
@@ -1302,10 +1452,13 @@ public sealed class SettingDialogEditCompletionTests
             var audioGateway = new TestAudioSettingsGateway
             {
                 OutputSelection = new AudioOutputSelection(
-                    AudioDriver.WasapiShared,
+                    AudioDriver.Asio,
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
+            const string fallbackReason =
+                "Requested ASIO device identity was stale; a compatible name match was used. "
+                + "Requested ASIO endpoint format SAMPLE_INT_16BIT differs from native endpoint format SAMPLE_INT_24BIT.";
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(request =>
@@ -1316,7 +1469,11 @@ public sealed class SettingDialogEditCompletionTests
                         actualDeviceName: "Fallback device",
                         actualRate: SampleRate.SAMPLE_RATE_48000Hz,
                         engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
-                        fallbackReason: "fallbackDestination=WASAPI_SHARED")));
+                        endpointFormat: SampleFormat.SAMPLE_INT_24BIT,
+                        endpointContainerBits: 24,
+                        endpointEffectiveBits: 24,
+                        latency: 16.5,
+                        fallbackReason: fallbackReason)));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1325,15 +1482,235 @@ public sealed class SettingDialogEditCompletionTests
 
             await dialog.RunAudioDeviceTestAsync();
 
-            AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
-            Assert.AreEqual(0d, dialog.PlayerLatency);
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WASAPI");
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.Shared);
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioDeviceTestFallbackReason);
-            Assert.IsFalse(dialog.AudioDeviceTestStatusMessage.Contains("fallbackDestination=WASAPI_SHARED", StringComparison.Ordinal));
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.Asio);
+            string resultMessage = dialog.AudioDeviceTestStatusMessage;
+            StringAssert.Contains(resultMessage, AudioDriverDisplayNames.Get(AudioDriver.Asio));
+            StringAssert.Contains(resultMessage, "Requested device");
+            StringAssert.Contains(resultMessage, string.Format(Resources.AudioSampleRateOptionFormat, 44100));
+            StringAssert.Contains(resultMessage, SampleFormat.AUTO.ToString());
+            StringAssert.Contains(resultMessage, AudioDriverDisplayNames.Get(AudioDriver.WasapiShared));
+            StringAssert.Contains(resultMessage, "Fallback device");
+            StringAssert.Contains(resultMessage, string.Format(Resources.AudioSampleRateOptionFormat, 48000));
+            StringAssert.Contains(resultMessage, Resources.AudioSampleFormatFloat32);
+            StringAssert.Contains(resultMessage, Resources.AudioSampleFormat24Bit);
+            StringAssert.Contains(
+                resultMessage,
+                string.Format(Resources.AudioDeviceCapabilityPrecisionPairFormat, 24, 24));
+            StringAssert.Contains(resultMessage, Resources.AudioDeviceTestFallbackReason);
+            StringAssert.Contains(
+                resultMessage,
+                string.Format(System.Globalization.CultureInfo.CurrentCulture, "{0:N1}", 16.5));
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage ?? string.Empty, fallbackReason);
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceCapabilityQuery_AudioPageVisibilityRefreshesAndFiltersFormatsByRate()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiExclusive,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            AudioDeviceCapabilityRequest? observedRequest = null;
+            int queryCount = 0;
+            var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
+            {
+                observedRequest = request;
+                Interlocked.Increment(ref queryCount);
+                return new AudioDeviceCapabilityResult(
+                    request.Backend,
+                    request.DeviceIdentity,
+                    request.DeviceName,
+                    AudioDeviceCapabilityStatus.Available,
+                    [SampleRate.SAMPLE_RATE_352800Hz, SampleRate.SAMPLE_RATE_384000Hz],
+                    [
+                        new(SampleRate.SAMPLE_RATE_352800Hz, SampleFormat.SAMPLE_FLOAT_32BIT, true),
+                        new(SampleRate.SAMPLE_RATE_352800Hz, SampleFormat.SAMPLE_INT_16BIT, false),
+                        new(SampleRate.SAMPLE_RATE_384000Hz, SampleFormat.SAMPLE_INT_16BIT, true)
+                    ]);
+            });
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
+                capabilityRuntime);
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+            var firstApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int appliedCount = 0;
+            dialog.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
+                    && dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_384000Hz))
+                {
+                    if (Interlocked.Increment(ref appliedCount) == 1)
+                    {
+                        firstApplied.TrySetResult();
+                    }
+                    else
+                    {
+                        secondApplied.TrySetResult();
+                    }
+                }
+            };
+            dialog.SetPresentationActive(active: true);
+            Assert.AreEqual(0, queryCount);
+            dialog.SetAudioSettingsPageVisible(visible: true);
+            dialog.SetAudioSettingsPageVisible(visible: true);
+            await firstApplied.Task;
+            Assert.AreEqual(1, queryCount);
+            dialog.SetAudioSettingsPageVisible(visible: false);
+            Assert.IsNull(dialog.AudioDeviceCapabilityStatusMessage);
+            dialog.SetAudioSettingsPageVisible(visible: true);
+            await secondApplied.Task;
+            Assert.AreEqual(2, queryCount);
+
+            AudioDeviceCapabilityRequest capturedRequest = observedRequest
+                ?? throw new AssertFailedException("Capability query did not reach its runtime.");
+            Assert.AreEqual(AudioDriver.WasapiExclusive, capturedRequest.Backend);
+            Assert.AreEqual("requested-device", capturedRequest.DeviceIdentity);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, capturedRequest.SavedRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, capturedRequest.SavedFormat);
+            Assert.IsNull(dialog.AudioDeviceCapabilityStatusMessage);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
+            Assert.IsTrue(dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_384000Hz));
+            Assert.IsTrue(dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_352800Hz));
+            StringAssert.Contains(
+                dialog.PlayerSampleRateNames[SampleRate.SAMPLE_RATE_44100Hz],
+                Resources.AudioDeviceCapabilityUnsupportedChoice);
+            Assert.IsTrue(dialog.PlayerFormatNames.ContainsKey(SampleFormat.SAMPLE_INT_16BIT));
+            StringAssert.Contains(
+                dialog.PlayerFormatNames[SampleFormat.SAMPLE_INT_16BIT],
+                Resources.AudioDeviceCapabilityUnsupportedChoice);
+            Assert.IsFalse(dialog.EncoderSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_352800Hz));
+            Assert.IsTrue(dialog.EncoderFormatNames.ContainsKey(SampleFormat.SAMPLE_INT_8BIT));
+
+            dialog.PlayerSampleRate = SampleRate.SAMPLE_RATE_384000Hz;
+            Assert.AreEqual(SampleFormat.AUTO, settings.PlayerFormat);
+            CollectionAssert.AreEquivalent(
+                new[] { SampleFormat.AUTO, SampleFormat.SAMPLE_INT_16BIT },
+                dialog.PlayerFormatNames.Keys.ToArray());
+
+            dialog.SetPresentationActive(active: false);
+            Assert.IsNull(dialog.AudioDeviceCapabilityStatusMessage);
+            Assert.IsNull(dialog.AudioDeviceCapabilityDiagnosticMessage);
+            Assert.AreEqual(Resources.AudioDeviceCapabilityNotQueried,
+                dialog.AudioDeviceCapabilityFormatDescription);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceCapabilityQuery_SelectionChangesDuringQueryRunsOnlyFinalSelection()
+    {
+        string root = CreateTemporaryRoot();
+        var firstQueryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstQuery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalQueryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalQueryApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestedBackends = new List<AudioDriver>();
+        object requestedBackendsSync = new();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiExclusive,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
+            {
+                int queryOrdinal;
+                lock (requestedBackendsSync)
+                {
+                    requestedBackends.Add(request.Backend);
+                    queryOrdinal = requestedBackends.Count;
+                }
+                if (queryOrdinal == 1)
+                {
+                    firstQueryStarted.TrySetResult();
+                    releaseFirstQuery.Task.GetAwaiter().GetResult();
+                }
+                else
+                {
+                    finalQueryStarted.TrySetResult();
+                }
+                return new AudioDeviceCapabilityResult(
+                    request.Backend,
+                    request.DeviceIdentity,
+                    request.DeviceName,
+                    AudioDeviceCapabilityStatus.Available,
+                    [SampleRate.SAMPLE_RATE_384000Hz]);
+            });
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
+                capabilityRuntime);
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+            dialog.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
+                    && dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_384000Hz))
+                {
+                    finalQueryApplied.TrySetResult();
+                }
+            };
+            dialog.SetPresentationActive(active: true);
+            dialog.SetAudioSettingsPageVisible(visible: true);
+            await firstQueryStarted.Task;
+            dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiShared);
+            dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.Asio);
+            lock (requestedBackendsSync)
+            {
+                CollectionAssert.AreEqual(
+                    new[] { AudioDriver.WasapiExclusive },
+                    requestedBackends);
+            }
+            releaseFirstQuery.TrySetResult();
+            await finalQueryStarted.Task;
+            await finalQueryApplied.Task;
+
+            lock (requestedBackendsSync)
+            {
+                CollectionAssert.AreEqual(
+                    new[] { AudioDriver.WasapiExclusive, AudioDriver.Asio },
+                    requestedBackends);
+            }
+            Assert.AreEqual(AudioDriverPolicy.IndexOf(AudioDriver.Asio), dialog.PlayerDriverIndex);
+        }
+        finally
+        {
+            releaseFirstQuery.TrySetResult();
             Directory.Delete(root, recursive: true);
         }
     }
@@ -1378,7 +1755,6 @@ public sealed class SettingDialogEditCompletionTests
             Assert.IsNull(settings.PlayerDeviceName);
             Assert.AreEqual(SampleRate.AUTO, settings.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.AUTO, settings.PlayerFormat);
-            Assert.AreEqual(17d, dialog.PlayerLatency);
             StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WASAPI");
         }
         finally
@@ -1400,7 +1776,7 @@ public sealed class SettingDialogEditCompletionTests
             var audioGateway = new TestAudioSettingsGateway
             {
                 OutputSelection = new AudioOutputSelection(
-                    AudioDriver.Asio,
+                    AudioDriver.WasapiShared,
                     settings.PlayerDevice,
                     settings.PlayerDeviceName)
             };
@@ -1408,14 +1784,14 @@ public sealed class SettingDialogEditCompletionTests
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(_ => throw new AudioInitializationException(
-                    BassAudioPlayer.DeviceDriver.ASIO,
-                    BassAudioPlayer.DeviceDriver.ASIO,
-                    "BASS_ASIO_Init",
+                    BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                    BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                    "BASS_WASAPI_Init",
                     new BassAudioPlayer.DeviceDescriptor("Requested device", "requested-device"),
-                    default,
-                    "BASSASIO",
+                    new BassAudioPlayer.DeviceDescriptor("Attempted device B", "attempted-device-b"),
+                    "BASSWASAPI",
                     Errors.Device,
-                    "ASIO initialization failed")));
+                    "WASAPI initialization failed")));
             SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1425,12 +1801,213 @@ public sealed class SettingDialogEditCompletionTests
 
             await dialog.RunAudioDeviceTestAsync();
 
-            Assert.AreEqual(1, dialogs.MessageCount);
-            StringAssert.Contains(dialogs.LastMessageText, "ASIO");
-            StringAssert.Contains(dialogs.LastMessageText, "BASS_ASIO_Init");
-            StringAssert.Contains(dialogs.LastMessageText, "BASS_ERROR_DEVICE");
-            Assert.AreEqual(dialogs.LastMessageText, dialog.AudioDeviceTestStatusMessage);
-            AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.Asio);
+            Assert.AreEqual(0, dialogs.MessageCount);
+            string expectedMessage = string.Format(
+                Resources.AudioDeviceTestInitializationErrorFormat,
+                AudioDriverDisplayNames.Get(AudioDriver.WasapiShared),
+                "Requested device",
+                SampleRate.AUTO,
+                SampleFormat.AUTO,
+                AudioDriverDisplayNames.Get(AudioDriver.WasapiShared),
+                "Attempted device B");
+            Assert.AreEqual(expectedMessage, dialog.AudioDeviceTestStatusMessage);
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_WASAPI_Init");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_ERROR_DEVICE");
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.WasapiShared);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_InitializationAndCleanupFailureKeepsEffectiveRequestWithoutActualValues()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiShared,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            const string secretPath = @"C:\private\native\audio\device-state.bin";
+            var primaryFailure = new AudioInitializationException(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                "BASS_WASAPI_Init",
+                new BassAudioPlayer.DeviceDescriptor("Requested device", "requested-device"),
+                default,
+                "BASSWASAPI",
+                Errors.Device,
+                "WASAPI initialization failed");
+            var cleanupFailure = new InvalidOperationException("Cleanup failed for " + secretPath);
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new TestAudioDeviceTestPlaybackPort(),
+                new DelegateAudioDeviceTestRuntime(request =>
+                    new AudioDeviceTestResult(
+                        request,
+                        initialization: null,
+                        streamProgressRequired: false,
+                        streamProgressSucceeded: false,
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        progressRatio: null,
+                        failureReason: "Initialization failed before cleanup.",
+                        failureKind: AudioDeviceTestFailureKind.Unexpected,
+                        primaryFailure: primaryFailure,
+                        cleanupFailure: cleanupFailure)));
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            string expectedInitializationFailure = string.Format(
+                Resources.AudioDeviceTestInitializationErrorFormat,
+                AudioDriverDisplayNames.Get(AudioDriver.WasapiShared),
+                "Requested device",
+                SampleRate.AUTO,
+                SampleFormat.AUTO,
+                AudioDriverDisplayNames.Get(AudioDriver.WasapiShared),
+                Resources.AudioDeviceDefault);
+            Assert.AreEqual(
+                Resources.AudioDeviceTestCleanupFailure + Environment.NewLine + expectedInitializationFailure,
+                dialog.AudioDeviceTestStatusMessage);
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_WASAPI_Init");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_ERROR_DEVICE");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "cleanupFailure=InvalidOperationException");
+            Assert.IsFalse(dialog.AudioDeviceTestStatusMessage.Contains(secretPath, StringComparison.Ordinal));
+            Assert.IsFalse(dialog.AudioDeviceTestDiagnosticMessage.Contains(secretPath, StringComparison.Ordinal));
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.WasapiShared);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AudioDeviceTest_NativeCleanupFailureKeepsNegotiatedValuesAndSafeStructuredDetails()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            ConfigureExplicitAudioSettings(settings);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            var audioGateway = new TestAudioSettingsGateway
+            {
+                OutputSelection = new AudioOutputSelection(
+                    AudioDriver.WasapiShared,
+                    settings.PlayerDevice,
+                    settings.PlayerDeviceName)
+            };
+            const string secretPath = @"C:\private\native\audio\session-state.bin";
+            var lifecycle = new BassAudioSessionLifecycle();
+            var operationGate = new BassAudioOperationGate(initiallyOpen: true);
+            var native = new AudioDeviceTestCleanupNativeBoundary("Failed at " + secretPath);
+
+            bool ReleaseSession(BassAudioSession session)
+            {
+                if (session.IsReleased)
+                {
+                    return true;
+                }
+                if (!operationGate.TryEnterSessionCleanup(out BassAudioExclusiveLease exclusive))
+                {
+                    return false;
+                }
+                using (exclusive)
+                using (lifecycle.Enter())
+                {
+                    bool released = BassAudioSessionCleanup.Release(session, native);
+                    lifecycle.CompleteCleanup(session);
+                    exclusive.Complete(released);
+                    return released;
+                }
+            }
+
+            var runtime = new BassAudioDeviceTestRuntime(
+                ApplicationPathPolicy.Current,
+                new AudioDeviceTestSoundCreationFailureBoundary(),
+                (request, acquired) =>
+                {
+                    using BassAudioExclusiveLease exclusive = operationGate.EnterSessionInitialization();
+                    exclusive.ObserveOwnership(() => !lifecycle.HasUnconfirmedOwnership);
+                    using (lifecycle.Enter())
+                    {
+                        Assert.IsTrue(lifecycle.TryBegin(request.AudioOutputRequest, out BassAudioSession session));
+                        acquired(session);
+                        session.CoreInitialized = true;
+                        session.CoreDeviceIndex = 0;
+                        session.WasapiInitialized = true;
+                        session.WasapiDeviceIndex = 0;
+                        session.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+                        session.ActualDevice = new BassAudioPlayer.DeviceDescriptor("Actual device", "actual-device");
+                        session.MixerHandle = 201;
+                        session.OutputHandle = 202;
+                        session.NegotiationResult = new BassAudioBackendResult(
+                            new BassAudioNegotiationRequest(
+                                session.ActualBackend,
+                                session.ActualDevice,
+                                SampleRate.AUTO,
+                                SampleFormat.AUTO,
+                                10),
+                            session.ActualDevice,
+                            SampleRate.SAMPLE_RATE_48000Hz,
+                            SampleFormat.SAMPLE_FLOAT_32BIT,
+                            SampleFormat.SAMPLE_INT_24BIT,
+                            16.5,
+                            session.MixerHandle,
+                            [],
+                            null,
+                            endpointContainerBits: 24,
+                            endpointEffectiveBits: 24);
+                        lifecycle.MarkActive(session);
+                    }
+                },
+                ReleaseSession,
+                operationGate);
+            var workflow = new AudioDeviceTestWorkflowOwner(new TestAudioDeviceTestPlaybackPort(), runtime);
+            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+                viewModel,
+                settingsSession,
+                workflow,
+                audioGateway);
+
+            await dialog.RunAudioDeviceTestAsync();
+
+            Assert.AreEqual(2, native.StreamFreeCount);
+            Assert.IsTrue(lifecycle.HasCleanupPending);
+            Assert.IsTrue(operationGate.IsCleanupQuarantined);
+            Assert.AreEqual(Resources.AudioDeviceTestCleanupFailure,
+                dialog.AudioDeviceTestStatusMessage.Split(Environment.NewLine)[0]);
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "Actual device");
+            StringAssert.Contains(
+                dialog.AudioDeviceTestStatusMessage,
+                string.Format(Resources.AudioSampleRateOptionFormat, (int)SampleRate.SAMPLE_RATE_48000Hz));
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioSampleFormatFloat32);
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioSampleFormat24Bit);
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "16.5");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "cleanupFailure=InvalidOperationException");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "stage=BASS_StreamFree(");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "nativeErrorSource=BASS");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_ERROR_UNKNOWN");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "exceptionType=InvalidOperationException");
+            Assert.IsFalse(dialog.AudioDeviceTestStatusMessage.Contains(secretPath, StringComparison.Ordinal));
+            Assert.IsFalse(dialog.AudioDeviceTestDiagnosticMessage.Contains(secretPath, StringComparison.Ordinal));
+            AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.WasapiShared);
         }
         finally
         {
@@ -1475,9 +2052,11 @@ public sealed class SettingDialogEditCompletionTests
 
             await dialog.RunAudioDeviceTestAsync();
 
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "MixerAttach");
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_Mixer_StreamAddChannel");
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_ERROR_HANDLE");
+            Assert.AreEqual(Resources.AudioDeviceTestPlaybackFailureReason,
+                dialog.AudioDeviceTestStatusMessage.Split(Environment.NewLine)[0]);
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "MixerAttach");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_Mixer_StreamAddChannel");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_ERROR_HANDLE");
             Assert.AreEqual(0, dialogs.MessageCount);
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
         }
@@ -1524,9 +2103,10 @@ public sealed class SettingDialogEditCompletionTests
 
             await dialog.RunAudioDeviceTestAsync();
 
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "SourceCreate");
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_StreamCreateFile");
-            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "BASS_ERROR_FILEOPEN");
+            StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioDeviceTestPlayerCreationFailureReason);
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "SourceCreate");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_StreamCreateFile");
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "BASS_ERROR_FILEOPEN");
             Assert.AreEqual(0, dialogs.MessageCount);
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
         }
@@ -1567,61 +2147,9 @@ public sealed class SettingDialogEditCompletionTests
             await dialog.RunAudioDeviceTestAsync();
 
             Assert.AreEqual(Resources.AudioDeviceTestUnexpectedFailureReason, dialog.AudioDeviceTestStatusMessage);
-            Assert.AreEqual(1, dialogs.MessageCount);
-            Assert.AreEqual(dialog.AudioDeviceTestStatusMessage, dialogs.LastMessageText);
+            Assert.AreEqual(0, dialogs.MessageCount);
+            StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage, "InvalidOperationException");
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway);
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [TestMethod]
-    public async Task AudioDeviceTest_RequestChangedWhileRunning_DoesNotApplyStaleResult()
-    {
-        string root = CreateTemporaryRoot();
-        try
-        {
-            Settings settings = CreateValidStandaloneSettings(root);
-            ConfigureExplicitAudioSettings(settings);
-            var settingsSession = new CountingSettingsEditSession(settings);
-            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
-            var audioGateway = new TestAudioSettingsGateway
-            {
-                OutputSelection = new AudioOutputSelection(
-                    AudioDriver.WasapiShared,
-                    settings.PlayerDevice,
-                    settings.PlayerDeviceName)
-            };
-            using var runtimeStarted = new ManualResetEventSlim();
-            using var releaseRuntime = new ManualResetEventSlim();
-            var workflow = new AudioDeviceTestWorkflowOwner(
-                new TestAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(request =>
-                {
-                    runtimeStarted.Set();
-                    releaseRuntime.Wait();
-                    return AudioDeviceTestResultFactory.CreateSuccessful(
-                        request,
-                        actualDeviceName: "Stale result name",
-                        latency: 25);
-                }));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
-                viewModel,
-                settingsSession,
-                workflow,
-                audioGateway);
-
-            Task testTask = dialog.RunAudioDeviceTestAsync();
-            Assert.IsTrue(runtimeStarted.Wait(TimeSpan.FromSeconds(5)));
-            dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive);
-            releaseRuntime.Set();
-            await testTask;
-
-            Assert.AreEqual("Requested device", settings.PlayerDeviceName);
-            Assert.AreEqual(AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive), dialog.PlayerDriverIndex);
-            Assert.AreEqual(0d, dialog.PlayerLatency);
         }
         finally
         {
@@ -3140,7 +3668,10 @@ public sealed class SettingDialogEditCompletionTests
         string root = CreateTemporaryRoot();
         try
         {
-            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root))
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 2;
+            var settingsSession = new CountingSettingsEditSession(values)
             {
                 BlockSave = true
             };
@@ -3415,7 +3946,10 @@ public sealed class SettingDialogEditCompletionTests
         try
         {
             var failure = new IOException("settings save failure");
-            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root))
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 2;
+            var settingsSession = new CountingSettingsEditSession(values)
             {
                 SaveFailure = failure
             };
@@ -3437,6 +3971,8 @@ public sealed class SettingDialogEditCompletionTests
             dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             bool editedValue = dialog.ShowRecommUpdatedMsg;
+            dialog.PlayerResamplingQuality = 3;
+            dialog.PlayerMixerThreadCount = 4;
 
             await dialog.ApplySettingsAsync();
 
@@ -3446,11 +3982,98 @@ public sealed class SettingDialogEditCompletionTests
             Assert.AreEqual(0, initializeCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(editedValue, dialog.ShowRecommUpdatedMsg);
+            Assert.AreEqual(3, dialog.PlayerResamplingQuality);
+            Assert.AreEqual(4, dialog.PlayerMixerThreadCount);
+            Assert.AreEqual(4, values.PlayerResamplingQuality);
+            Assert.AreEqual(2, values.PlayerMixerThreadCount);
             Assert.IsTrue(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.IsEditCancellationEnabled);
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CancelSettings_RestoresResamplingQualityAndMixerThreadDraftsWithoutSaving()
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = 4;
+            values.PlayerMixerThreadCount = 3;
+            var settingsSession = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
+
+            dialog.PlayerResamplingQuality = 2;
+            dialog.PlayerMixerThreadCount = 4;
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+
+            dialog.CancelCommand.Execute();
+
+            Assert.AreEqual(4, dialog.PlayerResamplingQuality);
+            Assert.AreEqual(4, values.PlayerResamplingQuality);
+            Assert.AreEqual(3, dialog.PlayerMixerThreadCount);
+            Assert.AreEqual(3, values.PlayerMixerThreadCount);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(1)]
+    [DataRow(7)]
+    public void CheckValidation_RejectsUnsupportedResamplingQuality(int quality)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerResamplingQuality = quality;
+            var settingsSession = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
+
+            Assert.IsFalse(dialog.CheckValidation(out string error));
+            StringAssert.Contains(error, Resources.Error_InvalidAudioResamplingQuality);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(5)]
+    public void CheckValidation_RejectsUnsupportedPlayerMixerThreadCount(int threadCount)
+    {
+        string root = CreateTemporaryRoot();
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            Settings values = CreateValidStandaloneSettings(root);
+            values.PlayerMixerThreadCount = threadCount;
+            var settingsSession = new CountingSettingsEditSession(values);
+            dialog = CreateViewModel(settingsSession, firstStartup: false).SettingDialog;
+
+            Assert.IsFalse(dialog.CheckValidation(out string error));
+            StringAssert.Contains(error, Resources.Error_InvalidAudioMixerThreadCount);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+        }
+        finally
+        {
+            dialog?.Dispose();
             Directory.Delete(root, recursive: true);
         }
     }
@@ -4653,9 +5276,10 @@ public sealed class SettingDialogEditCompletionTests
         CountingSettingsEditSession settingsSession,
         AudioDeviceTestWorkflowOwner workflow,
         TestAudioSettingsGateway audioGateway,
-        IUiDialogService? dialogs = null)
+        IUiDialogService? dialogs = null,
+        IAudioDeviceCatalog? audioDeviceCatalog = null)
     {
-        return new SettingsDialogViewModel(
+        var dialog = new SettingsDialogViewModel(
             viewModel,
             viewModel.PlaylistWorkspace,
             viewModel.PlaylistWorkspace,
@@ -4671,8 +5295,10 @@ public sealed class SettingDialogEditCompletionTests
             audioDeviceTestWorkflow: workflow,
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: ApplicationPathPolicy.Current,
-            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog(),
             audioSettingsGateway: audioGateway);
+        dialog.SetPresentationActive(active: true);
+        return dialog;
     }
 
     private static void ConfigureExplicitAudioSettings(Settings settings)
@@ -4682,6 +5308,7 @@ public sealed class SettingDialogEditCompletionTests
         settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
         settings.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
         settings.PlayerBufferSize = 10;
+        settings.PlayerResamplingQuality = 4;
         settings.PlayerWASAPIParam = false;
         settings.uBMplayVolume = 50;
     }
@@ -4698,6 +5325,7 @@ public sealed class SettingDialogEditCompletionTests
         Assert.AreEqual("Requested device", settings.PlayerDeviceName);
         Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, settings.PlayerSampleRate);
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, settings.PlayerFormat);
+        Assert.AreEqual(4, settings.PlayerResamplingQuality);
     }
 
     private static (SettingsDialogViewModel Dialog, BeMusicSeeker.Models.LR2.LR2Config Config) CreateLr2RemovalDialog(
@@ -5246,8 +5874,9 @@ public sealed class SettingDialogEditCompletionTests
 
     private sealed class TestAudioDeviceTestPlaybackPort : IAudioDeviceTestPlaybackPort
     {
-        public void StopPlayback()
+        public Task StopPlayback()
         {
+            return Task.CompletedTask;
         }
     }
 
@@ -5318,8 +5947,9 @@ public sealed class SettingDialogEditCompletionTests
             sequence?.Add("notify");
         }
 
-        public void StopPlayback()
+        public Task StopPlayback()
         {
+            return Task.CompletedTask;
         }
     }
 
@@ -5355,11 +5985,11 @@ public sealed class SettingDialogEditCompletionTests
 
     private sealed class BlockingAudioDeviceTestRuntime : IAudioDeviceTestRuntime
     {
-        private readonly ManualResetEventSlim runtimeStarted;
+        private readonly TaskCompletionSource runtimeStarted;
 
-        private readonly ManualResetEventSlim releaseRuntime;
+        private readonly TaskCompletionSource releaseRuntime;
 
-        internal BlockingAudioDeviceTestRuntime(ManualResetEventSlim runtimeStarted, ManualResetEventSlim releaseRuntime)
+        internal BlockingAudioDeviceTestRuntime(TaskCompletionSource runtimeStarted, TaskCompletionSource releaseRuntime)
         {
             this.runtimeStarted = runtimeStarted;
             this.releaseRuntime = releaseRuntime;
@@ -5367,8 +5997,8 @@ public sealed class SettingDialogEditCompletionTests
 
         public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
         {
-            runtimeStarted.Set();
-            releaseRuntime.Wait();
+            runtimeStarted.TrySetResult();
+            releaseRuntime.Task.GetAwaiter().GetResult();
             return AudioDeviceTestResultFactory.CreateSuccessful(request);
         }
     }
@@ -5382,6 +6012,7 @@ public sealed class SettingDialogEditCompletionTests
             this.run = run;
         }
 
-        public AudioDeviceTestResult Run(AudioDeviceTestRequest request) => run(request);
+        public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
+            => run(request);
     }
 }

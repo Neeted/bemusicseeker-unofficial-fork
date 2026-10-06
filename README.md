@@ -49,7 +49,7 @@ This section highlights representative improvements. See the [User Manual](docs/
   - The main list view has been reorganized around a custom table view with column settings, sorting, tooltips, and playlist summaries that remain usable in large environments.
 - **bmson support**
   - bmson files can be handled as chart files alongside BMS / PMS in the library, installation, duplicate checking, and playlist display.
-  - Built-in playback and audio conversion for bmson are not supported yet. See [Playback / Recording](docs/manual.md#playback--recording).
+  - Built-in audio playback and audio conversion support bmson 1.0.0 and legacy 0.21. See [Playback / Recording](docs/manual.md#playback--recording).
 
 ### Other notable improvements
 

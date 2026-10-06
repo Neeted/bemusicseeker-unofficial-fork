@@ -25,7 +25,7 @@ internal static class Program
 
     private static ChartInfoCompareOptions ParseOptions(string[] args)
     {
-        ChartInfoCompareOptions options = new ChartInfoCompareOptions();
+        var options = new ChartInfoCompareOptions();
         string toolRoot = AppDomain.CurrentDomain.BaseDirectory;
         options.OutputDirectory = Path.GetFullPath(Path.Combine(toolRoot, "..", "..", "..", "reports", "latest"));
         for (int index = 0; index < (args?.Length ?? 0); index++)

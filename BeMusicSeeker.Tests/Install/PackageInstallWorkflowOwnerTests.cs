@@ -16,6 +16,62 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PackageInstallWorkflowOwnerTests
 {
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AutomaticInstall_WaitsForPlaybackStopAndDoesNotWriteOnStopFailure(bool failStop)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), "bms-install-stop-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string database = Path.Combine(root, "song.db");
+        string written = Path.Combine(root, "installed.txt");
+        File.WriteAllBytes(database, []);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var admission = new ChartFileOperationSynchronizer();
+        var expected = new IOException("再生停止に失敗しました。");
+        Exception? reported = null;
+        var owner = new PackageInstallWorkflowOwner(
+            new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
+            new DelegatePackageInstallMutationPort((_, _, _, _) =>
+            {
+                File.WriteAllText(written, "installed");
+                return new PackageInstallCommandResult([], null);
+            }), new AwaitablePlaybackStop(entered, stop.Task), action => { action(); return true; });
+        owner.FailurePublished += failure => reported = failure.Exception;
+        owner.AttachLibrary(new TestBmsLibrary(database, null, null, string.Empty));
+        try
+        {
+            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "source.zip")]));
+            await entered.Task;
+            Assert.IsFalse(File.Exists(written));
+            Assert.IsTrue(admission.IsActive);
+            Assert.IsFalse(owner.WaitForIdleAsync().IsCompleted);
+            if (failStop) { stop.SetException(expected); }
+            else { stop.SetResult(); }
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(!failStop, File.Exists(written));
+            Assert.AreSame(failStop ? expected : null, reported);
+            Assert.IsFalse(admission.IsActive);
+        }
+        finally
+        {
+            stop.TrySetResult();
+            await owner.WaitForIdleAsync();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class AwaitablePlaybackStop(TaskCompletionSource entered, Task completion) : IChartMutationPlaybackPort
+    {
+        public Task StopPlaybackForMutationAsync()
+        {
+            entered.TrySetResult();
+            return completion;
+        }
+    }
+
     [TestMethod]
     public async Task ProductionPackageInstallDispatcher_QueuesAtNormalWithoutSynchronousUiWait()
     {
@@ -78,39 +134,29 @@ public sealed class PackageInstallWorkflowOwnerTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default);
 
-                // enqueue 受付と通常優先度の通知を、UI側の実際の完了で観測する。
-                await scheduler.WaitForPendingCountAsync(2);
-                await enqueueTask;
-                QueuedPackageInstallUiScheduler.ScheduledOperation activeDispatch =
-                    scheduler.PeekNext();
-                Assert.AreEqual(UiSchedulePriority.Normal, activeDispatch.Priority);
-                Assert.IsTrue(activeDispatch.IsAccepted);
-                Assert.IsFalse(activeDispatch.IsCompleted);
+                // Package-install と再生停止は同じ UI scheduler を共有する。再生側の DataBind 通知を
+                // queue 上の位置で package-install 通知と誤認せず、StatusChanged を発行した操作を検証する。
+                await enqueueTask.WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreEqual(0, observations.Count);
                 Assert.AreEqual(invokeCountBefore, scheduler.InvokeCount);
                 Assert.AreEqual(invokeAsyncCountBefore, scheduler.InvokeAsyncCount);
 
-                Task activeDispatchRelease = TestUiDispatcherHost.Dispatcher.InvokeAsync(
-                    () => scheduler.Release(activeDispatch)).Task;
-                await Task.WhenAll(activeDispatchRelease, activeDispatch.Completion);
-                Assert.AreEqual(1, observations.Count);
+                QueuedPackageInstallUiScheduler.ScheduledOperation activeDispatch =
+                    await ReleaseUntilStatusObservationAsync(scheduler, observations, expectedStatus: "active");
+                Assert.AreEqual(UiSchedulePriority.Normal, activeDispatch.Priority);
                 Assert.AreEqual("active", observations[0]);
 
-                Task<QueuedPackageInstallUiScheduler.ScheduledOperation> terminalDispatchTask =
-                    scheduler.WaitForNextAsync();
-                QueuedPackageInstallUiScheduler.ScheduledOperation terminalDispatch =
-                    await terminalDispatchTask;
-                Assert.AreEqual(UiSchedulePriority.Normal, terminalDispatch.Priority);
-                Assert.IsTrue(terminalDispatch.IsAccepted);
-                Assert.IsFalse(terminalDispatch.IsCompleted);
-                Assert.AreEqual(1, observations.Count);
-
-                Task terminalDispatchRelease = TestUiDispatcherHost.Dispatcher.InvokeAsync(
-                    () => scheduler.Release(terminalDispatch)).Task;
                 Task idle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
-                await Task.WhenAll(terminalDispatchRelease, terminalDispatch.Completion, idle);
+                QueuedPackageInstallUiScheduler.ScheduledOperation terminalDispatch =
+                    await ReleaseUntilStatusObservationAsync(scheduler, observations, expectedStatus: "inactive");
+                Assert.AreEqual(UiSchedulePriority.Normal, terminalDispatch.Priority);
+                await idle;
 
-                Assert.AreEqual("active|inactive", string.Join("|", observations));
+                Assert.IsTrue(observations.Count >= 2);
+                Assert.IsTrue(
+                    observations.Take(observations.Count - 1).All(status => status == "active"),
+                    "Only active progress updates may precede the terminal inactive status.");
+                Assert.AreEqual("inactive", observations[^1]);
                 Assert.AreEqual(invokeCountBefore, scheduler.InvokeCount);
                 Assert.AreEqual(invokeAsyncCountBefore, scheduler.InvokeAsyncCount);
             }
@@ -243,14 +289,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var published = new List<string>();
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     for (int index = 1; index <= 20; index++)
                     {
-                        onArchive("archive-" + index + ".zip", index, 20);
-                        onPath();
+                        progressWriter.TryWrite(PackageInstallProgressUpdate.ArchiveExtractStarted("archive-" + index + ".zip", index, 20));
+                        progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
                     }
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -327,6 +373,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 mutationPort,
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     lock (notifications)
@@ -477,22 +524,6 @@ public sealed class PackageInstallWorkflowOwnerTests
                     backgroundDrained = false;
                 }
             }
-            if (mutationPort.WorkerThread is { } workerThread
-                && workerThread != Thread.CurrentThread)
-            {
-                try
-                {
-                    if (!workerThread.Join(TimeSpan.FromSeconds(5)))
-                    {
-                        throw new TimeoutException("The package install worker thread did not stop during cleanup.");
-                    }
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailure ??= exception;
-                    backgroundDrained = false;
-                }
-            }
             if (backgroundDrained)
             {
                 try
@@ -558,6 +589,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 mutationPort,
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     lock (notifications)
@@ -737,22 +769,6 @@ public sealed class PackageInstallWorkflowOwnerTests
                     backgroundDrained = false;
                 }
             }
-            if (mutationPort.WorkerThread is { } workerThread
-                && workerThread != Thread.CurrentThread)
-            {
-                try
-                {
-                    if (!workerThread.Join(TimeSpan.FromSeconds(5)))
-                    {
-                        throw new TimeoutException("The package install worker thread did not stop during cleanup.");
-                    }
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailure ??= exception;
-                    backgroundDrained = false;
-                }
-            }
             if (backgroundDrained)
             {
                 try
@@ -819,7 +835,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var calls = new List<string>();
             int completions = 0;
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     lock (calls)
                     {
@@ -830,7 +846,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                         firstStarted.TrySetResult(true);
                         releaseFirst.Wait();
                     }
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -907,13 +923,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     if (ReferenceEquals(library, first))
                     {
                         firstStarted.TrySetResult(true);
                     }
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -971,10 +987,10 @@ public sealed class PackageInstallWorkflowOwnerTests
         int diagnosticReports = 0;
         int mutationCalls = 0;
         PackageInstallWorkflowOwner owner = CreateOwner(
-            (_, _, _, _, _) =>
+            (_, _, _, _) =>
             {
                 Interlocked.Increment(ref mutationCalls);
-                return [];
+                return new PackageInstallCommandResult([], null);
             },
             action =>
             {
@@ -1029,14 +1045,14 @@ public sealed class PackageInstallWorkflowOwnerTests
                 },
                 DeleteOwnedRoot);
             owner = CreateOwner(
-                (_, paths, _, _, _) =>
+                (_, paths, _, _) =>
                 {
                     installedPath = paths.Single();
                     mutationEntered.TrySetResult(true);
                     allowMutationRead.Wait();
                     installedContents = File.ReadAllText(installedPath);
                     mutationFinished.TrySetResult(true);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -1111,7 +1127,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var failures = new List<PackageInstallFailure>();
             var eventOrder = new List<string>();
             owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     string displayName = Path.GetFileName(paths.FirstOrDefault() ?? string.Empty);
                     lock (observationLock)
@@ -1127,7 +1143,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                     secondInstallEntered.TrySetResult(true);
                     releaseSecondInstall.Wait();
                     secondFinished.TrySetResult(true);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1253,11 +1269,11 @@ public sealed class PackageInstallWorkflowOwnerTests
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1321,11 +1337,12 @@ public sealed class PackageInstallWorkflowOwnerTests
                 chartFileOperations,
                 chartMutationActivity,
                 new DelegatePackageInstallMutationPort(
-                    (library, paths, token, onPath, onArchive) =>
+                    (library, paths, token, progressWriter) =>
                     {
                         Interlocked.Increment(ref mutationCalls);
-                        return [new ChartPackage()];
+                        return new PackageInstallCommandResult([new ChartPackage()], null);
                     }),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     Task.Run(action);
@@ -1386,11 +1403,12 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 chartMutationActivity,
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     action();
@@ -1447,11 +1465,12 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 }),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     action();
@@ -1518,7 +1537,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
-                    (library, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                    (library, paths, token, progressWriter) => throw new InvalidOperationException("install failed")),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     lock (notifications)
@@ -1570,7 +1590,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
-                    (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                    (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed")),
+                new NoOpChartMutationPlaybackPort(),
                 _ => false,
                 exception =>
                 {
@@ -1619,7 +1640,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort(
-                    (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed")),
+                    (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed")),
+                new NoOpChartMutationPlaybackPort(),
                 _ => throw new InvalidOperationException("dispatcher failed"),
                 exception =>
                 {
@@ -1667,7 +1689,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) => throw new InvalidOperationException("install failed"),
+                (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed"),
                 action =>
                 {
                     action();
@@ -1719,12 +1741,12 @@ public sealed class PackageInstallWorkflowOwnerTests
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
                     Assert.IsTrue(token.IsCancellationRequested, "The test must cancel while live apply is in progress.");
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1792,8 +1814,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                 durableCommit: true,
                 finalizationFailure: finalizationFailure);
             int installCalls = 0;
-            var port = new DelegatePackageInstallTerminalMutationPort(
-                (_, _, _, _, _) =>
+            var port = new DelegatePackageInstallMutationPort(
+                (_, _, _, _) =>
                 {
                     Interlocked.Increment(ref installCalls);
                     return new PackageInstallCommandResult([], sessionReceipt);
@@ -1807,6 +1829,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
                 port,
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
                     action();
@@ -1816,7 +1839,10 @@ public sealed class PackageInstallWorkflowOwnerTests
             var failed = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner.RefreshSuppressionChanged += (_, args) =>
             {
-                if (failSuppressionCleanup && !args.IsSuppressed) throw cleanupFailure;
+                if (failSuppressionCleanup && !args.IsSuppressed)
+                {
+                    throw cleanupFailure;
+                }
             };
             void RecordTerminalAdmission()
             {
@@ -1903,7 +1929,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             var calls = new List<string>();
             int completions = 0;
             owner = CreateOwner(
-                (library, paths, token, onPath, onArchive) =>
+                (library, paths, token, progressWriter) =>
                 {
                     string displayName = Path.GetFileName(paths.First());
                     lock (calls)
@@ -1914,10 +1940,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                     {
                         firstStarted.TrySetResult(true);
                         releaseFirst.Wait();
-                        return [new ChartPackage()];
+                        return new PackageInstallCommandResult([new ChartPackage()], null);
                     }
                     secondStarted.TrySetResult(true);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -1973,10 +1999,10 @@ public sealed class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -2016,14 +2042,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             int mutationCalls = 0;
             var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (current, paths, token, onPath, onArchive) =>
+                (current, paths, token, progressWriter) =>
                 {
                     int call = Interlocked.Increment(ref mutationCalls);
                     if (call == 2)
                     {
                         secondFinished.TrySetResult(true);
                     }
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 },
                 action =>
                 {
@@ -2054,7 +2080,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        PackageInstallWorkflowOwner owner = CreateOwner((_, _, _, _, _) => [], _ => true);
+        PackageInstallWorkflowOwner owner = CreateOwner((_, _, _, _) => new PackageInstallCommandResult([], null), _ => true);
         var request = new DroppedInstallBatchRequest(
             [Path.Combine(root, "chart.bms")],
             ["chart.bms"],
@@ -2092,10 +2118,10 @@ public sealed class PackageInstallWorkflowOwnerTests
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (_, _, _, _, _) =>
+                (_, _, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -2162,14 +2188,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (_, paths, _, _, _) =>
+                (_, paths, _, _) =>
                 {
                     Interlocked.Increment(ref mutationCalls);
                     if (paths.Contains("fresh.zip"))
                     {
                         freshInstallCalled.TrySetResult(true);
                     }
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 action =>
                 {
@@ -2246,14 +2272,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             var firstLibrary = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var secondLibrary = new TestBmsLibrary(secondDb, null, null, string.Empty);
             PackageInstallWorkflowOwner owner = CreateOwner(
-                (library, _, token, _, _) =>
+                (library, _, token, _) =>
                 {
                     if (ReferenceEquals(library, firstLibrary))
                     {
                         activeStarted.Set();
                         releaseActive.Wait();
                     }
-                    return [];
+                    return new PackageInstallCommandResult([], null);
                 },
                 _ => true);
             owner.AttachLibrary(firstLibrary);
@@ -2311,15 +2337,20 @@ public sealed class PackageInstallWorkflowOwnerTests
                 displayed,
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _) =>
                 {
                     bufferedDialogs.Show("notice marker", "caption marker", UiDialogButton.OK,
                         UiDialogIcon.Information, UiDialogDefaultResult.OK);
-                    return [new ChartPackage()];
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
                 }),
+                new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
-                    lock (notifications) notifications.Enqueue(action);
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                    }
+
                     return true;
                 },
                 reportedFailures.Add);
@@ -2344,7 +2375,11 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
         finally
         {
-            if (owner != null) await owner.WaitForIdleAsync();
+            if (owner != null)
+            {
+                await owner.WaitForIdleAsync();
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }
@@ -2373,7 +2408,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     private static PackageInstallWorkflowOwner CreateOwner(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installBatch,
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> installBatch,
         Func<Action, bool> dispatchToUi,
         Action<Exception>? reportNotificationFailure = null,
         DroppedInstallIngressMaterializer? droppedInstallIngressMaterializer = null,
@@ -2384,6 +2419,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new DelegatePackageInstallMutationPort(installBatch),
+            new NoOpChartMutationPlaybackPort(),
             dispatchToUi,
             reportNotificationFailure,
             droppedInstallIngressMaterializer);
@@ -2408,7 +2444,6 @@ public sealed class PackageInstallWorkflowOwnerTests
 
     private sealed class BoundedProgressPackageInstallMutationPort :
         IPackageInstallMutationPort,
-        IPackageInstallProgressMutationPort,
         IDisposable
     {
         private readonly int progressCount;
@@ -2416,8 +2451,6 @@ public sealed class PackageInstallWorkflowOwnerTests
         private readonly ManualResetEventSlim release = new(false);
 
         private IPackageInstallProgressWriter progressWriter = null!;
-
-        private Thread? workerThread;
 
         internal BoundedProgressPackageInstallMutationPort(int progressCount)
         {
@@ -2428,19 +2461,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
         internal ManualResetEventSlim Returned { get; } = new(false);
 
-        internal Thread? WorkerThread => Volatile.Read(ref workerThread);
-
         internal bool MutationIsBlocked => Started.IsSet && !release.IsSet;
-
-        public IReadOnlyList<ChartPackage> Install(
-            BMSLibrary library,
-            IEnumerable<string> installPaths,
-            CancellationToken token,
-            Action onEachPathProcessed,
-            Action<string, int, int> onEachArchiveExtractStarted)
-        {
-            throw new AssertFailedException("The writer-only package route was not selected.");
-        }
 
         public PackageInstallCommandResult InstallWithProgress(
             BMSLibrary library,
@@ -2448,7 +2469,6 @@ public sealed class PackageInstallWorkflowOwnerTests
             CancellationToken token,
             IPackageInstallProgressWriter progressWriter)
         {
-            Volatile.Write(ref workerThread, Thread.CurrentThread);
             this.progressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
             for (int index = 1; index <= progressCount; index++)
             {
@@ -2482,7 +2502,6 @@ public sealed class PackageInstallWorkflowOwnerTests
 
     private sealed class TwoBatchProgressPackageInstallMutationPort :
         IPackageInstallMutationPort,
-        IPackageInstallProgressMutationPort,
         IDisposable
     {
         private readonly int progressCount;
@@ -2492,8 +2511,6 @@ public sealed class PackageInstallWorkflowOwnerTests
         private readonly ManualResetEventSlim secondRelease = new(false);
 
         private IPackageInstallProgressWriter firstProgressWriter = null!;
-
-        private Thread? workerThread;
 
         private int invocationCount;
 
@@ -2510,25 +2527,12 @@ public sealed class PackageInstallWorkflowOwnerTests
 
         internal ManualResetEventSlim SecondReturned { get; } = new(false);
 
-        internal Thread? WorkerThread => Volatile.Read(ref workerThread);
-
-        public IReadOnlyList<ChartPackage> Install(
-            BMSLibrary library,
-            IEnumerable<string> installPaths,
-            CancellationToken token,
-            Action onEachPathProcessed,
-            Action<string, int, int> onEachArchiveExtractStarted)
-        {
-            throw new AssertFailedException("The writer-only package route was not selected.");
-        }
-
         public PackageInstallCommandResult InstallWithProgress(
             BMSLibrary library,
             IEnumerable<string> installPaths,
             CancellationToken token,
             IPackageInstallProgressWriter progressWriter)
         {
-            Volatile.Write(ref workerThread, Thread.CurrentThread);
             int invocation = Interlocked.Increment(ref invocationCount);
             if (invocation == 1)
             {
@@ -2574,6 +2578,44 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
     }
 
+    private static async Task<QueuedPackageInstallUiScheduler.ScheduledOperation> ReleaseUntilStatusObservationAsync(
+        QueuedPackageInstallUiScheduler scheduler,
+        IReadOnlyList<string> observations,
+        string expectedStatus)
+    {
+        while (true)
+        {
+            QueuedPackageInstallUiScheduler.ScheduledOperation operation =
+                await scheduler.WaitForNextAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(operation.IsAccepted);
+            Assert.IsFalse(operation.IsCompleted);
+            int countBeforeRelease = observations.Count;
+            Task release = TestUiDispatcherHost.Dispatcher.InvokeAsync(
+                () => scheduler.Release(operation)).Task;
+            await Task.WhenAll(release, operation.Completion);
+            if (observations.Count == countBeforeRelease)
+            {
+                continue;
+            }
+
+            Assert.AreEqual(countBeforeRelease + 1, observations.Count);
+            Assert.AreEqual(
+                UiSchedulePriority.Normal,
+                operation.Priority,
+                "Every package-install status dispatch must use Normal priority.");
+            string observedStatus = observations[^1];
+            if (observedStatus == expectedStatus)
+            {
+                return operation;
+            }
+
+            Assert.AreEqual(
+                "active",
+                observedStatus,
+                "Only active progress may be published before the terminal inactive status.");
+        }
+    }
+
     private sealed class QueuedPackageInstallUiScheduler : IUiScheduler
     {
         private readonly object syncRoot = new();
@@ -2581,10 +2623,6 @@ public sealed class PackageInstallWorkflowOwnerTests
         private readonly Queue<ScheduledOperation> pending = new();
 
         private TaskCompletionSource<ScheduledOperation>? nextScheduled;
-
-        private TaskCompletionSource<bool>? pendingCountWaiter;
-
-        private int pendingCountThreshold;
 
         internal int InvokeCount { get; private set; }
 
@@ -2603,23 +2641,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             ArgumentNullException.ThrowIfNull(action);
             var operation = new ScheduledOperation(action, priority);
             TaskCompletionSource<ScheduledOperation>? waiter;
-            TaskCompletionSource<bool>? pendingWaiter;
             lock (syncRoot)
             {
                 pending.Enqueue(operation);
                 waiter = nextScheduled;
                 nextScheduled = null;
-                pendingWaiter = pending.Count >= pendingCountThreshold
-                    ? pendingCountWaiter
-                    : null;
-                if (pendingWaiter != null)
-                {
-                    pendingCountWaiter = null;
-                    pendingCountThreshold = 0;
-                }
             }
             waiter?.TrySetResult(operation);
-            pendingWaiter?.TrySetResult(true);
             return operation;
         }
 
@@ -2658,30 +2686,6 @@ public sealed class PackageInstallWorkflowOwnerTests
                 nextScheduled = new TaskCompletionSource<ScheduledOperation>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
                 return nextScheduled.Task;
-            }
-        }
-
-        internal Task WaitForPendingCountAsync(int count)
-        {
-            lock (syncRoot)
-            {
-                if (pending.Count >= count)
-                {
-                    return Task.CompletedTask;
-                }
-                pendingCountThreshold = count;
-                pendingCountWaiter = new TaskCompletionSource<bool>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                return pendingCountWaiter.Task;
-            }
-        }
-
-        internal ScheduledOperation PeekNext()
-        {
-            lock (syncRoot)
-            {
-                Assert.IsTrue(pending.Count > 0);
-                return pending.Peek();
             }
         }
 
@@ -2757,59 +2761,20 @@ public sealed class PackageInstallWorkflowOwnerTests
 
 internal sealed class DelegatePackageInstallMutationPort : IPackageInstallMutationPort
 {
-    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> install;
+    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> install;
 
     internal DelegatePackageInstallMutationPort(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> install)
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> install)
     {
         this.install = install ?? throw new ArgumentNullException(nameof(install));
     }
 
-    public IReadOnlyList<ChartPackage> Install(
+    public PackageInstallCommandResult InstallWithProgress(
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
+        IPackageInstallProgressWriter progressWriter)
     {
-        return install(library, installPaths, token, onEachPathProcessed, onEachArchiveExtractStarted);
-    }
-}
-
-internal sealed class DelegatePackageInstallTerminalMutationPort :
-    IPackageInstallMutationPort,
-    IPackageInstallTerminalMutationPort
-{
-    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, PackageInstallCommandResult> installWithResult;
-
-    internal DelegatePackageInstallTerminalMutationPort(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, PackageInstallCommandResult> installWithResult)
-    {
-        this.installWithResult = installWithResult ?? throw new ArgumentNullException(nameof(installWithResult));
-    }
-
-    public IReadOnlyList<ChartPackage> Install(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        throw new AssertFailedException("The terminal package route was not selected.");
-    }
-
-    public PackageInstallCommandResult InstallWithResult(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
-    {
-        return installWithResult(
-            library,
-            installPaths,
-            token,
-            onEachPathProcessed,
-            onEachArchiveExtractStarted);
+        return install(library, installPaths, token, progressWriter);
     }
 }

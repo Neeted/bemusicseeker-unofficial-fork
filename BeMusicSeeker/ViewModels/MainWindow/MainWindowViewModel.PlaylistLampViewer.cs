@@ -1,5 +1,3 @@
-using System;
-
 namespace BeMusicSeeker.ViewModels;
 
 public partial class MainWindowViewModel

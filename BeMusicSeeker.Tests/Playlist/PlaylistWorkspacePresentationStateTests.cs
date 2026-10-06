@@ -3,25 +3,19 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
-using static BeMusicSeeker.Tests.PlaylistWorkspaceTestDataSupport;
 using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
 
 namespace BeMusicSeeker.Tests;
@@ -71,7 +65,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     {
         PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
 
-        KeywordSearchPresentationState state = workspace.FocusPlaylistSummaryKeywordSearch("ou", 2);
+        KeywordSearchPresentationState state = workspace.PlaylistSummaryKeywordSearchAssistanceOwner.Focus("ou", 2);
 
         Assert.IsTrue(state.IsOpen);
         Assert.AreEqual(GridKeywordSearchContext.PlaylistSummary, state.Context);
@@ -79,7 +73,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsTrue(state.VisibleItems.Any(item => item.DisplayText == "output:"));
         Assert.IsFalse(state.VisibleItems.Any(item => item.Kind == KeywordSearchPresentationItemKind.Value));
 
-        KeywordSearchPresentationState blurred = workspace.BlurPlaylistSummaryKeywordSearch();
+        KeywordSearchPresentationState blurred = workspace.PlaylistSummaryKeywordSearchAssistanceOwner.Blur();
         Assert.IsFalse(blurred.IsOpen);
     }
 

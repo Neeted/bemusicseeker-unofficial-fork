@@ -3,23 +3,18 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-using Ribbit.Util.Extensions;
 
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
@@ -95,7 +90,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             }
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -455,7 +449,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getMigrationSettings,
@@ -795,7 +788,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOperationSettings,
@@ -883,7 +875,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             }
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -1210,7 +1201,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
@@ -1364,7 +1354,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             }
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -1737,7 +1726,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
@@ -1822,7 +1810,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(),
@@ -1898,7 +1885,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -1979,7 +1965,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                null,
                 null,
                 null,
                 null,
@@ -2067,7 +2052,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 null,
                 null,
                 null,
-                null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot
                 {
@@ -2085,14 +2069,19 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 scheduledWork = work;
                 return true;
             };
+            playlist.BmtOutput.ExecutionProgressRequestProvider = () => new(4, 11, "scheduler:beatoraja_bmt_export_all", 13);
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            playlist.BmtOutput.RequestProgressReporter = (request, running) => execution.Add((request, running));
             var progress = new List<PlaylistSyncProgressSnapshot>();
             playlist.BmtOutput.ExportProgressReporter = snapshot => progress.Add(snapshot);
 
-            playlist.BmtOutput.QueueBeatorajaBmtExportAll("empty_playlist");
+            playlist.BmtOutput.QueueBeatorajaBmtExportAll("empty_playlist", originatingRequest: new(5, 22, "playlist_entries_hydration", 3));
 
             Assert.IsNotNull(scheduledWork);
             await scheduledWork!().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(0, progress.Count);
+            var expected = new OperationProgressRequest(5, 22, "scheduler:beatoraja_bmt_export_all", 13);
+            CollectionAssert.AreEqual(new[] { (expected, true), (expected, false) }, execution);
             Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
         }
         finally
@@ -2124,7 +2113,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             File.WriteAllText(stalePath, "owned");
             string manifestPath = Path.Combine(output, BmtTableExportService.ManifestFileName);
             File.WriteAllText(manifestPath, "{\"files\":[\"stale.bmt\"],\"playlists\":{\"1\":{\"file\":\"stale.bmt\",\"url\":\"https://example.com/old\"}}}");
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, null,
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output },
                 () => new CustomFolderOutputSettingsSnapshot(),
@@ -2135,7 +2124,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             IReadOnlyList<BmtTableExportService.FileOperationFailure>? reported = null;
             playlist.BmtOutput.FailureReporter = failures => reported = failures;
             using (playlist.OperationNotificationOwner.BeginSession())
+            {
                 playlist.BmtOutput.QueueBeatorajaBmtExportAll("failure_contract");
+            }
+
             using (var held = new FileStream(failureKind == "delete" ? stalePath : manifestPath,
                 FileMode.Open, FileAccess.Read, failureKind == "read" ? FileShare.None : FileShare.ReadWrite))
             using (FileStream? heldStale = failureKind == "delete-and-publish"
@@ -2150,11 +2142,19 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             Assert.AreEqual(1, capturedReports.Count);
             Assert.IsFalse(string.IsNullOrWhiteSpace(capturedReports[0].Cause));
             if (failureKind == "delete")
+            {
                 Assert.AreEqual(stalePath, capturedReports[0].Path);
+            }
             else
+            {
                 StringAssert.Contains(capturedReports[0].Cause, manifestPath);
+            }
+
             if (failureKind == "delete-and-publish")
+            {
                 StringAssert.Contains(capturedReports[0].Cause, stalePath);
+            }
+
             Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
         }
         finally { Directory.Delete(directory, recursive: true); }
@@ -2176,7 +2176,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string configPath = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
             File.WriteAllText(configPath, "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
             BMSTable table = new() { playlist_id = 8123, name = "Empty", Page_url = new Uri("https://example.com/empty"), entries = [] };
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, null,
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true },
                 () => new CustomFolderOutputSettingsSnapshot(),

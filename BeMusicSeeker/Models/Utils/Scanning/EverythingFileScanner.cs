@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using NLog;
 using Ribbit.Logging;
@@ -36,6 +35,9 @@ public class EverythingFileScanner : IChartFileScanner
             .Select(p => p.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(requestedRoots, rootValidation);
+        RootFileEnumerationService.LogSearchConditions("everything", roots,
+            ChartDirectoryScanBuilder.CreateEnumerationGroups(chartExtensions,
+                includeTextFiles: includeTextSurface, includeDirectoryMetadata: includeDirectorySurface));
         if (!rootValidation.IsComplete)
         {
             string reason = RootFileEnumerationService.GetNonAuthoritativeReason(rootValidation);
@@ -148,7 +150,7 @@ public class EverythingFileScanner : IChartFileScanner
                 result.AudioQueryMs,
                 result.ImageQueryMs,
                 result.MovieQueryMs,
-                result.TextQueryMs,
+                includeTextSurface ? result.TextQueryMs.ToString() : "not_measured",
                 result.ChartSearchMs,
                 result.ChartReadMs,
                 result.AudioSearchMs,
@@ -157,8 +159,8 @@ public class EverythingFileScanner : IChartFileScanner
                 result.ImageReadMs,
                 result.MovieSearchMs,
                 result.MovieReadMs,
-                result.TextSearchMs,
-                result.TextReadMs,
+                includeTextSurface ? result.TextSearchMs.ToString() : "not_measured",
+                includeTextSurface ? result.TextReadMs.ToString() : "not_measured",
                 result.ChartDirectoryCount,
                 result.AudioAssignedCount,
                 result.ImageAssignedCount,
@@ -204,8 +206,8 @@ public class EverythingFileScanner : IChartFileScanner
                 result.ImageCallbackMs,
                 result.MovieSdkReadMs,
                 result.MovieCallbackMs,
-                result.TextSdkReadMs,
-                result.TextCallbackMs,
+                includeTextSurface ? result.TextSdkReadMs.ToString() : "not_measured",
+                includeTextSurface ? result.TextCallbackMs.ToString() : "not_measured",
                 result.ChartPathResizeCount,
                 result.ChartNameResizeCount,
                 result.AudioPathResizeCount,
@@ -242,12 +244,12 @@ public class EverythingFileScanner : IChartFileScanner
             result.Result,
             directoryResult.GetEntries(RootFileEnumerationService.DirectoriesGroupName));
         result.DirectoryQueryHitCount = directoryResult.GetQueryHitCount(RootFileEnumerationService.DirectoriesGroupName);
-        result.DirectoryQueryMs = directoryResult.GetQueryMs(RootFileEnumerationService.DirectoriesGroupName);
-        if (result.DirectoryQueryMs <= 0)
+        long? directoryQueryMs = directoryResult.GetMeasuredQueryMs(RootFileEnumerationService.DirectoriesGroupName);
+        result.DirectoryQueryMs = directoryQueryMs.GetValueOrDefault();
+        if (string.Equals(directoryResult.BackendName, EverythingNative.GroupedEnumerationBackendName, StringComparison.OrdinalIgnoreCase))
         {
-            result.DirectoryQueryMs = directoryResult.EnumerationMs;
+            result.NativeBridgeMs += directoryResult.EnumerationMs;
         }
-        result.NativeBridgeMs += directoryResult.EnumerationMs;
 
         if (verboseLog)
         {
@@ -256,8 +258,8 @@ public class EverythingFileScanner : IChartFileScanner
                 roots?.Count ?? 0,
                 result.Result?.DirectoryEntriesByPath?.Count ?? 0,
                 result.DirectoryQueryHitCount,
-                result.DirectoryQueryMs,
-                directoryResult.EnumerationMs);
+                directoryQueryMs?.ToString() ?? "not_measured",
+                directoryResult.MeasuredEnumerationMs?.ToString() ?? "not_measured");
         }
         return true;
     }

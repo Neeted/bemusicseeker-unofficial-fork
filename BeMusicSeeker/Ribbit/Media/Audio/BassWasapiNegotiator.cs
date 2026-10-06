@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Mix;
 using ManagedBass.Wasapi;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 
@@ -31,7 +32,7 @@ internal readonly record struct BassWasapiInfoSnapshot(
 /// <summary>
 /// Exposes the native calls required to negotiate one WASAPI output graph.
 /// </summary>
-internal interface IWasapiNegotiationNativeBoundary
+internal interface IWasapiNegotiationNativeBoundary : IBassMixerThreadNativeBoundary
 {
     /// <summary>Initializes the decode-only BASS core device.</summary>
     bool InitializeCore();
@@ -61,7 +62,7 @@ internal interface IWasapiNegotiationNativeBoundary
         bool eventDriven,
         WasapiProcedure callback);
 
-    /// <summary>Initializes one exclusive WASAPI endpoint with a Float32 sample format.</summary>
+    /// <summary>Float32 sample formatを使ってexclusive WASAPI endpointを初期化します。</summary>
     bool InitializeExclusiveWasapi(
         int deviceIndex,
         int rate,
@@ -77,14 +78,16 @@ internal interface IWasapiNegotiationNativeBoundary
     /// <summary>Reads back the format and buffer accepted by WASAPI.</summary>
     bool TryGetWasapiInfo(out BassWasapiInfoSnapshot info, out Errors error);
 
-    /// <summary>Creates the Float32 decode mixer that supplies the WASAPI callback.</summary>
+    /// <summary>指定機器・レート・チャンネル・形式の組を照会します。</summary>
+    int CheckWasapiFormat(
+        int deviceIndex,
+        int rate,
+        int channels,
+        WasapiInitFlags flags,
+        out Errors error);
+
+    /// <summary>WASAPI callbackへ供給するFloat32 decode mixerを作成します。</summary>
     int CreateMixer(int rate, int channels, BassFlags flags);
-
-    /// <summary>Creates a volume effect on the Float32 decode mixer.</summary>
-    int CreateVolumeEffect(int mixerHandle);
-
-    /// <summary>Sets the application gain on a mixer-owned volume effect.</summary>
-    bool SetVolumeEffect(int effectHandle, float volume);
 
     /// <summary>Starts WASAPI output.</summary>
     bool StartWasapi();
@@ -130,6 +133,18 @@ internal sealed class BassWasapiInitializationCandidate
 /// </summary>
 internal sealed class BassWasapiNegotiator
 {
+    private static readonly int[] CapabilityRates =
+        [48000, 44100, 96000, 88200, 192000, 176400, 352800, 384000, 32000, 22050, 11025];
+
+    private static readonly (WasapiFormat NativeFormat, SampleFormat Format)[] CapabilityFormats =
+    [
+        (WasapiFormat.Float, SampleFormat.SAMPLE_FLOAT_32BIT),
+        (WasapiFormat.Bit8, SampleFormat.SAMPLE_INT_8BIT),
+        (WasapiFormat.Bit16, SampleFormat.SAMPLE_INT_16BIT),
+        (WasapiFormat.Bit24, SampleFormat.SAMPLE_INT_24BIT),
+        (WasapiFormat.Bit32, SampleFormat.SAMPLE_INT_32BIT)
+    ];
+
     private readonly IWasapiNegotiationNativeBoundary native;
 
     /// <summary>Creates a WASAPI negotiator over a replaceable native boundary.</summary>
@@ -138,9 +153,258 @@ internal sealed class BassWasapiNegotiator
         this.native = native ?? throw new ArgumentNullException(nameof(native));
     }
 
+    /// <summary>選択したWASAPI endpointの共有mix情報または排他の形式組を照会し、候補検査の間で取消を確認します。</summary>
+    internal AudioDeviceCapabilityResult QueryCapabilities(
+        AudioDeviceCapabilityRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (request.Backend is not (AudioDriver.WasapiShared or AudioDriver.WasapiExclusive))
+        {
+            throw new ArgumentException("WASAPI capabilities require a WASAPI request.", nameof(request));
+        }
+
+        var attempts = new List<BassAudioBackendAttempt>();
+        if (!native.TryGetDeviceInfos(
+                out BassWasapiDeviceSnapshot[] deviceInfos,
+                out Errors deviceInfosError))
+        {
+            return CapabilityFailure(request, "BASS_WASAPI_GetDeviceInfos", deviceInfosError, attempts);
+        }
+
+        IndexedWasapiDevice[] devices = deviceInfos
+            .Select((info, index) => new IndexedWasapiDevice(index, info))
+            .Where(device =>
+                device.Info.IsEnabled
+                && !device.Info.IsUnplugged
+                && !device.Info.IsLoopback
+                && !device.Info.IsInput)
+            .ToArray();
+        IndexedWasapiDevice selected = string.IsNullOrWhiteSpace(request.DeviceIdentity)
+            ? devices.FirstOrDefault(device => device.Info.IsDefault)
+            : devices.FirstOrDefault(device => string.Equals(
+                device.Info.ID,
+                request.DeviceIdentity,
+                StringComparison.Ordinal));
+        if (selected == null)
+        {
+            attempts.Add(new BassAudioBackendAttempt(
+                "audio device selection",
+                null,
+                null,
+                "unavailable identity=" + (request.DeviceIdentity ?? "Default")));
+            return CapabilityFailure(request, "audio device selection", null, attempts);
+        }
+
+        if (!native.TryGetDeviceInfo(
+                selected.NativeIndex,
+                out BassWasapiDeviceSnapshot deviceInfo,
+                out Errors deviceInfoError))
+        {
+            return CapabilityFailure(request, "BASS_WASAPI_GetDeviceInfo", deviceInfoError, attempts);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (request.Backend == AudioDriver.WasapiShared)
+        {
+            if (deviceInfo.MixFrequency <= 0 || deviceInfo.MixChannels <= 0)
+            {
+                attempts.Add(new BassAudioBackendAttempt(
+                    "BASS_WASAPI_GetDeviceInfo",
+                    "BASSWASAPI",
+                    null,
+                    "invalid shared mix rate=" + deviceInfo.MixFrequency
+                    + " channels=" + deviceInfo.MixChannels));
+                return CapabilityFailure(request, "BASS_WASAPI_GetDeviceInfo", null, attempts);
+            }
+
+            int rawFormat = native.CheckWasapiFormat(
+                selected.NativeIndex,
+                deviceInfo.MixFrequency,
+                deviceInfo.MixChannels,
+                WasapiInitFlags.Shared,
+                out Errors formatError);
+            if (rawFormat < 0)
+            {
+                attempts.Add(new BassAudioBackendAttempt(
+                    "BASS_WASAPI_CheckFormat",
+                    "BASSWASAPI",
+                    formatError,
+                    "unsupported shared mix rate=" + deviceInfo.MixFrequency
+                    + " channels=" + deviceInfo.MixChannels));
+                return formatError == Errors.SampleFormat
+                    ? CreateWasapiResult(request, deviceInfo, AudioDeviceCapabilityStatus.Unsupported, attempts)
+                    : CapabilityFailure(request, "BASS_WASAPI_CheckFormat", formatError, attempts);
+            }
+
+            SampleFormat mixFormat = FromWasapiFormat((WasapiFormat)rawFormat);
+            attempts.Add(new BassAudioBackendAttempt(
+                "BASS_WASAPI_CheckFormat",
+                "BASSWASAPI",
+                null,
+                "readback shared mix rate=" + deviceInfo.MixFrequency
+                + " channels=" + deviceInfo.MixChannels
+                + " format=" + (WasapiFormat)rawFormat));
+            if (mixFormat == SampleFormat.UNKNOWN)
+            {
+                return CapabilityFailure(request, "BASS_WASAPI_CheckFormat", null, attempts);
+            }
+
+            return new AudioDeviceCapabilityResult(
+                request.Backend,
+                deviceInfo.ID,
+                deviceInfo.Name,
+                AudioDeviceCapabilityStatus.Available,
+                [(SampleRate)deviceInfo.MixFrequency],
+                [new AudioDeviceFormatCapability(
+                    (SampleRate)deviceInfo.MixFrequency,
+                    mixFormat,
+                    IsSupported: true)],
+                mixFormat,
+                endpointContainerBits: BitsPerSample((WasapiFormat)rawFormat),
+                endpointEffectiveBits: BitsPerSample((WasapiFormat)rawFormat),
+                endpointChannels: deviceInfo.MixChannels,
+                attempts: attempts);
+        }
+
+        var formatCapabilities = new List<AudioDeviceFormatCapability>();
+        var supportedRates = new HashSet<SampleRate>();
+        foreach (int rate in GetCapabilityRates(request.SavedRate, deviceInfo.MixFrequency))
+        {
+            foreach ((WasapiFormat nativeFormat, SampleFormat format) in CapabilityFormats)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int returnedFormat = CheckExclusiveFormat(
+                    selected.NativeIndex, rate, nativeFormat, attempts, out Errors error);
+                if (returnedFormat < 0)
+                {
+                    if (error == Errors.NotAvailable)
+                    {
+                        return CreateWasapiResult(
+                            request,
+                            deviceInfo,
+                            AudioDeviceCapabilityStatus.Unsupported,
+                            attempts,
+                            failureStage: "BASS_WASAPI_CheckFormat",
+                            nativeErrorCode: error);
+                    }
+                    if (error != Errors.SampleFormat)
+                    {
+                        return CapabilityFailure(request, "BASS_WASAPI_CheckFormat", error, attempts);
+                    }
+                    formatCapabilities.Add(new AudioDeviceFormatCapability(
+                        (SampleRate)rate,
+                        format,
+                        IsSupported: false));
+                    continue;
+                }
+
+                bool supported = returnedFormat == (int)nativeFormat;
+                formatCapabilities.Add(new AudioDeviceFormatCapability(
+                    (SampleRate)rate,
+                    format,
+                    supported));
+                if (supported)
+                {
+                    supportedRates.Add((SampleRate)rate);
+                }
+            }
+        }
+
+        return new AudioDeviceCapabilityResult(
+            request.Backend,
+            deviceInfo.ID,
+            deviceInfo.Name,
+            supportedRates.Count == 0
+                ? AudioDeviceCapabilityStatus.Unsupported
+                : AudioDeviceCapabilityStatus.Available,
+            supportedRates.ToArray(),
+            formatCapabilities,
+            attempts: attempts);
+    }
+
+    // CheckFormatも低精度形式を返し得るため、照会と開始は同じ完全一致判定を使います。
+    private int CheckExclusiveFormat(int deviceIndex, int rate, WasapiFormat format,
+        List<BassAudioBackendAttempt> attempts, out Errors error)
+    {
+        int returned = native.CheckWasapiFormat(deviceIndex, rate, 2,
+            WasapiInitFlags.Exclusive | (WasapiInitFlags)((int)format << 16), out error);
+        attempts.Add(new BassAudioBackendAttempt("BASS_WASAPI_CheckFormat", "BASSWASAPI",
+            returned < 0 ? error : null,
+            (returned == (int)format ? "supported" : returned < 0 ? "unsupported" : "mismatched")
+            + " rate=" + rate + " requestedFormat=" + FromWasapiFormat(format)
+            + (returned < 0 ? string.Empty : " returnedFormat=" + (WasapiFormat)returned)));
+        return returned;
+    }
+
+    private static IReadOnlyList<int> GetCapabilityRates(
+        SampleRate savedRate,
+        int currentMixRate)
+    {
+        var result = new List<int>();
+        var seen = new HashSet<int>();
+
+        void Add(int rate)
+        {
+            if (rate > 0 && seen.Add(rate))
+            {
+                result.Add(rate);
+            }
+        }
+
+        Add(currentMixRate);
+        Add((int)savedRate);
+        foreach (int rate in CapabilityRates)
+        {
+            Add(rate);
+        }
+        return result.AsReadOnly();
+    }
+
+    private static int BitsPerSample(WasapiFormat format) => format switch
+    {
+        WasapiFormat.Bit8 => 8,
+        WasapiFormat.Bit16 => 16,
+        WasapiFormat.Bit24 => 24,
+        WasapiFormat.Bit32 or WasapiFormat.Float => 32,
+        _ => 0
+    };
+
+    private static AudioDeviceCapabilityResult CreateWasapiResult(
+        AudioDeviceCapabilityRequest request,
+        BassWasapiDeviceSnapshot deviceInfo,
+        AudioDeviceCapabilityStatus status,
+        IReadOnlyList<BassAudioBackendAttempt> attempts,
+        string failureStage = null,
+        Errors? nativeErrorCode = null) =>
+        new(
+            request.Backend,
+            deviceInfo.ID,
+            deviceInfo.Name,
+            status,
+            failureStage: failureStage,
+            nativeErrorSource: nativeErrorCode.HasValue ? "BASSWASAPI/BASS_ErrorGetCode" : null,
+            nativeErrorCode: nativeErrorCode,
+            attempts: attempts);
+
+    private static AudioDeviceCapabilityResult CapabilityFailure(
+        AudioDeviceCapabilityRequest request,
+        string stage,
+        Errors? error,
+        IReadOnlyList<BassAudioBackendAttempt> attempts) =>
+        new(
+            request.Backend,
+            request.DeviceIdentity,
+            request.DeviceName,
+            AudioDeviceCapabilityStatus.Failed,
+            failureStage: stage,
+            nativeErrorSource: error.HasValue ? "BASSWASAPI/BASS_ErrorGetCode" : null,
+            nativeErrorCode: error,
+            attempts: attempts);
+
     /// <summary>
-    /// Initializes one shared or exclusive WASAPI graph with a Float32 mixer and callback,
-    /// applying the requested application gain before shared-mode output starts.
+    /// 用途に従って共有・排他の実効条件を選び、Float32 mixerとcallbackを初期化します。
+    /// 共有出力を開始する前に指定音量を適用します。
     /// </summary>
     internal BassAudioBackendResult Initialize(
         BassAudioNegotiationRequest request,
@@ -169,7 +433,8 @@ internal sealed class BassWasapiNegotiator
                 "BASS_Init",
                 "BASS",
                 error,
-                "BASS_Init failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_Init failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.CoreInitialized = true;
         session.CoreDeviceIndex = native.GetCoreDevice();
@@ -186,7 +451,8 @@ internal sealed class BassWasapiNegotiator
                 "BASSWASAPI",
                 deviceInfosError,
                 "BASS_WASAPI_GetDeviceInfos failed: "
-                + BassNativeErrorFormatter.Format(deviceInfosError));
+                + BassNativeErrorFormatter.Format(deviceInfosError),
+                attempts: attempts);
         }
 
         IndexedWasapiDevice[] devices = deviceInfos
@@ -205,13 +471,15 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_GetDeviceInfos",
                 "BASSWASAPI",
                 null,
-                "WASAPI device not found.");
+                "WASAPI device not found.",
+                attempts: attempts);
         }
 
         (IndexedWasapiDevice selected, string deviceFallback) = SelectDevice(
             devices,
             request.Device,
-            useStableIdentityAsAuthoritative: shared);
+            useStableIdentityAsAuthoritative: shared || request.RequiresExactSelection,
+            requireExactDevice: request.RequiresExactSelection);
         if (selected == null)
         {
             throw Failure(
@@ -220,7 +488,10 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_GetDeviceInfos",
                 "BASSWASAPI",
                 null,
-                "WASAPI default device not found.");
+                request.RequiresExactSelection
+                    ? "The requested WASAPI device is unavailable."
+                    : "WASAPI default device not found.",
+                attempts: attempts);
         }
         if (!native.TryGetDeviceInfo(
                 selected.NativeIndex,
@@ -234,7 +505,8 @@ internal sealed class BassWasapiNegotiator
                 "BASSWASAPI",
                 deviceInfoError,
                 "BASS_WASAPI_GetDeviceInfo failed: "
-                + BassNativeErrorFormatter.Format(deviceInfoError));
+                + BassNativeErrorFormatter.Format(deviceInfoError),
+                attempts: attempts);
         }
         var actualDevice = new BassAudioPlayer.DeviceDescriptor(deviceInfo.Name, deviceInfo.ID);
         session.ActualDevice = actualDevice;
@@ -244,6 +516,31 @@ internal sealed class BassWasapiNegotiator
         int requestedRate = shared || request.Rate == SampleRate.AUTO
             ? deviceInfo.MixFrequency
             : (int)request.Rate;
+        if (!shared && request.Rate == SampleRate.AUTO
+            && TryGetWasapiFormat(request.Format, out WasapiFormat exactFormat))
+        {
+            bool found = false;
+            foreach (int rate in GetCapabilityRates(SampleRate.AUTO, deviceInfo.MixFrequency))
+            {
+                int returned = CheckExclusiveFormat(selected.NativeIndex, rate, exactFormat, attempts, out Errors error);
+                if (returned == (int)exactFormat)
+                {
+                    requestedRate = rate;
+                    found = true;
+                    break;
+                }
+                if (returned < 0 && error != Errors.SampleFormat)
+                {
+                    throw Failure(request, session, "BASS_WASAPI_CheckFormat", "BASSWASAPI", error,
+                        "WASAPI format check failed.", attempts: attempts);
+                }
+            }
+            if (!found && request.RequiresExactSelection)
+            {
+                throw Failure(request, session, "BASS_WASAPI_CheckFormat", "BASSWASAPI", Errors.SampleFormat,
+                    "No rate supports the requested WASAPI endpoint format.", attempts: attempts);
+            }
+        }
         int requestedChannels = shared ? deviceInfo.MixChannels : 2;
         if (shared && request.Rate != SampleRate.AUTO && (int)request.Rate != requestedRate)
         {
@@ -252,14 +549,6 @@ internal sealed class BassWasapiNegotiator
                 "WASAPI shared mode prioritized endpoint mix rate " + requestedRate
                 + " over requested rate " + (int)request.Rate + ".");
         }
-        if (request.Format is not SampleFormat.AUTO and not SampleFormat.SAMPLE_FLOAT_32BIT)
-        {
-            AddFallbackReason(
-                fallbackReasons,
-                "Requested WASAPI format " + request.Format
-                + " was normalized to Float32 to keep mixer and callback byte widths equal.");
-        }
-
         float requestedLatencySeconds = request.LatencyMilliseconds > 0f
             ? request.LatencyMilliseconds / 1000f
             : 0.016f;
@@ -270,13 +559,23 @@ internal sealed class BassWasapiNegotiator
             shared,
             eventModeRequested,
             requestedBufferSeconds,
-            (float)deviceInfo.MinimumUpdatePeriod);
+            (float)deviceInfo.MinimumUpdatePeriod,
+            request.RequiresExactSelection);
 
         BassWasapiInitializationCandidate acceptedCandidate = null;
         Errors lastError = Errors.OK;
         foreach (BassWasapiInitializationCandidate candidate in candidates)
         {
-            WasapiInitFlags exclusiveFlags = WasapiInitFlags.Exclusive | WasapiInitFlags.AutoFormat;
+            WasapiInitFlags exclusiveFlags = WasapiInitFlags.Exclusive | WasapiInitFlags.Dither;
+            // AUTOFORMATはレートや形式を変え得るため、明示条件を検証するテストへ渡しません。
+            if (!request.RequiresExactSelection || request.Format == SampleFormat.AUTO)
+            {
+                exclusiveFlags |= WasapiInitFlags.AutoFormat;
+            }
+            if (!shared && TryGetWasapiFormat(request.Format, out WasapiFormat requestedFormat))
+            {
+                exclusiveFlags |= (WasapiInitFlags)((int)requestedFormat << 16);
+            }
             if (candidate.EventDriven)
             {
                 exclusiveFlags |= WasapiInitFlags.EventDriven;
@@ -328,7 +627,8 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_Init",
                 "BASSWASAPI",
                 lastError,
-                "BASS_WASAPI_Init failed: " + BassNativeErrorFormatter.Format(lastError));
+                "BASS_WASAPI_Init failed: " + BassNativeErrorFormatter.Format(lastError),
+                attempts: attempts);
         }
         AddInitializationFallbackReason(fallbackReasons, attempts, acceptedCandidate);
 
@@ -343,7 +643,8 @@ internal sealed class BassWasapiNegotiator
                 "BASSWASAPI",
                 infoError,
                 "BASS_WASAPI_GetInfo failed: "
-                + BassNativeErrorFormatter.Format(infoError));
+                + BassNativeErrorFormatter.Format(infoError),
+                attempts: attempts);
         }
         if (info.Frequency <= 0 || info.Channels <= 0)
         {
@@ -355,7 +656,24 @@ internal sealed class BassWasapiNegotiator
                 "BASSWASAPI",
                 error,
                 "BASS_WASAPI_GetInfo returned an invalid format: "
-                + BassNativeErrorFormatter.Format(error));
+                + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
+        }
+
+        if (request.RequiresExactSelection
+            && !shared
+            && request.Rate != SampleRate.AUTO
+            && info.Frequency != requestedRate)
+        {
+            throw Failure(
+                request,
+                session,
+                "BASS_WASAPI_GetInfo",
+                "BASSWASAPI",
+                null,
+                "Requested WASAPI sample rate " + requestedRate
+                + " was read back as " + info.Frequency + ".",
+                attempts: attempts);
         }
 
         SampleFormat endpointFormat = FromWasapiFormat(info.Format);
@@ -368,7 +686,27 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_GetInfo",
                 "BASSWASAPI",
                 null,
-                "BASS_WASAPI_GetInfo returned an unknown sample format.");
+                "BASS_WASAPI_GetInfo returned an unknown sample format.",
+                attempts: attempts);
+        }
+        if (request.Format != SampleFormat.AUTO && request.Format != endpointFormat)
+        {
+            if (request.RequiresExactSelection)
+            {
+                throw Failure(
+                    request,
+                    session,
+                    "BASS_WASAPI_GetInfo",
+                    "BASSWASAPI",
+                    null,
+                    "Requested WASAPI endpoint format " + request.Format
+                    + " was read back as " + endpointFormat + ".",
+                    attempts: attempts);
+            }
+            AddFallbackReason(
+                fallbackReasons,
+                "Requested WASAPI endpoint format " + request.Format
+                + " was read back as " + endpointFormat + ".");
         }
 
         attempts.Add(new BassAudioBackendAttempt(
@@ -382,7 +720,8 @@ internal sealed class BassWasapiNegotiator
 
         BassFlags mixerFlags = BassFlags.Float
             | BassFlags.Prescan
-            | BassFlags.Decode;
+            | BassFlags.Decode
+            | BassFlags.MixerNonStop;
         int mixerHandle = native.CreateMixer(info.Frequency, info.Channels, mixerFlags);
         if (mixerHandle == 0)
         {
@@ -393,28 +732,32 @@ internal sealed class BassWasapiNegotiator
                 "BASS_Mixer_StreamCreate",
                 "BASS",
                 error,
-                "BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.MixerHandle = mixerHandle;
-
-        if (shared
-            && !TrySetSharedMixerGain(
-                session,
-                initialGain,
-                out Errors gainError,
-                out string gainStage))
+        session.TrackOutputHandle(mixerHandle);
+        try
+        {
+            BassMixerThreadConfigurator.SetAndConfirm(
+                mixerHandle,
+                native,
+                request.PlayerMixerThreadCount);
+        }
+        catch (BassMixerThreadConfigurationException exception)
         {
             throw Failure(
                 request,
                 session,
-                gainStage,
+                exception.NativeApi,
                 "BASS",
-                gainError,
-                gainStage + " for WASAPI shared mixer volume failed: "
-                + BassNativeErrorFormatter.Format(gainError));
+                exception.NativeErrorCode,
+                exception.Message,
+                exception,
+                attempts);
         }
-
-        session.TrackOutputHandle(mixerHandle);
+        session.OutputProcessor = new AudioOutputProcessor(info.Frequency, initialGain);
+        session.CallbackPcmRenderer = new AudioPcmRenderer(mixerHandle, info.Frequency, info.Channels);
         if (!native.StartWasapi())
         {
             Errors error = native.GetWasapiError();
@@ -424,7 +767,8 @@ internal sealed class BassWasapiNegotiator
                 "BASS_WASAPI_Start",
                 "BASSWASAPI",
                 error,
-                "BASS_WASAPI_Start failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_WASAPI_Start failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.IsStarted = true;
 
@@ -442,57 +786,21 @@ internal sealed class BassWasapiNegotiator
             mixerHandle,
             attempts.AsReadOnly(),
             fallbackReasons.Count == 0 ? null : string.Join(" ", fallbackReasons),
-            info.Channels);
+            info.Channels,
+            callbackFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+            endpointContainerBits: bytesPerSample * 8,
+            endpointEffectiveBits: bytesPerSample * 8);
         session.NegotiationResult = result;
         return result;
     }
 
-    /// <summary>
-    /// Applies application volume to the volume effect attached to an initialized WASAPI
-    /// shared graph and returns the immediately captured BASS error and failed stage when the
-    /// native call fails.
-    /// </summary>
-    internal bool TrySetSharedMixerGain(
-        BassAudioSession session,
-        float volume,
-        out Errors error,
-        out string failedStage)
-    {
-        ArgumentNullException.ThrowIfNull(session);
-        failedStage = "WASAPI shared mixer volume";
-        if (session.ActualBackend != BassAudioPlayer.DeviceDriver.WASAPI_SHARED
-            || session.MixerHandle == 0)
-        {
-            error = Errors.Handle;
-            return false;
-        }
-        if (session.VolumeEffectHandle == 0)
-        {
-            session.VolumeEffectHandle = native.CreateVolumeEffect(session.MixerHandle);
-            if (session.VolumeEffectHandle == 0)
-            {
-                failedStage = "BASS_ChannelSetFX(BASS_FX_BFX_VOLUME)";
-                error = native.GetCoreError();
-                return false;
-            }
-        }
-        if (native.SetVolumeEffect(session.VolumeEffectHandle, volume))
-        {
-            error = Errors.OK;
-            return true;
-        }
-
-        failedStage = "BASS_FXSetParameters(BASS_FX_BFX_VOLUME)";
-        error = native.GetCoreError();
-        return false;
-    }
-
-    /// <summary>Builds the deterministic, duplicate-free WASAPI mode and period candidates.</summary>
+    /// <summary>重複しない開始候補を決定順で作成します。設定テストはイベント指定を維持し、同方式内のバッファ調整だけを許します。</summary>
     internal static IReadOnlyList<BassWasapiInitializationCandidate> GetInitializationCandidates(
         bool shared,
         bool eventModeRequested,
         float requestedBufferSeconds,
-        float requestedPeriodSeconds)
+        float requestedPeriodSeconds,
+        bool requireExactEventMode = false)
     {
         var result = new List<BassWasapiInitializationCandidate>();
         var seen = new HashSet<(bool EventDriven, float BufferSeconds, float PeriodSeconds)>();
@@ -515,13 +823,21 @@ internal sealed class BassWasapiNegotiator
             {
                 Add(true, 0f, 0f, "shared event native default buffer/period");
             }
-            Add(false, 0f, 0f, "shared non-event native default buffer/period");
+            if (!eventModeRequested || !requireExactEventMode)
+            {
+                Add(false, 0f, 0f, "shared non-event native default buffer/period");
+            }
             return result.AsReadOnly();
         }
 
         if (eventModeRequested)
         {
             Add(true, requestedBufferSeconds, requestedPeriodSeconds, "event requested buffer/period");
+            if (requireExactEventMode)
+            {
+                Add(true, 0f, 0f, "event native default buffer/period");
+                return result.AsReadOnly();
+            }
         }
         Add(false, requestedBufferSeconds, requestedPeriodSeconds, "non-event requested buffer/period");
         Add(false, 0f, 0f, "non-event native default buffer/period");
@@ -531,7 +847,8 @@ internal sealed class BassWasapiNegotiator
     private static (IndexedWasapiDevice Device, string FallbackReason) SelectDevice(
         IReadOnlyList<IndexedWasapiDevice> devices,
         BassAudioPlayer.DeviceDescriptor requestedDevice,
-        bool useStableIdentityAsAuthoritative)
+        bool useStableIdentityAsAuthoritative,
+        bool requireExactDevice = false)
     {
         if (useStableIdentityAsAuthoritative
             && !string.IsNullOrWhiteSpace(requestedDevice.Driver))
@@ -541,6 +858,12 @@ internal sealed class BassWasapiNegotiator
             if (exact != null)
             {
                 return (exact, null);
+            }
+            if (requireExactDevice)
+            {
+                // Selection-only tests must not turn a missing stable identity into Default.
+                // Shared playback still uses the existing default fallback policy.
+                return (null, null);
             }
         }
         else if (!requestedDevice.Equals(default(BassAudioPlayer.DeviceDescriptor)))
@@ -581,7 +904,7 @@ internal sealed class BassWasapiNegotiator
         BassWasapiInitializationCandidate acceptedCandidate)
     {
         BassAudioBackendAttempt[] rejected = attempts
-            .Where(attempt => attempt.NativeErrorCode.HasValue)
+            .Where(attempt => attempt.Stage == "BASS_WASAPI_Init" && attempt.NativeErrorCode.HasValue)
             .ToArray();
         if (rejected.Length == 0)
         {
@@ -618,6 +941,31 @@ internal sealed class BassWasapiNegotiator
         _ => SampleFormat.UNKNOWN
     };
 
+    private static bool TryGetWasapiFormat(SampleFormat format, out WasapiFormat wasapiFormat)
+    {
+        switch (format)
+        {
+            case SampleFormat.SAMPLE_FLOAT_32BIT:
+                wasapiFormat = WasapiFormat.Float;
+                return true;
+            case SampleFormat.SAMPLE_INT_8BIT:
+                wasapiFormat = WasapiFormat.Bit8;
+                return true;
+            case SampleFormat.SAMPLE_INT_16BIT:
+                wasapiFormat = WasapiFormat.Bit16;
+                return true;
+            case SampleFormat.SAMPLE_INT_24BIT:
+                wasapiFormat = WasapiFormat.Bit24;
+                return true;
+            case SampleFormat.SAMPLE_INT_32BIT:
+                wasapiFormat = WasapiFormat.Bit32;
+                return true;
+            default:
+                wasapiFormat = WasapiFormat.Unknown;
+                return false;
+        }
+    }
+
     private static int BytesPerSample(WasapiFormat format) => format switch
     {
         WasapiFormat.Bit8 => 1,
@@ -634,7 +982,9 @@ internal sealed class BassWasapiNegotiator
         string stage,
         string source,
         Errors? error,
-        string message) =>
+        string message,
+        Exception innerException = null,
+        IReadOnlyList<BassAudioBackendAttempt> attempts = null) =>
         new(
             request.Backend,
             request.Backend,
@@ -643,7 +993,9 @@ internal sealed class BassWasapiNegotiator
             session.ActualDevice,
             source,
             error,
-            message);
+            message,
+            innerException,
+            attempts);
 
     private sealed class IndexedWasapiDevice
     {
@@ -662,6 +1014,7 @@ internal sealed class BassWasapiNegotiator
 /// <summary>Forwards WASAPI negotiation calls to ManagedBass.</summary>
 internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNativeBoundary
 {
+    private readonly IBassMixerThreadNativeBoundary mixerThreadNative = new BassMixerThreadNativeBoundary();
     private Errors? coreErrorOverride;
     private Errors? wasapiErrorOverride;
 
@@ -682,6 +1035,17 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
 
     /// <inheritdoc />
     public int GetCoreDevice() => Bass.CurrentDevice;
+
+    /// <inheritdoc />
+    public bool SetMixerThreadCount(int mixerHandle, float threadCount) =>
+        mixerThreadNative.SetMixerThreadCount(mixerHandle, threadCount);
+
+    /// <inheritdoc />
+    public bool GetMixerThreadCount(int mixerHandle, out float threadCount) =>
+        mixerThreadNative.GetMixerThreadCount(mixerHandle, out threadCount);
+
+    /// <inheritdoc />
+    public Errors GetMixerThreadError() => GetCoreError();
 
     /// <inheritdoc />
     public void DisableCoreUpdatePeriod()
@@ -833,6 +1197,20 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
         }
     }
 
+    /// <inheritdoc />
+    public int CheckWasapiFormat(
+        int deviceIndex,
+        int rate,
+        int channels,
+        WasapiInitFlags flags,
+        out Errors error)
+    {
+        wasapiErrorOverride = null;
+        int format = (int)BassWasapi.CheckFormat(deviceIndex, rate, channels, flags);
+        error = format < 0 ? Bass.LastError : Errors.OK;
+        return format;
+    }
+
     private static BassWasapiDeviceSnapshot ToDeviceSnapshot(WasapiDeviceInfo info) =>
         new(
             info.Name,
@@ -851,20 +1229,6 @@ internal sealed class BassWasapiNegotiationNativeBoundary : IWasapiNegotiationNa
     {
         coreErrorOverride = null;
         return BassMix.CreateMixerStream(rate, channels, flags);
-    }
-
-    /// <inheritdoc />
-    public int CreateVolumeEffect(int mixerHandle)
-    {
-        coreErrorOverride = null;
-        return Bass.ChannelSetFX(mixerHandle, EffectType.VolumeBfx, 1);
-    }
-
-    /// <inheritdoc />
-    public bool SetVolumeEffect(int effectHandle, float volume)
-    {
-        coreErrorOverride = null;
-        return ManagedBassVolumeEffect.SetParameters(effectHandle, volume);
     }
 
     /// <inheritdoc />

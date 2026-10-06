@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using BeMusicSeeker.Models;
@@ -78,17 +77,26 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     using LibraryFileMutationLease gate = library.TryBeginLibraryFileMutation("report-probe", showMessage: false);
                     leaseReleased = gate != null;
                 };
-                if (reporterThrows) dialogs.MessageFailure = new IOException("reporter-marker");
+                if (reporterThrows)
+                {
+                    dialogs.MessageFailure = new IOException("reporter-marker");
+                }
+
                 FolderAutoRenameCompletionReceipt? completion = null;
                 viewModel.FolderAutoRenameWorkflow.CompletionPublished += receipt => completion = receipt;
                 FolderAutoRenameFailure? outcome = null;
                 viewModel.FolderAutoRenameWorkflow.FailurePublished += failure => outcome = failure;
                 if (allFolders)
+                {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.RequestStartAllAsync(root), "B1 all admission");
+                }
                 else
+                {
                     Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.RequestStartSelected([
                         new ChartOperationTarget(ChartFileProjection.FromBmsFile(chart), null,
                             ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary)]));
+                }
+
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.WaitForIdleAsync(), "B1 terminal");
                 Assert.IsTrue(activityInactive);
                 Assert.IsTrue(leaseReleased);
@@ -149,7 +157,9 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     db.CreateTable<LR2SongDB.folder>();
                     db.CreateTable<LR2SongDBExtended.maintenance>();
                     if (failureKind == 2)
+                    {
                         db.Execute("CREATE TRIGGER fail_drop BEFORE INSERT ON song WHEN NEW.path LIKE '%DropTarget%' BEGIN SELECT RAISE(ABORT, 'drop-primary-marker'); END;");
+                    }
                 }
                 var dialogs = new FileDbReportRecordingDialogs();
                 IFileMutationService files = failureKind == 1
@@ -579,6 +589,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 MenuItem installMenu = packageMenu.Items.OfType<MenuItem>().Single(item => item.Items.Count == 5);
                 MenuItem[] installCommands = installMenu.Items.OfType<MenuItem>().ToArray();
                 Assert.AreEqual(5, installCommands.Length);
+                Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
 
                 foreach (MenuItem command in installCommands)
                 {
@@ -1134,6 +1145,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
                 MenuItem[] installCommands = installGroup.Items.OfType<MenuItem>().ToArray();
                 Assert.AreEqual(5, installCommands.Length);
+                Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
                 var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
                 installCommands[0].RaiseEvent(searchInstallArgs);
                 Assert.IsTrue(searchInstallArgs.Handled);

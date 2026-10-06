@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;

@@ -98,18 +98,10 @@ public static class TreeViewExt
         return selectChildTreeViewItemSearchedByHeader(treeView, headerName);
     }
 
-    public static bool SelectChildTreeViewItemSearchedByHeader(this TreeViewItem treeViewItem, string headerName)
-    {
-        return selectChildTreeViewItemSearchedByHeader(treeViewItem, headerName);
-    }
-
     public static bool SelectTreeViewItemSearchedByDataContext(this TreeView treeView, object targetDataContext)
     {
         return selectTreeViewItemSearchedByDataContext(treeView, targetDataContext);
     }
 
-    public static bool SelectChildTreeViewItemSearchedByDataContext(this TreeViewItem treeViewItem, object targetDataContext)
-    {
-        return selectTreeViewItemSearchedByDataContext(treeViewItem, targetDataContext);
-    }
+
 }

@@ -7,13 +7,14 @@ using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchRequest, CancellationToken> processBatch, Action<DropInstallQueueStatusSnapshot> statusChanged, Action<Exception> batchFailed = null)
+/// <summary>受理済み導入を入力順に処理し、停止待ちを含む各バッチTaskと入力回収の終端まで所有します。</summary>
+internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest, CancellationToken, Task> processBatch, Action<DropInstallQueueStatusSnapshot> statusChanged, Action<Exception> batchFailed = null)
 {
     private readonly object syncRoot = new();
 
     private readonly Queue<DroppedInstallBatchRequest> pendingBatches = new();
 
-    private readonly Action<DroppedInstallBatchRequest, CancellationToken> processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
+    private readonly Func<DroppedInstallBatchRequest, CancellationToken, Task> processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
 
     private readonly Action<DropInstallQueueStatusSnapshot> statusChanged = statusChanged ?? throw new ArgumentNullException(nameof(statusChanged));
 
@@ -242,14 +243,10 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private void StartWorker()
     {
-        Task.Factory.StartNew(
-            ProcessLoop,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default).ObserveFault("DropInstallQueueProcessor");
+        Task.Run(ProcessLoopAsync).ObserveFault("DropInstallQueueProcessor");
     }
 
-    private void ProcessLoop()
+    private async Task ProcessLoopAsync()
     {
         while (true)
         {
@@ -304,7 +301,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             {
                 try
                 {
-                    processBatch(batch, cancellationTokenSource.Token);
+                    await processBatch(batch, cancellationTokenSource.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {

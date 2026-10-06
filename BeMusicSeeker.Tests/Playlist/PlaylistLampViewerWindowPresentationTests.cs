@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
@@ -12,7 +13,6 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
@@ -212,6 +212,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.Drain();
                 window.UpdateLayout();
 
+                SelectDisplayMode(window, true);
                 DatePicker picker = FindByAutomationId<DatePicker>(
                     window,
                     "PlaylistLampViewerAsOfDatePicker");
@@ -264,6 +265,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.Drain();
                 window.UpdateLayout();
 
+                Assert.IsTrue(viewModel.IsCountMode);
                 Assert.AreEqual(selected, picker.SelectedDate);
                 Assert.AreEqual(selected, viewModel.SelectedAsOfDate);
                 Assert.AreEqual(selected, session.Query.SelectedLocalDate);
@@ -281,6 +283,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.Drain();
                 window.UpdateLayout();
 
+                Assert.IsTrue(viewModel.IsCountMode);
                 Assert.IsNull(picker.SelectedDate);
                 Assert.IsNull(viewModel.SelectedAsOfDate);
                 Assert.IsNull(session.Query.SelectedLocalDate);
@@ -693,7 +696,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
     }
 
     [TestMethod]
-    public void Viewer_widthAwareLabelsShowPercentageOnlyWhenTheSegmentCanContainIt()
+    public void Viewer_widthAwareLabelsShowSelectedModeOnlyWhenTheSegmentCanContainIt()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -733,8 +736,14 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     .ToArray();
                 Assert.AreEqual(2, clearButtons.Length, "synthetic clear data must expose two positive categories");
                 Assert.AreEqual(2, rankButtons.Length, "synthetic rank data must expose two positive categories");
-                AssertWidthAwareLabels(clearButtons, window);
-                AssertWidthAwareLabels(rankButtons, window);
+                foreach (bool countMode in new[] { false, true, false })
+                {
+                    SelectDisplayMode(window, countMode);
+                    AssertWidthAwareLabels(clearButtons, window, countMode);
+                    AssertWidthAwareLabels(rankButtons, window, countMode);
+                    AssertBoundedHost(clearHost);
+                    AssertBoundedHost(rankHost);
+                }
 
                 foreach (Button button in FindDescendants<Button>(window)
                     .Where(candidate => candidate.DataContext is PlaylistLampViewerSegmentViewModel segment
@@ -1093,6 +1102,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 TestUiDispatcherHost.Drain();
 
+                SelectDisplayMode(window, true);
                 Assert.IsFalse(viewModel.ClearSegments.Any(segment =>
                     segment.CategoryKey is "MAX" or "EXHARD"));
                 Assert.IsTrue(viewModel.ClearSegments.Any(segment => segment.CategoryKey == "FC"));
@@ -1122,6 +1132,13 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     "playlist lamp viewer degraded refresh");
                 TestUiDispatcherHost.Drain();
 
+                Assert.IsTrue(viewModel.IsCountMode);
+                RadioButton percentageMode = FindByAutomationId<RadioButton>(window, "PlaylistLampViewerPercentageMode");
+                RadioButton countMode = FindByAutomationId<RadioButton>(window, "PlaylistLampViewerCountMode");
+                Assert.IsFalse(percentageMode.IsEnabled);
+                Assert.IsFalse(countMode.IsEnabled);
+                viewModel.IsPercentageMode = true;
+                Assert.IsTrue(viewModel.IsCountMode, "unavailable scores must reject mode changes");
                 Assert.IsTrue(viewModel.IsDegraded);
                 Assert.IsFalse(viewModel.IsGraphVisible);
                 Assert.AreEqual(0, FindDescendants<Button>(window)
@@ -1137,6 +1154,14 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         Resources.PlaylistLampViewer_score_source,
                         Resources.PlaylistLampViewer_playlist_last_update
                     });
+                source.Replace(CreateRequest(ActiveScoreSource.Lr2));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "LR2 score recovery");
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+                Assert.IsTrue(viewModel.IsCountMode);
+                Assert.IsTrue(countMode.IsEnabled);
+                Assert.IsTrue(viewModel.IsGraphVisible);
+                Assert.IsFalse(viewModel.ClearSegments.Any(segment => segment.CategoryKey is "MAX" or "EXHARD"));
             }
             finally
             {
@@ -1151,6 +1176,324 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 viewModel.Dispose();
             }
         });
+    }
+
+    [TestMethod]
+    public void Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var source = new FixedLampSource(CreateScaleRequest(100));
+            var executor = new CountingLampBuildExecutor();
+            var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+            var requests = new List<PlaylistLampViewerNavigationRequest>();
+            var viewModel = new PlaylistLampViewerViewModel("playlist", "共通尺度と長いタイトルの表示確認", session,
+                TestUiDispatcherHost.Dispatcher, requests.Add);
+            var owner = new Window { Width = 480, Height = 320, ShowInTaskbar = false, Content = new Grid() };
+            windowTest.ShowAndWaitForContentRendered(owner);
+            var window = new PlaylistLampViewerWindow(owner, viewModel) { Height = 560 };
+            int collectionChanges = 0;
+            int resultChanges = 0;
+            NotifyCollectionChangedEventHandler collectionHandler = (_, _) => collectionChanges++;
+            EventHandler<PlaylistLampAggregationResultChangedEventArgs> resultHandler = (_, _) => resultChanges++;
+            var collections = new List<INotifyCollectionChanged>();
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.StartAndWaitForPresentableAsync(), "common scale initial result");
+                windowTest.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+                Assert.IsTrue(viewModel.IsPercentageMode);
+                Assert.AreEqual(150, viewModel.CurrentResult.Statistics.TotalCount);
+                Assert.IsFalse(viewModel.FolderRows.Any(row => row.FolderName == "[NO SONG]"));
+                Assert.AreEqual(0, viewModel.FolderRows.Single(row => row.FolderName == "empty").Count);
+                PlaylistLampViewerFolderRowViewModel[] rows = viewModel.FolderRows.ToArray();
+                PlaylistLampViewerSegmentViewModel[] segments = rows.SelectMany(row => row.ClearSegments.Concat(row.RankSegments))
+                    .Concat(viewModel.ClearSegments).Concat(viewModel.RankSegments).ToArray();
+                collections.AddRange(new INotifyCollectionChanged[] { viewModel.FolderRows, viewModel.ClearSegments,
+                    viewModel.RankSegments, viewModel.StatisticsCards });
+                foreach (PlaylistLampViewerFolderRowViewModel? row in rows)
+                {
+                    collections.Add(row.ClearSegments);
+                    collections.Add(row.RankSegments);
+                }
+                foreach (INotifyCollectionChanged collection in collections)
+                {
+                    collection.CollectionChanged += collectionHandler;
+                }
+
+                session.ResultChanged += resultHandler;
+                Border small = FindRenderedFolder(window, "small");
+                AssertFolderOccupancy(small, 1d);
+                Assert.IsFalse(FindDescendants<Border>(window).Any(border =>
+                    AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
+                    && border.DataContext is PlaylistLampViewerFolderRowViewModel row && row.FolderName == "maximum"),
+                    "the scale must include the maximum row before it is materialized");
+                Button hardButton = FindDescendants<Button>(small).Single(button =>
+                    button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "HARD");
+                var selected = (PlaylistLampViewerSegmentViewModel)hardButton.DataContext;
+                selected.Invoke();
+                ScrollViewer scroll = FindByAutomationId<ScrollViewer>(window, "PlaylistLampViewerFolderScrollViewer");
+                scroll.ScrollToVerticalOffset(1d);
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+                Assert.IsTrue(scroll.VerticalOffset > 0d);
+                double offset = scroll.VerticalOffset;
+                PlaylistLampAggregationResult current = viewModel.CurrentResult;
+                int captures = source.CaptureCount;
+                int builds = executor.BuildCount;
+                foreach (bool count in new[] { true, false, true })
+                {
+                    SelectDisplayMode(window, count);
+                    Assert.AreEqual(count, viewModel.IsCountMode);
+                    Assert.AreEqual(!count, FindByAutomationId<RadioButton>(window, "PlaylistLampViewerPercentageMode").IsChecked);
+                    small = FindRenderedFolder(window, "small");
+                    AssertFolderOccupancy(small, count ? 0.5d : 1d);
+                    AssertSegmentWidth(small, "HARD", 20d / (count ? 100d : 50d));
+                    AssertSegmentWidth(small, "A", 10d / (count ? 100d : 50d));
+                    string expectedPercentage = string.Format(CultureInfo.CurrentCulture,
+                        Resources.PlaylistLampViewer_percentage_format, 40d);
+                    Button hard = FindDescendants<Button>(small).Single(button =>
+                        button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "HARD");
+                    Assert.IsTrue((hard.ToolTip as string ?? throw new AssertFailedException("A segment tooltip is missing.")).Contains(expectedPercentage, StringComparison.Ordinal));
+                    AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(hard)
+                        ?? throw new AssertFailedException("A segment automation peer is missing.");
+                    Assert.IsTrue(peer.GetName().Contains(expectedPercentage, StringComparison.Ordinal));
+                    Assert.AreEqual(count ? 20.ToString("N0", CultureInfo.CurrentCulture) : expectedPercentage, hard.Content);
+                    AssertOverallLabel(window, count, 100);
+                    Assert.AreSame(current, viewModel.CurrentResult);
+                    Assert.AreSame(collections[0], viewModel.FolderRows);
+                    Assert.AreSame(collections[1], viewModel.ClearSegments);
+                    Assert.AreSame(collections[2], viewModel.RankSegments);
+                    Assert.AreSame(collections[3], viewModel.StatisticsCards);
+                    for (int index = 0; index < rows.Length; index++)
+                    {
+                        Assert.AreSame(collections[4 + index * 2], rows[index].ClearSegments);
+                        Assert.AreSame(collections[5 + index * 2], rows[index].RankSegments);
+                    }
+                    CollectionAssert.AreEqual(rows, viewModel.FolderRows.ToArray());
+                    CollectionAssert.AreEqual(segments, viewModel.FolderRows.SelectMany(row => row.ClearSegments.Concat(row.RankSegments))
+                        .Concat(viewModel.ClearSegments).Concat(viewModel.RankSegments).ToArray());
+                    Assert.AreSame(selected, viewModel.SelectedSegment);
+                    Assert.IsTrue(selected.IsSelected);
+                    Assert.AreEqual(offset, scroll.VerticalOffset);
+                    Assert.AreEqual(captures, source.CaptureCount);
+                    Assert.AreEqual(builds, executor.BuildCount);
+                    Assert.AreEqual(0, resultChanges);
+                    Assert.AreEqual(0, collectionChanges);
+                    Assert.AreEqual(1, requests.Count);
+                }
+                scroll.ScrollToEnd();
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+                Border maximum = FindRenderedFolder(window, "maximum");
+                Button maximumButton = FindDescendants<Button>(maximum).First();
+                double maximumWidth = maximumButton.ActualWidth;
+                foreach (bool count in new[] { false, true })
+                {
+                    SelectDisplayMode(window, count);
+                    AssertFolderOccupancy(maximum, 1d);
+                    Assert.AreEqual(maximumWidth, maximumButton.ActualWidth, 1d);
+                    Assert.AreEqual(count ? 100.ToString("N0", CultureInfo.CurrentCulture)
+                        : string.Format(CultureInfo.CurrentCulture, Resources.PlaylistLampViewer_percentage_format, 100d), maximumButton.Content);
+                    AssertOverallLabel(window, count, 100);
+                }
+                source.Replace(CreateScaleRequest(200));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "common scale changed maximum");
+                TestUiDispatcherHost.Drain();
+                scroll.ScrollToHome();
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+                Assert.IsTrue(viewModel.IsCountMode);
+                Assert.AreEqual(200d, viewModel.FolderBarScale);
+                small = FindRenderedFolder(window, "small");
+                AssertFolderOccupancy(small, 0.25d);
+                AssertSegmentWidth(small, "HARD", 20d / 200d);
+                AssertSegmentWidth(small, "A", 10d / 200d);
+            }
+            finally
+            {
+                session.ResultChanged -= resultHandler;
+                foreach (INotifyCollectionChanged collection in collections)
+                {
+                    collection.CollectionChanged -= collectionHandler;
+                }
+
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+
+                if (owner.IsVisible)
+                {
+                    owner.Close();
+                }
+
+                viewModel.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Viewer_displayModeIsIndependentAcrossWindowsAndNewWindowsStartWithPercentage()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var owner = new Window { Width = 480, Height = 320, ShowInTaskbar = false, Content = new Grid() };
+            var viewers = new List<PlaylistLampViewerViewModel>();
+            var windows = new List<PlaylistLampViewerWindow>();
+            windowTest.ShowAndWaitForContentRendered(owner);
+            try
+            {
+                for (int index = 0; index < 3; index++)
+                {
+                    var session = new PlaylistLampViewerSession("playlist", new FixedLampSource(CreateWidthAwareRequest()));
+                    var viewer = new PlaylistLampViewerViewModel("playlist", "Independent window", session,
+                        TestUiDispatcherHost.Dispatcher, _ => { });
+                    viewers.Add(viewer);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewer.StartAndWaitForPresentableAsync(), "independent viewer result");
+                    var window = new PlaylistLampViewerWindow(owner, viewer);
+                    windows.Add(window);
+                    windowTest.ShowAndWaitForContentRendered(window);
+                    Assert.IsTrue(viewer.IsPercentageMode);
+                    if (index == 0)
+                    {
+                        SelectDisplayMode(window, true);
+                    }
+
+                    if (index == 1)
+                    {
+                        Assert.IsTrue(viewers[0].IsCountMode);
+                        SelectDisplayMode(window, true);
+                        SelectDisplayMode(windows[0], false);
+                        Assert.IsTrue(viewer.IsCountMode);
+                        window.Close();
+                    }
+                }
+                Assert.IsTrue(viewers[1].IsCountMode);
+                Assert.IsTrue(viewers[2].IsPercentageMode);
+            }
+            finally
+            {
+                foreach (PlaylistLampViewerWindow window in windows)
+                {
+                    if (window.IsVisible)
+                    {
+                        window.Close();
+                    }
+                }
+
+                if (owner.IsVisible)
+                {
+                    owner.Close();
+                }
+
+                foreach (PlaylistLampViewerViewModel viewer in viewers)
+                {
+                    viewer.Dispose();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Viewer_countModeRetainsZeroRowsAndHandlesNoFoldersAfterRefresh()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var source = new FixedLampSource(CreateWidthAwareRequest());
+            var session = new PlaylistLampViewerSession("playlist", source);
+            var viewer = new PlaylistLampViewerViewModel("playlist", "Empty scale", session,
+                TestUiDispatcherHost.Dispatcher, _ => { });
+            var owner = new Window { Width = 480, Height = 320, ShowInTaskbar = false, Content = new Grid() };
+            windowTest.ShowAndWaitForContentRendered(owner);
+            var window = new PlaylistLampViewerWindow(owner, viewer);
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewer.StartAndWaitForPresentableAsync(), "empty scale initial result");
+                windowTest.ShowAndWaitForContentRendered(window);
+                SelectDisplayMode(window, true);
+                foreach (string[] folders in new[] { new[] { "zero-one", "zero-two" }, Array.Empty<string>() })
+                {
+                    source.Replace(new PlaylistLampAggregationRequest("playlist", folders, [], CreateWidthAwareRequest().ScoreSnapshot));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "empty scale refresh");
+                    TestUiDispatcherHost.Drain();
+                    window.UpdateLayout();
+                    Assert.IsTrue(viewer.IsCountMode);
+                    Assert.AreEqual(0d, viewer.FolderBarScale);
+                    Assert.AreEqual(folders.Length, viewer.FolderRows.Count);
+                    Assert.IsTrue(viewer.FolderRows.All(row => row.Count == 0));
+                    Assert.AreEqual(0, FindDescendants<Button>(window).Count(button =>
+                        button.DataContext is PlaylistLampViewerSegmentViewModel));
+                    Assert.IsTrue(FindDescendants<PlaylistLampWeightedStackPanel>(window).All(panel =>
+                        double.IsFinite(panel.ActualWidth) && panel.ActualWidth >= 0d));
+                }
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+
+                if (owner.IsVisible)
+                {
+                    owner.Close();
+                }
+
+                viewer.Dispose();
+            }
+        });
+    }
+
+    private static void SelectDisplayMode(PlaylistLampViewerWindow window, bool count)
+    {
+        RadioButton radio = FindByAutomationId<RadioButton>(window,
+            count ? "PlaylistLampViewerCountMode" : "PlaylistLampViewerPercentageMode");
+        Assert.IsTrue(radio.IsEnabled);
+        radio.IsChecked = true;
+        TestUiDispatcherHost.Drain();
+        window.UpdateLayout();
+        TestUiDispatcherHost.Drain();
+        window.UpdateLayout();
+    }
+
+    private static Border FindRenderedFolder(Window window, string folderName)
+        => FindDescendants<Border>(window).Single(border =>
+            AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
+            && border.DataContext is PlaylistLampViewerFolderRowViewModel row && row.FolderName == folderName);
+
+    private static void AssertFolderOccupancy(Border row, double fraction)
+    {
+        foreach (string id in new[] { "PlaylistLampViewerClearFolderBarHost", "PlaylistLampViewerRankFolderBarHost" })
+        {
+            Border host = FindByAutomationId<Border>(row, id);
+            Button[] buttons = FindDescendants<Button>(host).ToArray();
+            double right = buttons.Max(button => button.TranslatePoint(new Point(button.ActualWidth, 0), host).X);
+            Assert.AreEqual(host.ActualWidth * fraction, right, 1d, "folder occupied width");
+        }
+    }
+
+    private static void AssertSegmentWidth(Border row, string category, double fraction)
+    {
+        Button button = FindDescendants<Button>(row).Single(candidate =>
+            candidate.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == category);
+        Border host = FindAncestor<Border>(button)
+            ?? throw new AssertFailedException("The segment bar host is missing.");
+        Assert.AreEqual(host.ActualWidth * fraction, button.ActualWidth, 1d, category + " common scale width");
+    }
+
+    private static void AssertOverallLabel(Window window, bool count, int npCount)
+    {
+        foreach (string id in new[] { "PlaylistLampViewerClearGraphHost", "PlaylistLampViewerRankGraphHost" })
+        {
+            Border host = FindByAutomationId<Border>(window, id);
+            AssertBoundedHost(host);
+            Button np = FindDescendants<Button>(host).Single(button =>
+                button.DataContext is PlaylistLampViewerSegmentViewModel segment && segment.CategoryKey == "NP");
+            Assert.AreEqual(count ? npCount.ToString("N0", CultureInfo.CurrentCulture)
+                : string.Format(CultureInfo.CurrentCulture, Resources.PlaylistLampViewer_percentage_format, npCount * 100d / 150d), np.Content);
+        }
     }
 
     private static void AssertFolderHalfGeometry(
@@ -1362,7 +1705,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             $"weighted segments did not cover host: {rightmost} < {host.ActualWidth}");
     }
 
-    private static void AssertWidthAwareLabels(Button[] buttons, Window coordinateRoot)
+    private static void AssertWidthAwareLabels(Button[] buttons, Window coordinateRoot, bool countMode)
     {
         Button wideButton = buttons.Single(button =>
             ((PlaylistLampViewerSegmentViewModel)button.DataContext).Count == 203);
@@ -1376,8 +1719,10 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         string? wideContent = wideButton.Content as string;
         Assert.IsFalse(string.IsNullOrWhiteSpace(wideContent),
             "a segment with enough width must expose an in-bar percentage");
-        Assert.IsTrue(wideContent!.Contains("%", StringComparison.Ordinal),
-            "the wide in-bar text must be a visible percentage");
+        Assert.AreEqual(
+            countMode ? 203.ToString("N0", CultureInfo.CurrentCulture)
+                : string.Format(CultureInfo.CurrentCulture, Resources.PlaylistLampViewer_percentage_format, 203d * 100d / 204d),
+            wideContent);
         Assert.IsTrue(wideContent != ((PlaylistLampViewerSegmentViewModel)wideButton.DataContext).DetailText,
             "the in-bar label must not expand to the full tooltip detail");
         TextBlock? renderedWideLabel = FindDescendants<TextBlock>(wideButton)
@@ -1724,6 +2069,47 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc));
     }
 
+    private static PlaylistLampAggregationRequest CreateScaleRequest(int maximumCount)
+    {
+        PlaylistLampScore[] scores = new[]
+        {
+            new PlaylistLampScore("hard-a", "hard-a", ClearType.HARD, RankType.A, 50, 50, 100, 1),
+            new PlaylistLampScore("hard-f", "hard-f", ClearType.HARD, RankType.F, 50, 50, 100, 1),
+            new PlaylistLampScore("assist-f", "assist-f", ClearType.L_ASSIST, RankType.F, 50, 50, 100, 1)
+        };
+        PlaylistLampEntrySnapshot[] entries = Enumerable.Range(0, 50).Select(index =>
+        {
+            PlaylistLampScore score = scores[index < 10 ? 0 : index < 20 ? 1 : 2];
+            return new PlaylistLampEntrySnapshot("small", "small-" + index, true,
+                sha256: score.Sha256, resolvedSha256: score.Sha256);
+        }).Concat(Enumerable.Range(0, maximumCount).Select(index =>
+            new PlaylistLampEntrySnapshot("maximum", "maximum-" + index, false, sha256: "missing")))
+            .Concat(Enumerable.Range(0, 250).Select(index =>
+                new PlaylistLampEntrySnapshot("[NO SONG]", "special-" + index, false, sha256: "special"))).ToArray();
+        string[] folders = new[] { "leading-empty", "small", "empty" }
+            .Concat(Enumerable.Range(0, 60).Select(index => "padding-" + index))
+            .Concat(new[] { "maximum", "[NO SONG]" }).ToArray();
+        var snapshot = new PlaylistLampScoreSnapshot(ActiveScoreSource.Beatoraja, ScoreTableLoadStatus.Loaded,
+            1, 1, null, scoresBySha256: scores.ToDictionary(score => score.Sha256, StringComparer.OrdinalIgnoreCase));
+        return new PlaylistLampAggregationRequest("playlist", folders, entries, snapshot);
+    }
+
+    private sealed class CountingLampBuildExecutor : IPlaylistLampViewerBuildExecutor
+    {
+        private int buildCount;
+
+        /// <summary>実際の集計呼出し回数。表示切替による再集計を検出します。</summary>
+        internal int BuildCount => Volatile.Read(ref buildCount);
+
+        /// <inheritdoc />
+        public Task<PlaylistLampAggregationResult> BuildAsync(PlaylistLampAggregationRequest request,
+            PlaylistLampAggregationService aggregationService, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref buildCount);
+            return Task.Run(() => aggregationService.Aggregate(request, cancellationToken), cancellationToken);
+        }
+    }
+
     private sealed class HistoricalLampSource : IPlaylistLampViewerDataSource
     {
         private readonly object stateGate = new();
@@ -1835,6 +2221,10 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
     private sealed class FixedLampSource : IPlaylistLampViewerDataSource
     {
+        private int captureCount;
+
+        /// <summary>データ捕捉回数。表示切替による読取り要求を検出します。</summary>
+        internal int CaptureCount => Volatile.Read(ref captureCount);
         private PlaylistLampAggregationRequest request;
 
         private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
@@ -1855,6 +2245,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref captureCount);
             return ValueTask.FromResult(request);
         }
 

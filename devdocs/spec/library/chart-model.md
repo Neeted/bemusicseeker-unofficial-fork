@@ -27,6 +27,8 @@ BMSとBMSONを同じ画面・操作から扱うためのモデルと、形式ご
 | パッケージ内の譜面 | `PackageChartEntry`。`ChartFile` と、導入先・候補・警告・検索状態を持ちます。 |
 | 画面で一時的に重ねる値 | `ChartFileTransientState`。導入先、字幕、警告、リソース健全性、文字コードなどを保持します。永続化の正本にはしません。 |
 
+所持カタログを譜面情報の唯一の正本とします。再生中はカタログを変更せず、ライブラリ変更時に停止します。再生一時状態は `PlaybackPanelViewModel` の現在譜面とbitに所有し、一覧行の `status` getterへだけ重ねます。`ChartFileTransientState`・`ChartFile`・保存主体に再生overlayを持たせません。検索・導入・警告・スコアなど既存の一時表示値は維持します。
+
 `ChartFile` の生成は `ChartFileProjection` に集約します。保存主体を必要とする処理だけが `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` を呼びます。BMSONを `BMSFile` の派生型へ変換して共通処理に渡す経路は設けません。
 
 `BMSFiles` / `BmsonSongs` は保存行の読取り専用ビューです。DB読込み、明示的な全置換、形式固有の解析・保存では直接扱えますが、共通処理のために両一覧を繰り返し結合しません。内部の追加・削除・移転は変更窓口を通し、外部からの全置換だけを全体の無効化境界とします。格納順・世代・差分反映の詳細は[データと索引](../core/data-and-indexes.md)を参照します。
@@ -50,6 +52,12 @@ flowchart TB
 ```
 
 所持集合へ入るには以下の識別条件を満たす必要があります。全ての `ChartFile` が所持済みではなく、BMSONからBMSの保存行も作りません。項目・一時表示値からDBへ無条件に書き戻す経路はありません。
+
+### 再生用解析との境界
+
+一覧・保存・操作対象は `ChartFile`、内蔵再生・音声書出しの解析結果は不変の `PlaybackChart` とします。`PlaybackChart.Load(path)` がBMS解析結果の投影とbmson専用解析を選び、`chart_info` の時刻や保存主体を音声計画へ転用しません。通常ロードと先読みはこの入口を共有します。音声区間の契約は[bmson再生仕様](bmson-playback.md)、BMSの入力と時刻は[RibbitのBMS時刻計算](ribbit-timing.md)に従います。
+
+再生・選曲・共通表示は `ChartFile` を対象とし、形式固有処理は解析・保存から共通モデルへの入口に置きます。対象・世代・状態・表示素材の契約と対応テストは[再生パネル](../ui/playback-panel.md#共通の再生対象と一覧状態)を正本とします。BMS保存主体を必要とする既存APIはnullを許容し、bmsonと対象未設定を非nullのBMS保存主体として扱いません。
 
 ### 所持譜面の識別条件
 
@@ -91,11 +99,12 @@ UIからは `ChartOperationTarget` に譜面、元の項目、所持・保留・
 | `RunResourceHealthCheck` | 可 | 可 | 実パスがあり、欠落していないこと。 |
 | `UseLr2Ir` / `UseScoreViewer` / `UpdateRanking` | 可 | 不可 | BMSで、有効なMD5があること。BMS-IRリンクでLR2BMSIDを代用しません。 |
 | `RunBmsEncodingCheck` / `RunBmsEncodingFix` / `RunZeroNoteCheck` | 可 | 不可 | 欠落していないBMSであること。 |
-| `RenameInvalidExtension` / `ConvertToAudio` | 可 | 不可 | 欠落していないBMSであること。 |
+| `RenameInvalidExtension` | 可 | 不可 | 欠落していないBMSであること。 |
+| `ConvertToAudio` | 可 | 可 | 実パスがあり、欠落・保留状態ではないこと。 |
 | `RepairInstalledLocation` / `MoveInLibrary` / `RemoveFromLibrary` | 可 | 可 | 実パスがあり、欠落・保留状態ではないこと。 |
 | `UpdateInstallDestination` | 可 | 可 | プレイリスト項目ではない保留パッケージ行であること。 |
 
-`GridRowResolver` は通常一覧とプレイリストの行が公開する `Chart` をそのまま使います。生の `BMSFile` を共通操作の入力にせず、必要な場合は明示的に投影します。BMSプレイヤー専用の解決だけは `TryGetBmsPlayerFile(...)` に分けます。
+`GridRowResolver` は通常一覧とプレイリストの行が公開する `Chart` をそのまま使います。生の `BMSFile` を共通操作の入力にせず、必要な場合は明示的に投影します。内蔵再生と音声変換も共通の `ChartFile` を解決します。外部プレイヤーへの引渡しは、その既存の形式条件を別に確認します。
 
 フォルダ名の編集は `TryGetFolderEditChartOperationTarget(...)` で権限を確認し、UIスレッドで `RenameChartFolderRequest` を確定してから実行します。`BMSFile.Level` / `Folder` は読取り専用であり、LEVELの編集はプレイリスト項目の編集として扱います。
 
@@ -127,7 +136,7 @@ UIスレッド上で選択を固定し、機能別の要求へ変換してから
 
 `PackageInstallEstimationSnapshot` は項目から代表譜面、定義リソース、メタデータ、探索範囲を作ります。ディレクトリ型パッケージだけがルート単位の上限付き探索を共有します。単一ファイル型と所属のない譜面では、親ディレクトリを列挙せず、同梱・候補リソースを別々の空集合、探索件数を0として保持します。定義リソースと譜面自身の情報は保持します。探索・候補評価の詳細は[導入先推定](install-estimation.md)を参照します。
 
-再生停止は変更範囲で決めます。フォルダ全体の移動・削除・名前変更では、譜面形式にかかわらず再生中BMSのディレクトリとの重なりを確認します。ファイル単位の削除・修復ではBMSファイルへの影響を確認し、同じフォルダのBMSONだけを変更するためにBMS再生を停止しません。
+再生停止は変更範囲で決めます。フォルダ全体の移動・削除・名前変更では、譜面形式にかかわらず現在の再生対象のディレクトリとの重なりを確認します。ファイル単位の削除・修復では現在の譜面ファイルへの影響を確認し、同じフォルダの別譜面だけを変更するために再生を停止しません。
 
 ### プレイリストの識別と行
 
@@ -159,6 +168,7 @@ BMSは `maintenanceInfo`、BMSONは `MaintenanceInfo` と解析済みのリソ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 共通再生対象、BMS・bmsonの変換能力とBMS専用能力の分離 | [`GridRowResolver`](../../../BeMusicSeeker/ViewModels/ChartList/GridRowResolver.cs) の `TryGetPlaybackChart` と権限生成、[`PlaybackChart`](../../../BeMusicSeeker/Ribbit/BMS/PlaybackChart.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の変換メニュー | [`PlaylistViewPipelineTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistViewPipelineTests.cs) の `ChartOperationTarget_CapabilityMatrix_SeparatesBmsOnlyAndBmsonCommonOperations` は所持BMS・bmsonの変換許可、両形式の保留拒否とBMS専用能力の維持を確認し、所持プレイリスト・新規導入済み・未所持の既存ケースも変換能力を確認する。[`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) の `CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles` は実ファイルを使い、bmsonのみの表示・有効状態、正確な譜面と混在選択順、保留・消失ファイルの非実行を確認する。要求と実行への受渡しは[音声変換](../runtime/audio-conversion.md#実装とテストの対応)を参照する。 |
 | 保存行からの投影・識別条件・所持集合 | [`ChartFile`](../../../BeMusicSeeker/Models/Chart/ChartFile.cs)、[`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs)、[`OwnedChartCollectionLookupMembershipTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLookupMembershipTests.cs) |
 | 実パス参照・導入先状態の分離 | [`LibraryChartRef`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/LibraryChartRef.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs)、[`OwnedChartCollectionInstalledOverlayTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInstalledOverlayTests.cs) |
 | 変更・ハッシュ更新・通知 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`OwnedChartCollectionInlineDigestTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInlineDigestTests.cs)、[`OwnedChartCollectionRefreshTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionRefreshTests.cs) |

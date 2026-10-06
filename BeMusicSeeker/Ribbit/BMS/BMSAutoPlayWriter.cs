@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -11,14 +10,22 @@ using Ribbit.Util.Extensions;
 
 namespace Ribbit.BMS;
 
-public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms)
+public class BMSAutoPlayWriter : BMSAutoPlayer
 {
+    public BMSAutoPlayWriter(BMSFile bms) : base(bms) { }
+
+    /// <summary>形式共通の譜面を同じPCM render・正規化・encoder経路へ接続します。</summary>
+    public BMSAutoPlayWriter(PlaybackChart chart) : base(chart) { }
+    private const int PullBlockFrames = 4096;
     public enum Normalization
     {
         NONE,
         PEAK_LEVEL,
         RMS_VALUE
     }
+
+    /// <inheritdoc />
+    protected override float ResourceSourceGain => 1f;
 
     public override void Pause()
     {
@@ -35,67 +42,116 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         throw new NotImplementedException();
     }
 
-    public void Write(EncoderType encodetype, float quality, string filePathWithoutExtension, Normalization normalize = Normalization.NONE, float normalizationAmplifier = 1f)
+    /// <summary>曲を一度だけfloat PCMへrenderし、同じPCMを測定・正規化してencoderへ供給します。</summary>
+    /// <param name="encodetype">使用するencoder形式です。</param>
+    /// <param name="quality">encoder固有の品質値です。</param>
+    /// <param name="filePathWithoutExtension">拡張子を除いた出力pathまたは出力directoryです。</param>
+    /// <param name="normalize">PCM全体へ適用する正規化方式です。</param>
+    /// <param name="normalizationAmplifier">正規化後に適用する追加amplifierです。</param>
+    public void Write(
+        EncoderType encodetype,
+        float quality,
+        string filePathWithoutExtension,
+        Normalization normalize = Normalization.NONE,
+        float normalizationAmplifier = 1f)
     {
-        if (currentTime != TimeSpan.Zero)
+        if (normalize is not Normalization.NONE
+            and not Normalization.PEAK_LEVEL
+            and not Normalization.RMS_VALUE)
         {
-            Stop();
+            throw new ArgumentOutOfRangeException(nameof(normalize));
         }
-        normalizationAmplifier = System.Math.Max(0f, normalizationAmplifier);
-        AudioTagInfo tagInfo = new(
-            artist: ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim(),
-            title: ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim(),
-            genre: base.Bms.Genre.Trim() ?? string.Empty,
-            durationSeconds: base.Duration.TotalSeconds,
-            bpm: base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty,
-            fileName: base.Bms.Path,
-            comment: base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())])) : string.Empty));
+        if (!float.IsFinite(normalizationAmplifier) || normalizationAmplifier < 0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(normalizationAmplifier),
+                "Normalization amplifier must be finite and non-negative.");
+        }
+
+        ResetPlaybackState();
+        string artist = ((base.Chart.Artist.Trim() ?? string.Empty) + " " + (base.Chart.Subartist?.Trim() ?? string.Empty)).Trim();
+        string title = ((base.Chart.Title.Trim() ?? string.Empty) + " " + (base.Chart.Subtitle?.Trim() ?? string.Empty)).Trim();
         if (string.IsNullOrWhiteSpace(filePathWithoutExtension))
         {
             filePathWithoutExtension = AppContext.BaseDirectory;
         }
         if (LongPathFileSystem.DirectoryExists(filePathWithoutExtension))
         {
-            string input = "[" + tagInfo.Artist + "] " + tagInfo.Title;
-            filePathWithoutExtension = Path.Combine(filePathWithoutExtension, input.NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide().RemoveInvalidFileNameChars());
+            string input = "[" + artist + "] " + title;
+            filePathWithoutExtension = Path.Combine(
+                filePathWithoutExtension,
+                input.NaturalNormalizationForFileName()
+                    .ReplaceInvalidFileNameCharsByWide()
+                    .RemoveInvalidFileNameChars());
         }
-        TimeSpan[] first = [.. (from t in new IEnumerable<TimeSpan>[5]
-            {
-                BgmNotesQueue.Select(n => n.AbsoluteTime),
-                from n in VisibleNotes1PQueue.SelectMany(c => c)
-                    select n.AbsoluteTime,
-                from n in VisibleNotes2PQueue.SelectMany(c => c)
-                    select n.AbsoluteTime,
-                from n in LongNotes1PQueue.SelectMany(c => c)
-                    where ((uint)n.Type & 0xFFFFFFF0u) == 80
-                    select n.AbsoluteTime,
-                from n in LongNotes2PQueue.SelectMany(c => c)
-                    where ((uint)n.Type & 0xFFFFFFF0u) == 96
-                    select n.AbsoluteTime
-            }.SelectMany(c => c)
-                            orderby t
-                            select t).SequentialDistinct()];
-        float deviceVolume = BassAudioPlayer.DeviceVolume;
-        if (normalize != Normalization.NONE)
+
+        if (base.Duration < TimeSpan.Zero)
         {
-            float num = 0f;
-            foreach (TimeSpan item in first.Concat([base.Duration]))
-            {
-                float level = BassAudioWriter.GetLevel(item - currentTime, normalize == Normalization.RMS_VALUE);
-                num = System.Math.Max(num, level);
-                ForwardTo(item);
-            }
-            ResetPlaybackState();
-            if (num != 0f)
-            {
-                BassAudioPlayer.DeviceVolume /= num / ((normalize == Normalization.RMS_VALUE) ? 0.4f : 0.99f);
-            }
-            float deviceVolume2 = BassAudioPlayer.DeviceVolume;
-            NLogWrapper.DebuggerLogger?.Trace("PEAK LEVEL: " + num + " CURRENT: " + deviceVolume + " CHANGE TO: " + deviceVolume2);
+            throw new InvalidOperationException("The BMS render duration must not be negative.");
         }
-        BassAudioPlayer.DeviceVolume *= normalizationAmplifier;
+
+        AudioPcmRenderer renderer = BassAudioWriter.CreatePcmRenderer();
+        long totalFrames = GetRenderFrameCount(renderer.SampleRate);
+        if (totalFrames == 0)
+        {
+            // BASSencはPCMを供給しないとWAVヘッダーも出力しません。
+            throw new InvalidOperationException("The chart contains no audio frames to encode.");
+        }
+        if (totalFrames < 0)
+        {
+            throw new InvalidOperationException("The BMS render duration resolved to a negative frame count.");
+        }
+        int totalFrameCount = checked((int)totalFrames);
+        int totalSampleCount = checked(totalFrameCount * renderer.ChannelCount);
+        float[] renderedPcm = new float[totalSampleCount];
+        AudioTagInfo tagInfo = new(
+            artist,
+            title,
+            genre: base.Chart.Genre.Trim() ?? string.Empty,
+            durationSeconds: (double)totalFrames / renderer.SampleRate,
+            bpm: (base.Bms?.Bpm?.ToDouble() ?? base.Chart.Bpm.ToDouble()).ToString(),
+            fileName: base.Chart.Path,
+            comment: base.Chart.Hash + ((base.Bms?.RandomPattern.Count > 0)
+                ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())]))
+                : string.Empty));
+
+        using (var scheduledMixer = new BmsScheduledAudioMixer(
+                   base.AudioSchedule,
+                   base.AudioResourcesByIndex,
+                   base.ResourceSession,
+                   new BassMixerSourceNativeBoundary()))
+        {
+            long renderedFrames = 0;
+            while (renderedFrames < totalFrames)
+            {
+                int intervalFrames = checked((int)System.Math.Min(
+                    PullBlockFrames,
+                    totalFrames - renderedFrames));
+                long nextRenderFrame = checked(renderedFrames + intervalFrames);
+                scheduledMixer.ReserveBeforeFrame(
+                    nextRenderFrame,
+                    renderedFrames,
+                    audioEvent => audioEvent.AbsoluteTime <= base.Duration);
+                renderer.ReadFramesExactly(
+                    renderedPcm,
+                    checked((int)renderedFrames),
+                    intervalFrames);
+                renderedFrames = nextRenderFrame;
+                scheduledMixer.AdvanceAndRetire();
+            }
+
+            scheduledMixer.AdvanceAndRetire();
+        }
+
+        AudioPcmLevels levels = AudioPcmRenderer.Measure(renderedPcm, renderer.ChannelCount);
+        double gain = GetNormalizationGain(normalize, levels, normalizationAmplifier);
+        double finalPeak = AudioOutputProcessor.ApplyConstantGain(renderedPcm, gain);
+
         switch (encodetype)
         {
+            case EncoderType.WAVE:
+                BassAudioWriter.CreateEncoderWAV(filePathWithoutExtension);
+                break;
             case EncoderType.MP3_LAME:
                 BassAudioWriter.CreateEncoderLAME(filePathWithoutExtension, quality);
                 break;
@@ -112,18 +168,68 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
                 BassAudioWriter.CreateEncoderOGG(filePathWithoutExtension, quality);
                 break;
             default:
-                BassAudioWriter.CreateEncoderWAV(filePathWithoutExtension);
-                break;
+                throw new ArgumentOutOfRangeException(nameof(encodetype), encodetype, "Unknown encoder type.");
         }
+
+        BassAudioWriter.ValidateOutputPeakForEncoder(finalPeak);
         BassAudioWriter.SetTagInfo(tagInfo);
         NLogWrapper.DebuggerLogger?.Trace(BassAudioWriter.EncoderCommandLine);
         BassAudioWriter.StartRecording();
-        foreach (TimeSpan item2 in first.Concat([base.Duration]))
-        {
-            BassAudioWriter.RecordToFile(item2 - currentTime);
-            ForwardTo(item2);
-        }
+        BassAudioWriter.WritePcm(renderedPcm);
         BassAudioWriter.StopRecording();
-        BassAudioPlayer.DeviceVolume = deviceVolume;
+        ResetPlaybackState();
+    }
+
+    private long GetRenderFrameCount(int outputSampleRate)
+    {
+        if (base.Chart.Bms == null)
+        {
+            return base.AudioSchedule.Events.Select(item => item.EndFrame ?? item.StartFrame).DefaultIfEmpty(0).Max();
+        }
+
+        long totalFrames = AudioFrameMath.TimeToFrame(base.Duration, outputSampleRate);
+        foreach (BmsAudioFrameEvent audioEvent in base.AudioSchedule.Events)
+        {
+            if (audioEvent.AbsoluteTime > base.Duration)
+            {
+                continue;
+            }
+
+            BmsAudioResource source = base.AudioResourcesByIndex[audioEvent.WavIndex];
+            if (source == null)
+            {
+                continue;
+            }
+
+            long eventEndFrame = checked(
+                audioEvent.StartFrame + source.GetOutputFrameCount(outputSampleRate));
+            totalFrames = System.Math.Max(totalFrames, eventEndFrame);
+        }
+
+        return totalFrames;
+    }
+
+    private static double GetNormalizationGain(
+        Normalization normalization,
+        AudioPcmLevels levels,
+        double amplifier)
+    {
+        double gain = normalization switch
+        {
+            Normalization.NONE => 0.16d * amplifier,
+            Normalization.PEAK_LEVEL => levels.Peak == 0d
+                ? amplifier
+                : (0.99d / levels.Peak) * amplifier,
+            Normalization.RMS_VALUE => levels.Rms == 0d
+                ? amplifier
+                : (0.4d / levels.Rms) * amplifier,
+            _ => throw new ArgumentOutOfRangeException(nameof(normalization))
+        };
+        if (!double.IsFinite(gain))
+        {
+            throw new InvalidOperationException("The normalization gain is not finite.");
+        }
+
+        return gain;
     }
 }

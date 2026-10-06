@@ -1330,6 +1330,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath);
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            library.StartupProgressRequestFactory = (name, version) => new(3, 19, name, version);
+            library.StartupRequestProgressReporter = (request, running) => execution.Add((request, running));
+            library.AttachStartupRequestProgressSources();
             var changedProperties = new List<string>();
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -1350,6 +1354,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             queueMethod!.Invoke(library, ["test_scheduler"]);
 
             Assert.IsTrue(schedulerInvoked);
+            var expectedRequest = new OperationProgressRequest(3, 19, "maintenance_hydration", 1);
+            Assert.AreEqual(expectedRequest, library.MaintenanceHydrationProgressRequest);
+            CollectionAssert.AreEqual(new[] { (expectedRequest, true), (expectedRequest, false) }, execution);
             Assert.AreEqual(1, library.MaintenanceHydrationRequestedVersion);
             Assert.AreEqual(1, library.MaintenanceHydrationCompletedVersion);
             Assert.IsFalse(library.MaintenanceHydrationRunning);

@@ -1,6 +1,5 @@
 using System;
 using System.CodeDom.Compiler;
-using System.ComponentModel;
 using System.Configuration;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -1078,6 +1077,22 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>導入先未設定の保留パッケージを新規として導入する前に確認します。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("True")]
+    public bool ShowNewPackageInstallConfirmMsg
+    {
+        get
+        {
+            return (bool)this["ShowNewPackageInstallConfirmMsg"];
+        }
+        set
+        {
+            this["ShowNewPackageInstallConfirmMsg"] = value;
+        }
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("True")]
@@ -1422,6 +1437,38 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>音声サンプルレート変換の品質を取得または設定します。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("2")]
+    public int PlayerResamplingQuality
+    {
+        get
+        {
+            return (int)this["PlayerResamplingQuality"];
+        }
+        set
+        {
+            this["PlayerResamplingQuality"] = value;
+        }
+    }
+
+    /// <summary>通常再生とデバイステストで使うSRCミキサーthread数を取得または設定します。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("1")]
+    public int PlayerMixerThreadCount
+    {
+        get
+        {
+            return (int)this["PlayerMixerThreadCount"];
+        }
+        set
+        {
+            this["PlayerMixerThreadCount"] = value;
+        }
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("")]
@@ -1707,13 +1754,7 @@ internal sealed class Settings : ApplicationSettingsBase
         base.SettingsLoaded += SettingsLoadedEventHandler;
     }
 
-    private void SettingChangingEventHandler(object sender, SettingChangingEventArgs e)
-    {
-    }
 
-    private void SettingsSavingEventHandler(object sender, CancelEventArgs e)
-    {
-    }
 
     private void SettingsLoadedEventHandler(object sender, SettingsLoadedEventArgs e)
     {

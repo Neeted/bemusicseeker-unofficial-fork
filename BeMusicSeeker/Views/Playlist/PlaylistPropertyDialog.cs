@@ -9,10 +9,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Livet;
 using Ribbit.Util;
 
 namespace BeMusicSeeker.Views;
@@ -349,7 +347,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             return;
         }
         ObservableCollection<string> folder_order = viewModel.folder_order;
-        using var comparer = new NaturalComparer<string>();
+        using var comparer = new NaturalComparer();
         List<string> list = [.. folder_order];
         list.Sort(comparer);
         viewModel.folder_order = new ObservableCollection<string>(list);

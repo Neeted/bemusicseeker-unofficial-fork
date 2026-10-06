@@ -649,7 +649,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         void RecordFolderTargets(LibraryChartRemovalPlanFolder folder, LibraryChartRemovalState state, Exception failure = null)
         {
             foreach (int index in folder.TargetIndexes ?? [])
+            {
                 result.Targets.Add(new(plan.Targets[index].Path, state, failure));
+            }
         }
 
         void ConfirmPhysicalTargetGroup(int targetIndex)

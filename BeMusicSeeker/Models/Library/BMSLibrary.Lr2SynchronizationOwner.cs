@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -42,17 +40,6 @@ public partial class BMSLibrary
         private long nextMutationLeaseId;
 
         private long activeMutationLeaseId;
-
-        // The LR2 status property is coalesced by the facade before it is
-        // raised on the UI thread.  Keep one pre-terminal folder-reconciliation
-        // frame so a deferred observer can still see the work in progress.
-        // This is process-local presentation state; the durable status remains
-        // the latest value in Status.
-        private Lr2SongDbSyncStatusSnapshot retainedFolderReconciliationStatus;
-
-        private Lr2SongDbSyncStatusSnapshot statusPublicationSnapshot;
-
-        private Lr2SongDbSyncStatusSnapshot statusPublicationLeadingSnapshot;
 
         internal Lr2SynchronizationOwner(
             ILr2SynchronizationDataPort data,
@@ -537,6 +524,17 @@ public partial class BMSLibrary
                     });
 
                 stopwatch.Stop();
+                BMSLibrary.LogInstallPerformance(logName + " result=applied"
+                    + " checkedFiles=" + syncItems.Items.Count
+                    + " parseTargets=" + syncItems.ParseTargetCount
+                    + " parsedFiles=" + syncItems.ParsedCount
+                    + " unchangedFiles=" + syncItems.UnchangedCount
+                    + " rowScope=folder_file_and_parent_directory"
+                    + " changedFolderRows=" + (syncResult.UpsertedCount + syncResult.DeletedCount)
+                    + " upsertedFolderRows=" + syncResult.UpsertedCount
+                    + " deletedFolderRows=" + syncResult.DeletedCount
+                    + " readFailures=" + syncItems.HasReadFailures.ToString().ToLowerInvariant()
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 BMSLibrary.LogInstallPerformance(logName + " done"
                     + " reason=" + (reason ?? "unknown")
                     + " roots=" + request.Lr2FolderDiscoveryDirectories.Count
@@ -1618,7 +1616,7 @@ public partial class BMSLibrary
         {
             lock (StatusGate)
             {
-                return (statusPublicationSnapshot ?? Status)?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
+                return Status?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
                 {
                     Status = Lr2SongDbSyncStatusKind.NotNeeded
                 };
@@ -1634,99 +1632,8 @@ public partial class BMSLibrary
                     Status = Lr2SongDbSyncStatusKind.NotNeeded
                 };
                 Status = next;
-                if (IsStrictFolderReconciliationProgress(next))
-                {
-                    retainedFolderReconciliationStatus ??= next;
-                }
-                else if (IsTerminalStatusThatMustSupersedeLeadingProgress(next))
-                {
-                    retainedFolderReconciliationStatus = null;
-                }
             }
             SetObservableStatusVersion(ObservableStatusVersion + 1);
-        }
-
-        /// <summary>
-        /// Selects the retained folder-reconciliation frame for the status
-        /// property notification currently being raised by the UI publisher.
-        /// </summary>
-        /// <returns><see langword="true"/> when a retained frame was selected.</returns>
-        internal bool BeginLr2SongDbSyncStatusPublication()
-        {
-            lock (StatusGate)
-            {
-                if (retainedFolderReconciliationStatus == null)
-                {
-                    statusPublicationSnapshot = null;
-                    statusPublicationLeadingSnapshot = null;
-                    return false;
-                }
-
-                statusPublicationSnapshot = retainedFolderReconciliationStatus.Clone();
-                statusPublicationLeadingSnapshot = retainedFolderReconciliationStatus;
-                retainedFolderReconciliationStatus = null;
-                return true;
-            }
-        }
-
-        /// <summary>
-        /// Ends a status property notification and reports whether the latest
-        /// non-failure status needs one bounded continuation notification.
-        /// </summary>
-        internal bool EndLr2SongDbSyncStatusPublication()
-        {
-            lock (StatusGate)
-            {
-                bool needsContinuation = statusPublicationSnapshot != null
-                    && !ReferenceEquals(statusPublicationLeadingSnapshot, Status)
-                    && IsStatusPublicationContinuationAllowed(Status);
-                statusPublicationSnapshot = null;
-                statusPublicationLeadingSnapshot = null;
-                return needsContinuation;
-            }
-        }
-
-        /// <summary>
-        /// Discards presentation-only LR2 status frames when their UI
-        /// publication cannot be accepted or completes abnormally.
-        /// </summary>
-        internal void DiscardLr2SongDbSyncStatusPublication()
-        {
-            lock (StatusGate)
-            {
-                retainedFolderReconciliationStatus = null;
-                statusPublicationSnapshot = null;
-                statusPublicationLeadingSnapshot = null;
-            }
-        }
-
-        private static bool IsStrictFolderReconciliationProgress(Lr2SongDbSyncStatusSnapshot status)
-        {
-            int stageTotalCount = status?.StageTotalCount.GetValueOrDefault() ?? 0;
-            int stageProcessedCount = status?.StageProcessedCount.GetValueOrDefault() ?? 0;
-            return status?.Status == Lr2SongDbSyncStatusKind.Running
-                && string.Equals(status.Stage, "folder_reconciliation", StringComparison.Ordinal)
-                && status.ProcessedCursor.GetValueOrDefault() == 0
-                && stageTotalCount > 1
-                && stageProcessedCount > 0
-                && stageProcessedCount < stageTotalCount;
-        }
-
-        private static bool IsTerminalStatusThatMustSupersedeLeadingProgress(
-            Lr2SongDbSyncStatusSnapshot status)
-        {
-            return status?.Status == Lr2SongDbSyncStatusKind.Failed
-                || status?.Status == Lr2SongDbSyncStatusKind.Incomplete
-                || status?.Status == Lr2SongDbSyncStatusKind.Cancelled
-                || status?.Status == Lr2SongDbSyncStatusKind.Needed
-                || status?.Status == Lr2SongDbSyncStatusKind.NotNeeded;
-        }
-
-        private static bool IsStatusPublicationContinuationAllowed(
-            Lr2SongDbSyncStatusSnapshot status)
-        {
-            return status?.Status == Lr2SongDbSyncStatusKind.Running
-                || status?.Status == Lr2SongDbSyncStatusKind.Completed;
         }
 
         private void OnPropertyChanged(string propertyName)
@@ -2230,26 +2137,31 @@ public partial class BMSLibrary
             }
         }
 
+        /// <summary>
+        /// 一回の進捗通知の値から公開状態を構成し、既存の観測プロパティも更新します。
+        /// 楽曲処理と保存の通知が並行しても、公開状態の段階名と件数を別通知の値から読み戻しません。
+        /// </summary>
         internal void UpdateProgress(Lr2SongDbSyncProgress progress)
         {
             if (progress == null)
             {
                 return;
             }
-            SetObservableTotalCount(Math.Max(0, progress.TotalCount));
-            SetObservableProcessedCount(Math.Max(0, progress.ProcessedCursor));
-            SetObservableStage(progress.Stage ?? string.Empty);
-            SetObservableStageProcessedCount(Math.Max(0, progress.StageProcessedCount));
-            SetObservableStageTotalCount(Math.Max(0, progress.StageTotalCount));
-            PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
+            Lr2SongDbSyncStatusSnapshot status = BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
                 Lr2SongDbSyncStatusKind.Running,
                 GetStatusSnapshot().Signature,
-                ObservableStage,
-                ObservableProcessedCount,
-                ObservableTotalCount,
+                progress.Stage ?? string.Empty,
+                Math.Max(0, progress.ProcessedCursor),
+                Math.Max(0, progress.TotalCount),
                 lastError: null,
-                ObservableStageProcessedCount,
-                ObservableStageTotalCount));
+                Math.Max(0, progress.StageProcessedCount),
+                Math.Max(0, progress.StageTotalCount));
+            SetObservableTotalCount(status.TotalCount.GetValueOrDefault());
+            SetObservableProcessedCount(status.ProcessedCursor.GetValueOrDefault());
+            SetObservableStage(status.Stage);
+            SetObservableStageProcessedCount(status.StageProcessedCount.GetValueOrDefault());
+            SetObservableStageTotalCount(status.StageTotalCount.GetValueOrDefault());
+            PublishStatus(status);
         }
 
         internal void DisposeCancellation()
@@ -2439,14 +2351,6 @@ public partial class BMSLibrary
 
         private int BeginLr2SongDbSyncRequestUnsafe()
         {
-            lock (StatusGate)
-            {
-                // A new request owns a fresh presentation sequence.  Do not
-                // carry a leading frame from a completed request into it.
-                retainedFolderReconciliationStatus = null;
-                statusPublicationSnapshot = null;
-                statusPublicationLeadingSnapshot = null;
-            }
             RequestedVersion++;
             int requestVersion = RequestedVersion;
             Cancellation?.Dispose();

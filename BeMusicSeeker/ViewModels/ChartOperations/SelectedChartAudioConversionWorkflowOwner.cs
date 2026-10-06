@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
 using Parago.Windows;
 using Ribbit.Logging;
@@ -17,25 +16,54 @@ using Ribbit.Util.Extensions;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using ModelBmsFile = BeMusicSeeker.Models.BMSFile;
+using ModelChartFile = BeMusicSeeker.Models.ChartFile;
 using RibbitBmsAutoPlayWriter = Ribbit.BMS.BMSAutoPlayWriter;
 
 namespace BeMusicSeeker.ViewModels;
 
 internal interface ISelectedChartAudioConversionPlaybackPort
 {
-    void StopPlayback();
+    /// <summary>ファイル変更・runtime解放前に、再生と先読みの必要な停止を終端まで待ちます。</summary>
+    Task StopPlayback();
 }
 
 internal interface ISelectedChartAudioConversionExecutor
 {
     void Execute(
-        IReadOnlyList<ModelBmsFile> bmsFiles,
+        IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
         Action<EncoderType> applyEncoderFallback,
-        Action<bool> reportFileCompleted);
+        Action<SelectedChartAudioConversionFileResult> reportFileCompleted);
+}
+
+/// <summary>音声変換した1譜面の成否、対象名、失敗原因、音源省略数を保持します。</summary>
+internal sealed class SelectedChartAudioConversionFileResult
+{
+    /// <summary>譜面の処理結果と、変換時に省略した音源数を初期化します。</summary>
+    internal SelectedChartAudioConversionFileResult(
+        string fileName,
+        Exception error = null,
+        int omittedAudioSourceCount = 0)
+    {
+        FileName = fileName ?? throw new ArgumentNullException(nameof(fileName));
+        ArgumentOutOfRangeException.ThrowIfNegative(omittedAudioSourceCount);
+        Error = error;
+        OmittedAudioSourceCount = omittedAudioSourceCount;
+    }
+
+    /// <summary>処理対象譜面のパスです。</summary>
+    internal string FileName { get; }
+
+    /// <summary>変換が失敗した場合の例外です。</summary>
+    internal Exception Error { get; }
+
+    /// <summary>入力失敗のために変換対象譜面から省略した一意音源数です。</summary>
+    internal int OmittedAudioSourceCount { get; }
+
+    /// <summary>変換が成功したかを取得します。</summary>
+    internal bool Succeeded => Error == null;
 }
 
 internal sealed class SelectedChartAudioConversionRequest
@@ -44,7 +72,6 @@ internal sealed class SelectedChartAudioConversionRequest
     {
         Targets = (targets ?? [])
             .Where(target => target?.HasCapability(ChartOperationCapabilities.ConvertToAudio) == true
-                && ChartFileKindResolver.IsBmsChartFile(target.Chart)
                 && !string.IsNullOrWhiteSpace(target.Chart.Path)
                 && LongPathFileSystem.FileExists(target.Chart.Path))
             .ToArray();
@@ -57,6 +84,7 @@ internal sealed class SelectedChartAudioConversionRequest
 
 internal sealed class SelectedChartAudioConversionSettingsSnapshot
 {
+    /// <summary>1回の音声変換で利用する設定を変更不能な値として初期化します。</summary>
     internal SelectedChartAudioConversionSettingsSnapshot(
         EncoderType encoder,
         SampleRate encoderSampleRate,
@@ -68,7 +96,8 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
         string encodeFileNameFormat,
         string encoderDisplayName,
         string sampleRateDisplayName,
-        string sampleFormatDisplayName)
+        string sampleFormatDisplayName,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         Encoder = encoder;
         EncoderSampleRate = encoderSampleRate;
@@ -81,6 +110,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
         EncoderDisplayName = encoderDisplayName;
         SampleRateDisplayName = sampleRateDisplayName;
         SampleFormatDisplayName = sampleFormatDisplayName;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
     }
 
     internal EncoderType Encoder { get; }
@@ -105,6 +135,9 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
 
     internal string SampleFormatDisplayName { get; }
 
+    /// <summary>この変換開始時に捕捉したサンプルレート変換品質です。</summary>
+    internal int SampleRateConversionQuality { get; }
+
     internal static SelectedChartAudioConversionSettingsSnapshot CreateCurrent(AudioEncodingSettingsSnapshot settings)
     {
         if (settings == null)
@@ -122,7 +155,8 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
             settings.EncodeFileNameFormat,
             GetEncoderDisplayName(settings.Encoder),
             GetSampleRateDisplayName(settings.EncoderSampleRate),
-            GetSampleFormatDisplayName(settings.EncoderFormat));
+            GetSampleFormatDisplayName(settings.EncoderFormat),
+            settings.SampleRateConversionQuality);
     }
 
     private static string GetEncoderDisplayName(EncoderType encoder)
@@ -184,12 +218,14 @@ internal sealed class SelectedChartAudioConversionResult
         SelectedChartAudioConversionStatus status,
         int totalCount,
         int completedCount,
-        int failedCount)
+        int failedCount,
+        IReadOnlyList<SelectedChartAudioConversionFileResult> fileResults)
     {
         Status = status;
         TotalCount = totalCount;
         CompletedCount = completedCount;
         FailedCount = failedCount;
+        FileResults = fileResults;
     }
 
     internal SelectedChartAudioConversionStatus Status { get; }
@@ -200,24 +236,28 @@ internal sealed class SelectedChartAudioConversionResult
 
     internal int FailedCount { get; }
 
+    internal IReadOnlyList<SelectedChartAudioConversionFileResult> FileResults { get; }
+
     internal int SucceededCount => CompletedCount - FailedCount;
 
     internal int UnprocessedCount => TotalCount - CompletedCount;
 
     internal static SelectedChartAudioConversionResult Empty { get; } =
-        new(SelectedChartAudioConversionStatus.Completed, 0, 0, 0);
+        new(SelectedChartAudioConversionStatus.Completed, 0, 0, 0, Array.Empty<SelectedChartAudioConversionFileResult>());
 
     internal static SelectedChartAudioConversionResult Create(
         SelectedChartAudioConversionStatus status,
         int totalCount,
         int completedCount,
-        int failedCount)
+        int failedCount,
+        IReadOnlyList<SelectedChartAudioConversionFileResult> fileResults = null)
     {
         return new SelectedChartAudioConversionResult(
             status,
             Math.Max(0, totalCount),
             Math.Max(0, completedCount),
-            Math.Max(0, failedCount));
+            Math.Max(0, failedCount),
+            fileResults ?? Array.Empty<SelectedChartAudioConversionFileResult>());
     }
 }
 
@@ -249,6 +289,12 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         this.executor = executor ?? throw new ArgumentNullException(nameof(executor));
     }
 
+    /// <summary>選択譜面の音声変換を実行します。</summary>
+    /// <param name="request">変換する譜面の要求。</param>
+    /// <param name="cancellationToken">処理を取り消すトークン。</param>
+    /// <returns>変換結果。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="DirectoryNotFoundException">選択後、再生停止前に出力先が存在しない場合。</exception>
     internal async Task<SelectedChartAudioConversionResult> RunAsync(
         SelectedChartAudioConversionRequest request,
         CancellationToken cancellationToken = default)
@@ -281,9 +327,8 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     0);
             }
 
-            IReadOnlyList<ModelBmsFile> bmsFiles = request.Targets
-                .Select(target => target.Chart.GetBmsStorageOwner())
-                .Where(ChartFileKindResolver.IsBmsChartFile)
+            IReadOnlyList<ModelChartFile> bmsFiles = request.Targets
+                .Select(target => target.Chart)
                 .ToArray();
             if (bmsFiles.Count == 0)
             {
@@ -295,17 +340,27 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             {
                 throw new InvalidOperationException("Audio conversion settings snapshot was not provided.");
             }
-            playback.StopPlayback();
+            if (!LongPathFileSystem.DirectoryExists(folderResult.FolderPath))
+            {
+                throw new DirectoryNotFoundException();
+            }
+            await playback.StopPlayback().ConfigureAwait(false);
             using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             int completedCount = 0;
             int failedCount = 0;
-            Action<bool> reportFileCompleted = succeeded =>
+            var fileResults = new List<SelectedChartAudioConversionFileResult>();
+            Action<SelectedChartAudioConversionFileResult> reportFileCompleted = fileResult =>
             {
+                if (fileResult == null)
+                {
+                    throw new ArgumentNullException(nameof(fileResult));
+                }
                 Interlocked.Increment(ref completedCount);
-                if (!succeeded)
+                if (!fileResult.Succeeded)
                 {
                     Interlocked.Increment(ref failedCount);
                 }
+                fileResults.Add(fileResult);
             };
             var conversionTask = Task.Run(
                 () => executor.Execute(
@@ -375,15 +430,10 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                 cancelled ? SelectedChartAudioConversionStatus.Cancelled : SelectedChartAudioConversionStatus.Completed,
                 bmsFiles.Count,
                 Volatile.Read(ref completedCount),
-                Volatile.Read(ref failedCount));
+                Volatile.Read(ref failedCount),
+                fileResults.ToArray());
             UiDialogResult completionResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
-                (cancelled
-                    ? BeMusicSeeker.Properties.Resources.Msg_conversion_stopped
-                    : BeMusicSeeker.Properties.Resources.Msg_conversion_completed)
-                    + Environment.NewLine
-                    + BeMusicSeeker.Properties.Resources.Success + ": " + result.SucceededCount
-                    + Environment.NewLine
-                    + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount),
+                BuildCompletionMessage(result, settings, cancelled),
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxButton.OK,
                 cancelled ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk,
@@ -395,6 +445,119 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         {
             Volatile.Write(ref isRunning, 0);
         }
+    }
+
+    private static string BuildCompletionMessage(
+        SelectedChartAudioConversionResult result,
+        SelectedChartAudioConversionSettingsSnapshot settings,
+        bool cancelled)
+    {
+        var message = new System.Text.StringBuilder(
+            (cancelled
+                ? BeMusicSeeker.Properties.Resources.Msg_conversion_stopped
+                : BeMusicSeeker.Properties.Resources.Msg_conversion_completed)
+                + Environment.NewLine
+                + BeMusicSeeker.Properties.Resources.Success + ": " + result.SucceededCount
+                + Environment.NewLine
+                + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount));
+
+        SelectedChartAudioConversionFileResult[] failures = result.FileResults
+            .Where(fileResult => !fileResult.Succeeded)
+            .ToArray();
+        SelectedChartAudioConversionFileResult[] rangeFailures = failures
+            .Where(fileResult => fileResult.Error is AudioOutputRangeException)
+            .ToArray();
+        if (rangeFailures.Length > 0)
+        {
+            (SelectedChartAudioConversionFileResult FileResult, AudioOutputRangeException Error) maximumPeak = rangeFailures
+                .Select(fileResult =>
+                {
+                    if (fileResult.Error is not AudioOutputRangeException rangeError)
+                    {
+                        throw new InvalidOperationException("A range failure did not retain its range error.");
+                    }
+                    return (FileResult: fileResult, Error: rangeError);
+                })
+                .OrderByDescending(value => value.Error.Peak)
+                .First();
+            SelectedChartAudioConversionFileResult maximumPeakResult = maximumPeak.FileResult;
+            AudioOutputRangeException rangeException = maximumPeak.Error;
+            string peakDb = Math.Round(
+                20d * Math.Log10(rangeException.Peak),
+                2,
+                MidpointRounding.AwayFromZero).ToString("F2", System.Globalization.CultureInfo.CurrentCulture);
+            double additionalGainUpperBound = settings.EncoderAmplifier / rangeException.Peak;
+            if (additionalGainUpperBound < 0.5d)
+            {
+                message.Append(Environment.NewLine).AppendFormat(
+                    BeMusicSeeker.Properties.Resources.AudioConversionRangeFailureImpossibleFormat,
+                    rangeFailures.Length,
+                    peakDb,
+                    Path.GetFileName(maximumPeakResult.FileName));
+            }
+            else
+            {
+                message.Append(Environment.NewLine).AppendFormat(
+                    BeMusicSeeker.Properties.Resources.AudioConversionRangeFailureFormat,
+                    rangeFailures.Length,
+                    peakDb,
+                    Path.GetFileName(maximumPeakResult.FileName),
+                    Math.Floor(100d / rangeException.Peak).ToString("F0", System.Globalization.CultureInfo.CurrentCulture),
+                    GetSafeAdditionalGainSuggestion(additionalGainUpperBound));
+            }
+        }
+
+        SelectedChartAudioConversionFileResult[] otherFailures = failures
+            .Where(fileResult => fileResult.Error is not AudioOutputRangeException)
+            .ToArray();
+        foreach (SelectedChartAudioConversionFileResult failure in otherFailures.Take(3))
+        {
+            Exception error = failure.Error
+                ?? throw new InvalidOperationException("A failed audio conversion result did not retain its error.");
+            message.Append(Environment.NewLine).AppendFormat(
+                BeMusicSeeker.Properties.Resources.AudioConversionOtherFailureFormat,
+                Path.GetFileName(failure.FileName),
+                error.Message);
+        }
+        if (otherFailures.Length > 3)
+        {
+            message.Append(Environment.NewLine).AppendFormat(
+                BeMusicSeeker.Properties.Resources.AudioConversionOtherFailuresRemainingFormat,
+                otherFailures.Length,
+                otherFailures.Length - 3);
+        }
+
+        SelectedChartAudioConversionFileResult[] omittedAudioFiles = result.FileResults
+            .Where(fileResult => fileResult.Succeeded && fileResult.OmittedAudioSourceCount > 0)
+            .ToArray();
+        foreach (SelectedChartAudioConversionFileResult fileResult in omittedAudioFiles.Take(3))
+        {
+            message.Append(Environment.NewLine).AppendFormat(
+                BeMusicSeeker.Properties.Resources.AudioConversionOmittedSourcesFormat,
+                Path.GetFileName(fileResult.FileName),
+                fileResult.OmittedAudioSourceCount);
+        }
+        if (omittedAudioFiles.Length > 3)
+        {
+            message.Append(Environment.NewLine).AppendFormat(
+                BeMusicSeeker.Properties.Resources.AudioConversionOmittedSourcesRemainingFormat,
+                omittedAudioFiles.Length,
+                omittedAudioFiles.Length - 3);
+        }
+
+        return message.ToString();
+    }
+
+    private static string GetSafeAdditionalGainSuggestion(double upperBound)
+    {
+        double candidate = Math.Floor(upperBound * 10d) / 10d;
+        float candidateFloat = (float)candidate;
+        while ((double)candidateFloat > upperBound)
+        {
+            candidate = Math.Round(candidate - 0.1d, 10);
+            candidateFloat = (float)candidate;
+        }
+        return candidateFloat.ToString("F1", System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private static string BuildProgressLabel(SelectedChartAudioConversionSettingsSnapshot settings)
@@ -415,7 +578,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         CancellationTokenSource operationCancellation,
         UiProgressContext context,
         Func<int> completedCountProvider,
-        IReadOnlyList<ModelBmsFile> bmsFiles)
+        IReadOnlyList<ModelChartFile> bmsFiles)
     {
         while (!conversionTask.IsCompleted)
         {
@@ -427,7 +590,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     "[{0}/{1}] {2}",
                     Math.Min(completedCount + 1, bmsFiles.Count),
                     bmsFiles.Count,
-                    bmsFiles[Math.Min(completedCount, bmsFiles.Count - 1)].path);
+                    bmsFiles[Math.Min(completedCount, bmsFiles.Count - 1)].Path);
             }
             catch (ProgressDialogCancellationExcpetion)
             {
@@ -541,12 +704,12 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
     }
 
     public void Execute(
-        IReadOnlyList<ModelBmsFile> bmsFiles,
+        IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
         Action<EncoderType> applyEncoderFallback,
-        Action<bool> reportFileCompleted)
+        Action<SelectedChartAudioConversionFileResult> reportFileCompleted)
     {
         if (!LongPathFileSystem.DirectoryExists(saveDirectory))
         {
@@ -568,39 +731,46 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         Exception primaryException = null;
         BassAudioOperationLease operation = default;
         bool operationEntered = false;
+        string currentFileName = null;
+        SelectedChartAudioConversionFileResult terminalFileResult = null;
         try
         {
             BassAudioPlayer.Frequency = settings.EncoderSampleRate;
             BassAudioPlayer.Format = settings.EncoderFormat;
             BassAudioWriter.EncoderDirectory = settings.EncoderExeDirectory;
-            BassAudioWriter.InitializeOwnedSession(out ownedSession);
+            BassAudioWriter.InitializeOwnedSession(
+                out ownedSession,
+                settings.SampleRateConversionQuality);
             sessionLease.Attach(ownedSession);
             operation = BassAudioRuntime.EnterAudioOperation();
             operationEntered = true;
             EncoderType encoder = settings.Encoder;
             int index = 0;
             int totalCount = bmsFiles.Count;
-            foreach (ModelBmsFile bmsFile in bmsFiles)
+            foreach (ModelChartFile bmsFile in bmsFiles)
             {
+                currentFileName = bmsFile.Path;
                 if (cancellationToken.IsCancellationRequested)
                 {
                     break;
                 }
 
                 Exception fileException = null;
+                Exception fatalFileException = null;
+                int omittedAudioSourceCount = 0;
                 RibbitBmsAutoPlayWriter writer = null;
                 try
                 {
                     index++;
-                    var source = new Ribbit.BMS.BMSFile(bmsFile.path);
+                    var source = Ribbit.BMS.PlaybackChart.Load(bmsFile.Path);
                     string fileName = new Dictionary<string, string>
                     {
                         ["%ARTIST%"] = ((source.Artist.Trim() ?? string.Empty) + " " + (source.Subartist?.Trim() ?? string.Empty)).Trim(),
                         ["%TITLE%"] = ((source.Title.Trim() ?? string.Empty) + " " + (source.Subtitle?.Trim() ?? string.Empty)).Trim(),
                         ["%GENRE%"] = source.Genre.Trim() ?? string.Empty,
                         ["%NO%"] = index.ToString().PadLeft(Math.Max(2, totalCount.ToString().Length), '0'),
-                        ["%FILE%"] = Path.GetFileName(bmsFile.path),
-                        ["%HASH%"] = source.Md5
+                        ["%FILE%"] = Path.GetFileName(bmsFile.Path),
+                        ["%HASH%"] = source.Hash
                     }
                         .Aggregate(settings.EncodeFileNameFormat, (current, replacement) => current.Replace(replacement.Key, replacement.Value))
                         .NaturalNormalizationForFileName()
@@ -624,6 +794,7 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                         applyEncoderFallback(encoder);
                     }
                     writer.LoadResources();
+                    omittedAudioSourceCount = writer.OmittedAudioSources.Count;
                     writer.Write(
                         encoder,
                         settings.EncoderQuality,
@@ -631,122 +802,207 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                         BassAudioMapping.ToBassNormalization(settings.EncoderNormalization),
                         settings.EncoderAmplifier);
                 }
+                catch (Exception ex) when (IsFatalConversionFailure(ex))
+                {
+                    fatalFileException = ex;
+                }
                 catch (Exception ex)
                 {
                     fileException = ex;
-                    TryLogConversionSecondaryFailure("file", ex);
+                    TryLogConversionSecondaryFailure("file", bmsFile.Path, ex);
                 }
                 finally
                 {
                     try
                     {
-                        writer?.Dispose();
+                        writer?.DisposeAudioSourcesAfterUse();
                     }
                     catch (Exception disposeException)
                     {
-                        if (fileException == null)
-                        {
-                            fileException = disposeException;
-                        }
-                        else
-                        {
-                            TryLogConversionSecondaryFailure("writer disposal", disposeException);
-                        }
+                        fatalFileException = CombineFailures(
+                            "Audio conversion cleanup failed after processing a chart.",
+                            fatalFileException,
+                            fileException,
+                            disposeException);
+                        TryLogConversionSecondaryFailure("writer disposal", bmsFile.Path, disposeException);
                     }
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
                     GC.Collect();
                 }
 
-                CompleteFile(
+                if (fatalFileException != null)
+                {
+                    ExceptionDispatchInfo.Capture(fatalFileException).Throw();
+                }
+
+                terminalFileResult = null;
+                bool canContinue = CompleteFile(
+                    bmsFile.Path,
                     fileException,
                     tryReleaseEncoder,
-                    reportFileCompleted);
+                    fileResult =>
+                    {
+                        terminalFileResult = fileResult;
+                        reportFileCompleted?.Invoke(fileResult);
+                    },
+                    omittedAudioSourceCount);
+                if (terminalFileResult?.Error is Exception fileFailure)
+                {
+                    primaryException ??= fileFailure;
+                }
+                if (!canContinue)
+                {
+                    primaryException ??= fileException
+                        ?? new InvalidOperationException(
+                            "Audio conversion stopped because encoder cleanup could not be confirmed.");
+                    break;
+                }
             }
         }
         catch (Exception exception)
         {
+            // 先行譜面の通常失敗は結果へ記録済みです。バッチを中断する現在の例外を
+            // session cleanupのprimaryとして渡し、cleanup失敗時にも原因連鎖へ残します。
             primaryException = exception;
             throw;
         }
         finally
         {
-            ReleaseConversionSession(ownedSession, primaryException, ref operation, operationEntered);
+            ReleaseConversionSession(
+                ownedSession,
+                primaryException,
+                ref operation,
+                operationEntered,
+                currentFileName);
         }
     }
 
-    /// <summary>
-    /// Releases the encoder before the source session and retains the session lease when the
-    /// encoder still owns native resources.
-    /// </summary>
+    /// <summary>encoderをsessionより先に解放し、失敗時はsession所有権を保持します。</summary>
     internal void ReleaseConversionSession(BassAudioSession ownedSession, Exception primaryException)
     {
         BassAudioOperationLease operation = default;
-        ReleaseConversionSession(ownedSession, primaryException, ref operation, operationEntered: false);
+        ReleaseConversionSession(
+            ownedSession,
+            primaryException,
+            ref operation,
+            operationEntered: false,
+            fileName: null);
     }
 
-    /// <summary>
-    /// Releases conversion resources while an already-entered shared operation is still held.
-    /// The operation is disposed before the source session can be released.
-    /// </summary>
+    /// <summary>音声処理operationを先に閉じ、file名付きで変換資源の解放を試みます。</summary>
+    /// <param name="ownedSession">変換処理が取得した音源sessionです。</param>
+    /// <param name="primaryException">ファイル処理で発生した主原因です。</param>
+    /// <param name="operation">解放前に保持している音声処理operationです。</param>
+    /// <param name="operationEntered">operationを取得している場合はtrueです。</param>
+    /// <param name="fileName">最後に処理した譜面のpathです。</param>
     internal void ReleaseConversionSession(
         BassAudioSession ownedSession,
         Exception primaryException,
         ref BassAudioOperationLease operation,
-        bool operationEntered)
+        bool operationEntered,
+        string fileName = null)
     {
+        var cleanupFailures = new List<Exception>();
         try
         {
             if (ownedSession != null && sessionLease.Session == null)
             {
                 sessionLease.Attach(ownedSession);
             }
-            if (!tryReleaseEncoder())
+        }
+        catch (Exception exception)
+        {
+            cleanupFailures.Add(exception);
+        }
+
+        bool encoderReleased = false;
+        try
+        {
+            encoderReleased = tryReleaseEncoder();
+            if (!encoderReleased)
             {
-                InvalidOperationException encoderCleanupException = new(
-                    "Audio conversion encoder cleanup failed; retaining the native audio session for retry.");
-                if (primaryException == null)
+                cleanupFailures.Add(new InvalidOperationException(
+                    "Audio conversion encoder cleanup failed; retaining the native audio session for retry."));
+            }
+        }
+        catch (Exception exception)
+        {
+            cleanupFailures.Add(exception);
+        }
+
+        if (encoderReleased && cleanupFailures.Count == 0 && operationEntered)
+        {
+            try
+            {
+                operationEntered = false;
+                operation.Dispose();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
+        }
+
+        if (encoderReleased && cleanupFailures.Count == 0)
+        {
+            try
+            {
+                if (!sessionLease.TryRelease(releaseSession))
                 {
-                    throw encoderCleanupException;
+                    cleanupFailures.Add(new InvalidOperationException(
+                        "Audio conversion completed without confirming native cleanup."));
                 }
-
-                TryLogSessionCleanupFailure(encoderCleanupException);
-                return;
             }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
+        }
 
-            if (operationEntered)
+        if (operationEntered)
+        {
+            try
             {
                 operationEntered = false;
                 operation.Dispose();
             }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
+        }
 
-            if (!sessionLease.TryRelease(releaseSession) && primaryException == null)
-            {
-                throw new InvalidOperationException(
-                    "Audio conversion completed without confirming native cleanup.");
-            }
-        }
-        catch (Exception cleanupException) when (primaryException != null)
+        if (cleanupFailures.Count > 0)
         {
-            TryLogSessionCleanupFailure(cleanupException);
-        }
-        finally
-        {
-            if (operationEntered)
+            foreach (Exception cleanupFailure in cleanupFailures)
             {
-                operationEntered = false;
-                operation.Dispose();
+                TryLogSessionCleanupFailure(cleanupFailure, primaryException, fileName);
             }
+            var causes = new List<Exception>();
+            if (primaryException != null)
+            {
+                causes.Add(primaryException);
+            }
+            causes.AddRange(cleanupFailures);
+            throw new AudioSourceFatalException(
+                "Audio conversion cleanup could not be confirmed.",
+                new AggregateException(causes));
         }
     }
 
-    private static void TryLogSessionCleanupFailure(Exception exception)
+    private static void TryLogSessionCleanupFailure(
+        Exception exception,
+        Exception primaryException,
+        string fileName)
     {
         try
         {
             NLogWrapper.GetLogger(nameof(BassSelectedChartAudioConversionExecutor)).Warn(
-                "Audio conversion session cleanup failed while preserving the primary error: "
-                + exception.Message);
+                "Audio conversion session cleanup failed"
+                + (string.IsNullOrWhiteSpace(fileName) ? string.Empty : " for " + fileName)
+                + " while preserving the primary error: " + primaryException
+                + " cleanup=" + exception);
         }
         catch
         {
@@ -754,13 +1010,12 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         }
     }
 
-    private static void TryLogConversionSecondaryFailure(string stage, Exception exception)
+    private static void TryLogConversionSecondaryFailure(string stage, string fileName, Exception exception)
     {
         try
         {
             NLogWrapper.GetLogger(nameof(BassSelectedChartAudioConversionExecutor)).Warn(
-                "Audio conversion " + stage + " failed while preserving the terminal result: "
-                + exception.Message);
+                "Audio conversion " + stage + " failed for " + fileName + ": " + exception);
         }
         catch
         {
@@ -768,14 +1023,39 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         }
     }
 
+    private static bool IsFatalConversionFailure(Exception exception)
+    {
+        if (exception is AudioSourceFatalException
+            or BassAudioPlaybackException
+            or OutOfMemoryException
+            or DllNotFoundException
+            or BadImageFormatException
+            or EntryPointNotFoundException
+            or TypeLoadException)
+        {
+            return true;
+        }
+        return exception is AggregateException aggregate
+            && aggregate.InnerExceptions.Any(IsFatalConversionFailure);
+    }
+
+    private static Exception CombineFailures(string message, params Exception[] exceptions)
+    {
+        Exception[] causes = exceptions.Where(exception => exception != null).ToArray();
+        return new AudioSourceFatalException(
+            message,
+            causes.Length == 1 ? causes[0] : new AggregateException(causes));
+    }
+
     /// <summary>
-    /// Confirms per-file encoder cleanup before reporting the result or allowing the batch to
-    /// continue. A cleanup failure stops the batch while preserving the file's primary error.
+    /// ファイル結果を通知する前にencoderの解放を確認し、失敗時は主原因を保ってバッチを停止します。
     /// </summary>
-    internal static void CompleteFile(
+    internal static bool CompleteFile(
+        string fileName,
         Exception fileException,
         Func<bool> tryReleaseEncoder,
-        Action<bool> reportFileCompleted)
+        Action<SelectedChartAudioConversionFileResult> reportFileCompleted,
+        int omittedAudioSourceCount = 0)
     {
         ArgumentNullException.ThrowIfNull(tryReleaseEncoder);
 
@@ -797,22 +1077,24 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         {
             try
             {
-                reportFileCompleted?.Invoke(false);
+                reportFileCompleted?.Invoke(new SelectedChartAudioConversionFileResult(
+                    fileName,
+                    fileException ?? cleanupException,
+                    omittedAudioSourceCount));
             }
             catch (Exception reportException)
             {
-                TryLogConversionSecondaryFailure("file completion report", reportException);
+                TryLogConversionSecondaryFailure("file completion report", fileName, reportException);
             }
 
-            if (fileException != null)
-            {
-                TryLogConversionSecondaryFailure("encoder cleanup", cleanupException);
-                ExceptionDispatchInfo.Capture(fileException).Throw();
-            }
-
-            ExceptionDispatchInfo.Capture(cleanupException).Throw();
+            TryLogConversionSecondaryFailure("encoder cleanup", fileName, cleanupException);
+            return false;
         }
 
-        reportFileCompleted?.Invoke(fileException == null);
+        reportFileCompleted?.Invoke(new SelectedChartAudioConversionFileResult(
+            fileName,
+            fileException,
+            omittedAudioSourceCount));
+        return true;
     }
 }

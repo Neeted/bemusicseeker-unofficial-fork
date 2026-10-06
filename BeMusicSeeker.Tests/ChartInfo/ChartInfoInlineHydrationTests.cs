@@ -1,29 +1,19 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Tests.Helpers;
-using BeMusicSeeker.ViewModels;
-using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
-using OwnedChartCollectionTestSupport = BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
@@ -726,6 +716,219 @@ public sealed class ChartInfoInlineHydrationTests
     }
 
     [TestMethod]
+    public async Task CatalogChartInfoOwner_BackfillProgressKeepsCapturedRequestWhenAnotherRequestIsAccepted()
+    {
+        await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
+        {
+            string chartPath = Path.Combine(tempRootPath, "request-progress.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE progress\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+            var file = BMSFile.CreateBMSFileFromFile(chartPath);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, file.hash);
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            storageRowsOwner.ReplaceBmsRows([file]);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            long operationToken = 11;
+            var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
+            var processedRequests = new ConcurrentQueue<int>();
+            var captured = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim(false);
+            int gateUsed = 0;
+            CatalogChartInfoOwner? owner = null;
+            owner = new CatalogChartInfoOwner(
+                propertyName =>
+                {
+                    if (propertyName == nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot)
+                        && owner is { } currentOwner)
+                    {
+                        snapshots.Enqueue(currentOwner.BackfillProgressSnapshot);
+                    }
+                },
+                () => false,
+                (_, _) => false,
+                null,
+                _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
+            owner.ConfigureWorkflow(
+                gateway, mutationOwner, storageRowsOwner, ownedCollectionOwner, _ => { }, _ => { },
+                beginDigestMutationWindow: () =>
+                {
+                    processedRequests.Enqueue(owner.ChartInfoBackfillRequestedVersion);
+                    if (Interlocked.Exchange(ref gateUsed, 1) == 0)
+                    {
+                        captured.TrySetResult(owner.ChartInfoBackfillRequestedVersion);
+                        release.Wait();
+                    }
+                    return new TestMutationWindow();
+                });
+
+            var worker = Task.Run(() => owner.QueueBackfill("first", processSynchronously: true));
+            try
+            {
+                Task first = await Task.WhenAny(captured.Task, worker);
+                if (first == worker)
+                {
+                    await worker;
+                    Assert.Fail("Backfillの実処理が要求版捕捉ゲートへ到達しませんでした。");
+                }
+                int firstVersion = await captured.Task;
+                operationToken = 22;
+                owner.QueueBackfill("next");
+                int nextVersion = owner.ChartInfoBackfillRequestedVersion;
+                Assert.IsTrue(nextVersion > firstVersion);
+                snapshots.Clear();
+                release.Set();
+                await worker;
+
+                ChartInfoWorkflowProgressSnapshot retainedFirst = snapshots.First(snapshot =>
+                    snapshot.RequestVersion == firstVersion && snapshot.ProcessedCount > 0);
+                Assert.AreEqual(1, retainedFirst.TotalCount);
+                Assert.AreEqual(1, retainedFirst.ProcessedCount);
+                Assert.AreEqual(chartPath, retainedFirst.CurrentPath);
+                Assert.IsTrue(snapshots.Any(snapshot => snapshot.RequestVersion == nextVersion
+                    && snapshot.TotalCount == 0 && snapshot.ProcessedCount == 0));
+                Assert.IsTrue(processedRequests.Contains(nextVersion));
+                Assert.AreEqual(nextVersion, owner.BackfillProgressSnapshot.RequestVersion);
+                Assert.AreEqual(nextVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(new OperationProgressRequest(7, 11, "chart_info_backfill", firstVersion), retainedFirst.Request);
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_backfill", firstVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_backfill", firstVersion), false)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_backfill", nextVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_backfill", nextVersion), false)));
+                Assert.AreEqual(firstVersion, retainedFirst.RequestVersion);
+                Assert.AreEqual(1, retainedFirst.ProcessedCount);
+                Assert.AreEqual(chartPath, retainedFirst.CurrentPath);
+            }
+            finally
+            {
+                release.Set();
+                await worker;
+            }
+        });
+    }
+
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_HydrationProgressKeepsCapturedRequestWhenAnotherRequestIsAccepted()
+    {
+        await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
+        {
+            string md5 = new('a', 32);
+            string sha256 = new('1', 64);
+            string chartPath = Path.Combine(tempRootPath, "hydration-progress.bms");
+            var file = new TestableBmsFile { path = chartPath };
+            file.SetHash(md5);
+            file.SetSha256(sha256);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, md5);
+                songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                    typeof(LR2SongDBExtended.chart_info));
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            storageRowsOwner.ReplaceBmsRows([file]);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            long operationToken = 11;
+            var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
+            var captured = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim(false);
+            Func<Task>? scheduledProcess = null;
+            int gateUsed = 0;
+            CatalogChartInfoOwner? owner = null;
+            owner = new CatalogChartInfoOwner(
+                propertyName =>
+                {
+                    if (owner is not { } currentOwner)
+                    {
+                        return;
+                    }
+                    if (propertyName == nameof(BMSLibrary.ChartInfoHydrationProgressSnapshot))
+                    {
+                        snapshots.Enqueue(currentOwner.HydrationProgressSnapshot);
+                    }
+                    if (propertyName == nameof(BMSLibrary.ChartInfoIndexVersion)
+                        && Interlocked.Exchange(ref gateUsed, 1) == 0)
+                    {
+                        captured.TrySetResult(currentOwner.ChartInfoHydrationRequestedVersion);
+                        release.Wait();
+                    }
+                },
+                () => false,
+                (_, _) => false,
+                () => (_, _, _, process) =>
+                {
+                    scheduledProcess = process;
+                    return true;
+                },
+                _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, mutationOwner, storageRowsOwner, ownedCollectionOwner, _ => { }, _ => { });
+            owner.QueueDeferredHydration("first", queueFullBackfillAfterHydration: false);
+            Assert.IsNotNull(scheduledProcess);
+            var worker = Task.Run(scheduledProcess);
+            try
+            {
+                Task first = await Task.WhenAny(captured.Task, worker);
+                if (first == worker)
+                {
+                    await worker;
+                    Assert.Fail("Hydrationの実処理が索引変更ゲートへ到達しませんでした。");
+                }
+                int firstVersion = await captured.Task;
+                operationToken = 22;
+                owner.QueueDeferredHydration("next", queueFullBackfillAfterHydration: false);
+                int nextVersion = owner.ChartInfoHydrationRequestedVersion;
+                Assert.IsTrue(nextVersion > firstVersion);
+                snapshots.Clear();
+                release.Set();
+                await worker;
+
+                ChartInfoWorkflowProgressSnapshot retainedFirst = snapshots.First(snapshot =>
+                    snapshot.RequestVersion == firstVersion && snapshot.TotalCount == 1);
+                Assert.AreEqual(0, retainedFirst.ProcessedCount);
+                Assert.IsTrue(snapshots.Any(snapshot => snapshot.RequestVersion == nextVersion
+                    && snapshot.TotalCount == 1 && snapshot.ProcessedCount == 0));
+                Assert.AreEqual(nextVersion, owner.HydrationProgressSnapshot.RequestVersion);
+                Assert.AreEqual(nextVersion, owner.ChartInfoHydrationCompletedVersion);
+                Assert.IsFalse(owner.ChartInfoHydrationRunning);
+                Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                Assert.AreEqual(new OperationProgressRequest(7, 11, "chart_info_hydration", firstVersion), retainedFirst.Request);
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_hydration", firstVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_hydration", firstVersion), false)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_hydration", nextVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_hydration", nextVersion), false)));
+                Assert.AreEqual(firstVersion, retainedFirst.RequestVersion);
+                Assert.AreEqual(1, retainedFirst.TotalCount);
+                Assert.AreEqual(0, retainedFirst.ProcessedCount);
+            }
+            finally
+            {
+                release.Set();
+                await worker;
+            }
+        });
+    }
+
+    [TestMethod]
     public void CatalogChartInfoOwner_InlinePublicationOrdersDigestEffectsAfterSessionIndex()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
@@ -1067,6 +1270,11 @@ public sealed class ChartInfoInlineHydrationTests
             && statement.Sql.Contains(
                 "FROM chart_info_parse_failure",
                 StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class TestMutationWindow : IDisposable
+    {
+        public void Dispose() { }
     }
 
     private sealed record TargetedFailureQueryRun(

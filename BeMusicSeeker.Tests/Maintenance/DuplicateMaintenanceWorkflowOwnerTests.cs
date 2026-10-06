@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -46,7 +45,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new[]
             {
                 "activity-start",
-                "stop-merge",
+                "playback-stop",
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge",
@@ -105,7 +104,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new[]
             {
                 "activity-start",
-                "stop-merge",
+                "playback-stop",
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge-with-receipt",
@@ -349,7 +348,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new[]
             {
                 "activity-start",
-                "stop-merge",
+                "playback-stop",
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge-with-receipt",
@@ -473,7 +472,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         };
     }
 
-    private sealed class RecordingPresentation : IDuplicateMaintenancePlaybackPort
+    private sealed class RecordingPresentation : IChartMutationPlaybackPort
     {
         private readonly List<string> events;
 
@@ -516,9 +515,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             }
         }
 
-        public void StopPlaybackForMerge() => events.Add("stop-merge");
-
-        public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts) => events.Add("stop-charts");
+        public Task StopPlaybackForMutationAsync()
+        {
+            events.Add("playback-stop");
+            return Task.CompletedTask;
+        }
     }
 
     private class RecordingStore : IDuplicateMaintenanceStore
@@ -538,11 +539,16 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         protected void AddEvent(string value) => events.Add(value);
 
-        public void MergeFolder(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
+        public virtual DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
         {
             events.Add("store-merge");
             SourceDirectory = sourceDirectory;
             DestinationDirectory = destinationDirectory;
+            return new DuplicateMergeMaintenanceReceipt(
+                true, ResourceHealthIndexUpdateMode.DeferOnUpdates,
+                MaintenanceWorkflowResultFacts.From(null), false, false, false, false, false,
+                LibraryMutationSessionReceipt.Empty);
         }
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
@@ -555,7 +561,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         }
     }
 
-    private sealed class TerminalRecordingStore : RecordingStore, IDuplicateMaintenanceTerminalStore
+    private sealed class TerminalRecordingStore : RecordingStore
     {
         private readonly DuplicateMergeMaintenanceReceipt receipt;
 
@@ -569,7 +575,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal int MergeWithReceiptCallCount { get; private set; }
 
-        public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+        public override DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
             BMSLibrary library,
             string sourceDirectory,
             string destinationDirectory,

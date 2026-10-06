@@ -68,10 +68,14 @@ internal static class JavaDoubleParserJdk17
     public static double ParseDouble(string s)
     {
         if (s == null)
+        {
             throw new ArgumentNullException("s");
+        }
 
         if (!TryParseDoubleBits(s, out ulong bits))
+        {
             throw new FormatException("For input string: \"" + JavaTrimForMessage(s) + "\"");
+        }
 
         return LongBitsToDouble(bits);
     }
@@ -91,10 +95,14 @@ internal static class JavaDoubleParserJdk17
     public static ulong ParseDoubleBits(string s)
     {
         if (s == null)
+        {
             throw new ArgumentNullException("s");
+        }
 
         if (!TryParseDoubleBits(s, out ulong bits))
+        {
             throw new FormatException("For input string: \"" + JavaTrimForMessage(s) + "\"");
+        }
 
         return bits;
     }
@@ -103,11 +111,15 @@ internal static class JavaDoubleParserJdk17
     {
         bits = 0UL;
         if (s == null)
+        {
             return false;
+        }
 
         JavaTrimBounds(s, out int start, out int end);
         if (start == end)
+        {
             return false;
+        }
 
         int i = start;
         bool isNegative = false;
@@ -118,7 +130,9 @@ internal static class JavaDoubleParserJdk17
             isNegative = c == '-';
             i++;
             if (i >= end)
+            {
                 return false;
+            }
         }
 
         if (MatchesExact(s, i, end, "NaN"))
@@ -135,7 +149,9 @@ internal static class JavaDoubleParserJdk17
         }
 
         if (s[i] == '0' && i + 1 < end && (s[i + 1] == 'x' || s[i + 1] == 'X'))
+        {
             return TryParseHex(s, start, end, out bits);
+        }
 
         return TryParseDecimal(s, start, end, isNegative, i, out bits);
     }
@@ -159,7 +175,10 @@ internal static class JavaDoubleParserJdk17
                 if (c != '0')
                 {
                     if (firstNonZero < 0)
+                    {
                         firstNonZero = totalDigits;
+                    }
+
                     lastNonZero = totalDigits;
                 }
                 totalDigits++;
@@ -168,7 +187,10 @@ internal static class JavaDoubleParserJdk17
             else if (c == '.')
             {
                 if (decimalPointSeen)
+                {
                     return false;
+                }
+
                 decimalPointSeen = true;
                 pointDigits = totalDigits;
                 i++;
@@ -181,10 +203,14 @@ internal static class JavaDoubleParserJdk17
 
         int mantissaEnd = i;
         if (!decimalPointSeen)
+        {
             pointDigits = totalDigits;
+        }
 
         if (totalDigits == 0)
+        {
             return false;
+        }
 
         bool isZero = firstNonZero < 0;
         long decExp = 0;
@@ -203,7 +229,10 @@ internal static class JavaDoubleParserJdk17
             if (i < end && (s[i] == '-' || s[i] == '+'))
             {
                 if (s[i] == '-')
+                {
                     expSign = -1;
+                }
+
                 i++;
             }
 
@@ -218,7 +247,9 @@ internal static class JavaDoubleParserJdk17
                 {
                     expVal = expVal * 10L + d;
                     if (expVal > DecimalExponentCap)
+                    {
                         expOverflow = true;
+                    }
                 }
                 else
                 {
@@ -228,30 +259,43 @@ internal static class JavaDoubleParserJdk17
             }
 
             if (i == expAt)
+            {
                 return false;
+            }
 
             if (!isZero)
             {
                 if (expOverflow)
+                {
                     decExp = expSign > 0 ? DecimalExponentCap : -DecimalExponentCap;
+                }
                 else
+                {
                     decExp += expSign * expVal;
+                }
             }
         }
 
         if (i < end)
         {
             if (i != end - 1)
+            {
                 return false;
+            }
 
             char suffix = s[i];
             if (suffix != 'f' && suffix != 'F' && suffix != 'd' && suffix != 'D')
+            {
                 return false;
+            }
+
             i++;
         }
 
         if (i != end)
+        {
             return false;
+        }
 
         ulong sign = isNegative ? SignMask : 0UL;
 
@@ -283,7 +327,9 @@ internal static class JavaDoubleParserJdk17
         {
             char ch = s[j];
             if (ch == '.')
+            {
                 continue;
+            }
 
             if (digitIndex >= firstNonZero && digitIndex <= lastNonZero)
             {
@@ -295,19 +341,25 @@ internal static class JavaDoubleParserJdk17
                 }
 
                 if (count < nDigits)
+                {
                     digits[count++] = ch;
+                }
             }
 
             digitIndex++;
         }
 
         if (count != nDigits)
+        {
             return false; // Should be unreachable for syntactically valid input.
+        }
 
         ulong smallValue = 0UL;
         int smallLimit = Math.Min(nDigits, 19);
         for (int j = 0; j < smallLimit; j++)
+        {
             smallValue = smallValue * 10UL + (ulong)(digits[j] - '0');
+        }
 
         if (nDigits <= MaxDecimalDigits)
         {
@@ -320,7 +372,9 @@ internal static class JavaDoubleParserJdk17
 
         BigInteger significand = BigInteger.Zero;
         for (int j = 0; j < nDigits; j++)
+        {
             significand = significand * 10 + (digits[j] - '0');
+        }
 
         int scale10 = (int)(decExp - nDigits);
         BigInteger numerator;
@@ -363,7 +417,9 @@ internal static class JavaDoubleParserJdk17
             {
                 int slop = MaxDecimalDigits - nDigits;
                 if (exp > 22 + slop)
+                {
                     return false;
+                }
 
                 dValue *= Small10Pow[slop];
                 rValue = dValue * Small10Pow[exp - slop];
@@ -372,13 +428,17 @@ internal static class JavaDoubleParserJdk17
         else
         {
             if (exp < -22)
+            {
                 return false;
+            }
 
             rValue = dValue / Small10Pow[-exp];
         }
 
         if (isNegative)
+        {
             rValue = -rValue;
+        }
 
         bits = DoubleToRawLongBits(rValue);
         return true;
@@ -397,7 +457,10 @@ internal static class JavaDoubleParserJdk17
         }
 
         if (i + 1 >= end || s[i] != '0' || (s[i + 1] != 'x' && s[i + 1] != 'X'))
+        {
             return false;
+        }
+
         i += 2;
 
         int mantissaStart = i;
@@ -415,19 +478,28 @@ internal static class JavaDoubleParserJdk17
                 if (hv != 0)
                 {
                     if (firstNonZero < 0)
+                    {
                         firstNonZero = totalHexDigits;
+                    }
+
                     lastNonZero = totalHexDigits;
                 }
 
                 totalHexDigits++;
                 if (pointSeen)
+                {
                     fracHexDigits++;
+                }
+
                 i++;
             }
             else if (s[i] == '.')
             {
                 if (pointSeen)
+                {
                     return false;
+                }
+
                 pointSeen = true;
                 i++;
             }
@@ -440,17 +512,25 @@ internal static class JavaDoubleParserJdk17
         int mantissaEnd = i;
 
         if (totalHexDigits == 0)
+        {
             return false;
+        }
 
         if (i >= end || (s[i] != 'p' && s[i] != 'P'))
+        {
             return false;
+        }
+
         i++;
 
         int expSign = 1;
         if (i < end && (s[i] == '-' || s[i] == '+'))
         {
             if (s[i] == '-')
+            {
                 expSign = -1;
+            }
+
             i++;
         }
 
@@ -465,7 +545,9 @@ internal static class JavaDoubleParserJdk17
             {
                 expVal = expVal * 10L + d;
                 if (expVal > JavaIntMax)
+                {
                     expOverflow = true;
+                }
             }
             else
             {
@@ -475,21 +557,30 @@ internal static class JavaDoubleParserJdk17
         }
 
         if (i == expAt)
+        {
             return false;
+        }
 
         if (i < end)
         {
             if (i != end - 1)
+            {
                 return false;
+            }
 
             char suffix = s[i];
             if (suffix != 'f' && suffix != 'F' && suffix != 'd' && suffix != 'D')
+            {
                 return false;
+            }
+
             i++;
         }
 
         if (i != end)
+        {
             return false;
+        }
 
         ulong sign = isNegative ? SignMask : 0UL;
 
@@ -515,7 +606,9 @@ internal static class JavaDoubleParserJdk17
         for (int j = mantissaStart; j < mantissaEnd; j++)
         {
             if (s[j] == '.')
+            {
                 continue;
+            }
 
             if (digitIndexForLead == firstNonZero)
             {
@@ -551,13 +644,17 @@ internal static class JavaDoubleParserJdk17
         for (int j = mantissaStart; j < mantissaEnd && kept < keepHexDigits; j++)
         {
             if (s[j] == '.')
+            {
                 continue;
+            }
 
             if (digitIndex >= firstNonZero && digitIndex <= lastNonZero)
             {
                 int hv = HexValue(s[j]);
                 if (nHexDigits > MaxHexDigits && kept == keepHexDigits - 1)
+                {
                     hv = 1; // Sticky surrogate for all discarded nonzero information.
+                }
 
                 significand = (significand << 4) + hv;
                 kept++;
@@ -567,7 +664,9 @@ internal static class JavaDoubleParserJdk17
         }
 
         if (kept != keepHexDigits)
+        {
             return false; // Should be unreachable for syntactically valid input.
+        }
 
         bits = RoundBigIntegerTimesPowerOfTwoToDoubleBits(significand, binaryExponent + exponentAdjust) | sign;
         return true;
@@ -578,16 +677,22 @@ internal static class JavaDoubleParserJdk17
         int e = FloorLog2(numerator, denominator);
 
         if (e > 1023)
+        {
             return PositiveInfinityBits;
+        }
 
         if (e < -1022)
         {
             BigInteger k = RoundQuotient(numerator << 1074, denominator);
             if (k.IsZero)
+            {
                 return 0UL;
+            }
 
             if (k >= BigTwoPow52)
+            {
                 return MinNormalBits;
+            }
 
             return (ulong)k;
         }
@@ -595,16 +700,22 @@ internal static class JavaDoubleParserJdk17
         int p = e - 52;
         BigInteger rounded;
         if (p >= 0)
+        {
             rounded = RoundQuotient(numerator, denominator << p);
+        }
         else
+        {
             rounded = RoundQuotient(numerator << (-p), denominator);
+        }
 
         if (rounded == BigTwoPow53)
         {
             e++;
             rounded >>= 1;
             if (e > 1023)
+            {
                 return PositiveInfinityBits;
+            }
         }
 
         ulong fraction = (ulong)(rounded - BigTwoPow52);
@@ -614,21 +725,29 @@ internal static class JavaDoubleParserJdk17
     private static ulong RoundBigIntegerTimesPowerOfTwoToDoubleBits(BigInteger significand, long binaryExponent)
     {
         if (significand.Sign == 0)
+        {
             return 0UL;
+        }
 
         long floorLog2 = (long)BitLength(significand) - 1L + binaryExponent;
 
         if (floorLog2 > 1023L)
+        {
             return PositiveInfinityBits;
+        }
 
         if (floorLog2 < -1022L)
         {
             BigInteger k = RoundShift(significand, binaryExponent + 1074L);
             if (k.IsZero)
+            {
                 return 0UL;
+            }
 
             if (k >= BigTwoPow52)
+            {
                 return MinNormalBits;
+            }
 
             return (ulong)k;
         }
@@ -642,7 +761,9 @@ internal static class JavaDoubleParserJdk17
             e++;
             rounded >>= 1;
             if (e > 1023)
+            {
                 return PositiveInfinityBits;
+            }
         }
 
         ulong fraction = (ulong)(rounded - BigTwoPow52);
@@ -654,7 +775,10 @@ internal static class JavaDoubleParserJdk17
         if (shift >= 0L)
         {
             if (shift > int.MaxValue)
+            {
                 throw new OverflowException("Shift too large.");
+            }
+
             return n << (int)shift;
         }
 
@@ -665,14 +789,20 @@ internal static class JavaDoubleParserJdk17
     private static BigInteger RoundRightShift(BigInteger n, long right)
     {
         if (right <= 0L)
+        {
             return n;
+        }
 
         int nBits = BitLength(n);
         if (right > (long)nBits + 1L)
+        {
             return BigInteger.Zero;
+        }
 
         if (right > int.MaxValue)
+        {
             return BigInteger.Zero;
+        }
 
         int s = (int)right;
         BigInteger q = n >> s;
@@ -681,7 +811,9 @@ internal static class JavaDoubleParserJdk17
 
         int cmp = rem.CompareTo(half);
         if (cmp > 0 || (cmp == 0 && !q.IsEven))
+        {
             q += BigInteger.One;
+        }
 
         return q;
     }
@@ -692,7 +824,9 @@ internal static class JavaDoubleParserJdk17
         int cmp = (remainder << 1).CompareTo(denominator);
 
         if (cmp > 0 || (cmp == 0 && !quotient.IsEven))
+        {
             quotient += BigInteger.One;
+        }
 
         return quotient;
     }
@@ -704,12 +838,16 @@ internal static class JavaDoubleParserJdk17
         if (e >= 0)
         {
             if (numerator < (denominator << e))
+            {
                 e--;
+            }
         }
         else
         {
             if ((numerator << (-e)) < denominator)
+            {
                 e--;
+            }
         }
 
         return e;
@@ -718,16 +856,22 @@ internal static class JavaDoubleParserJdk17
     private static int BitLength(BigInteger value)
     {
         if (value.Sign < 0)
+        {
             value = BigInteger.Abs(value);
+        }
 
         if (value.IsZero)
+        {
             return 0;
+        }
 
         byte[] bytes = value.ToByteArray(); // Little-endian two's complement.
         int len = bytes.Length;
 
         while (len > 1 && bytes[len - 1] == 0)
+        {
             len--;
+        }
 
         byte top = bytes[len - 1];
         int bits = (len - 1) * 8;
@@ -754,11 +898,15 @@ internal static class JavaDoubleParserJdk17
     private static BigInteger Pow10(int n)
     {
         if (n < 0)
+        {
             throw new ArgumentOutOfRangeException("n");
+        }
 
         BigInteger[] cache = Pow10Cache;
         if (n < cache.Length)
+        {
             return cache[n];
+        }
 
         lock (Pow10Lock)
         {
@@ -767,12 +915,16 @@ internal static class JavaDoubleParserJdk17
             {
                 int newLength = cache.Length;
                 while (newLength <= n)
+                {
                     newLength *= 2;
+                }
 
                 var expanded = new BigInteger[newLength];
                 Array.Copy(cache, expanded, cache.Length);
                 for (int i = cache.Length; i < expanded.Length; i++)
+                {
                     expanded[i] = expanded[i - 1] * 10;
+                }
 
                 Pow10Cache = expanded;
             }
@@ -786,7 +938,10 @@ internal static class JavaDoubleParserJdk17
         var a = new BigInteger[32];
         a[0] = BigInteger.One;
         for (int i = 1; i < a.Length; i++)
+        {
             a[i] = a[i - 1] * 10;
+        }
+
         return a;
     }
 
@@ -805,23 +960,36 @@ internal static class JavaDoubleParserJdk17
     private static int HexValue(char c)
     {
         if (c >= '0' && c <= '9')
+        {
             return c - '0';
+        }
+
         if (c >= 'A' && c <= 'F')
+        {
             return c - 'A' + 10;
+        }
+
         if (c >= 'a' && c <= 'f')
+        {
             return c - 'a' + 10;
+        }
+
         return -1;
     }
 
     private static bool MatchesExact(string s, int start, int end, string literal)
     {
         if (end - start != literal.Length)
+        {
             return false;
+        }
 
         for (int i = 0; i < literal.Length; i++)
         {
             if (s[start + i] != literal[i])
+            {
                 return false;
+            }
         }
 
         return true;
@@ -833,10 +1001,14 @@ internal static class JavaDoubleParserJdk17
         end = s.Length;
 
         while (start < end && s[start] <= '\u0020')
+        {
             start++;
+        }
 
         while (end > start && s[end - 1] <= '\u0020')
+        {
             end--;
+        }
     }
 
     private static string JavaTrimForMessage(string s)

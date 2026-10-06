@@ -150,6 +150,10 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     private int disposed;
 
+    private bool isCountMode;
+
+    private int maximumFolderCount;
+
     /// <summary>Creates a dispatcher-bound viewer projection over one session.</summary>
     /// <param name="playlistId">Stable playlist identity.</param>
     /// <param name="playlistName">Current playlist display name.</param>
@@ -207,6 +211,39 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
+    /// <summary>窓内だけで保持する曲数表示。初期値は割合で、集計や選択には影響しません。</summary>
+    public bool IsCountMode
+    {
+        get => isCountMode;
+        set
+        {
+            if (isCountMode == value || !IsGraphVisible)
+            {
+                return;
+            }
+            isCountMode = value;
+            RaisePropertyChanged(nameof(IsCountMode));
+            RaisePropertyChanged(nameof(IsPercentageMode));
+            RaisePropertyChanged(nameof(FolderBarScale));
+        }
+    }
+
+    /// <summary>割合表示の排他的な選択状態。</summary>
+    public bool IsPercentageMode
+    {
+        get => !isCountMode;
+        set
+        {
+            if (value)
+            {
+                IsCountMode = false;
+            }
+        }
+    }
+
+    /// <summary>曲数表示の共通尺度。割合表示の0は各行での自己正規化を表します。</summary>
+    public double FolderBarScale => isCountMode ? maximumFolderCount : 0d;
+
     /// <summary>Latest/current score snapshotへ戻す command。</summary>
     public ViewModelCommand LatestCommand => latestCommand ??= new ViewModelCommand(
         () => SelectedAsOfDate = null);
@@ -219,23 +256,6 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     /// <summary>history row があり DatePicker を選択できるかどうか。</summary>
     public bool IsAsOfDateSelectionEnabled => result?.HistoricalDateRange?.HasHistoricalDates == true;
-
-    /// <summary>as-of header 用 localised status。</summary>
-    public string AsOfDateStatusText
-    {
-        get
-        {
-            if (!SelectedAsOfDate.HasValue)
-            {
-                return Resources.PlaylistLampViewer_latest;
-            }
-            if (result?.HistoricalStatus == PlaylistLampHistoricalSnapshotStatus.Unavailable)
-            {
-                return Resources.PlaylistLampViewer_historical_unavailable;
-            }
-            return SelectedAsOfDate.Value.ToString("d", CultureInfo.CurrentCulture);
-        }
-    }
 
     /// <summary>Localized native-window title.</summary>
     public string WindowTitle => string.Format(
@@ -461,6 +481,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
         }
 
+        maximumFolderCount = folderRows.Select(row => row.Count).DefaultIfEmpty(0).Max();
         AddStatisticsCards(next);
         if (next.State is not PlaylistLampViewerState.Loading)
         {

@@ -26,7 +26,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             PlaylistTreeStoreChangedCore(
                 sender,
                 nameof(BMSPlaylist.PlaylistEntriesHydrationRequestedVersion),
-                e?.Version ?? 0);
+                e?.Version ?? 0, e?.Request);
         }
     }
 
@@ -39,14 +39,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             PlaylistTreeStoreChangedCore(
                 sender,
                 nameof(BMSPlaylist.PlaylistEntriesHydrationCompletedVersion),
-                e?.Version ?? 0);
+                e?.Version ?? 0, e?.Request);
         }
     }
 
     private void PlaylistTreeStoreChangedCore(
         object sender,
         string change,
-        int hydrationVersion)
+        int hydrationVersion, OperationProgressRequest request = null)
     {
         if (string.Equals(change, nameof(BMSPlaylist.BMSTables), StringComparison.Ordinal))
         {
@@ -106,7 +106,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     requestSourceTables = observedPlaylistTreeTables;
                     requestGeneration = Volatile.Read(ref playlistTreeNotificationGeneration);
                     requestedHydrationVersion = hydrationVersion;
-                    requestReceipt = new PlaylistHydrationCompletionReceipt();
+                    requestReceipt = new PlaylistHydrationCompletionReceipt(request: request);
                     playlistHydrationCompletionReceipt = requestReceipt;
                 });
             if (!requestCreated)
@@ -164,7 +164,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         playlistTreeStore,
                         observedPlaylistTreeTables,
                         Volatile.Read(ref playlistTreeNotificationGeneration),
-                        playlistHydrationCompletionReceipt);
+                        playlistHydrationCompletionReceipt, request);
                     return;
                 }
             }
@@ -185,7 +185,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     completedGeneration = Volatile.Read(ref playlistTreeNotificationGeneration);
                     completedHydrationVersion = hydrationVersion;
                     completionReceipt =
-                        new PlaylistHydrationCompletionReceipt(requestAlreadyPublished: true);
+                        new PlaylistHydrationCompletionReceipt(requestAlreadyPublished: true, request: request);
                     playlistHydrationCompletionReceipt = completionReceipt;
                 });
             if (completionCreated)
@@ -243,7 +243,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 pendingPlaylistHydrationCompletion = null;
                 requestReceiptToInvalidate = DetachPlaylistHydrationCompletionReceiptUnsafe();
                 PlaylistHydrationCompletionReceipt completionReceipt =
-                    new(requestAlreadyPublished: true);
+                    new(requestAlreadyPublished: true, request: pendingCompletion.Request);
                 playlistHydrationCompletionReceipt = completionReceipt;
                 pendingCompletion = new PlaylistEntriesHydrationVersionChangedEventArgs(
                     pendingCompletion.Version,
@@ -516,14 +516,18 @@ internal sealed class PlaylistEntriesHydrationVersionChangedEventArgs : EventArg
         BMSPlaylist sourceStore = null,
         ObservableCollection<BMSTable> sourceTables = null,
         long generation = 0L,
-        PlaylistHydrationCompletionReceipt receipt = null)
+        PlaylistHydrationCompletionReceipt receipt = null, OperationProgressRequest request = null)
     {
+        Request = request ?? receipt?.Request;
         Version = version;
         SourceStore = sourceStore;
         SourceTables = sourceTables;
         Generation = generation;
         CompletionReceipt = receipt;
     }
+
+    /// <summary>受付・完了の通知元で捕捉した表示識別です。</summary>
+    internal OperationProgressRequest Request { get; }
 
     internal int Version { get; }
 

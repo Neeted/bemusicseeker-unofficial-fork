@@ -14,10 +14,8 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Settings;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parago.Windows;
 

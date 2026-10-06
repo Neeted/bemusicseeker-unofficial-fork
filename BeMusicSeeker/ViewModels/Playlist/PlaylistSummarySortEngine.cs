@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -16,10 +15,9 @@ internal static class PlaylistSummarySortEngine
     /// </summary>
     /// <param name="source">ソート対象。</param>
     /// <param name="sortParameters">ソート条件。</param>
-    /// <param name="useLegacyStringSort">文字列カラムで legacy 自然順を使う場合は true。</param>
     /// <param name="sortProfile">適用したソートプロファイル。</param>
     /// <returns>ソート済みリスト。</returns>
-    internal static List<PlaylistSummaryRow> Sort(IEnumerable<PlaylistSummaryRow> source, ChartListSortParameters sortParameters, bool useLegacyStringSort, out string sortProfile)
+    internal static List<PlaylistSummaryRow> Sort(IEnumerable<PlaylistSummaryRow> source, ChartListSortParameters sortParameters, out string sortProfile)
     {
         IEnumerable<PlaylistSummaryRow> safeSource = source ?? [];
         string columnName = sortParameters?.ColumnsName;
@@ -33,61 +31,61 @@ internal static class PlaylistSummarySortEngine
         {
             case nameof(PlaylistSummaryRow.PlaylistId):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, row => row?.PlaylistId, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.PlaylistId, direction);
             case nameof(PlaylistSummaryRow.Name):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.Name ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.Name ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.FolderName):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.FolderName ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.FolderName ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.OutputBaseDisplayName):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.OutputBaseDisplayName ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.OutputBaseDisplayName ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.CompatPrefix):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.CompatPrefix ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.CompatPrefix ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.Symbol):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.Symbol ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.Symbol ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.HeaderUriText):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.HeaderUriText ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.HeaderUriText ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.DataUriText):
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, row => row?.DataUriText ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.DataUriText ?? string.Empty, direction);
             case nameof(PlaylistSummaryRow.LastUpdate):
                 sortProfile = "playlist_summary_date";
-                return SortByTypedKey(safeSource, row => row?.LastUpdate ?? DateTime.MinValue, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.LastUpdate ?? DateTime.MinValue, direction);
             case nameof(PlaylistSummaryRow.TotalCharts):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, row => row?.TotalCharts ?? 0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.TotalCharts ?? 0, direction);
             case nameof(PlaylistSummaryRow.OwnedCharts):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, row => row?.OwnedCharts ?? 0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.OwnedCharts ?? 0, direction);
             case nameof(PlaylistSummaryRow.MissingCharts):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, row => row?.MissingCharts ?? 0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.MissingCharts ?? 0, direction);
             case nameof(PlaylistSummaryRow.OwnedRatio):
                 sortProfile = "playlist_summary_numeric_double";
-                return SortByTypedKey(safeSource, row => row?.OwnedRatio ?? 0.0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.OwnedRatio ?? 0.0, direction);
             case nameof(PlaylistSummaryRow.IsExternalSync):
                 sortProfile = "playlist_summary_numeric_bool";
-                return SortByTypedKey(safeSource, row => row?.IsExternalSync ?? false, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.IsExternalSync ?? false, direction);
             case nameof(PlaylistSummaryRow.StatusSortOrder):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, row => row?.StatusSortOrder ?? int.MaxValue, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.StatusSortOrder ?? int.MaxValue, direction);
             case nameof(PlaylistSummaryRow.IsRootFolder):
                 sortProfile = "playlist_summary_numeric_bool";
-                return SortByTypedKey(safeSource, row => row?.IsRootFolder ?? false, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.IsRootFolder ?? false, direction);
             case nameof(PlaylistSummaryRow.BmtSort):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, row => row?.BmtSort ?? int.MaxValue, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.BmtSort ?? int.MaxValue, direction);
             case nameof(PlaylistSummaryRow.IsBmtOutput):
                 sortProfile = "playlist_summary_numeric_bool";
-                return SortByTypedKey(safeSource, row => row?.IsBmtOutput ?? false, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.IsBmtOutput ?? false, direction);
             default:
-                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string_fallback" : "playlist_summary_string_fast_fallback";
-                return SortByString(safeSource, row => row?.Name ?? string.Empty, direction, useLegacyStringSort);
+                sortProfile = "playlist_summary_string_fast_fallback";
+                return SortByString(safeSource, row => row?.Name ?? string.Empty, direction);
         }
     }
 
@@ -97,19 +95,9 @@ internal static class PlaylistSummarySortEngine
     /// <param name="source">ソート対象。</param>
     /// <param name="keySelector">主キー取得関数。</param>
     /// <param name="direction">ソート方向。</param>
-    /// <param name="useLegacyStringSort">legacy 自然順を使う場合は true。</param>
     /// <returns>ソート済みリスト。</returns>
-    private static List<PlaylistSummaryRow> SortByString(IEnumerable<PlaylistSummaryRow> source, Func<PlaylistSummaryRow, string> keySelector, ListSortDirection direction, bool useLegacyStringSort)
+    private static List<PlaylistSummaryRow> SortByString(IEnumerable<PlaylistSummaryRow> source, Func<PlaylistSummaryRow, string> keySelector, ListSortDirection direction)
     {
-        if (useLegacyStringSort)
-        {
-            if (direction == ListSortDirection.Ascending)
-            {
-                return [.. source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
-            }
-            return [.. source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
-        }
-
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
@@ -125,19 +113,9 @@ internal static class PlaylistSummarySortEngine
     /// <param name="source">ソート対象。</param>
     /// <param name="keySelector">主キー取得関数。</param>
     /// <param name="direction">ソート方向。</param>
-    /// <param name="useLegacyStringSort">文字列タイブレークで legacy 自然順を使う場合は true。</param>
     /// <returns>ソート済みリスト。</returns>
-    private static List<PlaylistSummaryRow> SortByTypedKey<TKey>(IEnumerable<PlaylistSummaryRow> source, Func<PlaylistSummaryRow, TKey> keySelector, ListSortDirection direction, bool useLegacyStringSort)
+    private static List<PlaylistSummaryRow> SortByTypedKey<TKey>(IEnumerable<PlaylistSummaryRow> source, Func<PlaylistSummaryRow, TKey> keySelector, ListSortDirection direction)
     {
-        if (useLegacyStringSort)
-        {
-            if (direction == ListSortDirection.Ascending)
-            {
-                return [.. source.OrderBy(keySelector).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
-            }
-            return [.. source.OrderByDescending(keySelector).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
-        }
-
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {

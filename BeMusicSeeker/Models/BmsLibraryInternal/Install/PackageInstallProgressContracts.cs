@@ -71,21 +71,3 @@ internal interface IFolderAutoRenameProgressWriter
 {
     void TryWrite(FolderAutoRenameProgressUpdate update);
 }
-
-/// <summary>
-/// Explicit no-op writer used only by legacy mutation-port methods that do
-/// not expose a progress consumer. It prevents those routes from adapting
-/// arbitrary callbacks back into the mutation producer.
-/// </summary>
-internal sealed class NullPackageInstallProgressWriter : IPackageInstallProgressWriter
-{
-    internal static NullPackageInstallProgressWriter Instance { get; } = new();
-
-    private NullPackageInstallProgressWriter()
-    {
-    }
-
-    public void TryWrite(PackageInstallProgressUpdate update)
-    {
-    }
-}

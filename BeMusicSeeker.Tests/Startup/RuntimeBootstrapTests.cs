@@ -1,5 +1,4 @@
 using System.Text;
-using BeMusicSeeker;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;

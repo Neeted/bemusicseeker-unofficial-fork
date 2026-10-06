@@ -72,6 +72,11 @@ internal static class Lr2FolderFileDiscoveryService
             .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
             .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        logScan?.Invoke("lr2folder_search_conditions roots=" + roots.Count
+            + " rootPaths=" + string.Join(" | ", roots)
+            + " extensions=.lr2folder exclusionKind=builtin_custom_folder_settings"
+            + " customFolderMask=" + (builtinCustomFolderSettings?.CustomFolderMask.ToString() ?? "unspecified")
+            + " includeNewSong=" + (builtinCustomFolderSettings?.IncludeNewSongFolder.ToString() ?? "unspecified"));
         if (roots.Count == 0)
         {
             logScan?.Invoke("lr2folder_scan skipped reason=no_roots roots=0");
@@ -96,7 +101,7 @@ internal static class Lr2FolderFileDiscoveryService
             logScan?.Invoke("lr2folder_scan failed"
                 + " roots=" + roots.Count
                 + " backend=" + (result.BackendName ?? string.Empty)
-                + " enumerationMs=" + result.EnumerationMs
+                + " enumerationMs=" + (result.MeasuredEnumerationMs?.ToString() ?? "not_measured")
                 + " reason=" + (result.ErrorReason ?? "unknown"));
             return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
         }
@@ -112,14 +117,14 @@ internal static class Lr2FolderFileDiscoveryService
         logScan?.Invoke("lr2folder_scan success"
             + " roots=" + roots.Count
             + " backend=" + (result.BackendName ?? string.Empty)
-            + " enumerationMs=" + result.EnumerationMs
+            + " enumerationMs=" + (result.MeasuredEnumerationMs?.ToString() ?? "not_measured")
             + " queryHits=" + result.GetQueryHitCount(Lr2FolderFileEnumerationGroupName)
-            + " queryMs=" + result.GetQueryMs(Lr2FolderFileEnumerationGroupName)
+            + " queryMs=" + (result.GetMeasuredQueryMs(Lr2FolderFileEnumerationGroupName)?.ToString() ?? "not_measured")
             + " rawEntries=" + rawEntries.Count
             + " includedEntries=" + includedEntries.Count
             + " dedupedEntries=" + entriesByPath.Count
-            + " excludedDirs=" + excludedDirectoryList.Count
-            + " filteredEntries=" + (rawEntries.Count - includedEntries.Count));
+            + " exclusionKind=app_managed_directory_tree appManagedExcludedDirectories=" + excludedDirectoryList.Count
+            + " builtinFilteredFiles=" + (rawEntries.Count - includedEntries.Count));
         return new Lr2FolderFileCandidateSnapshot([.. entriesByPath.Keys
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], entriesByPath, discoveryComplete: true);

@@ -1,7 +1,6 @@
 using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing;
 using System.Globalization;
 using System.Resources;
 using System.Runtime.CompilerServices;
@@ -43,6 +42,86 @@ public class Resources
             resourceCulture = value;
         }
     }
+
+    public static string Lr2_song_db_sync_stage_queued => ResourceManager.GetString("Lr2_song_db_sync_stage_queued", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_chart_info_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_type_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_song_type_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_level_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_level_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_location_update => ResourceManager.GetString("Lr2_song_db_sync_stage_song_location_update", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_removal => ResourceManager.GetString("Lr2_song_db_sync_stage_song_removal", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_encoding_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_song_encoding_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_preparing => ResourceManager.GetString("Lr2_song_db_sync_stage_preparing", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_materialization => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_materialization", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_builtin_folder_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_builtin_folder_preparation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_chart_info_hydration => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_hydration", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_input_surface => ResourceManager.GetString("Lr2_song_db_sync_stage_input_surface", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_compatibility_projection_index => ResourceManager.GetString("Lr2_song_db_sync_stage_compatibility_projection_index", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_chart_info_resolver_snapshot => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_resolver_snapshot", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_projection_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_projection_preparation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_directory_metadata => ResourceManager.GetString("Lr2_song_db_sync_stage_directory_metadata", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_normal_folder_roots => ResourceManager.GetString("Lr2_song_db_sync_stage_normal_folder_roots", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_normal_folders => ResourceManager.GetString("Lr2_song_db_sync_stage_normal_folders", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_lr2folder_files => ResourceManager.GetString("Lr2_song_db_sync_stage_lr2folder_files", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_projection_candidates => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_projection_candidates", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_custom_folder_rows => ResourceManager.GetString("Lr2_song_db_sync_stage_custom_folder_rows", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_custom_folder_parents => ResourceManager.GetString("Lr2_song_db_sync_stage_custom_folder_parents", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_projection_validation => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_projection_validation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_existing_rows => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_existing_rows", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_reconciliation => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_reconciliation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_rows_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_song_rows_preparation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_rows => ResourceManager.GetString("Lr2_song_db_sync_stage_song_rows", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_rows_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_song_rows_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_final_validation => ResourceManager.GetString("Lr2_song_db_sync_stage_final_validation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_sync_state_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_sync_state_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_source_stale => ResourceManager.GetString("Lr2_song_db_sync_stage_source_stale", resourceCulture);
+
+    public static string Lr2_song_db_sync_saved_position => ResourceManager.GetString("Lr2_song_db_sync_saved_position", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_projection => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_projection", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_output_discovery => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_output_discovery", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_files => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_files", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_output_cleanup => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_output_cleanup", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_directory_metadata => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_directory_metadata", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_state_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_state_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_result_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_result_preparation", resourceCulture);
 
     public static string Add => ResourceManager.GetString("Add", resourceCulture);
 
@@ -211,15 +290,43 @@ public class Resources
 
     public static string Device_setting_format => ResourceManager.GetString("Device_setting_format", resourceCulture);
 
-    public static string Device_setting_latency => ResourceManager.GetString("Device_setting_latency", resourceCulture);
-
     public static string Device_setting_lowlatency => ResourceManager.GetString("Device_setting_lowlatency", resourceCulture);
+
+    public static string Device_setting_lowlatency_desc => ResourceManager.GetString("Device_setting_lowlatency_desc", resourceCulture);
+
+    public static string Device_setting_resampling_quality => ResourceManager.GetString("Device_setting_resampling_quality", resourceCulture);
+
+    public static string Device_setting_resampling_quality_desc => ResourceManager.GetString("Device_setting_resampling_quality_desc", resourceCulture);
+
+    public static string Device_setting_resampling_parallelism => ResourceManager.GetString("Device_setting_resampling_parallelism", resourceCulture);
+
+    public static string Device_setting_resampling_parallelism_desc => ResourceManager.GetString("Device_setting_resampling_parallelism_desc", resourceCulture);
+
+    public static string Error_InvalidAudioResamplingQuality => ResourceManager.GetString("Error_InvalidAudioResamplingQuality", resourceCulture);
+
+    public static string Error_InvalidAudioMixerThreadCount => ResourceManager.GetString("Error_InvalidAudioMixerThreadCount", resourceCulture);
 
     public static string Device_setting_samplerate => ResourceManager.GetString("Device_setting_samplerate", resourceCulture);
 
     public static string Device_setting_test => ResourceManager.GetString("Device_setting_test", resourceCulture);
 
     public static string Device_setting_volume => ResourceManager.GetString("Device_setting_volume", resourceCulture);
+
+    public static string AudioConversionRangeFailureFormat => ResourceManager.GetString("AudioConversionRangeFailureFormat", resourceCulture);
+
+    public static string AudioConversionRangeFailureImpossibleFormat => ResourceManager.GetString("AudioConversionRangeFailureImpossibleFormat", resourceCulture);
+
+    public static string AudioResamplingQualityOptionFormat => ResourceManager.GetString("AudioResamplingQualityOptionFormat", resourceCulture);
+
+    public static string AudioMixerThreadCountDefaultOptionFormat => ResourceManager.GetString("AudioMixerThreadCountDefaultOptionFormat", resourceCulture);
+
+    public static string AudioConversionOtherFailureFormat => ResourceManager.GetString("AudioConversionOtherFailureFormat", resourceCulture);
+
+    public static string AudioConversionOtherFailuresRemainingFormat => ResourceManager.GetString("AudioConversionOtherFailuresRemainingFormat", resourceCulture);
+
+    public static string AudioConversionOmittedSourcesFormat => ResourceManager.GetString("AudioConversionOmittedSourcesFormat", resourceCulture);
+
+    public static string AudioConversionOmittedSourcesRemainingFormat => ResourceManager.GetString("AudioConversionOmittedSourcesRemainingFormat", resourceCulture);
 
     public static string Diff_URL => ResourceManager.GetString("Diff_URL", resourceCulture);
 
@@ -410,28 +517,6 @@ public class Resources
 
     public static string Statusbar_progress_full_reinitialize => ResourceManager.GetString("Statusbar_progress_full_reinitialize", resourceCulture);
 
-    public static string Statusbar_progress_operable => ResourceManager.GetString("Statusbar_progress_operable", resourceCulture);
-
-    public static string Statusbar_progress_operable_background => ResourceManager.GetString("Statusbar_progress_operable_background", resourceCulture);
-
-    public static string Statusbar_progress_complete => ResourceManager.GetString("Statusbar_progress_complete", resourceCulture);
-
-    public static string Statusbar_progress_complete_reload => ResourceManager.GetString("Statusbar_progress_complete_reload", resourceCulture);
-
-    public static string Statusbar_progress_complete_scores => ResourceManager.GetString("Statusbar_progress_complete_scores", resourceCulture);
-
-    public static string Statusbar_progress_complete_reinitialize => ResourceManager.GetString("Statusbar_progress_complete_reinitialize", resourceCulture);
-
-    public static string Statusbar_progress_failed => ResourceManager.GetString("Statusbar_progress_failed", resourceCulture);
-
-    public static string Statusbar_progress_failed_reload => ResourceManager.GetString("Statusbar_progress_failed_reload", resourceCulture);
-
-    public static string Statusbar_progress_failed_scores => ResourceManager.GetString("Statusbar_progress_failed_scores", resourceCulture);
-
-    public static string Statusbar_progress_failed_reinitialize => ResourceManager.GetString("Statusbar_progress_failed_reinitialize", resourceCulture);
-
-    public static string Statusbar_progress_phase_library_load => ResourceManager.GetString("Statusbar_progress_phase_library_load", resourceCulture);
-
     public static string Statusbar_progress_phase_library_db_load => ResourceManager.GetString("Statusbar_progress_phase_library_db_load", resourceCulture);
 
     public static string Statusbar_progress_phase_file_enumeration => ResourceManager.GetString("Statusbar_progress_phase_file_enumeration", resourceCulture);
@@ -472,7 +557,8 @@ public class Resources
 
     public static string Lr2_song_db_sync_data_resync => ResourceManager.GetString("Lr2_song_db_sync_data_resync", resourceCulture);
 
-    public static string Lr2_song_db_sync_data_resync_tooltip => ResourceManager.GetString("Lr2_song_db_sync_data_resync_tooltip", resourceCulture);
+    /// <summary>LR2 song.db の手動再同期が通常は不要であることと、修復用途の実行条件を示す常設説明を取得します。</summary>
+    public static string Lr2_song_db_sync_data_resync_description => ResourceManager.GetString("Lr2_song_db_sync_data_resync_description", resourceCulture);
 
     public static string Msg_confirm_lr2_song_db_sync_data_resync => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_data_resync", resourceCulture);
 
@@ -728,11 +814,8 @@ public class Resources
 
     public static string Msg_settings_apply_blocked_during_initialization => ResourceManager.GetString("Msg_settings_apply_blocked_during_initialization", resourceCulture);
 
-    public static string Msg_load_recommended_tables_error => ResourceManager.GetString("Msg_load_recommended_tables_error", resourceCulture);
 
-    public static string Msg_load_recommended_tables_readonly_mode => ResourceManager.GetString("Msg_load_recommended_tables_readonly_mode", resourceCulture);
 
-    public static string Msg_load_recommended_tables_update_mode => ResourceManager.GetString("Msg_load_recommended_tables_update_mode", resourceCulture);
 
     public static string Msg_manual_installation => ResourceManager.GetString("Msg_manual_installation", resourceCulture);
 
@@ -1000,9 +1083,7 @@ public class Resources
 
     public static string Property => ResourceManager.GetString("Property", resourceCulture);
 
-    public static string Recommended_automatic_update => ResourceManager.GetString("Recommended_automatic_update", resourceCulture);
 
-    public static string Recommended_read_only => ResourceManager.GetString("Recommended_read_only", resourceCulture);
 
     public static string Record => ResourceManager.GetString("Record", resourceCulture);
 
@@ -1701,31 +1782,35 @@ public class Resources
     public static string Error_UnsupportedType => ResourceManager.GetString("Error_UnsupportedType", resourceCulture);
 
 
-    public static string Error_ScoreDBConnectionFailed => ResourceManager.GetString("Error_ScoreDBConnectionFailed", resourceCulture);
 
 
-    public static string Error_LR2IDOrScoreDBFailed => ResourceManager.GetString("Error_LR2IDOrScoreDBFailed", resourceCulture);
 
 
-    public static string Warn_RecommendUpdateFailed => ResourceManager.GetString("Warn_RecommendUpdateFailed", resourceCulture);
 
 
-    public static string Warn_RecommendFetchFailed => ResourceManager.GetString("Warn_RecommendFetchFailed", resourceCulture);
 
 
-    public static string Error_RecommendFetchFailed => ResourceManager.GetString("Error_RecommendFetchFailed", resourceCulture);
 
+
+    /// <summary>内蔵推薦方針の表示名です。</summary>
+    public static string Recommended_standard => ResourceManager.GetString("Recommended_standard", resourceCulture);
+
+    /// <summary>内蔵推薦方針の表示名です。</summary>
+    public static string Recommended_unplayed_as_failed => ResourceManager.GetString("Recommended_unplayed_as_failed", resourceCulture);
+
+    /// <summary>内蔵推薦方針の表示名です。</summary>
+    public static string Recommended_failed_as_unplayed => ResourceManager.GetString("Recommended_failed_as_unplayed", resourceCulture);
 
     public static string RecommendFormat => ResourceManager.GetString("RecommendFormat", resourceCulture);
 
 
+    /// <summary>新実力値と増減の二つの引数だけを表示する、実力更新通知本文です。</summary>
     public static string Recommend_SkillUpdatedMessage => ResourceManager.GetString("Recommend_SkillUpdatedMessage", resourceCulture);
 
 
     public static string Recommend_SkillUpdatedTitle => ResourceManager.GetString("Recommend_SkillUpdatedTitle", resourceCulture);
 
 
-    public static string Error_LocalScoreDataNotFetched => ResourceManager.GetString("Error_LocalScoreDataNotFetched", resourceCulture);
 
 
     public static string Warn_CustomFolderOutputFailed => ResourceManager.GetString("Warn_CustomFolderOutputFailed", resourceCulture);
@@ -1910,8 +1995,6 @@ public class Resources
 
     public static string Error_OutputFolderNameEmptyOrDuplicateCheckInput => ResourceManager.GetString("Error_OutputFolderNameEmptyOrDuplicateCheckInput", resourceCulture);
 
-    public static string Statusbar_progress_phase_playlist_load => ResourceManager.GetString("Statusbar_progress_phase_playlist_load", resourceCulture);
-
     public static string Statusbar_progress_phase_playlist_loading => ResourceManager.GetString("Statusbar_progress_phase_playlist_loading", resourceCulture);
 
     public static string Statusbar_progress_detail_separator_format => ResourceManager.GetString("Statusbar_progress_detail_separator_format", resourceCulture);
@@ -1946,11 +2029,11 @@ public class Resources
 
     public static string AudioDeviceUnavailableFormat => ResourceManager.GetString("AudioDeviceUnavailableFormat", resourceCulture);
 
-    public static string AudioDeviceTestSuccessFormat => ResourceManager.GetString("AudioDeviceTestSuccessFormat", resourceCulture);
+    public static string AudioDeviceTestSucceeded => ResourceManager.GetString("AudioDeviceTestSucceeded", resourceCulture);
 
-    public static string AudioDeviceTestFallbackFormat => ResourceManager.GetString("AudioDeviceTestFallbackFormat", resourceCulture);
+    public static string AudioDeviceTestPlaybackFailureReason => ResourceManager.GetString("AudioDeviceTestPlaybackFailureReason", resourceCulture);
 
-    public static string AudioDeviceTestStreamFailureFormat => ResourceManager.GetString("AudioDeviceTestStreamFailureFormat", resourceCulture);
+    public static string AudioDeviceTestResultDetailsFormat => ResourceManager.GetString("AudioDeviceTestResultDetailsFormat", resourceCulture);
 
     public static string AudioDeviceTestStreamProgressFailureReason => ResourceManager.GetString("AudioDeviceTestStreamProgressFailureReason", resourceCulture);
 
@@ -1962,11 +2045,7 @@ public class Resources
 
     public static string AudioDeviceTestPlayerCreationFailureReason => ResourceManager.GetString("AudioDeviceTestPlayerCreationFailureReason", resourceCulture);
 
-    public static string AudioDeviceTestPlayerCreationFailureReasonFormat => ResourceManager.GetString("AudioDeviceTestPlayerCreationFailureReasonFormat", resourceCulture);
-
     public static string AudioDeviceTestInvalidDurationReason => ResourceManager.GetString("AudioDeviceTestInvalidDurationReason", resourceCulture);
-
-    public static string AudioDeviceTestPlaybackStartFailureReasonFormat => ResourceManager.GetString("AudioDeviceTestPlaybackStartFailureReasonFormat", resourceCulture);
 
     public static string AudioDeviceTestPlaybackPositionFailureReason => ResourceManager.GetString("AudioDeviceTestPlaybackPositionFailureReason", resourceCulture);
 
@@ -1977,6 +2056,56 @@ public class Resources
     public static string AudioDeviceTestObservationTimeoutReason => ResourceManager.GetString("AudioDeviceTestObservationTimeoutReason", resourceCulture);
 
     public static string AudioDeviceTestUnexpectedFailureReason => ResourceManager.GetString("AudioDeviceTestUnexpectedFailureReason", resourceCulture);
+
+    public static string AudioDeviceTestStartButton => ResourceManager.GetString("AudioDeviceTestStartButton", resourceCulture);
+
+    public static string AudioDeviceTechnicalDetails => ResourceManager.GetString("AudioDeviceTechnicalDetails", resourceCulture);
+
+    public static string AudioOutputSelectionResetMessage => ResourceManager.GetString("AudioOutputSelectionResetMessage", resourceCulture);
+
+    public static string AudioSampleRateSelectionResetMessage => ResourceManager.GetString("AudioSampleRateSelectionResetMessage", resourceCulture);
+
+    public static string AudioDeviceCapabilityQueryInProgress => ResourceManager.GetString("AudioDeviceCapabilityQueryInProgress", resourceCulture);
+
+    public static string AudioDeviceCapabilityNotQueried => ResourceManager.GetString("AudioDeviceCapabilityNotQueried", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnsupported => ResourceManager.GetString("AudioDeviceCapabilityUnsupported", resourceCulture);
+
+    public static string AudioDeviceCapabilityFailed => ResourceManager.GetString("AudioDeviceCapabilityFailed", resourceCulture);
+
+    public static string AudioDeviceCapabilityBusy => ResourceManager.GetString("AudioDeviceCapabilityBusy", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnsupportedChoice => ResourceManager.GetString("AudioDeviceCapabilityUnsupportedChoice", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnqueriedChoice => ResourceManager.GetString("AudioDeviceCapabilityUnqueriedChoice", resourceCulture);
+
+    public static string AudioDeviceCapabilityUnavailableChoiceFormat => ResourceManager.GetString("AudioDeviceCapabilityUnavailableChoiceFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityAuto => ResourceManager.GetString("AudioDeviceCapabilityAuto", resourceCulture);
+
+    public static string AudioDeviceCapabilityFormatFormat => ResourceManager.GetString("AudioDeviceCapabilityFormatFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityStereoFormatsFormat => ResourceManager.GetString("AudioDeviceCapabilityStereoFormatsFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilitySharedRateFormat => ResourceManager.GetString("AudioDeviceCapabilitySharedRateFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityPrecisionFormat => ResourceManager.GetString("AudioDeviceCapabilityPrecisionFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityPrecisionPairFormat => ResourceManager.GetString("AudioDeviceCapabilityPrecisionPairFormat", resourceCulture);
+
+    public static string AudioDeviceCapabilityPrecisionUnknown => ResourceManager.GetString("AudioDeviceCapabilityPrecisionUnknown", resourceCulture);
+
+    public static string AudioSampleRateOptionFormat => ResourceManager.GetString("AudioSampleRateOptionFormat", resourceCulture);
+
+    public static string AudioSampleFormat8Bit => ResourceManager.GetString("AudioSampleFormat8Bit", resourceCulture);
+
+    public static string AudioSampleFormat16Bit => ResourceManager.GetString("AudioSampleFormat16Bit", resourceCulture);
+
+    public static string AudioSampleFormat24Bit => ResourceManager.GetString("AudioSampleFormat24Bit", resourceCulture);
+
+    public static string AudioSampleFormat32Bit => ResourceManager.GetString("AudioSampleFormat32Bit", resourceCulture);
+
+    public static string AudioSampleFormatFloat32 => ResourceManager.GetString("AudioSampleFormatFloat32", resourceCulture);
 
     public static string Operation_Mode_Standalone => ResourceManager.GetString("Operation_Mode_Standalone", resourceCulture);
     public static string Operation_Mode_LR2 => ResourceManager.GetString("Operation_Mode_LR2", resourceCulture);
@@ -2255,11 +2384,14 @@ public class Resources
     /// <summary>Historical score as-of label.</summary>
     public static string PlaylistLampViewer_as_of => ResourceManager.GetString("PlaylistLampViewer_as_of", resourceCulture);
 
+    /// <summary>ランプビューアの割合表示。</summary>
+    public static string PlaylistLampViewer_percentage_mode => ResourceManager.GetString("PlaylistLampViewer_percentage_mode", resourceCulture);
+
+    /// <summary>ランプビューアの曲数表示。</summary>
+    public static string PlaylistLampViewer_count_mode => ResourceManager.GetString("PlaylistLampViewer_count_mode", resourceCulture);
+
     /// <summary>Latest score selection label.</summary>
     public static string PlaylistLampViewer_latest => ResourceManager.GetString("PlaylistLampViewer_latest", resourceCulture);
-
-    /// <summary>Historical score unavailable status.</summary>
-    public static string PlaylistLampViewer_historical_unavailable => ResourceManager.GetString("PlaylistLampViewer_historical_unavailable", resourceCulture);
 
     internal Resources()
     {
@@ -2472,6 +2604,9 @@ public class Resources
     /// <summary>実行ファイルが見つかりません。</summary>
     public static string Error_ExecutableNotFound => ResourceManager.GetString("Error_ExecutableNotFound", resourceCulture);
 
+    /// <summary>不正な bmson 入力を示すメッセージです。{0} は対象ファイルの実pathです。</summary>
+    public static string Error_InvalidBmsonInputFormat => ResourceManager.GetString("Error_InvalidBmsonInputFormat", resourceCulture);
+
     /// <summary>BMS ファイルが見つかりません。</summary>
     public static string Error_BmsFileNotFound => ResourceManager.GetString("Error_BmsFileNotFound", resourceCulture);
 
@@ -2602,4 +2737,93 @@ public class Resources
 
     public static string Confirm_CustomFolderOutputChangesFormat => ResourceManager.GetString("Confirm_CustomFolderOutputChangesFormat", resourceCulture);
 
+    /// <summary>必要な音源の読込み失敗と対象・処理段階の表示書式を取得します。</summary>
+    public static string AudioRequiredResourceLoadFailureFormat => ResourceManager.GetString("AudioRequiredResourceLoadFailureFormat", resourceCulture);
+
+    /// <summary>音声出力失敗と処理段階の表示書式を取得します。</summary>
+    public static string AudioCallbackOutputFailureFormat => ResourceManager.GetString("AudioCallbackOutputFailureFormat", resourceCulture);
+
+    /// <summary>native解放を確認できなかったことを示します。</summary>
+    public static string AudioDeviceTestCleanupFailure => ResourceManager.GetString("AudioDeviceTestCleanupFailure", resourceCulture);
+
+    /// <summary>正の無限大のSTOPを現在のBPMで停止時間へ変換できない理由を取得します。</summary>
+    public static string BmsInfiniteStopTimingFailure => ResourceManager.GetString("BmsInfiniteStopTimingFailure", resourceCulture);
+
+    /// <summary>正の無限大の小節長から譜面時刻を計算できない理由を取得します。</summary>
+    public static string BmsInfiniteMeasureLengthTimingFailure => ResourceManager.GetString("BmsInfiniteMeasureLengthTimingFailure", resourceCulture);
+
+    /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
+    public static string InstallDestination_SelectCandidate => ResourceManager.GetString("InstallDestination_SelectCandidate", resourceCulture);
+
+    /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
+    public static string Details_show_diag_new_install => ResourceManager.GetString("Details_show_diag_new_install", resourceCulture);
+
+    /// <summary>保留パッケージの導入操作を案内するローカライズ済み文言を取得します。</summary>
+    public static string Confirm_NewPackageInstall => ResourceManager.GetString("Confirm_NewPackageInstall", resourceCulture);
+
+    /// <summary>スコアDBが設定されていません。一般設定でプレイヤーとスコアDBを選択してください。</summary>
+    public static string Error_RecommendationScoreNotConfigured => ResourceManager.GetString("Error_RecommendationScoreNotConfigured", resourceCulture);
+
+    /// <summary>選択中のスコアDBを読み込めませんでした。</summary>
+    public static string Error_RecommendationScoreReadFailed => ResourceManager.GetString("Error_RecommendationScoreReadFailed", resourceCulture);
+
+    /// <summary>モデルに一致するプレイ記録がありません。</summary>
+    public static string Error_RecommendationNoObservations => ResourceManager.GetString("Error_RecommendationNoObservations", resourceCulture);
+
+    /// <summary>プレイ記録から実力を推定できませんでした。</summary>
+    public static string Error_RecommendationRatingFailed => ResourceManager.GetString("Error_RecommendationRatingFailed", resourceCulture);
+
+    /// <summary>LR2カスタムフォルダの変更確認の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_phase_lr2_folder_file_check => ResourceManager.GetString("Statusbar_progress_phase_lr2_folder_file_check", resourceCulture);
+
+    /// <summary>外部プレイリストの同期の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_external_playlist_sync => ResourceManager.GetString("Statusbar_progress_task_external_playlist_sync", resourceCulture);
+
+    /// <summary>選択プレイリストの再同期の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_manual_reload => ResourceManager.GetString("Statusbar_progress_task_playlist_manual_reload", resourceCulture);
+
+    /// <summary>外部表一覧の読込みの進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_external_table_catalog => ResourceManager.GetString("Statusbar_progress_task_external_table_catalog", resourceCulture);
+
+    /// <summary>プレイリスト索引の準備の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_index => ResourceManager.GetString("Statusbar_progress_task_playlist_index", resourceCulture);
+
+    /// <summary>譜面一覧の索引・ソートキャッシュの準備の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_chart_list_preparation => ResourceManager.GetString("Statusbar_progress_task_chart_list_preparation", resourceCulture);
+
+    /// <summary>プレイリストURLの補完の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_url_completion => ResourceManager.GetString("Statusbar_progress_task_playlist_url_completion", resourceCulture);
+
+    /// <summary>フォルダ一覧の更新の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_folder_tree => ResourceManager.GetString("Statusbar_progress_task_folder_tree", resourceCulture);
+
+    /// <summary>LR2カスタムフォルダ出力の修復の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_custom_folder_repair => ResourceManager.GetString("Statusbar_progress_task_custom_folder_repair", resourceCulture);
+
+    /// <summary>BMTの出力の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_bmt_output => ResourceManager.GetString("Statusbar_progress_task_bmt_output", resourceCulture);
+
+    /// <summary>起動後のメモリ整理の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_gc => ResourceManager.GetString("Statusbar_progress_task_gc", resourceCulture);
+
+    /// <summary>LR2楽曲DB同期の準備の進捗行を識別する文言を取得します。</summary>
+    public static string Statusbar_progress_task_lr2_sync_enrollment => ResourceManager.GetString("Statusbar_progress_task_lr2_sync_enrollment", resourceCulture);
+
+    /// <summary>起動に伴う追加処理の親行名を取得します。</summary>
+    public static string Statusbar_progress_startup_additional => ResourceManager.GetString("Statusbar_progress_startup_additional", resourceCulture);
+
+    /// <summary>操作名に完了状態を添える表示書式を取得します。</summary>
+    public static string Statusbar_progress_operation_completed_format => ResourceManager.GetString("Statusbar_progress_operation_completed_format", resourceCulture);
+
+    /// <summary>操作名に失敗状態を添える表示書式を取得します。</summary>
+    public static string Statusbar_progress_operation_failed_format => ResourceManager.GetString("Statusbar_progress_operation_failed_format", resourceCulture);
+
+    /// <summary>プレイリストのプロパティ更新を表す進捗行名を取得します。</summary>
+    public static string Statusbar_progress_task_playlist_property_update => ResourceManager.GetString("Statusbar_progress_task_playlist_property_update", resourceCulture);
+
+    /// <summary>フォルダ名の自動変更を表す進捗行名を取得します。</summary>
+    public static string Statusbar_progress_task_folder_rename => ResourceManager.GetString("Statusbar_progress_task_folder_rename", resourceCulture);
+
+    /// <summary>サマリーから実行するプレイリスト外部プロパティ初期化の進捗名です。</summary>
+    public static string Statusbar_progress_task_playlist_external_property_initialization => ResourceManager.GetString("Statusbar_progress_task_playlist_external_property_initialization", resourceCulture);
 }

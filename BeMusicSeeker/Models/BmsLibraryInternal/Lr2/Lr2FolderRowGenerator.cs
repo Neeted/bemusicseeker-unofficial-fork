@@ -64,7 +64,13 @@ internal static class Lr2FolderRowGenerator
 
     private static readonly IEqualityComparer<string> PathComparer = StringComparer.OrdinalIgnoreCase;
 
-    internal static Lr2FolderGenerationResult GenerateNormalDirectoryRows(Lr2FolderGenerationRequest request)
+    /// <summary>
+    /// 通常ディレクトリの行を生成します。対象が確定したルート・ディレクトリの各段階で確認済み件数を通知します。
+    /// 譜面から祖先を探索する経路は量不定とし、通知例外は生成結果へ影響させません。
+    /// </summary>
+    internal static Lr2FolderGenerationResult GenerateNormalDirectoryRows(
+        Lr2FolderGenerationRequest request,
+        Action<string, int, int> progressReporter = null)
     {
         request ??= new Lr2FolderGenerationRequest();
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(request.ExistingRows);
@@ -78,6 +84,9 @@ internal static class Lr2FolderRowGenerator
 
         List<string> roots = NormalizeRootDirectories(request.RootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
+        var progress = new Lr2SongDbSyncStageProgressReporter(progressReporter);
+        progress.Begin("normal_folder_roots", roots.Count);
+        int processed = 0;
         foreach (string root in roots)
         {
             AddDirectory(
@@ -93,15 +102,20 @@ internal static class Lr2FolderRowGenerator
                 generatedAt,
                 ref skippedUnsupportedPathCount,
                 ref skippedMissingMetadataCount);
+            progress.Advance(++processed, roots.Count);
         }
 
         if ((request.DirectoryPaths?.Count ?? 0) > 0)
         {
-            foreach (string directory in NormalizeDirectoryPaths(request.DirectoryPaths))
+            List<string> directories = NormalizeDirectoryPaths(request.DirectoryPaths);
+            progress.Begin("normal_folders", directories.Count);
+            processed = 0;
+            foreach (string directory in directories)
             {
                 string root = FindContainingRoot(directory, rootsForMatching);
                 if (string.IsNullOrWhiteSpace(root))
                 {
+                    progress.Advance(++processed, directories.Count);
                     continue;
                 }
 
@@ -118,10 +132,12 @@ internal static class Lr2FolderRowGenerator
                     generatedAt,
                     ref skippedUnsupportedPathCount,
                     ref skippedMissingMetadataCount);
+                progress.Advance(++processed, directories.Count);
             }
         }
-        else
+        else if (request.ChartPaths?.Count > 0)
         {
+            progress.Begin("normal_folder_discovery");
             foreach (string chartPath in request.ChartPaths ?? [])
             {
                 string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));

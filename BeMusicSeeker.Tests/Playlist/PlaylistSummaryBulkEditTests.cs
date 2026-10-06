@@ -1,11 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
@@ -168,6 +168,8 @@ public sealed class PlaylistSummaryBulkEditTests
                 {
                     OperationModeLR2DB = false
                 });
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
             int summaryRefreshCount = 0;
             int catalogChangedCount = 0;
             int keywordValueCandidatesChangedCount = 0;
@@ -194,6 +196,13 @@ public sealed class PlaylistSummaryBulkEditTests
                 failure = ex;
             }
             Assert.IsNotNull(failure);
+            PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
+            Assert.IsTrue(notifications.Length > 0);
+            Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "playlist_summary_bulk"));
+            Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri == new Uri(headerPath)),
+                "取得元の通知も一括編集が所有する進捗として届く。");
+            Assert.IsFalse(notifications[^1].IsActive);
 
             Assert.AreEqual(0, summaryRefreshCount);
             Assert.AreEqual(0, catalogChangedCount);

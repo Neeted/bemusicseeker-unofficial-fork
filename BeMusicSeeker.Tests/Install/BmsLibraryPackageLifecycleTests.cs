@@ -19,6 +19,45 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPackageLifecycleTests
 {
     [TestMethod]
+    public void InstallableMaintenance_RealAcceptanceAndReusedWorkerPublishEachFeatureRequestOrigin()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            long token = 11;
+            Func<Task>? scheduledWork = null;
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            MethodInfo? queue = typeof(BMSLibrary).GetMethod("QueueDeferredInstallableMaintenance", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(queue);
+            library.StartupProgressRequestFactory = (name, version) => new(5, token, name, version);
+            library.StartupRequestProgressReporter = (request, running) =>
+            {
+                execution.Add((request, running));
+                if (running && request.Version == 1)
+                {
+                    token = 22;
+                    queue.Invoke(library, ["second", 0L, null]);
+                }
+            };
+            library.AttachStartupRequestProgressSources();
+            library.StartupBackgroundTaskScheduler = (_, _, _, work) => { scheduledWork = work; return true; };
+            queue.Invoke(library, ["first", 0L, null]);
+            Assert.IsNotNull(scheduledWork);
+            scheduledWork().GetAwaiter().GetResult();
+            CollectionAssert.AreEqual(new[]
+            {
+                (new OperationProgressRequest(5, 11, "installable_maintenance", 1), true),
+                (new OperationProgressRequest(5, 11, "installable_maintenance", 1), false),
+                (new OperationProgressRequest(5, 22, "installable_maintenance", 2), true),
+                (new OperationProgressRequest(5, 22, "installable_maintenance", 2), false)
+            }, execution);
+            Assert.AreEqual(2, library.InstallableMaintenanceDeferredRequestedVersion);
+            Assert.AreEqual(2, library.InstallableMaintenanceDeferredCompletedVersion);
+            Assert.IsFalse(library.InstallableMaintenanceDeferredRunning);
+        });
+    }
+
+    [TestMethod]
     public void PackageLifecycleOwner_PendingOperationAdmissionIsExclusiveAndReleases()
     {
         WithTemporarySongDb(delegate (string songDbPath)

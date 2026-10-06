@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -19,7 +18,6 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using NLog;
-using NLog.Targets;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker;

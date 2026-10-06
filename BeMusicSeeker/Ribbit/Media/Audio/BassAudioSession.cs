@@ -1,13 +1,15 @@
+#nullable enable annotations
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Wasapi;
 using Ribbit.Logging;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 
@@ -29,31 +31,69 @@ internal enum BassAudioSessionState
     Released
 }
 
+/// <summary>callbackで観測した出力故障を値だけで保持します。</summary>
+internal readonly record struct AudioCallbackOutputFailure(
+    AudioPcmRenderStage? RenderStage,
+    AudioOutputProcessFailure? ProcessStage,
+    Errors? NativeError);
+
+/// <summary>管理側がcallback出力故障を消費したときに投げる診断例外です。</summary>
+internal sealed class AudioCallbackOutputFailureException : InvalidOperationException
+{
+    /// <summary>故障の分類とネイティブエラーを保持し、表示用の説明を作成します。</summary>
+    internal AudioCallbackOutputFailureException(AudioCallbackOutputFailure failure)
+        : base(string.Format(BeMusicSeeker.Properties.Resources.AudioCallbackOutputFailureFormat,
+            failure.RenderStage?.ToString() ?? failure.ProcessStage?.ToString() ?? "Unknown",
+            failure.NativeError?.ToString() ?? "-"))
+    {
+        Failure = failure;
+    }
+
+    /// <summary>callbackが一度だけ記録した故障stageとnative errorを取得します。</summary>
+    internal AudioCallbackOutputFailure Failure { get; }
+}
+
 /// <summary>
 /// Records native ownership for one BASS audio graph from the start of initialization
 /// until every acquired layer has been released.
 /// </summary>
 internal sealed class BassAudioSession
 {
+    private readonly object callbackPullSync = new();
     private readonly object playerStreamSync = new();
-    private readonly List<BassAudioOwnedStream> playerStreams = [];
+    private readonly Dictionary<int, BassAudioOwnedStream> ownedStreams = [];
     private int callbackOutputHandle;
+    private int callbackOutputFailureState;
+    private AudioCallbackOutputFailure callbackOutputFailure;
+    private int outputOverLevelNotificationState;
+    private int callbackOutputPaused;
+    private int realtimeReservedCallbackFrames = -1;
+    private int maximumCallbackFrames;
+    private readonly TaskCompletionSource firstCallbackObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    /// <summary>
-    /// Creates an initializing session for the requested backend and endpoint.
-    /// </summary>
+    /// <summary>要求backend、endpoint、SRC品質を捕捉した初期化中sessionを作成します。</summary>
     internal BassAudioSession(
         BassAudioPlayer.DeviceDriver requestedBackend,
-        BassAudioPlayer.DeviceDescriptor requestedDevice = default)
+        BassAudioPlayer.DeviceDescriptor requestedDevice = default,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        AudioOutputRequest outputRequest = null)
     {
         RequestedBackend = requestedBackend;
         RequestedDevice = requestedDevice;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        OutputRequest = outputRequest;
         ActualBackend = BassAudioPlayer.DeviceDriver.INVALID;
         CoreDeviceIndex = -1;
         WasapiDeviceIndex = -1;
         AsioDeviceIndex = -1;
         State = BassAudioSessionState.Initializing;
     }
+
+    /// <summary>初期化時に捕捉した、このsessionが使うSRC品質を取得します。</summary>
+    internal int SampleRateConversionQuality { get; }
+
+    /// <summary>このsessionの初期化条件全体です。旧変換入口で未設定の場合はnullです。</summary>
+    internal AudioOutputRequest OutputRequest { get; }
 
     /// <summary>Gets the backend selected by the caller.</summary>
     internal BassAudioPlayer.DeviceDriver RequestedBackend { get; }
@@ -92,19 +132,25 @@ internal sealed class BassAudioSession
     internal int OutputHandle { get; set; }
 
     /// <summary>
-    /// Gets or sets the BASS_FX volume effect attached to the session's decode mixer.
-    /// The effect is owned by the mixer and is released with that mixer.
-    /// </summary>
-    internal int VolumeEffectHandle { get; set; }
-
-    /// <summary>
     /// Gets the stream currently published to callback-driven output without taking the
     /// lifecycle lock.
     /// </summary>
     internal int CallbackOutputHandle => Volatile.Read(ref callbackOutputHandle);
 
-    /// <summary>Gets additional stream handles created after initialization.</summary>
-    internal IList<int> AdditionalStreamHandles { get; } = new List<int>();
+    /// <summary>追加stream所有の互換表示をsnapshotで取得します。</summary>
+    internal IReadOnlyList<int> AdditionalStreamHandles => GetAdditionalStreamHandles();
+
+    /// <summary>sessionが所有辞書で追跡する追加streamとplayer sourceの件数を取得します。</summary>
+    internal int OwnedStreamCount
+    {
+        get
+        {
+            lock (playerStreamSync)
+            {
+                return ownedStreams.Count;
+            }
+        }
+    }
 
     /// <summary>Gets or sets whether the backend output was started.</summary>
     internal bool IsStarted { get; set; }
@@ -112,8 +158,87 @@ internal sealed class BassAudioSession
     /// <summary>Gets or sets the values accepted by the initialized native backend.</summary>
     internal BassAudioBackendResult NegotiationResult { get; set; }
 
+    /// <summary>callback backendがDSP後のFloat32 gainに使うprocessorを取得または設定します。</summary>
+    internal AudioOutputProcessor? OutputProcessor { get; set; }
+
+    /// <summary>callback backendが再利用するFloat32 PCM pull rendererを取得または設定します。</summary>
+    internal AudioPcmRenderer? CallbackPcmRenderer { get; set; }
+
+    /// <summary>再生callbackが一回に要求した最大frame数を取得します。</summary>
+    internal int MaximumCallbackFrames => Volatile.Read(ref maximumCallbackFrames);
+
+    /// <summary>物理出力の初回実pullまたは故障を待ち、管理側で故障を取り出します。NullDeviceはcallbackを待ちません。</summary>
+    internal async Task WaitForOutputReadyAsync()
+    {
+        if (ActualBackend != BassAudioPlayer.DeviceDriver.NULL_DEVICE)
+        {
+            await firstCallbackObserved.Task.ConfigureAwait(false);
+        }
+        ThrowIfCallbackOutputFailed();
+    }
+
+    /// <summary>callback出力がnative pullとの合流境界でpause中か取得します。</summary>
+    internal bool IsCallbackOutputPaused => Volatile.Read(ref callbackOutputPaused) != 0;
+
+    /// <summary>Realtime予約が先読みへ含めたcallback frame数を取得します。</summary>
+    internal int RealtimeReservedCallbackFrames => Volatile.Read(ref realtimeReservedCallbackFrames);
+
+    /// <summary>callback入力の実測block上限をBMS発音の先行予約へ反映します。</summary>
+    internal void ObserveCallbackPullSize(int requestedFrames)
+    {
+        if (requestedFrames <= 0)
+        {
+            return;
+        }
+
+        int observedMaximum = Volatile.Read(ref maximumCallbackFrames);
+        while (requestedFrames > observedMaximum)
+        {
+            int prior = Interlocked.CompareExchange(ref maximumCallbackFrames, requestedFrames, observedMaximum);
+            if (prior == observedMaximum)
+            {
+                break;
+            }
+            observedMaximum = prior;
+        }
+        firstCallbackObserved.TrySetResult();
+    }
+
+    /// <summary>予約が先読みへ含めたcallback block上限を公開します。</summary>
+    internal void PublishRealtimeReservedCallbackFrames(int requestedFrames)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedFrames);
+        Volatile.Write(ref realtimeReservedCallbackFrames, requestedFrames);
+    }
+
+    /// <summary>Realtime予約の解放後にcallback blockの予約上限を無効化します。</summary>
+    internal void ClearRealtimeReservedCallbackFrames() => Volatile.Write(ref realtimeReservedCallbackFrames, -1);
+
+    /// <summary>callback pullと直列化して譜面・tempoを含む出力graphを凍結または再開します。</summary>
+    internal void SetCallbackOutputPaused(bool paused)
+    {
+        lock (callbackPullSync)
+        {
+            Volatile.Write(ref callbackOutputPaused, paused ? 1 : 0);
+        }
+    }
+
+    /// <summary>出力callbackがpause gateを保持している間にPCM取得と公開を実行します。</summary>
+    internal T WithCallbackOutputPull<T>(Func<bool, T> pull)
+    {
+        ArgumentNullException.ThrowIfNull(pull);
+        lock (callbackPullSync)
+        {
+            return pull(Volatile.Read(ref callbackOutputPaused) != 0);
+        }
+    }
+
     /// <summary>Gets the current ownership phase.</summary>
     internal BassAudioSessionState State { get; set; }
+
+    /// <summary>直近の解放で確認できなかったnative操作を、そのsessionの終端診断へ渡します。</summary>
+    internal IReadOnlyList<BassAudioCleanupDiagnostic> CleanupDiagnostics { get; set; }
+        = Array.Empty<BassAudioCleanupDiagnostic>();
 
     /// <summary>Gets whether native resources still require cleanup.</summary>
     internal bool HasNativeOwnership =>
@@ -122,20 +247,94 @@ internal sealed class BassAudioSession
         || AsioInitialized
         || MixerHandle != 0
         || OutputHandle != 0
-        || AdditionalStreamHandles.Count != 0
-        || HasPlayerStreams
+        || HasOwnedStreams
         || IsStarted;
 
     /// <summary>Gets whether cleanup has been fully confirmed.</summary>
     internal bool IsReleased =>
         State == BassAudioSessionState.Released && !HasNativeOwnership;
 
+    /// <summary>最初のcallback出力故障だけをallocationなしで記録します。</summary>
+    internal bool TryRecordCallbackOutputFailure(
+        AudioPcmRenderStage renderStage,
+        Errors? nativeError = null) =>
+        TryRecordCallbackOutputFailure(new AudioCallbackOutputFailure(renderStage, null, nativeError));
+
+    /// <summary>最初のcallback gain故障だけをallocationなしで記録します。</summary>
+    internal bool TryRecordCallbackOutputFailure(AudioOutputProcessFailure processStage) =>
+        TryRecordCallbackOutputFailure(new AudioCallbackOutputFailure(null, processStage, null));
+
+    /// <summary>callback故障が観測済みで、以後のcallbackを無音にする必要があるかを取得します。</summary>
+    internal bool HasCallbackOutputFailure => Volatile.Read(ref callbackOutputFailureState) != 0;
+
+    /// <summary>保持したcallback出力故障を管理側で一度だけ消費します。</summary>
+    internal bool TryConsumeCallbackOutputFailure(out AudioCallbackOutputFailure failure)
+    {
+        if (Interlocked.CompareExchange(ref callbackOutputFailureState, 3, 2) != 2)
+        {
+            failure = default;
+            return false;
+        }
+
+        failure = callbackOutputFailure;
+        return true;
+    }
+
+    /// <summary>callback出力故障が既に回収済みでも、故障sessionの再利用を拒否します。</summary>
+    internal void ThrowIfCallbackOutputFailed()
+    {
+        int state = Volatile.Read(ref callbackOutputFailureState);
+        if (state == 0)
+        {
+            return;
+        }
+
+        var spin = new SpinWait();
+        while (state == 1)
+        {
+            spin.SpinOnce();
+            state = Volatile.Read(ref callbackOutputFailureState);
+        }
+
+        throw new AudioCallbackOutputFailureException(callbackOutputFailure);
+    }
+
+    /// <summary>保留故障があれば管理側の既存例外経路へ投げます。</summary>
+    internal void ThrowPendingOutputFailure()
+    {
+        if (TryConsumeCallbackOutputFailure(out AudioCallbackOutputFailure failure))
+        {
+            throw new AudioCallbackOutputFailureException(failure);
+        }
+    }
+
+    /// <summary>最初のfull scale超過を管理側への一回通知待ちとして記録します。</summary>
+    internal bool TryMarkOutputOverLevelPending() =>
+        Interlocked.CompareExchange(ref outputOverLevelNotificationState, 1, 0) == 0;
+
+    /// <summary>保留中のfull scale超過を管理側で一度だけ消費します。</summary>
+    internal bool TryConsumeOutputOverLevelPending() =>
+        Interlocked.CompareExchange(ref outputOverLevelNotificationState, 2, 1) == 1;
+
+    private bool TryRecordCallbackOutputFailure(AudioCallbackOutputFailure failure)
+    {
+        if (Interlocked.CompareExchange(ref callbackOutputFailureState, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        callbackOutputFailure = failure;
+        Volatile.Write(ref callbackOutputFailureState, 2);
+        firstCallbackObserved.TrySetResult();
+        return true;
+    }
+
     /// <summary>Records the stream currently supplying the backend output.</summary>
     internal void TrackOutputHandle(int handle)
     {
         OutputHandle = handle;
         PublishCallbackOutputHandle(handle);
-        RemoveAdditionalHandle(handle);
+        RemoveAdditionalStreamHandle(handle);
     }
 
     /// <summary>
@@ -181,7 +380,6 @@ internal sealed class BassAudioSession
     {
         if (MixerHandle == handle)
         {
-            VolumeEffectHandle = 0;
             MixerHandle = 0;
         }
         if (OutputHandle == handle)
@@ -189,7 +387,34 @@ internal sealed class BassAudioSession
             OutputHandle = 0;
         }
         Interlocked.CompareExchange(ref callbackOutputHandle, 0, handle);
-        RemoveAdditionalHandle(handle);
+        BassAudioOwnedStream released = null;
+        lock (playerStreamSync)
+        {
+            if (ownedStreams.Remove(handle, out BassAudioOwnedStream owned))
+            {
+                released = owned;
+            }
+        }
+        released?.NotifyReleased();
+    }
+
+    /// <summary>session cleanup対象となる追加handleを一つだけ登録します。</summary>
+    internal void TrackAdditionalStreamHandle(int handle)
+    {
+        if (!TryTrackOwnedStream(handle, this, static _ => { }, isPlayerStream: false, out _))
+        {
+            throw new InvalidOperationException("The BASS stream handle is already owned by this session.");
+        }
+    }
+
+    /// <summary>追加handleが一意所有としてsessionに登録されているか確認します。</summary>
+    internal bool IsAdditionalStreamHandleTracked(int handle)
+    {
+        lock (playerStreamSync)
+        {
+            return ownedStreams.TryGetValue(handle, out BassAudioOwnedStream stream)
+                && !stream.IsPlayerStream;
+        }
     }
 
     /// <summary>
@@ -221,15 +446,32 @@ internal sealed class BassAudioSession
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(releaseConfirmed);
 
+        return TryTrackOwnedStream(handle, owner, releaseConfirmed, isPlayerStream: true, out alreadyOwned);
+    }
+
+    private bool TryTrackOwnedStream(
+        int handle,
+        object owner,
+        Action<int> releaseConfirmed,
+        bool isPlayerStream,
+        out bool alreadyOwned)
+    {
+        if (handle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(handle));
+        }
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(releaseConfirmed);
         lock (playerStreamSync)
         {
-            alreadyOwned = playerStreams.Any(stream => stream.Handle == handle);
+            alreadyOwned = ownedStreams.ContainsKey(handle);
             if (alreadyOwned)
             {
                 return false;
             }
-
-            playerStreams.Add(new BassAudioOwnedStream(handle, owner, releaseConfirmed));
+            ownedStreams.Add(
+                handle,
+                new BassAudioOwnedStream(handle, owner, releaseConfirmed, isPlayerStream));
             return true;
         }
     }
@@ -239,7 +481,27 @@ internal sealed class BassAudioSession
     {
         lock (playerStreamSync)
         {
-            return [.. playerStreams];
+            return ownedStreams.Values.Where(stream => stream.IsPlayerStream).ToArray();
+        }
+    }
+
+    /// <summary>sessionが所有するstreamを安定したsnapshotで列挙します。</summary>
+    internal IReadOnlyList<BassAudioOwnedStream> GetOwnedStreams()
+    {
+        lock (playerStreamSync)
+        {
+            return ownedStreams.Values.ToArray();
+        }
+    }
+
+    private IReadOnlyList<int> GetAdditionalStreamHandles()
+    {
+        lock (playerStreamSync)
+        {
+            return ownedStreams.Values
+                .Where(stream => !stream.IsPlayerStream)
+                .Select(stream => stream.Handle)
+                .ToArray();
         }
     }
 
@@ -252,12 +514,11 @@ internal sealed class BassAudioSession
     {
         lock (playerStreamSync)
         {
-            foreach (BassAudioOwnedStream stream in playerStreams)
+            if (ownedStreams.TryGetValue(handle, out BassAudioOwnedStream stream)
+                && stream.IsPlayerStream
+                && stream.TryGetOwner(out owner))
             {
-                if (stream.Handle == handle && stream.TryGetOwner(out owner))
-                {
-                    return true;
-                }
+                return true;
             }
         }
 
@@ -270,37 +531,28 @@ internal sealed class BassAudioSession
     /// </summary>
     internal void ConfirmPlayerStreamReleased(int handle)
     {
-        BassAudioOwnedStream[] released;
-        lock (playerStreamSync)
-        {
-            released = [.. playerStreams.Where(stream => stream.Handle == handle)];
-            playerStreams.RemoveAll(stream => stream.Handle == handle);
-        }
-
-        foreach (BassAudioOwnedStream stream in released)
-        {
-            stream.NotifyReleased();
-        }
+        ConfirmStreamReleased(handle);
     }
 
-    private bool HasPlayerStreams
+    private bool HasOwnedStreams
     {
         get
         {
             lock (playerStreamSync)
             {
-                return playerStreams.Count != 0;
+                return ownedStreams.Count != 0;
             }
         }
     }
 
-    private void RemoveAdditionalHandle(int handle)
+    private void RemoveAdditionalStreamHandle(int handle)
     {
-        for (int index = AdditionalStreamHandles.Count - 1; index >= 0; index--)
+        lock (playerStreamSync)
         {
-            if (AdditionalStreamHandles[index] == handle)
+            if (ownedStreams.TryGetValue(handle, out BassAudioOwnedStream stream)
+                && !stream.IsPlayerStream)
             {
-                AdditionalStreamHandles.RemoveAt(index);
+                ownedStreams.Remove(handle);
             }
         }
     }
@@ -315,15 +567,19 @@ internal sealed class BassAudioOwnedStream
     private readonly Action<int> releaseConfirmed;
 
     /// <summary>Creates retained ownership for one source stream.</summary>
-    internal BassAudioOwnedStream(int handle, object owner, Action<int> releaseConfirmed)
+    internal BassAudioOwnedStream(int handle, object owner, Action<int> releaseConfirmed, bool isPlayerStream)
     {
         Handle = handle;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.releaseConfirmed = releaseConfirmed ?? throw new ArgumentNullException(nameof(releaseConfirmed));
+        IsPlayerStream = isPlayerStream;
     }
 
     /// <summary>Gets the native stream handle.</summary>
     internal int Handle { get; }
+
+    /// <summary>source callback ownerを持つplayer streamか取得します。</summary>
+    internal bool IsPlayerStream { get; }
 
     /// <summary>Tries to expose the retained managed owner to a lifecycle-safe callback.</summary>
     internal bool TryGetOwner<T>(out T typedOwner)
@@ -422,13 +678,12 @@ internal sealed class BassAudioSessionLifecycle
     internal bool HasUnconfirmedOwnership =>
         currentSession?.State is BassAudioSessionState.Initializing or BassAudioSessionState.CleanupPending;
 
-    /// <summary>
-    /// Starts ownership for a new initialization when no session is active or quarantined.
-    /// </summary>
+    /// <summary>有効なsessionや解放保留sessionがない場合、新しい初期化の所有sessionを開始します。</summary>
     internal bool TryBegin(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDescriptor requestedDevice,
-        out BassAudioSession session)
+        out BassAudioSession session,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         EnsureEntered();
         if (currentSession != null)
@@ -437,7 +692,33 @@ internal sealed class BassAudioSessionLifecycle
             return false;
         }
 
-        session = new BassAudioSession(requestedBackend, requestedDevice);
+        session = new BassAudioSession(requestedBackend, requestedDevice, sampleRateConversionQuality);
+        Volatile.Write(ref currentSession, session);
+        return true;
+    }
+
+    /// <summary>変更不能な音声出力要求を保持するsessionを開始します。</summary>
+    internal bool TryBegin(AudioOutputRequest request, out BassAudioSession session)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureEntered();
+        if (currentSession != null)
+        {
+            session = currentSession;
+            return false;
+        }
+
+        AudioDriver backend = request.Backend;
+        AudioOutputSelection selection = AudioDriverPolicy.NormalizePersistedSelection(
+            new AudioOutputSelection(backend, request.DeviceIdentity, request.DeviceName));
+        BassAudioPlayer.DeviceDescriptor device = string.IsNullOrWhiteSpace(selection.DeviceIdentity)
+            ? default
+            : new BassAudioPlayer.DeviceDescriptor(selection.DeviceName, selection.DeviceIdentity);
+        session = new BassAudioSession(
+            BassAudioMapping.ToBassDriver(selection.Backend),
+            device,
+            request.SampleRateConversionQuality,
+            request);
         Volatile.Write(ref currentSession, session);
         return true;
     }
@@ -557,6 +838,54 @@ internal sealed class BassAudioOperationGate
     private bool cleanupQuarantined;
     private bool shutdownRequested;
     private bool shutdownInProgress;
+    private readonly AsyncLocal<BassAudioRequestLease> requestContext = new();
+    private BassAudioRequestLease activeRequest;
+
+    /// <summary>受理済み要求の処理・後片付けが終わり、論理的な受付を解放したことを通知します。</summary>
+    internal event Action RequestReleased;
+
+    /// <summary>副作用より前に一件の要求を受理します。受理済み要求の非同期継続だけが受付を引き継ぎます。</summary>
+    internal bool TryEnterRequest(out IDisposable lease)
+    {
+        lock (syncRoot)
+        {
+            if (activeRequest != null && ReferenceEquals(activeRequest, requestContext.Value))
+            {
+                lease = new BassAudioRequestLease(null);
+                return true;
+            }
+            if (activeRequest != null || exclusiveActive || waitingExclusive != 0 || IsAdmissionClosed)
+            {
+                lease = null;
+                return false;
+            }
+            var request = new BassAudioRequestLease(this);
+            activeRequest = request;
+            requestContext.Value = request;
+            lease = request;
+            return true;
+        }
+    }
+
+    private void ReleaseRequest(BassAudioRequestLease request)
+    {
+        lock (syncRoot)
+        {
+            if (ReferenceEquals(activeRequest, request))
+            {
+                activeRequest = null;
+            }
+        }
+        requestContext.Value = null;
+        RequestReleased?.Invoke();
+    }
+
+    private sealed class BassAudioRequestLease(BassAudioOperationGate owner) : IDisposable
+    {
+        private BassAudioOperationGate owner = owner;
+
+        public void Dispose() => Interlocked.Exchange(ref owner, null)?.ReleaseRequest(this);
+    }
 
     /// <summary>Creates a closed gate, or an open test gate when requested.</summary>
     internal BassAudioOperationGate(bool initiallyOpen = false)
@@ -751,6 +1080,18 @@ internal sealed class BassAudioOperationGate
         }
     }
 
+    /// <summary>Gets whether new audio requests are quarantined after unconfirmed cleanup.</summary>
+    internal bool IsCleanupQuarantined
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return cleanupQuarantined;
+            }
+        }
+    }
+
     /// <summary>Gets whether shutdown has rejected new root operations.</summary>
     internal bool IsShutdownRequested
     {
@@ -939,7 +1280,7 @@ internal ref struct BassAudioOperationLease
 }
 
 /// <summary>Owns one exclusive audio lifecycle transition until its outcome is recorded.</summary>
-internal ref struct BassAudioExclusiveLease
+internal sealed class BassAudioExclusiveLease : IDisposable
 {
     private BassAudioOperationGate gate;
     private readonly BassAudioExclusiveOperation operation;
@@ -947,6 +1288,11 @@ internal ref struct BassAudioExclusiveLease
     private readonly int ownerThreadId;
     private bool completionSpecified;
     private bool success;
+    private Func<bool> ownershipConsistent;
+
+    /// <summary>session所有者の解放確認から終端を判定し、呼出元のComplete忘れに依存しません。</summary>
+    internal void ObserveOwnership(Func<bool> ownershipConsistent)
+        => this.ownershipConsistent = ownershipConsistent ?? throw new ArgumentNullException(nameof(ownershipConsistent));
 
     internal BassAudioExclusiveLease(
         BassAudioOperationGate gate,
@@ -977,13 +1323,13 @@ internal ref struct BassAudioExclusiveLease
         {
             return;
         }
-        gate = null;
         ownedGate.ExitExclusive(
             operation,
             runtimeWasOpen,
-            completionSpecified,
-            success,
+            ownershipConsistent != null || completionSpecified,
+            ownershipConsistent?.Invoke() ?? success,
             ownerThreadId);
+        gate = null;
     }
 }
 
@@ -1218,17 +1564,23 @@ internal static class BassAudioSessionCleanup
         }
 
         var failures = new List<string>();
+        var diagnostics = new List<BassAudioCleanupDiagnostic>();
         try
         {
-            bool backendReleased = ReleaseBackend(session, native, failures);
+            bool backendReleased = ReleaseBackend(session, native, failures, diagnostics);
             if (backendReleased)
             {
-                ReleaseCore(session, native, failures);
+                ReleaseCore(session, native, failures, diagnostics);
             }
         }
         catch (Exception exception)
         {
             failures.Add("cleanup orchestration threw: " + exception.Message);
+            diagnostics.Add(new BassAudioCleanupDiagnostic(
+                "audio session cleanup",
+                "BassAudioSession",
+                null,
+                exception.GetType().Name));
         }
         finally
         {
@@ -1236,6 +1588,7 @@ internal static class BassAudioSessionCleanup
                 ? BassAudioSessionState.CleanupPending
                 : BassAudioSessionState.Released;
 
+            session.CleanupDiagnostics = diagnostics.ToArray();
             if (failures.Count != 0)
             {
                 TryLogCleanupFailure(session, failures, primaryException);
@@ -1248,7 +1601,8 @@ internal static class BassAudioSessionCleanup
     private static bool ReleaseBackend(
         BassAudioSession session,
         IAudioSessionNativeBoundary native,
-        List<string> failures)
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         if (session.AsioInitialized)
         {
@@ -1256,7 +1610,9 @@ internal static class BassAudioSessionCleanup
                 () => native.SetAsioDevice(session.AsioDeviceIndex),
                 "BASS_ASIO_SetDevice(" + session.AsioDeviceIndex + ")",
                 native.GetAsioError,
-                failures);
+                "BASSASIO",
+                failures,
+                diagnostics);
             if (selection == DeviceSelectionResult.Failed)
             {
                 return false;
@@ -1269,13 +1625,25 @@ internal static class BassAudioSessionCleanup
             else
             {
                 if (session.IsStarted
-                    && !TryReleaseCall(native.StopAsio, "BASS_ASIO_Stop", native.GetAsioError, failures))
+                    && !TryReleaseCall(
+                        native.StopAsio,
+                        "BASS_ASIO_Stop",
+                        native.GetAsioError,
+                        "BASSASIO",
+                        failures,
+                        diagnostics))
                 {
                     return false;
                 }
                 session.IsStarted = false;
 
-                if (!TryReleaseCall(native.FreeAsio, "BASS_ASIO_Free", native.GetAsioError, failures))
+                if (!TryReleaseCall(
+                    native.FreeAsio,
+                    "BASS_ASIO_Free",
+                    native.GetAsioError,
+                    "BASSASIO",
+                    failures,
+                    diagnostics))
                 {
                     return false;
                 }
@@ -1289,7 +1657,9 @@ internal static class BassAudioSessionCleanup
                 () => native.SetWasapiDevice(session.WasapiDeviceIndex),
                 "BASS_WASAPI_SetDevice(" + session.WasapiDeviceIndex + ")",
                 native.GetWasapiError,
-                failures);
+                "BASSWASAPI",
+                failures,
+                diagnostics);
             if (selection == DeviceSelectionResult.Failed)
             {
                 return false;
@@ -1306,13 +1676,21 @@ internal static class BassAudioSessionCleanup
                         () => native.StopWasapi(reset: true),
                         "BASS_WASAPI_Stop",
                         native.GetWasapiError,
-                        failures))
+                        "BASSWASAPI",
+                        failures,
+                        diagnostics))
                 {
                     return false;
                 }
                 session.IsStarted = false;
 
-                if (!TryReleaseCall(native.FreeWasapi, "BASS_WASAPI_Free", native.GetWasapiError, failures))
+                if (!TryReleaseCall(
+                    native.FreeWasapi,
+                    "BASS_WASAPI_Free",
+                    native.GetWasapiError,
+                    "BASSWASAPI",
+                    failures,
+                    diagnostics))
                 {
                     return false;
                 }
@@ -1326,13 +1704,13 @@ internal static class BassAudioSessionCleanup
     private static void ReleaseCore(
         BassAudioSession session,
         IAudioSessionNativeBoundary native,
-        List<string> failures)
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         if (!session.CoreInitialized
             && session.MixerHandle == 0
             && session.OutputHandle == 0
-            && session.AdditionalStreamHandles.Count == 0
-            && session.GetPlayerStreams().Count == 0)
+            && session.GetOwnedStreams().Count == 0)
         {
             return;
         }
@@ -1341,7 +1719,9 @@ internal static class BassAudioSessionCleanup
             () => native.SetCoreDevice(session.CoreDeviceIndex),
             "BASS_SetDevice(" + session.CoreDeviceIndex + ")",
             native.GetCoreError,
-            failures);
+            "BASS",
+            failures,
+            diagnostics);
         if (selection == DeviceSelectionResult.Failed)
         {
             return;
@@ -1353,27 +1733,24 @@ internal static class BassAudioSessionCleanup
         }
 
         var handles = new HashSet<int>();
-        foreach (BassAudioOwnedStream stream in session.GetPlayerStreams())
+        foreach (BassAudioOwnedStream stream in session.GetOwnedStreams())
         {
             AddHandle(handles, stream.Handle);
         }
 
         AddHandle(handles, session.OutputHandle);
         AddHandle(handles, session.MixerHandle);
-        foreach (int handle in session.AdditionalStreamHandles)
-        {
-            AddHandle(handles, handle);
-        }
-
         foreach (int handle in handles)
         {
             if (TryReleaseCall(
                 () => native.FreeStream(handle),
                 "BASS_StreamFree(" + handle + ")",
                 native.GetStreamError,
-                failures))
+                "BASS",
+                failures,
+                diagnostics))
             {
-                session.ConfirmPlayerStreamReleased(handle);
+                session.ConfirmStreamReleased(handle);
                 ClearHandle(session, handle);
             }
         }
@@ -1381,9 +1758,14 @@ internal static class BassAudioSessionCleanup
         if (session.CoreInitialized
             && session.MixerHandle == 0
             && session.OutputHandle == 0
-            && session.AdditionalStreamHandles.Count == 0
-            && session.GetPlayerStreams().Count == 0
-            && TryReleaseCall(native.FreeCore, "BASS_Free", native.GetCoreError, failures))
+            && session.GetOwnedStreams().Count == 0
+            && TryReleaseCall(
+                native.FreeCore,
+                "BASS_Free",
+                native.GetCoreError,
+                "BASS",
+                failures,
+                diagnostics))
         {
             session.CoreInitialized = false;
         }
@@ -1393,7 +1775,9 @@ internal static class BassAudioSessionCleanup
         Func<bool> select,
         string operation,
         Func<Errors> getError,
-        List<string> failures)
+        string nativeErrorSource,
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         try
         {
@@ -1410,10 +1794,16 @@ internal static class BassAudioSessionCleanup
             }
 
             failures.Add(operation + " failed: " + BassNativeErrorFormatter.Format(error));
+            diagnostics.Add(new BassAudioCleanupDiagnostic(operation, nativeErrorSource, error, string.Empty));
         }
         catch (Exception exception)
         {
             failures.Add(operation + " threw: " + exception.Message);
+            diagnostics.Add(new BassAudioCleanupDiagnostic(
+                operation,
+                nativeErrorSource,
+                null,
+                exception.GetType().Name));
         }
 
         return DeviceSelectionResult.Failed;
@@ -1421,13 +1811,9 @@ internal static class BassAudioSessionCleanup
 
     private static void ConfirmCoreAlreadyReleased(BassAudioSession session)
     {
-        foreach (BassAudioOwnedStream stream in session.GetPlayerStreams())
+        foreach (BassAudioOwnedStream stream in session.GetOwnedStreams())
         {
-            session.ConfirmPlayerStreamReleased(stream.Handle);
-        }
-        foreach (int handle in session.AdditionalStreamHandles.ToArray())
-        {
-            session.ConfirmStreamReleased(handle);
+            session.ConfirmStreamReleased(stream.Handle);
         }
         session.ConfirmStreamReleased(session.OutputHandle);
         session.ConfirmStreamReleased(session.MixerHandle);
@@ -1439,7 +1825,9 @@ internal static class BassAudioSessionCleanup
         Func<bool> release,
         string operation,
         Func<Errors> getError,
-        List<string> failures)
+        string nativeErrorSource,
+        List<string> failures,
+        List<BassAudioCleanupDiagnostic> diagnostics)
     {
         try
         {
@@ -1456,10 +1844,16 @@ internal static class BassAudioSessionCleanup
             }
 
             failures.Add(operation + " failed: " + BassNativeErrorFormatter.Format(error));
+            diagnostics.Add(new BassAudioCleanupDiagnostic(operation, nativeErrorSource, error, string.Empty));
         }
         catch (Exception exception)
         {
             failures.Add(operation + " threw: " + exception.Message);
+            diagnostics.Add(new BassAudioCleanupDiagnostic(
+                operation,
+                nativeErrorSource,
+                null,
+                exception.GetType().Name));
         }
 
         return false;
@@ -1520,9 +1914,14 @@ internal static class BassAudioSessionCleanup
     }
 }
 
-/// <summary>
-/// Describes a native initialization failure before cleanup can overwrite the error state.
-/// </summary>
+/// <summary>native session cleanupの失敗段階を任意例外メッセージから独立して保持します。</summary>
+internal sealed record BassAudioCleanupDiagnostic(
+    string Stage,
+    string NativeErrorSource,
+    Errors? NativeErrorCode,
+    string ExceptionType);
+
+/// <summary>解放処理がnative errorを上書きする前の初期化失敗情報を保持します。</summary>
 internal sealed class AudioInitializationException : Exception
 {
     /// <summary>Creates an empty initialization failure for exception infrastructure.</summary>
@@ -1542,7 +1941,8 @@ internal sealed class AudioInitializationException : Exception
     {
     }
 
-    /// <summary>Creates a contextual native audio initialization failure.</summary>
+    /// <summary>初期化要求、失敗段階、native error、先行試行を保持する例外を作成します。</summary>
+    /// <param name="attempts">初期化時に記録したnative交渉の判定です。</param>
     internal AudioInitializationException(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDriver actualBackend,
@@ -1552,7 +1952,8 @@ internal sealed class AudioInitializationException : Exception
         string nativeErrorSource,
         Errors? nativeErrorCode,
         string message,
-        Exception innerException = null)
+        Exception innerException = null,
+        IReadOnlyList<BassAudioBackendAttempt> attempts = null)
         : base(message, innerException)
     {
         RequestedBackend = requestedBackend;
@@ -1562,6 +1963,7 @@ internal sealed class AudioInitializationException : Exception
         ActualDevice = actualDevice;
         NativeErrorSource = nativeErrorSource;
         NativeErrorCode = nativeErrorCode;
+        Attempts = Array.AsReadOnly(attempts?.ToArray() ?? Array.Empty<BassAudioBackendAttempt>());
     }
 
     /// <summary>Gets the backend selected by the caller.</summary>
@@ -1584,4 +1986,33 @@ internal sealed class AudioInitializationException : Exception
 
     /// <summary>Gets the captured native error code.</summary>
     internal Errors? NativeErrorCode { get; }
+
+    /// <summary>初期化失敗までに保持したネイティブ判定を順に取得します。</summary>
+    internal IReadOnlyList<BassAudioBackendAttempt> Attempts { get; }
+
+    /// <summary>この失敗を主エラーとして保ち、先行backendの判定を前置きします。</summary>
+    internal AudioInitializationException WithEarlierAttempts(
+        IReadOnlyList<BassAudioBackendAttempt> earlierAttempts)
+    {
+        ArgumentNullException.ThrowIfNull(earlierAttempts);
+        if (earlierAttempts.Count == 0)
+        {
+            return this;
+        }
+
+        var attempts = new List<BassAudioBackendAttempt>(earlierAttempts.Count + Attempts.Count);
+        attempts.AddRange(earlierAttempts);
+        attempts.AddRange(Attempts);
+        return new AudioInitializationException(
+            RequestedBackend,
+            ActualBackend,
+            Stage,
+            RequestedDevice,
+            ActualDevice,
+            NativeErrorSource,
+            NativeErrorCode,
+            Message,
+            InnerException,
+            attempts);
+    }
 }

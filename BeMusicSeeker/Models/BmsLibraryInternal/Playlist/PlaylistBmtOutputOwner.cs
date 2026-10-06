@@ -150,6 +150,12 @@ internal sealed class PlaylistBmtOutputOwner
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
     }
 
+    /// <summary>専用件数通知へ渡す実行中要求を捕捉します。</summary>
+    internal Func<OperationProgressRequest> ExecutionProgressRequestProvider { get; set; }
+
+    /// <summary>同じ実行周のBMT要求の開始と終端を通知します。</summary>
+    internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
+
     internal Action<PlaylistSyncProgressSnapshot> ExportProgressReporter { get; set; }
 
     /// <summary>元の操作 session に依存せず、ファイル操作 lock の外で失敗事実を配送します。</summary>
@@ -218,7 +224,10 @@ internal sealed class PlaylistBmtOutputOwner
     }
 
     /// <summary>全出力と旧出力先 cleanup を予約し、確定した失敗を lock 外で通知します。</summary>
-    internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)
+    /// <param name="reason">既存の出力要求理由。</param>
+    /// <param name="cleanupTablePath">旧出力先の後片付け対象。</param>
+    /// <param name="originatingRequest">項目読込み受領や外部同期の実行周から引き継ぐ表示発生元。出力自身の要求版と操作IDは保持します。</param>
+    internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null, OperationProgressRequest originatingRequest = null)
     {
         if (TrySkipForShutdown("beatoraja_bmt_export_all", reason))
         {
@@ -232,6 +241,15 @@ internal sealed class PlaylistBmtOutputOwner
         Interlocked.Increment(ref urlSyncGeneration);
         async Task Work()
         {
+            OperationProgressRequest request = ExecutionProgressRequestProvider?.Invoke();
+            if (request != null && originatingRequest != null)
+            {
+                request = request with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
+            }
+            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
+            executionReporter?.Invoke(request, true);
+            void reportProgress(long operationId, bool active, int total, int completed, string name)
+                => ReportProgress(operationId, active, total, completed, name, request);
             List<BmtTableExportService.FileOperationFailure> failures = [];
             Interlocked.Increment(ref fullExportActiveCount);
             try
@@ -313,7 +331,7 @@ internal sealed class PlaylistBmtOutputOwner
                     bool shouldReportProgress = projectionTablesSnapshot.Count > 0;
                     if (shouldReportProgress)
                     {
-                        ReportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);
+                        reportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);
                         progressStarted = true;
                     }
                     var resolverStopwatch = Stopwatch.StartNew();
@@ -329,7 +347,7 @@ internal sealed class PlaylistBmtOutputOwner
                         hashOutputMode,
                         hashResolverFunc,
                         shouldReportProgress
-                            ? (completed, total, tableName) => ReportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName)
+                            ? (completed, total, tableName) => reportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName)
                             : null);
                     projectionStopwatch.Stop();
                     var exportStopwatch = Stopwatch.StartNew();
@@ -363,7 +381,7 @@ internal sealed class PlaylistBmtOutputOwner
                     }
                     foreach ((int completed, int total, string tableName) in deferredExportProgress)
                     {
-                        ReportProgress(
+                        reportProgress(
                             progressOperationId,
                             true,
                             total,
@@ -388,7 +406,7 @@ internal sealed class PlaylistBmtOutputOwner
                 {
                     if (progressStarted)
                     {
-                        ReportProgress(progressOperationId, false, 0, 0, string.Empty);
+                        reportProgress(progressOperationId, false, 0, 0, string.Empty);
                     }
                 }
             }
@@ -399,6 +417,7 @@ internal sealed class PlaylistBmtOutputOwner
             finally
             {
                 Interlocked.Decrement(ref fullExportActiveCount);
+                executionReporter?.Invoke(request, false);
                 ReportFailures(failures);
             }
         }
@@ -1033,12 +1052,14 @@ internal sealed class PlaylistBmtOutputOwner
         return false;
     }
 
-    private void ReportProgress(long operationId, bool isActive, int totalCount, int completedCount, string currentTableName)
+    private void ReportProgress(long operationId, bool isActive, int totalCount, int completedCount, string currentTableName, OperationProgressRequest request = null)
     {
         ExportProgressReporter?.Invoke(new PlaylistSyncProgressSnapshot
         {
             IsActive = isActive,
             OperationId = operationId,
+            Source = "bmt",
+            Request = request,
             TotalTableCount = totalCount,
             CompletedTableCount = completedCount,
             CurrentTableName = currentTableName ?? string.Empty,
@@ -1107,9 +1128,15 @@ internal sealed class PlaylistBmtOutputOwner
     private void ReportFailures(List<BmtTableExportService.FileOperationFailure> failures)
     {
         if (failures.Count == 0)
+        {
             return;
+        }
+
         foreach (BmtTableExportService.FileOperationFailure failure in failures)
+        {
             logWarning?.Invoke(new System.IO.IOException(failure.Cause), "beatoraja_bmt_failed path=" + FormatTextForLog(failure.Path));
+        }
+
         FailureReporter?.Invoke(Array.AsReadOnly(failures.ToArray()));
     }
 

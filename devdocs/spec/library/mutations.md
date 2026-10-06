@@ -29,13 +29,19 @@
 
 利用者の判断が必要な場合は、画面側が物理処理の前に確認し、結果を明示的な引数としてモデルへ渡します。`BeginOperationDialogScope()` の内側に蓄積できるのは、処理結果を知らせるOKボタンだけの通知です。Yes/NoやOK/Cancelの判断をこの範囲へ持ち込まず、必要な判断が欠けた要求は失敗させます。
 
-保留一覧の強制導入・推定先への導入と、ドロップ・URL・外部APIからの自動導入は、同じ `ChartFileOperationSynchronizer` を使います。
+譜面・音源の物理変更は同じ `ChartFileOperationSynchronizer` を使います。保留一覧の削除・改名・導入、ライブラリの削除・移動・フォルダ変更、ドロップ・URL・外部APIからの自動導入を含みます。保留操作はこの共通受付に加え、背景推定と調整する既存の保留受付も取得します。
 
 | 操作 | 受付を保持する範囲 | 競合時の扱い |
 | --- | --- | --- |
 | 保留パッケージの操作 | 確認・対象解決の前から終了処理まで。受理済みの自動推定との調整には保留操作の受付も使う | 確認、再生停止、保存を始めず拒否する。拒否した要求は予約・再実行しない |
 | 自動導入の待ち行列 | 最初の予約から、受理済みの全処理と未引渡し入力の回収が終わるまで | 受理済みの追加予約は同じ待ち行列で入力順に処理する。処理間や取消後の回収中も排他権を保持する |
 | URL・外部APIの通信 | 通信中は導入の受付を保持しない。取得したパスの引渡し時に導入可否を判定する | 取得成功と導入未受理を区別する。未受理を一般例外、ブラウザ起動、後日の再試行へ置き換えない |
+
+物理変更を行うownerは、共通受付の内側で `IChartMutationPlaybackPort.StopPlaybackForMutationAsync` を待ち、現在曲と先読みの停止・デコード終了後にだけ書き込みます。変更対象のpath・フォルダと現在曲の関係は判定せず、無関係な現在曲も停止します。停止失敗・終了取消なら物理変更へ進みません。自動導入の各バッチも同じ停止境界を通ります。
+
+変更側が既存受付をcleanupまで保持する間、再生側は新規開始を予約せず断ります。先行して受け付けた曲開始は停止側が待ちます。再生入力gateを保持した別のscopeを返したり、内側から外側のownerへ移譲したりしません。変更終了後の自動再開・先読み再登録は行いません。検索や表示順の変更だけでは再生を止めません。再生の資源寿命は[音声仕様](../runtime/audio.md#次曲一件の先行準備)を参照します。
+
+既存のThreadStatic通知scopeは非同期停止を待った後に開き、以後の同期mutationと同期cleanupだけを同じスレッドで囲みます。通知scope内でawaitしません。
 
 世代の切替や終了で表示を捨てる場合も受付を解放します。古い処理の終了通知で、新たな処理の排他権を解放しません。通常の変更競合は `Warn_LibraryOperationBusy`、導入の未接続・停止・取消待ちも含む受付不能は `Warn_PackageInstallUnavailable` で案内します。
 
@@ -99,6 +105,8 @@ flowchart TB
 | 譜面情報・文字コードなどの更新 | 保存対象と更新項目に応じて反映する。セルだけの変更で所持集合全体を再公開しない |
 
 未利用の任意索引は構築しません。構築済みの索引は確定した旧新の変更から差分更新します。親フォルダ、重複グループ、導入推定などの専門キャッシュへの接続は残しますが、共通反映の判断は `LibraryMutationOwner` に置きます。
+
+推定導入で実対象がなく正常にスキップした場合は、公開結果に空の変更セッション結果を含めます。内部実行票のスキップ判定は保ち、ほかの結果欠落や失敗を空の成功へ置き換えません。
 
 内部反映と公開通知は分離します。所持集合の世代と関連索引の世代対応は内部反映で確定し、通知時に改めて世代を進めません。導入では保存対象の反映に伴うリソース健全性索引の差分を後続保守より前に適用し、保守も同じ操作の必須処理として反映してから公開します。索引反映の例外を、公開通知の例外捕捉で診断だけに変えません。
 
@@ -192,6 +200,8 @@ sequenceDiagram
 
 必須反映が成功した通常通知だけを公開予定へ加えます。公開処理は排他権の解放後に一回実行し、購読者ごとの例外を診断して他の通知を続けます。通知失敗は確定済みの結果を変えず、処理を再実行しません。
 
+自動フォルダ名変更の中間進捗購読者が例外を投げても、通知失敗として診断して変更処理を続けます。本体が成功した場合は成功終端を公開してアイドルへ戻り、進捗通知の失敗を変更失敗へ変換しません。
+
 保留・自動導入の情報通知は、ダイアログ範囲を閉じて `FileDbMutationReport.ShowOperationMessagesAsync` へ渡します。一列の通知は順番に表示しますが、導入処理は表示完了を同期的に待ちません。失敗した表示が後続の通知を止めず、確認の代替にもなりません。
 
 操作の異常結果は、排他権、受付、操作中表示、ダイアログ範囲を解放した後に一度だけ報告します。完全成功は原則無通知、後片付けだけの失敗は警告、未確定・必須反映失敗・未確認対象を含む結果はエラーです。削除専用の `LibraryChartRemovalReport` との二重報告を避け、導入先修正に含まれる承認済み削除を別操作として報告しません。
@@ -214,13 +224,13 @@ sequenceDiagram
 | 情報通知の待機・失敗を導入結果や必須処理の失敗に混ぜない | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の終了処理、[`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の `SearchPackagesAsync` | [`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs) の `OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult` は表示前の導入終端・受付解放と表示失敗後の成功保持を確認する。[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `SearchPackagesAsync_EndActivityFailureStillDetachesAndDispatchesDialogScope` は終了処理の失敗でも通知を引き渡すこと、`SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure` は元の変更・終了処理の失敗だけを保持することを確認する。 |
 | 自動導入の必須反映失敗も、受付解放後に型付き結果で通知 | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の終了処理 | [`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs) の `DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages`（更新抑制の終了処理の例外あり／なし）。登録パッケージが空でも確定済みの結果を保持し、完了通知・終了処理失敗の通知時に受付を解放していることを確認する。 |
 | 複数対象の移動・削除・拡張子変更、反映回数と永続結果 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `RenameIngress_CapturesOnlyLocalBmsRangeFacts`（BMS局所範囲と手動・自動の両終端）、[`BmsLibraryCatalogRelocationTests`](../../../BeMusicSeeker.Tests/Catalog/BmsLibraryCatalogRelocationTests.cs)、[`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs) の `RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult`、`RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly`、`RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild`、[`BmsLibraryLibraryFileOperationsServiceTests`](../../../BeMusicSeeker.Tests/FileOperations/BmsLibraryLibraryFileOperationsServiceTests.cs) |
-| 導入時の先行成功、欠落と途中失敗、リソースのみの処理 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs)、[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) |
+| 導入時の先行成功、欠落と途中失敗、リソースのみの処理 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs)、[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs)。`ManualInstallPackagesAsync_NoEstimatedDestinationsCompletesWithEmptyReceiptAndPreservesPendingSources` は、実入口の正常スキップ結果と保留パッケージ・元ファイルの保持を確認する。 |
 | 導入・譜面解析の通知前反映と排他解放 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Common.cs)、[`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `UsesPreflightDestinationAndWarmDelta` を含む自動・推定先・強制導入テスト。各通知で構築を起こさず索引の現在性を確認し、別の変更予約を取得できることを検査する。譜面解析のハッシュ更新・保存失敗は [`OwnedChartCollectionInlineDigestTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInlineDigestTests.cs) と [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) で確認する。 |
 | 統合、型衝突、確定後保守の失敗、元の欠落 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation`（BMS/BMSONの成功、共通DB失敗、予約拒否）、[`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) |
 | 保留の全体削除・一部削除、入力の所属と安全性 | [`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) | [`BmsLibraryPendingLegacyMutationTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingLegacyMutationTests.cs)、[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs)、[`MainWindowPendingPackageMutationViewTerminalTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPendingPackageMutationViewTerminalTests.cs) |
 | カタログの保存と譜面情報の確定後反映 | [`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs)、[`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) の `BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex`、`BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk`。失敗したchunkを公開せず、先行確定分だけを保持する。 |
 | 終端の分類・件数・確認候補、表示失敗と多言語通知 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
-| 自動フォルダ名変更の承認、進捗、成功・失敗の終端 | [`FolderAutoRenameWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/FolderAutoRenameWorkflowOwner.cs) | [`FolderAutoRenameWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/FolderAutoRenameWorkflowOwnerTests.cs) |
+| 自動フォルダ名変更の承認、進捗、成功・失敗の終端 | [`FolderAutoRenameWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/FolderAutoRenameWorkflowOwner.cs) | [`FolderAutoRenameWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/FolderAutoRenameWorkflowOwnerTests.cs)。`SelectedRequest_IntermediateProgressSubscriberFailureStillCompletesAndReturnsIdle` は、中間進捗の通知失敗後も処理・成功終端・アイドル復帰が続くことを確認する。 |
 | 譜面削除の部分成功と異常報告 | [`LibraryChartRemovalReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/LibraryChartRemovalReport.cs) | [`LibraryChartRemovalReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/LibraryChartRemovalReportTests.cs) |
 
 ## 関連資料

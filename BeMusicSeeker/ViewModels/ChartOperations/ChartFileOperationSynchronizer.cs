@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -13,6 +14,9 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class ChartFileOperationSynchronizer
 {
     private object activeLease;
+
+    /// <summary>譜面変更等の受付が所有されている間は、新しい再生要求を受け付けません。</summary>
+    internal bool IsActive => Volatile.Read(ref activeLease) != null;
 
     /// <summary>
     /// Attempts to acquire the single chart-file operation lease without
@@ -31,6 +35,38 @@ internal sealed class ChartFileOperationSynchronizer
 
         lease = new Releaser(this, token);
         return true;
+    }
+
+    /// <summary>保留譜面の変更も共通受付を使い、背景推定との既存の排他を同時に取得します。</summary>
+    internal bool TryEnterPendingOperation(BMSLibrary library, out IDisposable lease)
+    {
+        if (!TryEnter(out lease)) { return false; }
+        try
+        {
+            if (library?.IsPendingOperationAdmissionReady != true) { return true; }
+            if (library.TryEnterPendingOperation(out IDisposable pendingLease))
+            {
+                lease = new PendingOperationLease(lease, pendingLease);
+                return true;
+            }
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+        lease.Dispose();
+        lease = null;
+        return false;
+    }
+
+    private sealed class PendingOperationLease(IDisposable chartFileLease, IDisposable pendingLease) : IDisposable
+    {
+        public void Dispose()
+        {
+            try { pendingLease.Dispose(); }
+            finally { chartFileLease.Dispose(); }
+        }
     }
 
     private sealed class Releaser : IDisposable

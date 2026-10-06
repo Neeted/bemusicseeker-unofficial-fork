@@ -162,11 +162,16 @@ public sealed class FileDbMutationReportTests
             var culture = CultureInfo.GetCultureInfo(language);
             string pattern = Regex.Escape(Resources.ResourceManager.GetString(nameof(Resources.LibraryMutationSessionReport_Counts), culture)!);
             for (int index = 0; index < 6; index++)
+            {
                 pattern = pattern.Replace(Regex.Escape("{" + index + "}"), "(?<field" + index + @">\d+)", StringComparison.Ordinal);
+            }
+
             Match fields = Regex.Match(FileDbMutationReport.Create("counted-operation", session, culture: culture).MessageBoxText, pattern);
             Assert.IsTrue(fields.Success, language);
             for (int index = 0; index < expected.Length; index++)
+            {
                 Assert.AreEqual(expected[index], int.Parse(fields.Groups["field" + index].Value, CultureInfo.InvariantCulture));
+            }
         }
     }
 
@@ -183,7 +188,10 @@ public sealed class FileDbMutationReportTests
 
         Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
         foreach (FileDbMutationDestinationTypeConflict conflict in conflicts.Take(5))
+        {
             StringAssert.Contains(report.MessageBoxText, conflict.DestinationPath);
+        }
+
         Assert.IsFalse(report.MessageBoxText.Contains(conflicts[5].DestinationPath, StringComparison.Ordinal));
         StringAssert.Contains(report.MessageBoxText, string.Format(CultureInfo.CurrentCulture,
             Resources.FileDbMutationReport_DestinationTypeConflict_More, 1));
@@ -209,9 +217,13 @@ public sealed class FileDbMutationReportTests
         string successFormat = merge ? Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses
             : Resources.FileDbMutationReport_DestinationTypeConflict_Successes;
         if (success)
+        {
             StringAssert.Contains(report.MessageBoxText, string.Format(CultureInfo.CurrentCulture, successFormat, 1));
+        }
         else
+        {
             Assert.IsFalse(report.MessageBoxText.Contains(string.Format(CultureInfo.CurrentCulture, successFormat, 0), StringComparison.Ordinal));
+        }
     }
 
     /// <summary>型衝突の専用表示でも、別の required failure や cleanup の確認候補を捨てません。</summary>
@@ -230,7 +242,11 @@ public sealed class FileDbMutationReportTests
         Assert.AreEqual(expectedIcon, report.Icon);
         StringAssert.Contains(report.MessageBoxText, @"D:\Recovery\backup");
         StringAssert.Contains(report.MessageBoxText, "cleanup-marker");
-        if (requiredFailure) StringAssert.Contains(report.MessageBoxText, "physical-marker");
+        if (requiredFailure)
+        {
+            StringAssert.Contains(report.MessageBoxText, "physical-marker");
+        }
+
         StringAssert.EndsWith(report.MessageBoxText, Resources.FileDbMutationReport_DestinationTypeConflict_Guidance);
     }
 
@@ -318,8 +334,16 @@ internal sealed class FileDbReportRecordingDialogs : IUiDialogService, IBmsLibra
     {
         Messages.Add(request);
         OnMessage?.Invoke();
-        if (MessageFailure != null) throw MessageFailure;
-        if (MessageHandler != null) return MessageHandler(request);
+        if (MessageFailure != null)
+        {
+            throw MessageFailure;
+        }
+
+        if (MessageHandler != null)
+        {
+            return MessageHandler(request);
+        }
+
         return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
     }
 

@@ -21,6 +21,5 @@
     <PackageVersion Include="sqlite-net-pcl" Version="1.11.285" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.4" />
     <PackageVersion Include="SevenZipExtractor" Version="1.0.19" />
-    <PackageVersion Include="NVorbis" Version="0.10.5" />
   </ItemGroup>
 </Project>

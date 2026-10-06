@@ -5,9 +5,7 @@ using ManagedBass.Enc;
 
 namespace Ribbit.Media.Audio;
 
-/// <summary>
-/// Describes the immutable input used to build one BASSenc command line.
-/// </summary>
+/// <summary>BASSenc command lineの生成に使う変更不能なrequestです。</summary>
 internal sealed record AudioEncoderCommandRequest(
     EncoderType EncoderType,
     string EncoderDirectory,
@@ -19,23 +17,25 @@ internal sealed record AudioEncoderCommandRequest(
     AudioTagInfo Tags,
     SampleFormat RequestedOutputFormat = SampleFormat.UNKNOWN);
 
-/// <summary>
-/// Contains the command line and BASSenc flags selected for an encoder request.
-/// </summary>
+/// <summary>encoder requestから決定したcommand lineとBASSenc flagsです。</summary>
 internal sealed record AudioEncoderCommand(string CommandLine, EncodeFlags Flags);
 
-/// <summary>
-/// Builds deterministic BASSenc command lines without invoking a shell.
-/// </summary>
+/// <summary>shellを起動せずにBASSenc command lineと出力変換flagsを生成します。</summary>
 internal static class AudioEncoderCommandFactory
 {
-    /// <summary>
-    /// Creates the BASSenc command line and flags for an encoder request.
-    /// </summary>
+    /// <summary>encoder requestに対応するBASSenc command lineとflagsを生成します。</summary>
     internal static AudioEncoderCommand Create(AudioEncoderCommandRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrEmpty(request.OutputFile);
+        if (request.SampleRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "Encoder input sample rate must be positive.");
+        }
+        if (request.ChannelCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "Encoder input channel count must be positive.");
+        }
 
         request = request with { Tags = request.Tags ?? AudioTagInfo.Empty };
 
@@ -51,9 +51,7 @@ internal static class AudioEncoderCommandFactory
         };
     }
 
-    /// <summary>
-    /// Quotes one argument according to the Windows command-line parsing rules used by BASSenc.
-    /// </summary>
+    /// <summary>BASSencが使うWindows command line規則に従いargumentをquoteします。</summary>
     internal static string QuoteWindowsArgument(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -129,15 +127,10 @@ internal static class AudioEncoderCommandFactory
     private static AudioEncoderCommand CreateOpus(AudioEncoderCommandRequest request)
     {
         int bitrate = (int)(6f + 250f * System.Math.Clamp(request.Quality, 0f, 1f));
-        SampleFormat inputFormat = GetExternalInputFormat(request);
-        int bits = GetBitsPerSample(inputFormat);
         string command = BuildExecutable(request, "opusenc.exe")
-            + " --raw --raw-bits " + bits.ToString(CultureInfo.InvariantCulture)
-            + " --raw-rate " + GetSampleRate(request.SampleRate).ToString(CultureInfo.InvariantCulture)
-            + " --raw-chan " + request.ChannelCount.ToString(CultureInfo.InvariantCulture)
             + " --ignorelength --bitrate " + bitrate.ToString(CultureInfo.InvariantCulture)
             + " - " + QuoteWindowsArgument(request.OutputFile);
-        return new AudioEncoderCommand(command, GetExternalEncoderFlags(inputFormat, rawInput: true));
+        return new AudioEncoderCommand(command, GetExternalEncoderFlags(request.SampleFormat, rawInput: false));
     }
 
     private static AudioEncoderCommand CreateFlac(AudioEncoderCommandRequest request)
@@ -147,7 +140,7 @@ internal static class AudioEncoderCommandFactory
         int bits = GetBitsPerSample(inputFormat);
         string command = BuildExecutable(request, "flac.exe")
             + " -f --force-raw-format --endian=little --sample-rate="
-            + GetSampleRate(request.SampleRate).ToString(CultureInfo.InvariantCulture)
+            + request.SampleRate.ToString(CultureInfo.InvariantCulture)
             + " --channels=" + request.ChannelCount.ToString(CultureInfo.InvariantCulture)
             + " --bps=" + bits.ToString(CultureInfo.InvariantCulture)
             + " --sign=signed --replay-gain -"
@@ -173,7 +166,7 @@ internal static class AudioEncoderCommandFactory
         command.Append(" -C ")
             .Append(request.ChannelCount.ToString(CultureInfo.InvariantCulture))
             .Append(" -R ")
-            .Append(GetSampleRate(request.SampleRate).ToString(CultureInfo.InvariantCulture))
+            .Append(request.SampleRate.ToString(CultureInfo.InvariantCulture))
             .Append(" -q ")
             .Append(quality.ToString("0.0", CultureInfo.InvariantCulture));
         AppendOggTags(command, request.Tags);
@@ -196,7 +189,7 @@ internal static class AudioEncoderCommandFactory
         return request.EncoderType switch
         {
             EncoderType.MP3_LAME => SampleFormat.SAMPLE_INT_32BIT,
-            EncoderType.OPUS or EncoderType.FLAC => SampleFormat.SAMPLE_INT_24BIT,
+            EncoderType.FLAC => SampleFormat.SAMPLE_INT_24BIT,
             _ => request.SampleFormat
         };
     }
@@ -212,23 +205,20 @@ internal static class AudioEncoderCommandFactory
     {
         return sampleFormat switch
         {
-            SampleFormat.SAMPLE_INT_8BIT => EncodeFlags.ConvertFloatTo8BitInt,
-            SampleFormat.SAMPLE_INT_16BIT => EncodeFlags.ConvertFloatTo16BitInt,
+            SampleFormat.SAMPLE_INT_8BIT => EncodeFlags.ConvertFloatTo8BitInt | EncodeFlags.Dither,
+            SampleFormat.SAMPLE_INT_16BIT => EncodeFlags.ConvertFloatTo16BitInt | EncodeFlags.Dither,
+            // BASSenc 2.4.17の24bit DITHERは平均誤差が約-0.5LSBへ偏るため、
+            // sessionがTPDFを適用した格子値を供給し、native変換は格子保存に使います。
             SampleFormat.SAMPLE_INT_24BIT => EncodeFlags.ConvertFloatTo24Bit,
-            SampleFormat.SAMPLE_INT_32BIT => EncodeFlags.ConvertFloatTo32Bit,
+            SampleFormat.SAMPLE_INT_32BIT => EncodeFlags.ConvertFloatTo32Bit | EncodeFlags.Dither,
             SampleFormat.SAMPLE_FLOAT_32BIT => EncodeFlags.Default,
             _ => throw new NotSupportedException("Format must be either 8, 16, 24 or 32 bit integer")
         };
     }
 
-    private static int GetSampleRate(int sampleRate)
-    {
-        return sampleRate <= 0 ? 44100 : sampleRate;
-    }
-
     private static string FormatKilohertz(int sampleRate)
     {
-        return (GetSampleRate(sampleRate) / 1000f).ToString("0.###", CultureInfo.InvariantCulture);
+        return (sampleRate / 1000f).ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     private static int GetBitsPerSample(SampleFormat sampleFormat)

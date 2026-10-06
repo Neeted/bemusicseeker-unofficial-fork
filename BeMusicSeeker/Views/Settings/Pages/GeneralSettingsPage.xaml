@@ -46,9 +46,10 @@
       </StackPanel>
     </settings:SettingsSection>
 
-    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}">
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}"
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_description, Mode=OneWay}">
       <StackPanel IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
-        <Button HorizontalAlignment="Left" Margin="0,0,8,8" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" AutomationProperties.AutomationId="SettingsResyncLr2SongDb" Click="resyncLr2SongDbSyncDataButtonClicked" />
+        <Button HorizontalAlignment="Left" Margin="0,0,8,8" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" AutomationProperties.AutomationId="SettingsResyncLr2SongDb" Click="resyncLr2SongDbSyncDataButtonClicked" />
       </StackPanel>
     </settings:SettingsSection>
 

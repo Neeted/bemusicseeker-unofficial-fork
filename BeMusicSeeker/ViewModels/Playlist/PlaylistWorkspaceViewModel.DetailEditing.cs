@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -138,11 +137,19 @@ public sealed partial class PlaylistWorkspaceViewModel
                 row.Level = text;
                 return true;
             case nameof(PlaylistDetailRow.Url):
-                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri url)) return false;
+                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri url))
+                {
+                    return false;
+                }
+
                 row.Url = url;
                 return true;
             case nameof(PlaylistDetailRow.Url_diff):
-                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri urlDiff)) return false;
+                if (!Uri.TryCreate(text, UriKind.Absolute, out Uri urlDiff))
+                {
+                    return false;
+                }
+
                 row.Url_diff = urlDiff;
                 return true;
             case nameof(PlaylistDetailRow.comment):

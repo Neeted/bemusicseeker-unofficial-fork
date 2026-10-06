@@ -21,8 +21,21 @@ public sealed class PortableSettingsPersistenceTests
         File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
         Settings settings = OpenSettings(files.Path);
         settings.Lang = "fr-FR";
+        settings.PlayerResamplingQuality = 4;
+        settings.ShowNewPackageInstallConfirmMsg = false;
+        foreach (int threadCount in Enumerable.Range(1, 4))
+        {
+            settings.PlayerMixerThreadCount = threadCount;
+            settings.Save();
+            Settings loaded = OpenSettings(files.Path);
+            Assert.AreEqual("fr-FR", loaded.Lang);
+            Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
+            Assert.AreEqual(4, loaded.PlayerResamplingQuality, "既存の有効な品質4は新しい既定値2へ移行せず保持します。");
+            Assert.AreEqual(threadCount, loaded.PlayerMixerThreadCount);
+        }
+        settings.ShowNewPackageInstallConfirmMsg = true;
         settings.Save();
-        Assert.AreEqual("fr-FR", OpenSettings(files.Path).Lang);
+        Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
@@ -32,9 +45,13 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         string defaultLanguage = OpenSettings(files.Path).Lang;
+        Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         File.WriteAllText(files.Path, Config());
         Assert.AreEqual(defaultLanguage, OpenSettings(files.Path).Lang);
         Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
+        Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
+        Assert.AreEqual(2, OpenSettings(files.Path).PlayerResamplingQuality);
+        Assert.AreEqual(1, OpenSettings(files.Path).PlayerMixerThreadCount);
     }
 
     [DataTestMethod]
@@ -135,7 +152,10 @@ public sealed class PortableSettingsPersistenceTests
                     backup = preserved;
                     Assert.IsFalse(File.Exists(files.Path), "Warning must precede fresh creation and first getter.");
                     CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(preserved));
-                    if (earlierBackup != null) CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(earlierBackup));
+                    if (earlierBackup != null)
+                    {
+                        CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(earlierBackup));
+                    }
                 });
             Assert.IsNotNull(backup);
             Assert.AreNotEqual(earlierBackup, backup);
@@ -234,7 +254,11 @@ public sealed class PortableSettingsPersistenceTests
         provider.Initialize(nameof(PortableSettingsProvider), null!);
         settings.Providers.Clear();
         settings.Providers.Add(provider);
-        foreach (SettingsProperty property in settings.Properties) property.Provider = provider;
+        foreach (SettingsProperty property in settings.Properties)
+        {
+            property.Provider = provider;
+        }
+
         return settings;
     }
 
@@ -259,7 +283,11 @@ public sealed class PortableSettingsPersistenceTests
         internal SettingsFiles() => System.IO.Directory.CreateDirectory(Directory);
         public void Dispose()
         {
-            if (File.Exists(Path)) File.SetAttributes(Path, FileAttributes.Normal);
+            if (File.Exists(Path))
+            {
+                File.SetAttributes(Path, FileAttributes.Normal);
+            }
+
             System.IO.Directory.Delete(Directory, true);
         }
     }

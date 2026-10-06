@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using BeMusicSeeker;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 [assembly: Parallelize(Scope = ExecutionScope.MethodLevel)]

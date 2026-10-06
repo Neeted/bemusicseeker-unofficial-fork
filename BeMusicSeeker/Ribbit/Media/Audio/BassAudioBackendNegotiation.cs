@@ -1,28 +1,35 @@
 using System;
 using System.Collections.Generic;
+using BeMusicSeeker.Models;
 using ManagedBass;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 
-/// <summary>
-/// Describes the caller's requested values for one backend negotiation attempt.
-/// </summary>
+/// <summary>一回の音声backend交渉へ渡す変更不能な要求です。</summary>
 internal sealed class BassAudioNegotiationRequest
 {
-    /// <summary>Creates an immutable backend negotiation request.</summary>
+    /// <summary>backend交渉へ渡す出力条件、SRC品質、再生ミキサーthread数を捕捉します。</summary>
+    /// <param name="playerMixerThreadCount">通常再生またはデバイステストで使う1～4のnativeミキサーthread数です。</param>
     internal BassAudioNegotiationRequest(
         BassAudioPlayer.DeviceDriver backend,
         BassAudioPlayer.DeviceDescriptor device,
         SampleRate rate,
         SampleFormat format,
-        float latencyMilliseconds)
+        float latencyMilliseconds,
+        bool eventModeRequested = false,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        AudioOutputPurpose purpose = AudioOutputPurpose.Playback,
+        int playerMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount)
     {
         Backend = backend;
         Device = device;
         Rate = rate;
         Format = format;
         LatencyMilliseconds = latencyMilliseconds;
+        EventModeRequested = eventModeRequested;
+        SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
+        PlayerMixerThreadCount = BassMixerThreadConfigurator.ValidateRealtimeThreadCount(playerMixerThreadCount);
+        Purpose = purpose;
     }
 
     /// <summary>Gets the requested backend.</summary>
@@ -39,6 +46,21 @@ internal sealed class BassAudioNegotiationRequest
 
     /// <summary>Gets the requested backend latency in milliseconds.</summary>
     internal float LatencyMilliseconds { get; }
+
+    /// <summary>イベント駆動の出力を要求したか取得します。</summary>
+    internal bool EventModeRequested { get; }
+
+    /// <summary>開始時に捕捉した標本化周波数変換品質を取得します。</summary>
+    internal int SampleRateConversionQuality { get; }
+
+    /// <summary>通常再生または設定テストで指定されたnativeミキサーthread数を取得します。</summary>
+    internal int PlayerMixerThreadCount { get; }
+
+    /// <summary>通常再生または選択条件テストの用途を取得します。</summary>
+    internal AudioOutputPurpose Purpose { get; }
+
+    /// <summary>選択した出力条件の代替を禁止する要求か取得します。</summary>
+    internal bool RequiresExactSelection => Purpose == AudioOutputPurpose.DeviceTest;
 }
 
 /// <summary>
@@ -72,12 +94,12 @@ internal sealed class BassAudioBackendAttempt
     internal string Outcome { get; }
 }
 
-/// <summary>
-/// Describes the values accepted by a backend independently from the caller's request.
-/// </summary>
+/// <summary>利用者の要求から独立して、backendが受理した値を保持します。</summary>
 internal sealed class BassAudioBackendResult
 {
-    /// <summary>Creates an immutable successful backend result.</summary>
+    /// <summary>backendが受理した出力値、形式精度、交渉試行を保持する結果を作成します。</summary>
+    /// <param name="endpointContainerBits">機器が報告したサンプル容器幅です。</param>
+    /// <param name="endpointEffectiveBits">機器が報告した有効精度です。</param>
     internal BassAudioBackendResult(
         BassAudioNegotiationRequest request,
         BassAudioPlayer.DeviceDescriptor actualDevice,
@@ -88,18 +110,24 @@ internal sealed class BassAudioBackendResult
         int mixerHandle,
         IReadOnlyList<BassAudioBackendAttempt> attempts,
         string fallbackReason,
-        int actualChannels = 2)
+        int actualChannels = 2,
+        SampleFormat callbackFormat = SampleFormat.UNKNOWN,
+        int endpointContainerBits = 0,
+        int endpointEffectiveBits = 0)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         ActualDevice = actualDevice;
         ActualRate = actualRate;
         EngineFormat = engineFormat;
+        CallbackFormat = callbackFormat == SampleFormat.UNKNOWN ? engineFormat : callbackFormat;
         EndpointFormat = endpointFormat;
         LatencyMilliseconds = latencyMilliseconds;
         MixerHandle = mixerHandle;
         Attempts = attempts ?? throw new ArgumentNullException(nameof(attempts));
         FallbackReason = fallbackReason;
         ActualChannels = actualChannels;
+        EndpointContainerBits = endpointContainerBits;
+        EndpointEffectiveBits = endpointEffectiveBits;
     }
 
     /// <summary>Gets the original caller request.</summary>
@@ -111,8 +139,11 @@ internal sealed class BassAudioBackendResult
     /// <summary>Gets the sample rate read back from the backend.</summary>
     internal SampleRate ActualRate { get; }
 
-    /// <summary>Gets the mixer format supplied to the callback.</summary>
+    /// <summary>callbackへ供給するmixerのformatを取得します。</summary>
     internal SampleFormat EngineFormat { get; }
+
+    /// <summary>backend callbackへ渡すdataのformatを取得します。</summary>
+    internal SampleFormat CallbackFormat { get; }
 
     /// <summary>
     /// Gets the endpoint format observed by the backend, or <see cref="SampleFormat.UNKNOWN"/>
@@ -125,6 +156,12 @@ internal sealed class BassAudioBackendResult
 
     /// <summary>Gets the channel count accepted by the endpoint or callback.</summary>
     internal int ActualChannels { get; }
+
+    /// <summary>backendが報告する場合に機器のサンプル容器幅を取得します。</summary>
+    internal int EndpointContainerBits { get; }
+
+    /// <summary>backendが報告する場合に機器の有効精度を取得します。</summary>
+    internal int EndpointEffectiveBits { get; }
 
     /// <summary>Gets the decode mixer owned by the audio session.</summary>
     internal int MixerHandle { get; }
@@ -166,6 +203,9 @@ internal sealed class BassAudioBackendResult
             MixerHandle,
             attempts,
             fallbackReason,
-            ActualChannels);
+            ActualChannels,
+            CallbackFormat,
+            EndpointContainerBits,
+            EndpointEffectiveBits);
     }
 }

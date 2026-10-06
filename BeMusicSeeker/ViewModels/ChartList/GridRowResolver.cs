@@ -2,7 +2,6 @@ using System;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -40,7 +39,7 @@ internal static class GridRowResolver
 
     /// <summary>
     /// 行から BMS player 用の BMS storage row を取得します。
-    /// bmson は現時点では再生対象にせず、この BMS-only 境界では返しません。
+    /// BMS保存主体を必要とする既存の外部処理だけで使います。
     /// </summary>
     internal static bool TryGetBmsPlayerFile(object row, out BMSFile file)
     {
@@ -63,6 +62,22 @@ internal static class GridRowResolver
         return file != null;
     }
 
+    /// <summary>内蔵再生対象を形式共通の譜面として固定します。bmsonのBMS保存行を偽造しません。</summary>
+    internal static bool TryGetPlaybackChart(object row, out ChartFile chart)
+    {
+        if (TryGetChartFile(row, out chart))
+        {
+            return true;
+        }
+
+        if (TryGetBmsPlayerFile(row, out BMSFile bms))
+        {
+            chart = ChartFileProjection.FromBmsFile(bms, includeResourceReferences: false);
+            return chart != null;
+        }
+        return false;
+    }
+
     internal static bool TryGetChartFile(object row, out ChartFile chart)
     {
         return TryGetChartFileCore(row, out chart);
@@ -78,6 +93,9 @@ internal static class GridRowResolver
                 return chart != null;
             case PlaylistDetailSourceRow playlistSourceRow:
                 chart = playlistSourceRow.Chart;
+                return chart != null;
+            case ChartListSourceRow sourceRow:
+                chart = sourceRow.Chart;
                 return chart != null;
             case LibraryChartRow libraryChartRow:
                 chart = libraryChartRow.Chart;
@@ -332,13 +350,12 @@ internal static class GridRowResolver
                 capabilities |= ChartOperationCapabilities.RunBmsEncodingCheck
                     | ChartOperationCapabilities.RunBmsEncodingFix
                     | ChartOperationCapabilities.RunZeroNoteCheck
-                    | ChartOperationCapabilities.RenameInvalidExtension
-                    | ChartOperationCapabilities.ConvertToAudio;
+                    | ChartOperationCapabilities.RenameInvalidExtension;
             }
         }
         if (hasPath && !isPlaylistMissing && sourceScope != ChartOperationSourceScope.PendingPackage)
         {
-            capabilities |= ChartOperationCapabilities.RepairInstalledLocation;
+            capabilities |= ChartOperationCapabilities.ConvertToAudio | ChartOperationCapabilities.RepairInstalledLocation;
         }
         if (hasPath && !isPlaylistMissing)
         {

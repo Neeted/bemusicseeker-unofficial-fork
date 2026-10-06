@@ -7,13 +7,14 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private const string PlaylistSummaryBulkProgressSource = "playlist_summary_bulk";
+
 
     private readonly Func<LR2Config> getLr2Config;
     private readonly Action<string> summaryBulkWarningLog;
@@ -86,7 +87,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BeginPlaylistSyncProgressOperation();
+        BeginPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
         bool progressEnded = false;
         try
         {
@@ -97,7 +98,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             finally
             {
                 progressEnded = true;
-                EndPlaylistSyncProgressOperation();
+                EndPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
             }
         }
         finally
@@ -105,7 +106,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (!progressEnded)
             {
                 progressEnded = true;
-                EndPlaylistSyncProgressOperation();
+                EndPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
             }
         }
     }
@@ -775,7 +776,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool playlistKeywordValueCandidatesChanged = false;
         bool operationFailed = false;
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
-        BeginPlaylistSyncProgressOperation();
+        BeginPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
         try
         {
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, targetTables.Count, string.Empty);
@@ -1050,7 +1051,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     RequestPlaylistReferenceSortInvalidation();
                 }
-                EndPlaylistSyncProgressOperation();
+                EndPlaylistSyncProgressOperation(PlaylistSummaryBulkProgressSource);
                 PublishPlaylistOperationNotificationReceipt(
                     notificationSession,
                     "playlist summary external property initialization notification");
@@ -1062,7 +1063,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         if (snapshot?.IsActive == true)
         {
-            ReportPlaylistSyncProgress(snapshot);
+            ReportPlaylistSyncProgress(snapshot, PlaylistSummaryBulkProgressSource,
+                BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization);
         }
     }
 
@@ -1070,12 +1072,13 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
+            Source = PlaylistSummaryBulkProgressSource,
             IsActive = true,
             TotalTableCount = totalTableCount,
             CompletedTableCount = completedTableCount,
             CurrentTableName = currentTableName ?? string.Empty,
-            LabelFormat = BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_external_property_initialization + " {0}/{1}",
-            SingleLabel = BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_external_property_initialization
+            LabelFormat = BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization + " {0}/{1}",
+            SingleLabel = BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization
         });
     }
 
@@ -1281,6 +1284,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
+            Source = PlaylistSummaryBulkProgressSource,
             IsActive = true,
             TotalTableCount = totalTableCount,
             CompletedTableCount = completedTableCount,

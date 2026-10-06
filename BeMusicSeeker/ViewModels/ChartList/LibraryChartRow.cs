@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -39,6 +38,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
 
+    private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
+
     private ChartFile cachedChart;
 
     private bool cachedChartValid;
@@ -59,6 +60,9 @@ internal sealed class LibraryChartRow : NotificationObject
             return cachedChart;
         }
     }
+
+    /// <summary>再生一時状態をChartへ保存せず、status読取り時だけ参照するdelegateを接続します。</summary>
+    internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
 
     internal ChartFile CreateChartFile()
     {
@@ -408,7 +412,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public double? scoreDifficulty => Chart?.Score?.ScoreDifficulty;
 
-    public ChartFileStatus status => Chart?.Status ?? ChartFileStatus.NONE;
+    /// <summary>元の再生以外の状態を保ち、現在対象の再生bitを読取り時だけ合成します。</summary>
+    public ChartFileStatus status => ((Chart?.Status ?? ChartFileStatus.NONE) & ~ChartFileStatus.PLAYALL)
+        | (playbackStatusProvider?.Invoke(Chart) ?? ChartFileStatus.NONE);
 
     public string lr2_bmsid => string.Empty;
 
@@ -679,16 +685,6 @@ internal sealed class LibraryChartRow : NotificationObject
         return state?.HasWarningProjection == true || state?.HasInstallEstimationWarningProjection == true;
     }
 
-    private ChartFileTransientState GetSourceChartTransientState(bool includeWarningSnapshot)
-    {
-        if (sourceTransientBaseline == null || sourceChart == null)
-        {
-            return ChartFileTransientState.Empty;
-        }
-        return ChartFileTransientState.FromChartFile(
-            ChartFileProjection.WithTransientOverrides(sourceTransientBaseline, sourceChart, sourceTransientBaseline, includeWarningSnapshot),
-            includeWarningSnapshot);
-    }
 
     private ChartFile CreateSourceTransientBaseline()
     {

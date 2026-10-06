@@ -6,11 +6,9 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
@@ -352,21 +350,20 @@ public sealed class PlaylistLampContrastForegroundConverter : IValueConverter
 }
 
 /// <summary>
-/// Provides a width-aware, localized percentage label for a positive lamp segment.
-/// Narrow segments intentionally remain unlabeled in the bar; their complete semantic
-/// detail remains available through the legend, tooltip, and automation name.
+/// 正の区間に、幅に収まる割合または曲数だけを表示します。
+/// 狭い区間の詳細はツールチップとAutomation名に残します。
 /// </summary>
-public sealed class PlaylistLampSegmentPercentageLabelConverter : IMultiValueConverter
+public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
 {
-    /// <summary>Returns the percentage label when it can fit without clipping.</summary>
-    /// <param name="values">Segment view model, arranged button width, and the button itself.</param>
-    /// <param name="targetType">Binding target type.</param>
-    /// <param name="parameter">Unused binding parameter.</param>
-    /// <param name="culture">Binding culture.</param>
-    /// <returns>A complete localized percentage or an empty string for a narrow segment.</returns>
+    /// <summary>選択モードのラベルを、全体が切れずに収まる場合だけ返します。</summary>
+    /// <param name="values">区間、配置幅、ボタン、窓の曲数表示状態。</param>
+    /// <param name="targetType">Binding先の型。</param>
+    /// <param name="parameter">使用しないBinding引数。</param>
+    /// <param name="culture">Bindingのカルチャ。</param>
+    /// <returns>完全な割合または曲数。狭い区間は空文字列。</returns>
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
-        if (values is not { Length: >= 3 }
+        if (values is not { Length: >= 4 }
             || values[0] is not PlaylistLampViewerSegmentViewModel segment
             || !segment.HasPositiveWidth
             || values[1] is not double width
@@ -377,7 +374,9 @@ public sealed class PlaylistLampSegmentPercentageLabelConverter : IMultiValueCon
         }
 
         CultureInfo displayCulture = culture ?? CultureInfo.CurrentCulture;
-        string label = segment.PercentageText;
+        string label = values[3] is true
+            ? segment.Count.ToString("N0", CultureInfo.CurrentCulture)
+            : segment.PercentageText;
         double textWidth = new FormattedText(
             label,
             displayCulture,
@@ -387,25 +386,23 @@ public sealed class PlaylistLampSegmentPercentageLabelConverter : IMultiValueCon
             Brushes.Black,
             VisualTreeHelper.GetDpi(button).PixelsPerDip).WidthIncludingTrailingWhitespace;
 
-        // Leave room for the button border and a small breathing margin. Returning no
-        // content below this threshold prevents partial labels in narrow weighted bars.
+        // 枠線と余白も含めて収まる場合だけ表示し、狭い区間の文字切れを防ぎます。
         return width >= textWidth + 8d ? label : string.Empty;
     }
 
-    /// <summary>Multi-binding conversion in the reverse direction is unsupported.</summary>
-    /// <param name="value">Unused target value.</param>
-    /// <param name="targetTypes">Unused source types.</param>
-    /// <param name="parameter">Unused binding parameter.</param>
-    /// <param name="culture">Unused binding culture.</param>
-    /// <returns>Always throws because the presentation is one-way.</returns>
+    /// <summary>逆変換は対応しません。</summary>
+    /// <param name="value">使用しない変換先の値。</param>
+    /// <param name="targetTypes">使用しない変換元の型。</param>
+    /// <param name="parameter">使用しないBinding引数。</param>
+    /// <param name="culture">使用しないBindingのカルチャ。</param>
+    /// <returns>一方向の表示変換のため常に例外を返します。</returns>
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
 
 /// <summary>
-/// Arranges weighted children into a bounded horizontal stack.
-/// Each positive child receives a fraction of the available width based on its weight;
-/// the final child receives the remaining pixels, preventing rounding overflow.
+/// 正の重みを横方向に配置します。外部尺度が正なら共通尺度、0なら自己正規化を使います。
+/// 最後の区間で行の占有幅までの端数を調整し、外部尺度で生じた余白は埋めません。
 /// </summary>
 public sealed class PlaylistLampWeightedStackPanel : Panel
 {
@@ -415,6 +412,20 @@ public sealed class PlaylistLampWeightedStackPanel : Panel
         typeof(double),
         typeof(PlaylistLampWeightedStackPanel),
         new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsParentArrange));
+
+    /// <summary>正の値で共通尺度を指定し、0で子の重みの合計へ自己正規化します。</summary>
+    public static readonly DependencyProperty ScaleProperty = DependencyProperty.Register(
+        nameof(Scale),
+        typeof(double),
+        typeof(PlaylistLampWeightedStackPanel),
+        new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsArrange));
+
+    /// <summary>曲数を幅に変換する外部尺度。全体バーと割合表示は0を使います。</summary>
+    public double Scale
+    {
+        get => (double)GetValue(ScaleProperty);
+        set => SetValue(ScaleProperty, value);
+    }
 
     /// <summary>Gets the attached child weight.</summary>
     /// <param name="element">Child element.</param>
@@ -466,17 +477,19 @@ public sealed class PlaylistLampWeightedStackPanel : Panel
             return finalSize;
         }
 
-        double remaining = Math.Max(0d, finalSize.Width);
+        double denominator = Scale > 0d ? Scale : totalWeight;
+        double occupiedWidth = Math.Max(0d, finalSize.Width * totalWeight / denominator);
+        double remaining = occupiedWidth;
         double x = 0d;
         for (int index = 0; index < children.Length; index++)
         {
             UIElement child = children[index];
             double width = index == children.Length - 1
                 ? remaining
-                : Math.Max(0d, finalSize.Width * GetWeight(child) / totalWeight);
+                : Math.Max(0d, finalSize.Width * GetWeight(child) / denominator);
             child.Arrange(new Rect(x, 0d, width, Math.Max(0d, finalSize.Height)));
             x += width;
-            remaining = Math.Max(0d, finalSize.Width - x);
+            remaining = Math.Max(0d, occupiedWidth - x);
         }
 
         foreach (UIElement child in InternalChildren.Cast<UIElement>()

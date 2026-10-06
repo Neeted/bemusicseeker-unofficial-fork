@@ -2935,6 +2935,8 @@ function Invoke-VerificationMonitoredCommand {
         [Parameter(Mandatory)]
         [object]$DeadlinePolicy,
 
+        [hashtable]$Environment,
+
         [object]$PostStartFaultGuard,
 
         [switch]$TerminateProcessTree,
@@ -2947,6 +2949,7 @@ function Invoke-VerificationMonitoredCommand {
         -FileName $CommandPath `
         -Arguments $Arguments `
         -WorkingDirectory $WorkingDirectory `
+        -Environment $Environment `
         -DeadlinePolicy $DeadlinePolicy `
         -DiagnosticsDirectory $DiagnosticsDirectory `
         -PostStartFaultGuard $PostStartFaultGuard `

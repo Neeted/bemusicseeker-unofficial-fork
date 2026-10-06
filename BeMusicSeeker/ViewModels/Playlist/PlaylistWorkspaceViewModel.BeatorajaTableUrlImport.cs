@@ -12,6 +12,8 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private const string BeatorajaTableUrlImportProgressSource = "beatoraja_table_url_import";
+
     private int beatorajaTableUrlImportRunning;
 
     internal event EventHandler<BeatorajaTableUrlImportConfirmationRequestedEventArgs> BeatorajaTableUrlImportConfirmationRequested;
@@ -145,7 +147,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         var totalStopwatch = Stopwatch.StartNew();
         BMSPlaylist tables = GetPlaylistStore();
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
-        BeginPlaylistSyncProgressOperation();
+        BeginPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
         try
         {
             UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
@@ -331,7 +333,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             totalStopwatch.Stop();
             WriteBeatorajaTableUrlImportInfo("beatoraja_table_url_import completed targetCount=" + totalCount + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
-            EndPlaylistSyncProgressOperation();
+            EndPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
             PlaylistOperationNotificationPresentationRequested?.Invoke(
                 this,
                 new PlaylistOperationNotificationPresentationRequestedEventArgs(
@@ -394,6 +396,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         string detail = BuildBeatorajaTableUrlImportProgressDetail(phaseText, currentTableName);
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
+            Source = BeatorajaTableUrlImportProgressSource,
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),
             CompletedTableCount = Math.Max(0, completedCount),

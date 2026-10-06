@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Reflection;
-using BeMusicSeeker;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Tests;

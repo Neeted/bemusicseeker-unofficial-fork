@@ -19,7 +19,7 @@ apply to the native binaries.
 
 Current retained x64 components:
 - bass.dll 2.4.18.3 / API 0x02041203
-- bassmix.dll 2.4.12.0 / API 0x02040C00
+- bassmix.dll 2.4.13.0 / API 0x02040D00
 - bassenc.dll 2.4.17.0 / API 0x02041100
 - basswasapi.dll 2.4.4.1 / API 0x02040401
 

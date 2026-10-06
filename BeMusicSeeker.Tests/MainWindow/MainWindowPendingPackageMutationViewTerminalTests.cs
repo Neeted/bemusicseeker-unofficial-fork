@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -293,7 +292,11 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(finalizationFailed ? System.Windows.MessageBoxImage.Error : System.Windows.MessageBoxImage.Warning, dialogs.Messages[0].Icon);
         StringAssert.Contains(dialogs.Messages[0].MessageBoxText, cleanup.Message);
-        if (primary != null) StringAssert.Contains(dialogs.Messages[0].MessageBoxText, primary.Message);
+        if (primary != null)
+        {
+            StringAssert.Contains(dialogs.Messages[0].MessageBoxText, primary.Message);
+        }
+
         Assert.AreSame(sessionReceipt, result.SessionReceipt);
         Assert.IsTrue(result.HasDurableCommit);
     }

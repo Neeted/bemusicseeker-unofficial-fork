@@ -34,7 +34,9 @@ internal static class LegacyUserConfigMigrator
             try
             {
                 if (Directory.EnumerateFiles(Path.GetDirectoryName(configPath), Path.GetFileName(configPath) + ".broken-*").Any())
+                {
                     return;
+                }
             }
             catch (DirectoryNotFoundException) { }
 
@@ -76,7 +78,11 @@ internal static class LegacyUserConfigMigrator
         }
         catch (Exception ex)
         {
-            if (ex is PortableSettingsException) throw;
+            if (ex is PortableSettingsException)
+            {
+                throw;
+            }
+
             throw new PortableSettingsException(configPath, "Migrate", ex);
         }
     }

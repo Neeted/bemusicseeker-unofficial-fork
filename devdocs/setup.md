@@ -2,6 +2,8 @@
 
 Windows 11の新しい開発環境を準備するための手順です。初回構築時、または依存ツールの不足によってビルド・検証に失敗したときに参照してください。構築済みの環境で、通常の開発作業のたびに環境確認やインストールを実行する必要はありません。
 
+Linuxで編集・クロスビルド・移植可能な既存テストの局所検証を行う場合は、[Linuxの構築手順](setup-linux.md)を参照してください。Windows上の標準検証は本書の手順を使います。
+
 本書は公開リポジトリの `dev` を対象とします。リリースZIPではなく、アプリのソース一式、`BeMusicSeeker.sln`、`global.json`、`scripts/verify-refactor.ps1` を含むチェックアウトを使用します。
 
 ```powershell
@@ -38,7 +40,7 @@ WinGetがない場合やインストーラーを使う場合は、[Microsoftの�
 
 必要なSDKのバージョンは、リポジトリルートの[global.json](../global.json)を正本とします。[.NETの公式ダウンロードページ](https://dotnet.microsoft.com/download/dotnet)で、指定に対応するWindows x64版の**SDK**をインストールしてください。実行専用のRuntimeだけではビルドできません。
 
-`version`と`rollForward`を合わせて確認します。例えば、`version`が`10.0.302`、`rollForward`が`latestPatch`なら、10.0.302以上の10.0.3xx系列が対象です。10.0.4xxだけを導入しても条件を満たしません。「最新の.NET 10」を無条件に選ぶのではなく、チェックアウトした版の指定に合わせます。詳細は[SDKの選択規則](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json)を参照してください。
+`version`と`rollForward`を合わせて確認します。現在の指定は`version`が`10.0.401`、`rollForward`が`latestFeature`で、10.0.401以上の.NET 10.0 SDKを使用できます。後続の機能帯も対象となり、条件を満たすインストール済みSDKのうち最も新しいものを選択します。10.0.401未満のSDKや.NET 11以降のSDKは対象外です。チェックアウトした版の指定に合わせて導入してください。詳細は[SDKの選択規則](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json)を参照してください。
 
 インストール後はターミナルを開き直します。SDKに合わせるために`global.json`やパッケージのロックファイルを変更する必要はありません。
 
@@ -62,9 +64,9 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 
 成功・失敗の判定、実行期限、再実行の条件は[テストの実行と受入検証](spec/development/testing.md)を参照してください。失敗した場合は、表示された失敗段階と診断先を確認します。診断用の出力は`artifacts/verification/`に生成されます。
 
-### 4. 生成したアプリを確認する
+### 生成したアプリの実機確認（任意）
 
-標準検証が成功したら、生成されたアプリを起動します。次の例は、出力フォルダを作業ディレクトリとして明示します。
+`Functional`が成功すれば、通常開発を始められる状態です。初期設定や実環境での読込みを確認したい場合は、生成されたアプリを起動できます。実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従い、AIエージェントによる実機確認はユーザーの明示依頼がある場合に行います。次の例は、出力フォルダを作業ディレクトリとして明示します。
 
 ```powershell
 $appDirectory = Join-Path (Get-Location).Path 'bin\x64\Release\net10.0-windows'
@@ -75,8 +77,6 @@ $appProcess = Start-Process -FilePath (Join-Path $appDirectory 'BeMusicSeeker.ex
 初回設定では、検証用の小さいBMSライブラリを指定します。単体動作モードを使えば、LR2のDBを準備せずに確認できます。既存のBeMusicSeeker設定が自動移行される場合があるため、実際に選ばれている動作モードと参照先を確認してから読み込んでください。初期設定の詳細は[日本語マニュアル](../docs/manual.ja.md)を参照します。
 
 画面の表示、初期設定、検証用ライブラリの読込みを確認したら、起動したアプリを通常の終了操作で閉じます。既存のインストール版と取り違えないよう、上記の生成先を使ってください。AIエージェントによる画面確認では、[画面確認の規則](spec/development/testing.md#画面確認)にも従います。
-
-`Functional`が成功し、生成したアプリで初期設定と読込みを確認できれば、通常開発を始められる状態です。
 
 ## 用途別の追加準備
 

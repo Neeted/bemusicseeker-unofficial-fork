@@ -2,9 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -67,7 +65,6 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
         };
         var playlist = new TestBmsPlaylist(
             songDbPath,
-            null,
             null,
             null,
             null,

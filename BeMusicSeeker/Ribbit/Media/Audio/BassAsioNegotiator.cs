@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Mix;
-using Ribbit.Media;
 
 namespace Ribbit.Media.Audio;
 
@@ -14,7 +15,7 @@ internal readonly record struct BassAsioDeviceSnapshot(string Name, string Drive
 /// <summary>
 /// Exposes the native calls required to negotiate one ASIO output graph.
 /// </summary>
-internal interface IAsioNegotiationNativeBoundary
+internal interface IAsioNegotiationNativeBoundary : IBassMixerThreadNativeBoundary
 {
     /// <summary>Initializes the decode-only BASS core device.</summary>
     bool InitializeCore();
@@ -43,6 +44,9 @@ internal interface IAsioNegotiationNativeBoundary
     /// <summary>Gets the ASIO driver's current sample rate.</summary>
     double GetRate();
 
+    /// <summary>ASIO現在レートを読み取り、無効値の場合はAPIエラーを取得します。</summary>
+    bool TryGetRate(out double rate, out Errors error);
+
     /// <summary>Checks whether the ASIO driver accepts a sample rate.</summary>
     bool CheckRate(double rate);
 
@@ -55,8 +59,18 @@ internal interface IAsioNegotiationNativeBoundary
     /// <summary>Sets the ASIO callback sample format.</summary>
     bool SetChannelFormat(AsioSampleFormat format);
 
-    /// <summary>Gets the ASIO callback sample format accepted by the driver.</summary>
-    AsioSampleFormat GetChannelFormat();
+    /// <summary>指定チャンネルの機器形式を読み取り、失敗時はネイティブエラーを取得します。</summary>
+    bool TryGetChannelNativeFormat(
+        bool input,
+        int channel,
+        out AsioSampleFormat format,
+        out Errors error);
+
+    /// <summary>callback形式のraw値を読み取り、API失敗時はネイティブエラーを取得します。</summary>
+    bool TryGetChannelFormat(out AsioSampleFormat format, out Errors error);
+
+    /// <summary>callback negotiationでは変化しないendpointのnative formatを読み取ります。</summary>
+    bool TryGetEndpointNativeFormat(out AsioSampleFormat format, out Errors error);
 
     /// <summary>Creates the decode mixer that supplies the ASIO callback.</summary>
     int CreateMixer(int rate, int channels, BassFlags flags);
@@ -85,8 +99,19 @@ internal interface IAsioNegotiationNativeBoundary
 /// </summary>
 internal sealed class BassAsioNegotiator
 {
+    // ManagedBass.Asio 4.0.2の公開enumにBASS_ASIO_FORMAT_DITHERがないため、native定数を指定します。
+    private const int AsioFormatDitherFlag = 0x100;
+
+    // ManagedBass.Asio 4.0.2の公開enumにない32-bit容器PCM形式です。
+    // 値はBASSASIO公式ヘッダーc/bassasio.hのBASS_ASIO_FORMAT_32BIT16～32BIT24に従います。
+    // https://www.un4seen.com/files/bassasio14.zip
+    private const int AsioFormat32Bit16 = 24;
+    private const int AsioFormat32Bit18 = 25;
+    private const int AsioFormat32Bit20 = 26;
+    private const int AsioFormat32Bit24 = 27;
+
     private static readonly int[] StandardRates =
-        [48000, 44100, 96000, 88200, 192000, 176400, 32000, 22050, 11025];
+        [48000, 44100, 96000, 88200, 192000, 176400, 352800, 384000, 32000, 22050, 11025];
 
     private readonly IAsioNegotiationNativeBoundary native;
 
@@ -97,13 +122,14 @@ internal sealed class BassAsioNegotiator
     }
 
     /// <summary>
-    /// Initializes one ASIO graph using Float32 end-to-end, or Int16 end-to-end when Float32
-    /// is unavailable, and returns values read back from the driver.
+    /// Initializes one ASIO graph with a Float32 engine and callback, and returns the
+    /// endpoint's native format separately from callback negotiation.
     /// </summary>
     internal BassAudioBackendResult Initialize(
         BassAudioNegotiationRequest request,
         BassAudioSession session,
-        AsioProcedure callback)
+        AsioProcedure callback,
+        double initialGain = 1d)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(session);
@@ -124,7 +150,8 @@ internal sealed class BassAsioNegotiator
                 "BASS_Init",
                 "BASS",
                 error,
-                "BASS_Init failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_Init failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.CoreInitialized = true;
         session.CoreDeviceIndex = native.GetCoreDevice();
@@ -141,7 +168,8 @@ internal sealed class BassAsioNegotiator
                 "BASSASIO",
                 deviceInfosError,
                 "BASS_ASIO_GetDeviceInfos failed: "
-                + BassNativeErrorFormatter.Format(deviceInfosError));
+                + BassNativeErrorFormatter.Format(deviceInfosError),
+                attempts: attempts);
         }
         if (devices.Length == 0)
         {
@@ -151,10 +179,25 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_GetDeviceInfos",
                 "BASSASIO",
                 null,
-                "ASIO device not found.");
+                "ASIO device not found.",
+                attempts: attempts);
         }
 
-        (int deviceIndex, string deviceFallbackReason) = SelectDevice(devices, request.Device);
+        (int deviceIndex, string deviceFallbackReason) = SelectDevice(
+            devices,
+            request.Device,
+            request.RequiresExactSelection);
+        if (deviceIndex < 0)
+        {
+            throw Failure(
+                request,
+                session,
+                "BASS_ASIO_GetDeviceInfos",
+                "BASSASIO",
+                null,
+                "The requested ASIO device is unavailable.",
+                attempts: attempts);
+        }
         if (!native.TryGetDeviceInfo(
                 deviceIndex,
                 out BassAsioDeviceSnapshot deviceInfo,
@@ -167,7 +210,8 @@ internal sealed class BassAsioNegotiator
                 "BASSASIO",
                 deviceInfoError,
                 "BASS_ASIO_GetDeviceInfo failed: "
-                + BassNativeErrorFormatter.Format(deviceInfoError));
+                + BassNativeErrorFormatter.Format(deviceInfoError),
+                attempts: attempts);
         }
         var actualDevice = new BassAudioPlayer.DeviceDescriptor(deviceInfo.Name, deviceInfo.Driver);
         AddFallbackReason(fallbackReasons, deviceFallbackReason);
@@ -183,7 +227,8 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_Init",
                 "BASSASIO",
                 error,
-                "BASS_ASIO_Init failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_ASIO_Init failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.AsioInitialized = true;
         session.AsioDeviceIndex = native.GetAsioDevice();
@@ -204,18 +249,57 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_ChannelSetRate",
                 "BASSASIO",
                 error,
-                "BASS_ASIO_ChannelSetRate failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_ASIO_ChannelSetRate failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
 
-        (SampleFormat engineFormat, AsioSampleFormat asioFormat) =
-            NegotiateFormat(request, session, attempts, fallbackReasons);
-        BassFlags mixerFlags = BassFlags.Decode | BassFlags.MixerNonStop;
-        if (engineFormat == SampleFormat.SAMPLE_FLOAT_32BIT)
+        if (!native.TryGetEndpointNativeFormat(
+                out AsioSampleFormat endpointNativeFormat,
+                out Errors endpointFormatError))
         {
-            mixerFlags |= BassFlags.Float;
+            throw Failure(
+                request,
+                session,
+                "BASS_ASIO_ChannelGetInfo",
+                "BASSASIO",
+                endpointFormatError,
+                "BASS_ASIO_ChannelGetInfo failed: "
+                + BassNativeErrorFormatter.Format(endpointFormatError),
+                attempts: attempts);
         }
 
-        int mixerHandle = native.CreateMixer((int)System.Math.Round(actualRate), 2, mixerFlags);
+        (SampleFormat endpointFormat, int containerBits, int effectiveBits) =
+            DescribeNativeFormat(endpointNativeFormat);
+        if (endpointFormat == SampleFormat.UNKNOWN)
+        {
+            throw Failure(
+                request,
+                session,
+                "BASS_ASIO_ChannelGetInfo",
+                "BASSASIO",
+                null,
+                "ASIO endpoint format " + endpointNativeFormat
+                + " is not supported by the Float32 PCM output path.",
+                attempts: attempts);
+        }
+
+        attempts.Add(new BassAudioBackendAttempt(
+            "BASS_ASIO_ChannelGetInfo",
+            "BASSASIO",
+            null,
+            "accepted nativeFormat=" + (int)endpointNativeFormat
+            + " containerBits=" + containerBits
+            + " effectiveBits=" + effectiveBits));
+
+        SampleFormat engineFormat = NegotiateFormat(
+            request,
+            session,
+            endpointNativeFormat,
+            attempts,
+            fallbackReasons);
+        BassFlags mixerFlags = BassFlags.Float | BassFlags.Decode | BassFlags.MixerNonStop;
+        int negotiatedRate = checked((int)System.Math.Round(actualRate, MidpointRounding.ToEven));
+        int mixerHandle = native.CreateMixer(negotiatedRate, 2, mixerFlags);
         if (mixerHandle == 0)
         {
             Errors error = native.GetCoreError();
@@ -225,10 +309,32 @@ internal sealed class BassAsioNegotiator
                 "BASS_Mixer_StreamCreate",
                 "BASS",
                 error,
-                "BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_Mixer_StreamCreate failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.MixerHandle = mixerHandle;
         session.TrackOutputHandle(mixerHandle);
+        try
+        {
+            BassMixerThreadConfigurator.SetAndConfirm(
+                mixerHandle,
+                native,
+                request.PlayerMixerThreadCount);
+        }
+        catch (BassMixerThreadConfigurationException exception)
+        {
+            throw Failure(
+                request,
+                session,
+                exception.NativeApi,
+                "BASS",
+                exception.NativeErrorCode,
+                exception.Message,
+                exception,
+                attempts);
+        }
+        session.OutputProcessor = new AudioOutputProcessor(negotiatedRate, initialGain);
+        session.CallbackPcmRenderer = new AudioPcmRenderer(mixerHandle, negotiatedRate, channelCount: 2);
 
         if (!native.EnableOutputChannel(callback))
         {
@@ -239,7 +345,8 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_ChannelEnable",
                 "BASSASIO",
                 error,
-                "BASS_ASIO_ChannelEnable failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_ASIO_ChannelEnable failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         if (!native.JoinOutputChannel(1))
         {
@@ -250,7 +357,8 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_ChannelJoin",
                 "BASSASIO",
                 error,
-                "BASS_ASIO_ChannelJoin failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_ASIO_ChannelJoin failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
 
         int requestedBufferLength = (int)System.Math.Max(
@@ -265,12 +373,12 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_Start",
                 "BASSASIO",
                 error,
-                "BASS_ASIO_Start failed: " + BassNativeErrorFormatter.Format(error));
+                "BASS_ASIO_Start failed: " + BassNativeErrorFormatter.Format(error),
+                attempts: attempts);
         }
         session.IsStarted = true;
 
         double latencyMilliseconds = native.GetOutputLatency() * 1000d / actualRate;
-        SampleFormat endpointFormat = FromAsioFormat(asioFormat);
         var result = new BassAudioBackendResult(
             request,
             actualDevice,
@@ -280,13 +388,20 @@ internal sealed class BassAsioNegotiator
             latencyMilliseconds,
             mixerHandle,
             attempts.AsReadOnly(),
-            fallbackReasons.Count == 0 ? null : string.Join(" ", fallbackReasons));
+            fallbackReasons.Count == 0 ? null : string.Join(" ", fallbackReasons),
+            actualChannels: 2,
+            callbackFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
+            endpointContainerBits: containerBits,
+            endpointEffectiveBits: effectiveBits);
         session.NegotiationResult = result;
         return result;
     }
 
     /// <summary>Builds the deterministic, duplicate-free ASIO sample-rate candidate list.</summary>
-    internal static IReadOnlyList<int> GetRateCandidates(SampleRate requestedRate, double driverCurrentRate)
+    internal static IReadOnlyList<int> GetRateCandidates(
+        SampleRate requestedRate,
+        double driverCurrentRate,
+        bool allowExplicitRateFallback = true)
     {
         var result = new List<int>();
         var seen = new HashSet<int>();
@@ -303,6 +418,10 @@ internal sealed class BassAsioNegotiator
         if (requestedRate != SampleRate.AUTO)
         {
             Add((int)requestedRate);
+            if (!allowExplicitRateFallback)
+            {
+                return result.AsReadOnly();
+            }
         }
         Add(driverCurrentRate);
         foreach (int standardRate in StandardRates)
@@ -312,6 +431,220 @@ internal sealed class BassAsioNegotiator
         return result.AsReadOnly();
     }
 
+    /// <summary>選択済みASIOドライバーの能力を、rateやcallback形式を変更せずに照会します。取消はnative初期化・候補検査の間で確認します。</summary>
+    internal AudioDeviceCapabilityResult QueryCapabilities(
+        AudioDeviceCapabilityRequest request,
+        BassAudioSession session, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(session);
+        if (request.Backend != AudioDriver.Asio)
+        {
+            throw new ArgumentException("ASIO capabilities require an ASIO request.", nameof(request));
+        }
+
+        var attempts = new List<BassAudioBackendAttempt>();
+        if (!native.InitializeCore())
+        {
+            Errors error = native.GetCoreError();
+            return CapabilityFailure(request, "BASS_Init", "BASS", error, attempts);
+        }
+        session.CoreInitialized = true;
+        session.CoreDeviceIndex = native.GetCoreDevice();
+        native.DisableCoreUpdatePeriod();
+
+        if (!native.TryGetDeviceInfos(
+                out BassAsioDeviceSnapshot[] devices,
+                out Errors deviceInfosError))
+        {
+            return CapabilityFailure(
+                request,
+                "BASS_ASIO_GetDeviceInfos",
+                "BASSASIO",
+                deviceInfosError,
+                attempts);
+        }
+
+        int deviceIndex = string.IsNullOrWhiteSpace(request.DeviceIdentity)
+            ? (devices.Length == 0 ? -1 : 0)
+            : Array.FindIndex(devices, device => string.Equals(
+                device.Driver,
+                request.DeviceIdentity,
+                StringComparison.Ordinal));
+        if (deviceIndex < 0)
+        {
+            attempts.Add(new BassAudioBackendAttempt(
+                "audio device selection",
+                null,
+                null,
+                "unavailable identity=" + (request.DeviceIdentity ?? "Default")));
+            return CapabilityFailure(request, "audio device selection", null, null, attempts);
+        }
+
+        if (!native.TryGetDeviceInfo(
+                deviceIndex,
+                out BassAsioDeviceSnapshot deviceInfo,
+                out Errors deviceInfoError))
+        {
+            return CapabilityFailure(
+                request,
+                "BASS_ASIO_GetDeviceInfo",
+                "BASSASIO",
+                deviceInfoError,
+                attempts);
+        }
+        session.ActualDevice = new BassAudioPlayer.DeviceDescriptor(deviceInfo.Name, deviceInfo.Driver);
+        session.AsioDeviceIndex = deviceIndex;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!native.InitializeAsio(deviceIndex))
+        {
+            Errors error = native.GetAsioError();
+            return CapabilityFailure(request, "BASS_ASIO_Init", "BASSASIO", error, attempts);
+        }
+        session.AsioInitialized = true;
+        session.AsioDeviceIndex = native.GetAsioDevice();
+
+        if (!native.TryGetRate(out double driverRate, out Errors rateError))
+        {
+            return CapabilityFailure(request, "BASS_ASIO_GetRate", "BASSASIO", rateError, attempts);
+        }
+        attempts.Add(new BassAudioBackendAttempt(
+            "BASS_ASIO_GetRate",
+            "BASSASIO",
+            null,
+            "readback rate=" + driverRate));
+
+        IReadOnlyList<int> candidates = GetCapabilityRateCandidates(request.SavedRate, driverRate);
+        var supportedRates = new List<SampleRate>();
+        foreach (int candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (native.CheckRate(candidate))
+            {
+                supportedRates.Add((SampleRate)candidate);
+                attempts.Add(new BassAudioBackendAttempt(
+                    "BASS_ASIO_CheckRate",
+                    "BASSASIO",
+                    null,
+                    "supported rate=" + candidate));
+                continue;
+            }
+
+            Errors error = native.GetAsioError();
+            attempts.Add(new BassAudioBackendAttempt(
+                "BASS_ASIO_CheckRate",
+                "BASSASIO",
+                error,
+                "unsupported rate=" + candidate));
+            if (error != Errors.NotAvailable)
+            {
+                return CapabilityFailure(request, "BASS_ASIO_CheckRate", "BASSASIO", error, attempts);
+            }
+        }
+
+        if (!native.TryGetChannelNativeFormat(false, 0, out AsioSampleFormat leftFormat, out Errors leftError))
+        {
+            attempts.Add(new BassAudioBackendAttempt(
+                "BASS_ASIO_ChannelGetInfo",
+                "BASSASIO",
+                leftError,
+                "failed outputChannel=0"));
+            return CapabilityFailure(request, "BASS_ASIO_ChannelGetInfo", "BASSASIO", leftError, attempts);
+        }
+        if (!native.TryGetChannelNativeFormat(false, 1, out AsioSampleFormat rightFormat, out Errors rightError))
+        {
+            attempts.Add(new BassAudioBackendAttempt(
+                "BASS_ASIO_ChannelGetInfo",
+                "BASSASIO",
+                rightError,
+                "failed outputChannel=1"));
+            return CapabilityFailure(request, "BASS_ASIO_ChannelGetInfo", "BASSASIO", rightError, attempts);
+        }
+
+        (SampleFormat leftSampleFormat, int leftContainerBits, int leftEffectiveBits) = DescribeNativeFormat(leftFormat);
+        (SampleFormat rightSampleFormat, int rightContainerBits, int rightEffectiveBits) = DescribeNativeFormat(rightFormat);
+        if (leftSampleFormat == SampleFormat.UNKNOWN || rightSampleFormat == SampleFormat.UNKNOWN)
+        {
+            attempts.Add(new BassAudioBackendAttempt(
+                "BASS_ASIO_ChannelGetInfo",
+                "BASSASIO",
+                null,
+                "unsupported native output format leftRaw=" + (int)leftFormat
+                + " rightRaw=" + (int)rightFormat));
+            return CapabilityFailure(request, "BASS_ASIO_ChannelGetInfo", "BASSASIO", null, attempts);
+        }
+        attempts.Add(new BassAudioBackendAttempt(
+            "BASS_ASIO_ChannelGetInfo",
+            "BASSASIO",
+            null,
+            "readback leftRaw=" + (int)leftFormat
+            + " rightRaw=" + (int)rightFormat
+            + " leftContainerBits=" + leftContainerBits
+            + " leftEffectiveBits=" + leftEffectiveBits
+            + " rightContainerBits=" + rightContainerBits
+            + " rightEffectiveBits=" + rightEffectiveBits));
+
+        return new AudioDeviceCapabilityResult(
+            request.Backend,
+            deviceInfo.Driver,
+            deviceInfo.Name,
+            supportedRates.Count == 0
+                ? AudioDeviceCapabilityStatus.Unsupported
+                : AudioDeviceCapabilityStatus.Available,
+            supportedRates,
+            endpointFormat: leftSampleFormat,
+            rightEndpointFormat: rightSampleFormat,
+            endpointContainerBits: leftContainerBits,
+            endpointEffectiveBits: leftEffectiveBits,
+            rightEndpointContainerBits: rightContainerBits,
+            rightEndpointEffectiveBits: rightEffectiveBits,
+            endpointChannels: 2,
+            attempts: attempts);
+    }
+
+    private static IReadOnlyList<int> GetCapabilityRateCandidates(
+        SampleRate savedRate,
+        double driverCurrentRate)
+    {
+        var result = new List<int>();
+        var seen = new HashSet<int>();
+
+        void Add(double rate)
+        {
+            int rounded = (int)System.Math.Round(rate);
+            if (rounded > 0 && seen.Add(rounded))
+            {
+                result.Add(rounded);
+            }
+        }
+
+        Add(driverCurrentRate);
+        Add((int)savedRate);
+        foreach (int rate in StandardRates)
+        {
+            Add(rate);
+        }
+        return result.AsReadOnly();
+    }
+
+    private static AudioDeviceCapabilityResult CapabilityFailure(
+        AudioDeviceCapabilityRequest request,
+        string stage,
+        string nativeErrorSource,
+        Errors? nativeErrorCode,
+        IReadOnlyList<BassAudioBackendAttempt> attempts) =>
+        new(
+            request.Backend,
+            request.DeviceIdentity,
+            request.DeviceName,
+            AudioDeviceCapabilityStatus.Failed,
+            failureStage: stage,
+            nativeErrorSource: nativeErrorSource,
+            nativeErrorCode: nativeErrorCode,
+            attempts: attempts);
+
     private double NegotiateRate(
         BassAudioNegotiationRequest request,
         BassAudioSession session,
@@ -319,7 +652,10 @@ internal sealed class BassAsioNegotiator
         List<BassAudioBackendAttempt> attempts,
         List<string> fallbackReasons)
     {
-        foreach (int candidate in GetRateCandidates(request.Rate, driverCurrentRate))
+        foreach (int candidate in GetRateCandidates(
+                     request.Rate,
+                     driverCurrentRate,
+                     allowExplicitRateFallback: !request.RequiresExactSelection))
         {
             if (!native.CheckRate(candidate))
             {
@@ -345,14 +681,30 @@ internal sealed class BassAsioNegotiator
             double actualRate = native.GetRate();
             if (actualRate > 0d)
             {
+                bool explicitRateMismatch = request.Rate != SampleRate.AUTO
+                    && (int)request.Rate != (int)System.Math.Round(actualRate);
                 attempts.Add(new BassAudioBackendAttempt(
                     "BASS_ASIO_GetRate",
                     "BASSASIO",
                     null,
-                    "accepted rate=" + actualRate));
-                if (request.Rate != SampleRate.AUTO
-                    && (int)request.Rate != (int)System.Math.Round(actualRate))
+                    explicitRateMismatch
+                        ? "mismatched requestedRate=" + (int)request.Rate + " actualRate=" + actualRate
+                        : "accepted rate=" + actualRate));
+                if (explicitRateMismatch)
                 {
+                    if (request.RequiresExactSelection)
+                    {
+                        throw Failure(
+                            request,
+                            session,
+                            "BASS_ASIO_GetRate",
+                            "BASSASIO",
+                            null,
+                            "Requested ASIO sample rate " + (int)request.Rate
+                            + " was read back as " + actualRate + ".",
+                            attempts: attempts);
+                    }
+
                     string rejectedErrors = string.Join(
                         ", ",
                         attempts
@@ -382,63 +734,70 @@ internal sealed class BassAsioNegotiator
             "BASSASIO",
             finalError,
             "BASS_ASIO sample-rate negotiation failed: "
-            + BassNativeErrorFormatter.Format(finalError));
+            + BassNativeErrorFormatter.Format(finalError),
+            attempts: attempts);
     }
 
-    private (SampleFormat EngineFormat, AsioSampleFormat AsioFormat)
-        NegotiateFormat(
-            BassAudioNegotiationRequest request,
-            BassAudioSession session,
-            List<BassAudioBackendAttempt> attempts,
-            List<string> fallbackReasons)
+    private SampleFormat NegotiateFormat(
+        BassAudioNegotiationRequest request,
+        BassAudioSession session,
+        AsioSampleFormat endpointNativeFormat,
+        List<BassAudioBackendAttempt> attempts,
+        List<string> fallbackReasons)
     {
-        if (TrySetAndReadFormat(AsioSampleFormat.Float, attempts))
+        SampleFormat endpointFormat = DescribeNativeFormat(endpointNativeFormat).EndpointFormat;
+        bool needsDither = endpointNativeFormat != AsioSampleFormat.Float;
+        AsioSampleFormat callbackFormat = needsDither
+            ? (AsioSampleFormat)((int)AsioSampleFormat.Float | AsioFormatDitherFlag)
+            : AsioSampleFormat.Float;
+        if (!TrySetAndReadFormat(
+                callbackFormat,
+                attempts,
+                out string failureStage,
+                out Errors? failureError))
         {
-            if (request.Format is SampleFormat.SAMPLE_INT_8BIT
-                or SampleFormat.SAMPLE_INT_16BIT
-                or SampleFormat.SAMPLE_INT_24BIT
-                or SampleFormat.SAMPLE_INT_32BIT)
-            {
-                AddFallbackReason(
-                    fallbackReasons,
-                    "Requested ASIO format " + request.Format
-                    + " was normalized to Float32 to keep mixer and callback byte widths equal.");
-            }
-            return (
-                SampleFormat.SAMPLE_FLOAT_32BIT,
-                AsioSampleFormat.Float);
+            throw Failure(
+                request,
+                session,
+                failureStage,
+                "BASSASIO",
+                failureError,
+                "ASIO Float32 callback format negotiation failed. requestedRaw=0x"
+                + ((int)callbackFormat).ToString("X")
+                + " nativeError=" + BassNativeErrorFormatter.Format(failureError),
+                attempts: attempts);
         }
 
-        if (TrySetAndReadFormat(AsioSampleFormat.Bit16, attempts))
+        if (request.Format != SampleFormat.AUTO && request.Format != endpointFormat)
         {
-            BassAudioBackendAttempt floatFailure = attempts.First(attempt =>
-                attempt.Stage is "BASS_ASIO_ChannelSetFormat" or "BASS_ASIO_ChannelGetFormat");
+            if (request.RequiresExactSelection)
+            {
+                throw Failure(
+                    request,
+                    session,
+                    "BASS_ASIO_ChannelGetInfo",
+                    "BASSASIO",
+                    null,
+                    "Requested ASIO endpoint format " + request.Format
+                    + " differs from native endpoint format " + endpointFormat + ".",
+                    attempts: attempts);
+            }
             AddFallbackReason(
                 fallbackReasons,
-                "ASIO Float32 callback format was unavailable (nativeErrorSource="
-                + floatFailure.NativeErrorSource
-                + " nativeErrorCode=" + BassNativeErrorFormatter.Format(floatFailure.NativeErrorCode)
-                + "); mixer and callback both use Int16.");
-            return (
-                SampleFormat.SAMPLE_INT_16BIT,
-                AsioSampleFormat.Bit16);
+                "Requested ASIO endpoint format " + request.Format
+                + " differs from native endpoint format " + endpointFormat + ".");
         }
 
-        Errors error = native.GetAsioError();
-        throw Failure(
-            request,
-            session,
-            "BASS_ASIO_ChannelSetFormat",
-            "BASSASIO",
-            error,
-            "BASS_ASIO callback format negotiation failed: "
-            + BassNativeErrorFormatter.Format(error));
+        return SampleFormat.SAMPLE_FLOAT_32BIT;
     }
-
     private bool TrySetAndReadFormat(
         AsioSampleFormat candidate,
-        List<BassAudioBackendAttempt> attempts)
+        List<BassAudioBackendAttempt> attempts,
+        out string failureStage,
+        out Errors? failureError)
     {
+        failureStage = "BASS_ASIO_ChannelSetFormat";
+        failureError = null;
         if (!native.SetChannelFormat(candidate))
         {
             Errors error = native.GetAsioError();
@@ -446,23 +805,39 @@ internal sealed class BassAsioNegotiator
                 "BASS_ASIO_ChannelSetFormat",
                 "BASSASIO",
                 error,
-                "rejected format=" + candidate));
+                "rejected requestedRaw=0x" + ((int)candidate).ToString("X")));
+            failureError = error;
             return false;
         }
 
-        AsioSampleFormat actual = native.GetChannelFormat();
-        bool accepted = actual == candidate;
+        failureStage = "BASS_ASIO_ChannelGetFormat";
+        if (!native.TryGetChannelFormat(out AsioSampleFormat actual, out Errors getFormatError))
+        {
+            attempts.Add(new BassAudioBackendAttempt(
+                "BASS_ASIO_ChannelGetFormat",
+                "BASSASIO",
+                getFormatError,
+                "failed requestedRaw=0x" + ((int)candidate).ToString("X")
+                + " actualRaw=0x" + ((int)actual).ToString("X")));
+            failureError = getFormatError;
+            return false;
+        }
+
+        bool accepted = (int)actual == (int)candidate;
         attempts.Add(new BassAudioBackendAttempt(
             "BASS_ASIO_ChannelGetFormat",
-            "BASSASIO",
-            accepted ? null : native.GetAsioError(),
-            (accepted ? "accepted" : "mismatched") + " format=" + actual));
+            nativeErrorSource: null,
+            nativeErrorCode: null,
+            outcome: (accepted ? "accepted" : "mismatched") + " requestedRaw=0x"
+                + ((int)candidate).ToString("X")
+                + " actualRaw=0x" + ((int)actual).ToString("X")));
         return accepted;
     }
 
     private static (int DeviceIndex, string FallbackReason) SelectDevice(
         IReadOnlyList<BassAsioDeviceSnapshot> devices,
-        BassAudioPlayer.DeviceDescriptor requestedDevice)
+        BassAudioPlayer.DeviceDescriptor requestedDevice,
+        bool requireExactDevice)
     {
         if (requestedDevice.Equals(default(BassAudioPlayer.DeviceDescriptor)))
         {
@@ -472,7 +847,7 @@ internal sealed class BassAsioNegotiator
         int exact = devices
             .Select((device, index) => new { device, index })
             .FirstOrDefault(entry =>
-                requestedDevice.Name == entry.device.Name
+                !string.IsNullOrWhiteSpace(requestedDevice.Driver)
                 && requestedDevice.Driver == entry.device.Driver)
             ?.index ?? -1;
         if (exact >= 0)
@@ -486,11 +861,19 @@ internal sealed class BassAsioNegotiator
             ?.index ?? -1;
         if (compatibleName >= 0)
         {
+            if (requireExactDevice)
+            {
+                return (-1, null);
+            }
             return (
                 compatibleName,
                 "Requested ASIO device identity was stale; a compatible name match was used.");
         }
 
+        if (requireExactDevice)
+        {
+            return (-1, null);
+        }
         return (
             0,
             "Requested ASIO device was unavailable; the backend default device was used.");
@@ -504,14 +887,19 @@ internal sealed class BassAsioNegotiator
         }
     }
 
-    private static SampleFormat FromAsioFormat(AsioSampleFormat format) => format switch
-    {
-        AsioSampleFormat.Float => SampleFormat.SAMPLE_FLOAT_32BIT,
-        AsioSampleFormat.Bit16 => SampleFormat.SAMPLE_INT_16BIT,
-        AsioSampleFormat.Bit24 => SampleFormat.SAMPLE_INT_24BIT,
-        AsioSampleFormat.Bit32 => SampleFormat.SAMPLE_INT_32BIT,
-        _ => SampleFormat.UNKNOWN
-    };
+    private static (SampleFormat EndpointFormat, int ContainerBits, int EffectiveBits) DescribeNativeFormat(
+        AsioSampleFormat format) => format switch
+        {
+            AsioSampleFormat.Float => (SampleFormat.SAMPLE_FLOAT_32BIT, 32, 32),
+            AsioSampleFormat.Bit16 => (SampleFormat.SAMPLE_INT_16BIT, 16, 16),
+            AsioSampleFormat.Bit24 => (SampleFormat.SAMPLE_INT_24BIT, 24, 24),
+            AsioSampleFormat.Bit32 => (SampleFormat.SAMPLE_INT_32BIT, 32, 32),
+            (AsioSampleFormat)AsioFormat32Bit16 => (SampleFormat.SAMPLE_INT_32BIT, 32, 16),
+            (AsioSampleFormat)AsioFormat32Bit18 => (SampleFormat.SAMPLE_INT_32BIT, 32, 18),
+            (AsioSampleFormat)AsioFormat32Bit20 => (SampleFormat.SAMPLE_INT_32BIT, 32, 20),
+            (AsioSampleFormat)AsioFormat32Bit24 => (SampleFormat.SAMPLE_INT_32BIT, 32, 24),
+            _ => (SampleFormat.UNKNOWN, 0, 0)
+        };
 
     private static AudioInitializationException Failure(
         BassAudioNegotiationRequest request,
@@ -519,7 +907,9 @@ internal sealed class BassAsioNegotiator
         string stage,
         string source,
         Errors? error,
-        string message) =>
+        string message,
+        Exception innerException = null,
+        IReadOnlyList<BassAudioBackendAttempt> attempts = null) =>
         new(
             request.Backend,
             BassAudioPlayer.DeviceDriver.ASIO,
@@ -528,12 +918,15 @@ internal sealed class BassAsioNegotiator
             session.ActualDevice,
             source,
             error,
-            message);
+            message,
+            innerException,
+            attempts);
 }
 
 /// <summary>Forwards ASIO negotiation calls to ManagedBass.</summary>
 internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNativeBoundary
 {
+    private readonly IBassMixerThreadNativeBoundary mixerThreadNative = new BassMixerThreadNativeBoundary();
     private Errors? coreErrorOverride;
     private Errors? asioErrorOverride;
 
@@ -554,6 +947,17 @@ internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNative
 
     /// <inheritdoc />
     public int GetCoreDevice() => Bass.CurrentDevice;
+
+    /// <inheritdoc />
+    public bool SetMixerThreadCount(int mixerHandle, float threadCount) =>
+        mixerThreadNative.SetMixerThreadCount(mixerHandle, threadCount);
+
+    /// <inheritdoc />
+    public bool GetMixerThreadCount(int mixerHandle, out float threadCount) =>
+        mixerThreadNative.GetMixerThreadCount(mixerHandle, out threadCount);
+
+    /// <inheritdoc />
+    public Errors GetMixerThreadError() => GetCoreError();
 
     /// <inheritdoc />
     public void DisableCoreUpdatePeriod()
@@ -645,6 +1049,31 @@ internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNative
     public double GetRate() => BassAsio.Rate;
 
     /// <inheritdoc />
+    public bool TryGetRate(out double rate, out Errors error)
+    {
+        asioErrorOverride = null;
+        rate = 0d;
+        try
+        {
+            rate = BassAsio.Rate;
+            if (rate <= 0d || double.IsNaN(rate) || double.IsInfinity(rate))
+            {
+                error = BassAsio.LastError;
+                return false;
+            }
+
+            error = Errors.OK;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            asioErrorOverride = exception.ErrorCode;
+            error = exception.ErrorCode;
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public bool CheckRate(double rate)
     {
         asioErrorOverride = null;
@@ -682,7 +1111,66 @@ internal sealed class BassAsioNegotiationNativeBoundary : IAsioNegotiationNative
     }
 
     /// <inheritdoc />
-    public AsioSampleFormat GetChannelFormat() => BassAsio.ChannelGetFormat(false, 0);
+    public bool TryGetChannelFormat(out AsioSampleFormat format, out Errors error)
+    {
+        asioErrorOverride = null;
+        format = AsioSampleFormat.Unknown;
+        try
+        {
+            format = BassAsio.ChannelGetFormat(false, 0);
+            if (format == AsioSampleFormat.Unknown)
+            {
+                error = BassAsio.LastError;
+                return false;
+            }
+
+            error = Errors.OK;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            asioErrorOverride = exception.ErrorCode;
+            error = exception.ErrorCode;
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetEndpointNativeFormat(out AsioSampleFormat format, out Errors error)
+        => TryGetChannelNativeFormat(false, 0, out format, out error);
+
+    /// <inheritdoc />
+    public bool TryGetChannelNativeFormat(
+        bool input,
+        int channel,
+        out AsioSampleFormat format,
+        out Errors error)
+    {
+        format = AsioSampleFormat.Unknown;
+        error = Errors.Unknown;
+        try
+        {
+            if (!BassAsio.ChannelGetInfo(input, channel, out AsioChannelInfo info))
+            {
+                error = BassAsio.LastError;
+                return false;
+            }
+
+            format = info.Format;
+            if (format == AsioSampleFormat.Unknown)
+            {
+                error = BassAsio.LastError;
+                return false;
+            }
+            error = Errors.OK;
+            return true;
+        }
+        catch (BassException exception)
+        {
+            error = exception.ErrorCode;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
     public int CreateMixer(int rate, int channels, BassFlags flags)

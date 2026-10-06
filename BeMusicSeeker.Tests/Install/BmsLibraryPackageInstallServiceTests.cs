@@ -8,8 +8,6 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Threading;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -17,7 +15,8 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Livet;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
@@ -2328,9 +2327,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 _ => nestedChartPath
             };
 
-            List<ChartPackage> installed = library.InstallChartPackagesAuto([sourcePath]);
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgress([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
-            Assert.AreEqual(0, installed.Count);
+            Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.AreEqual(0, new BmsLibraryDbGateway(songDbPath).LoadInstallPackages().Count);
@@ -3022,7 +3021,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 BMSFile SecondSource, ChartPackage Package) CreateInstallStep(int step)
             {
                 string sourceDirectoryPath = Path.Combine(tempRootPath, "AutoSource" + step);
-                string explicitDestinationDirectoryPath = Path.Combine(installRootPath, "Explicit" + step);
+                string explicitDestinationDirectoryPath = Path.Combine(
+                    isForceRoute ? Path.Combine(tempRootPath, "ConfiguredDestinations") : installRootPath,
+                    "Explicit" + step);
                 string firstResourceName = "auto-" + step + "-first";
                 string secondResourceName = "auto-" + step + "-second";
                 string firstSourcePath = CreateBmsFileWithResources(
@@ -3223,7 +3224,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         PackageInstallCommandResult command = library.InstallChartPackagesAutoWithProgress(
                             [step.SourceDirectoryPath],
                             CancellationToken.None,
-                            NullPackageInstallProgressWriter.Instance);
+                            new RecordingPackageInstallProgressWriter());
                         Assert.AreEqual(1, command.RegisteredPackages.Count);
                         sessionReceipt = command.SessionReceipt;
                     }
@@ -3255,6 +3256,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsFalse(string.Equals(secondDestinationPath, step.SecondSourcePath, StringComparison.OrdinalIgnoreCase));
                     StringAssert.StartsWith(firstDestinationPath, installRootPath);
                     StringAssert.StartsWith(secondDestinationPath, installRootPath);
+                    if (isForceRoute)
+                    {
+                        string explicitDestination = Path.Combine(tempRootPath, "ConfiguredDestinations", "Explicit" + (stepIndex + 1));
+                        Assert.IsFalse(string.Equals(Path.GetDirectoryName(firstDestinationPath), explicitDestination, StringComparison.OrdinalIgnoreCase));
+                        Assert.IsFalse(string.Equals(Path.GetDirectoryName(secondDestinationPath), explicitDestination, StringComparison.OrdinalIgnoreCase));
+                        Assert.IsFalse(File.Exists(Path.Combine(explicitDestination, Path.GetFileName(step.FirstSourcePath))));
+                        Assert.IsFalse(File.Exists(Path.Combine(explicitDestination, Path.GetFileName(step.SecondSourcePath))));
+                        foreach (string resourceName in new[] { step.FirstResourceName, step.SecondResourceName })
+                        {
+                            Assert.IsFalse(File.Exists(Path.Combine(explicitDestination, resourceName + ".wav")));
+                            Assert.IsFalse(File.Exists(Path.Combine(explicitDestination, resourceName + ".png")));
+                            Assert.IsFalse(File.Exists(Path.Combine(explicitDestination, resourceName + ".mp4")));
+                        }
+                    }
                     Assert.IsTrue(File.Exists(firstDestinationPath));
                     Assert.IsTrue(File.Exists(secondDestinationPath));
                     CollectionAssert.AreEqual(
@@ -3427,9 +3442,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
-            List<ChartPackage> installed = library.InstallChartPackagesAuto([sourceDirectory]);
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgress([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
-            Assert.AreEqual(0, installed.Count);
+            Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(sourceChartPath));
@@ -3438,7 +3453,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void InstallChartPackagesAuto_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
+    public void InstallChartPackagesAutoWithProgress_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -3451,7 +3466,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(incumbent);
 
             Assert.ThrowsException<InvalidOperationException>(
-                () => library.InstallChartPackagesAuto([sourceDirectory]));
+                () => library.InstallChartPackagesAutoWithProgress([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()));
         });
     }
 
@@ -3671,7 +3686,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
 
             PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgress(
-                [first, mixed, third], CancellationToken.None, NullPackageInstallProgressWriter.Instance);
+                [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.HasRequiredFailure);
@@ -3690,9 +3705,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    /// <summary>通常導入先が設定された package の未承認 force は、BMSON adapter を作らず no-op にします。</summary>
-    [TestMethod]
-    public void ForceInstallPendingPackages_RejectsUnapprovedDestinationWithoutMaterializingBmson()
+    /// <summary>導入先と確認設定によらず明示的に拒否された package は、入力元・DB・保留を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(true, true)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    public void ForceInstallPendingPackages_RejectsUnapprovedPackageWithoutMaterializingBmson(bool hasDestination, bool showNewConfirmation)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb((songDbPath, root) =>
@@ -3703,12 +3722,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourcePath = Path.Combine(source, "chart.bmson");
             File.WriteAllText(sourcePath, CreateBmsonJsonWithSound("sound.wav"));
             var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(sourcePath)));
-            entry.ApplyInstallDestination(target, "Target", "Artist");
+            if (hasDestination)
+            {
+                entry.ApplyInstallDestination(target, "Target", "Artist");
+            }
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
             var library = new TestBmsLibrary(songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
-                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target })
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target, ShowNewPackageInstallConfirmMsg = showNewConfirmation })
             {
                 BMSFiles = [],
                 BmsonSongs = [],
@@ -3722,12 +3744,131 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(receipt.DurableCommit);
             Assert.AreEqual(default(LibraryMutationSessionApplyCounts), receipt.ApplyCounts);
             Assert.AreSame(package, library.ChartPackagesPending.Single());
-            Assert.AreEqual(target, entry.Chart.InstallDestination);
+            if (hasDestination)
+            {
+                Assert.AreEqual(target, entry.Chart.InstallDestination);
+            }
+            else
+            {
+                Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+            }
             Assert.IsNull(entry.GetBmsOwnerForTest());
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.IsFalse(Directory.Exists(target));
             using var readback = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
+        });
+    }
+
+    /// <summary>公開入口で確認設定と応答を適用し、拒否時は保留を保持、承認時は新規先へ導入します。</summary>
+    [DataTestMethod]
+    [DataRow(false, true, (int)MessageBoxResult.No)]
+    [DataRow(false, true, (int)MessageBoxResult.None)]
+    [DataRow(false, true, (int)MessageBoxResult.Yes)]
+    [DataRow(false, false, (int)MessageBoxResult.None)]
+    [DataRow(true, false, (int)MessageBoxResult.No)]
+    [DataRow(true, false, (int)MessageBoxResult.None)]
+    [DataRow(true, false, (int)MessageBoxResult.Yes)]
+    public void ForceInstallPendingPackages_PublicEntryUsesConfirmationSettingAndPreservesRejectedInput(
+        bool hasDestination, bool showNewConfirmation, int responseValue)
+    {
+        var response = (MessageBoxResult)responseValue;
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string source = Path.Combine(root, "Pending");
+            string installationRoot = Path.Combine(root, "NewInstalled");
+            string explicitDestination = Path.Combine(root, "Explicit");
+            Directory.CreateDirectory(installationRoot);
+            string sourcePath = CreateBmsFileWithResources(source, "chart.bms", "#TITLE PublicForceTarget", "pending-resource");
+            var sourceChart = BMSFile.CreateBMSFileFromFile(sourcePath);
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceChart));
+            if (hasDestination)
+            {
+                entry.ApplyInstallDestination(explicitDestination, "Existing", "Artist");
+            }
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            package.delete_parent = false;
+            string existingPath = CreateBmsFile(explicitDestination, "existing.bms", "#TITLE Existing");
+            var existingChart = BMSFile.CreateBMSFileFromFile(existingPath);
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                db.InsertOrReplace(existingChart.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song)));
+            Dictionary<string, byte[]> sourceBytes = Directory.GetFiles(source)
+                .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
+            byte[] existingBytes = File.ReadAllBytes(existingPath);
+            var dialogs = new PendingInstallConfirmationDialogService(response);
+            var library = new TestBmsLibrary(songDbPath, null, null,
+                new RealFileMutationService(), dialogs, new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installationRoot,
+                    FolderNameFormat = "%TITLE%",
+                    ShowNewPackageInstallConfirmMsg = showNewConfirmation,
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [existingChart],
+                BmsonSongs = [],
+                SearchTargets = [installationRoot, explicitDestination],
+                ChartPackagesPending = CreatePackageCollection([package]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            library.ForceInstallPendingPackages([package]);
+
+            bool confirmationRequired = hasDestination || showNewConfirmation;
+            Assert.AreEqual(confirmationRequired ? 1 : 0, dialogs.Requests.Count);
+            if (confirmationRequired)
+            {
+                (string Text, MessageBoxResult Response) request = dialogs.Requests.Single();
+                Assert.AreEqual(hasDestination ? Resources.Confirm_NormalInstallOverride : Resources.Confirm_NewPackageInstall, request.Text);
+                Assert.AreEqual(response == MessageBoxResult.None ? MessageBoxResult.No : response, request.Response);
+            }
+            CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(existingPath));
+            CollectionAssert.AreEqual(new[] { existingPath }, Directory.GetFiles(explicitDestination));
+            bool accepted = !confirmationRequired || response == MessageBoxResult.Yes;
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ? AND hash = ?;", existingPath, existingChart.hash));
+            Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourcePath));
+            if (!accepted)
+            {
+                Assert.AreSame(package, library.ChartPackagesPending.Single());
+                Assert.AreEqual(source, package.path);
+                Assert.AreEqual(sourcePath, entry.Chart.Path);
+                Assert.AreEqual(hasDestination ? explicitDestination : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
+                Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+                Assert.AreSame(existingChart, library.BMSFiles.Single());
+                CollectionAssert.AreEquivalent(sourceBytes.Keys.ToArray(), Directory.GetFiles(source));
+                foreach ((string path, byte[] bytes) in sourceBytes)
+                {
+                    CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+                }
+                Assert.AreEqual(0, Directory.GetFileSystemEntries(installationRoot, "*", System.IO.SearchOption.AllDirectories).Length);
+                Assert.AreEqual(1, readback.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual(0, readback.Table<LR2SongDB.folder>().Count());
+                Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count());
+                Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
+                return;
+            }
+
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            BMSFile installed = library.BMSFiles.Single(chart => chart.hash == sourceChart.hash);
+            StringAssert.StartsWith(installed.path, installationRoot + Path.DirectorySeparatorChar);
+            Assert.IsFalse(string.Equals(Path.GetDirectoryName(installed.path), explicitDestination, StringComparison.OrdinalIgnoreCase));
+            CollectionAssert.AreEqual(sourceBytes[sourcePath], File.ReadAllBytes(installed.path));
+            foreach (string resourcePath in sourceBytes.Keys.Where(path => !string.Equals(path, sourcePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                CollectionAssert.AreEqual(sourceBytes[resourcePath],
+                    File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(installed.path)!, Path.GetFileName(resourcePath))));
+            }
+            Assert.AreEqual(installed.path, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installed.path));
         });
     }
 
@@ -5750,7 +5891,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgress(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],
                 CancellationToken.None,
-                NullPackageInstallProgressWriter.Instance);
+                new RecordingPackageInstallProgressWriter());
 
             Assert.IsFalse(commandResult.HasDurableCommit);
             Assert.IsTrue(commandResult.HasRequiredFailure);
@@ -7473,6 +7614,25 @@ public sealed class BmsLibraryPackageInstallServiceTests
         {
             Messages.Add(messageBoxText);
             return defaultResult;
+        }
+    }
+
+    /// <summary>新規導入確認の役割、回数と返した応答を観測します。</summary>
+    private sealed class PendingInstallConfirmationDialogService(MessageBoxResult response) : IBmsLibraryDialogService
+    {
+        internal List<(string Text, MessageBoxResult Response)> Requests { get; } = [];
+
+        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button,
+            MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        {
+            // None は未選択閉鎖を表し、実表示部品と同じ要求値の正規化・結果変換を通します。
+            MessageBoxResult result = response == MessageBoxResult.None
+                ? UiDialogResult.ClosedByUser(ThemedMessageBox.NormalizeDefaultResult(
+                    UiDialogPresentationAdapter.ToWpf(button),
+                    UiDialogPresentationAdapter.ToWpf(defaultResult))).DefaultResult
+                : response;
+            Requests.Add((messageBoxText, result));
+            return result;
         }
     }
 

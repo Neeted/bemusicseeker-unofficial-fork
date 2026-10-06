@@ -8,11 +8,9 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Net;
 
@@ -228,10 +226,7 @@ public sealed class BmsPlaylistExternalLoadTests
         using var transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         var appHttpClient = new AppHttpClient(transport, TimeProvider.System);
         var recommendedTableOwner = new PlaylistRecommendedTableOwner(
-            string.Empty,
-            static () => [],
-            static (_, _) => Task.FromException<BMSTable>(new InvalidOperationException("The bmseeker route is not part of this fixture.")),
-            new AppPlaylistRecommendedTableHttpClient(appHttpClient),
+            static _ => Task.FromException<WalkureScoreInput>(new InvalidOperationException("内蔵推薦はこのケースの対象外です。")),
             new PlaylistOperationNotificationOwner(),
             static () => new CustomFolderOutputSettingsSnapshot());
         var externalOwner = new PlaylistExternalSyncOwner(

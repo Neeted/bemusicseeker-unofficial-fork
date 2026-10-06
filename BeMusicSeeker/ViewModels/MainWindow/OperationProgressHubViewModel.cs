@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -7,154 +10,63 @@ using Livet;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>
-/// Owns status-bar progress presentation state for direct shell binding.
-/// </summary>
+/// <summary>既存の処理通知から共通行を投影し、独立した処理を同時に表示します。</summary>
 public sealed class OperationProgressHubViewModel : ViewModel
 {
-    private bool isInstallPipelineStatusActive;
-
-    private string installPipelineLabel = string.Empty;
-
-    private string installPipelineSubLabel = string.Empty;
-
-    private int installPipelineValue;
-
-    private int installPipelineMaximum = 1;
-
-    private bool installPipelineCanCancel;
-
-    private bool isMaintenanceRescanProgressActive;
-
-    private string maintenanceRescanLabel = string.Empty;
-
-    private string maintenanceRescanSubLabel = string.Empty;
-
-    private double maintenanceRescanValue;
-
-    private double maintenanceRescanMaximum = 1.0;
-
-    private bool maintenanceRescanCanCancel;
-
-    private bool isFolderAutoRenameProgressActive;
-
-    private string folderAutoRenameProgressLabel = string.Empty;
-
-    private string folderAutoRenameProgressSubLabel = string.Empty;
-
-    private double folderAutoRenameProgressValue;
-
-    private double folderAutoRenameProgressMaximum = 1.0;
-
-    private bool isPlaylistSyncProgressActive;
-
-    private bool isStartupBackgroundInitializationActive;
-
-    private bool startupBackgroundInitializationPresentationLatched;
-
-    private string playlistSyncProgressLabel = string.Empty;
-
-    private string playlistSyncProgressSubLabel = string.Empty;
-
-    private double playlistSyncProgressValue;
-
-    private double playlistSyncProgressMaximum;
-
-    private bool isLr2SongDbSyncStatusActive;
-
-    private string lr2SongDbSyncStatusLabel = string.Empty;
-
-    private string lr2SongDbSyncStatusSubLabel = string.Empty;
-
-    private string lr2SongDbSyncStatusToolTip = string.Empty;
-
-    private double lr2SongDbSyncStatusProgressValue;
-
-    private double lr2SongDbSyncStatusProgressMaximum = 1.0;
-
-    private bool isLr2SongDbSyncStatusProgressVisible;
-
-    private bool isLr2SongDbSyncRetryVisible;
-
-    private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
-
     private DropInstallQueueStatusSnapshot dropInstallQueueStatus = new();
-
     private PendingInstallEstimateQueueStatusSnapshot pendingInstallQueueStatus = new();
-
     private InstallEstimationProgressSnapshot installEstimationProgress = new();
-
     private PlaylistUrlDownloadStatusSnapshot playlistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
-
+    private MaintenanceWorkflowProgress maintenanceProgress;
+    private FolderAutoRenameProgressSnapshot renameProgress;
+    private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
     private bool workflowProgressSourcesAttached;
-
     private bool playlistProgressSourcesAttached;
-
-    private long playlistSyncProgressUiVersion;
-
+    private long startupBackgroundOperationToken;
+    private long startupBackgroundOriginGeneration;
+    private readonly ConcurrentDictionary<string, long> playlistUiVersions = new();
+    private long playlistUiVersionSeed;
     private Action<Action> dispatchPlaylistProgressAction;
-
     private Func<bool> isShellClosing;
+    private readonly Dictionary<string, StartupBackgroundTaskProgressSnapshot> backgroundStatuses = new();
+    private readonly Dictionary<string, PlaylistSyncProgressSnapshot> playlistStatuses = new();
+    private long backgroundGeneration;
 
+    /// <summary>親操作の段階数と完了条件の正本を取得します。</summary>
     public StartupProgressWorkflowOwner StartupProgress { get; }
 
+    /// <summary>親進捗の正本と表示更新を接続します。</summary>
     internal OperationProgressHubViewModel(StartupProgressWorkflowOwner startupProgress)
     {
         StartupProgress = startupProgress ?? throw new ArgumentNullException(nameof(startupProgress));
         StartupProgress.PropertyChanged += StartupProgressPropertyChanged;
     }
 
-    /// <summary>
-    /// Connects the concrete workflow producers to their presentation owner.
-    /// </summary>
-    internal void AttachWorkflowProgressSources(
-        PackageInstallWorkflowOwner packageInstallWorkflow,
-        MaintenanceRescanWorkflowOwner maintenanceRescanWorkflow,
-        FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow)
+    /// <summary>処理管理主体の進捗を、それぞれ独立した表示行へ接続します。</summary>
+    internal void AttachWorkflowProgressSources(PackageInstallWorkflowOwner packageInstallWorkflow,
+        MaintenanceRescanWorkflowOwner maintenanceRescanWorkflow, FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow)
     {
-        if (packageInstallWorkflow == null)
-        {
-            throw new ArgumentNullException(nameof(packageInstallWorkflow));
-        }
-        if (maintenanceRescanWorkflow == null)
-        {
-            throw new ArgumentNullException(nameof(maintenanceRescanWorkflow));
-        }
-        if (folderAutoRenameWorkflow == null)
-        {
-            throw new ArgumentNullException(nameof(folderAutoRenameWorkflow));
-        }
+        ArgumentNullException.ThrowIfNull(packageInstallWorkflow);
+        ArgumentNullException.ThrowIfNull(maintenanceRescanWorkflow);
+        ArgumentNullException.ThrowIfNull(folderAutoRenameWorkflow);
         if (workflowProgressSourcesAttached)
         {
             throw new InvalidOperationException("Workflow progress sources are already attached.");
         }
 
         workflowProgressSourcesAttached = true;
-        packageInstallWorkflow.StatusChanged += UpdateDropInstallQueueStatus;
-        maintenanceRescanWorkflow.ProgressChanged += UpdateMaintenanceRescanProgress;
-        folderAutoRenameWorkflow.ProgressChanged += UpdateFolderAutoRenameProgress;
+        packageInstallWorkflow.StatusChanged += status => { dropInstallQueueStatus = status ?? new(); RaiseRowsChanged(); };
+        maintenanceRescanWorkflow.ProgressChanged += status => { maintenanceProgress = status; RaiseRowsChanged(); };
+        folderAutoRenameWorkflow.ProgressChanged += status => { renameProgress = status; RaiseRowsChanged(); };
     }
 
-    /// <summary>
-    /// Connects playlist progress producers directly to this presentation owner.
-    /// </summary>
-    internal void AttachPlaylistProgressSources(
-        PlaylistWorkspaceViewModel playlistWorkspace,
-        Action<Action> dispatchPresentationAction,
-        Func<bool> shellClosingPredicate)
+    /// <summary>プレイリストの生産元別通知を、その画面の排出先へ接続します。</summary>
+    internal void AttachPlaylistProgressSources(PlaylistWorkspaceViewModel playlistWorkspace,
+        Action<Action> dispatchPresentationAction, Func<bool> shellClosingPredicate)
     {
-        if (playlistWorkspace == null)
-        {
-            throw new ArgumentNullException(nameof(playlistWorkspace));
-        }
-        if (dispatchPresentationAction == null)
-        {
-            throw new ArgumentNullException(nameof(dispatchPresentationAction));
-        }
-        if (shellClosingPredicate == null)
-        {
-            throw new ArgumentNullException(nameof(shellClosingPredicate));
-        }
+        ArgumentNullException.ThrowIfNull(playlistWorkspace);
+        ArgumentNullException.ThrowIfNull(dispatchPresentationAction);
+        ArgumentNullException.ThrowIfNull(shellClosingPredicate);
         if (playlistProgressSourcesAttached)
         {
             throw new InvalidOperationException("Playlist progress sources are already attached.");
@@ -164,627 +76,415 @@ public sealed class OperationProgressHubViewModel : ViewModel
         isShellClosing = shellClosingPredicate;
         playlistProgressSourcesAttached = true;
         playlistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
-        playlistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
-    }
-
-    /// <summary>
-    /// Gets whether install, drop-install, playlist URL download, or estimate status is visible.
-    /// </summary>
-    public bool IsInstallPipelineStatusActive
-    {
-        get => isInstallPipelineStatusActive;
-        internal set => SetValue(ref isInstallPipelineStatusActive, value, nameof(IsInstallPipelineStatusActive));
-    }
-
-    /// <summary>
-    /// Gets whether the ephemeral startup background initialization presentation is visible.
-    /// Dedicated startup, playlist, and LR2 presentations take precedence over this generic indicator.
-    /// </summary>
-    public bool IsStartupBackgroundInitializationActive
-    {
-        get => isStartupBackgroundInitializationActive;
-    }
-
-    /// <summary>
-    /// Gets the localized label for the generic startup background initialization presentation.
-    /// </summary>
-    public string StartupBackgroundInitializationLabel =>
-        BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background;
-
-    /// <summary>
-    /// Starts the process-local startup background initialization presentation latch.
-    /// </summary>
-    internal void BeginStartupBackgroundInitializationPresentation()
-    {
-        startupBackgroundInitializationPresentationLatched = true;
-        RecomputeStartupBackgroundInitializationPresentation();
-    }
-
-    /// <summary>
-    /// Clears the startup background initialization presentation at the composite terminal boundary.
-    /// </summary>
-    internal void CompleteStartupBackgroundInitializationPresentation()
-    {
-        startupBackgroundInitializationPresentationLatched = false;
-        RecomputeStartupBackgroundInitializationPresentation();
-    }
-
-    /// <summary>
-    /// Clears stale startup background initialization presentation when a new operation supersedes startup.
-    /// </summary>
-    internal void ResetStartupBackgroundInitializationPresentation()
-    {
-        startupBackgroundInitializationPresentationLatched = false;
-        RecomputeStartupBackgroundInitializationPresentation();
-    }
-
-    /// <summary>
-    /// Gets the primary install pipeline status label.
-    /// </summary>
-    public string InstallPipelineLabel
-    {
-        get => installPipelineLabel;
-        internal set => SetStringValue(ref installPipelineLabel, value, nameof(InstallPipelineLabel));
-    }
-
-    /// <summary>
-    /// Gets the secondary install pipeline status label.
-    /// </summary>
-    public string InstallPipelineSubLabel
-    {
-        get => installPipelineSubLabel;
-        internal set => SetStringValue(ref installPipelineSubLabel, value, nameof(InstallPipelineSubLabel));
-    }
-
-    /// <summary>
-    /// Gets the current install pipeline progress value.
-    /// </summary>
-    public int InstallPipelineValue
-    {
-        get => installPipelineValue;
-        internal set => SetValue(ref installPipelineValue, value, nameof(InstallPipelineValue));
-    }
-
-    /// <summary>
-    /// Gets the install pipeline progress maximum, normalized to at least one for progress-bar binding.
-    /// </summary>
-    public int InstallPipelineMaximum
-    {
-        get => installPipelineMaximum;
-        internal set => SetValue(ref installPipelineMaximum, Math.Max(1, value), nameof(InstallPipelineMaximum));
-    }
-
-    /// <summary>
-    /// Gets whether the active install pipeline work can be canceled.
-    /// </summary>
-    public bool InstallPipelineCanCancel
-    {
-        get => installPipelineCanCancel;
-        internal set => SetValue(ref installPipelineCanCancel, value, nameof(InstallPipelineCanCancel));
-    }
-
-    /// <summary>
-    /// Gets whether maintenance rescan progress is visible.
-    /// </summary>
-    public bool IsMaintenanceRescanProgressActive
-    {
-        get => isMaintenanceRescanProgressActive;
-        internal set => SetValue(ref isMaintenanceRescanProgressActive, value, nameof(IsMaintenanceRescanProgressActive));
-    }
-
-    /// <summary>
-    /// Gets the primary maintenance rescan progress label.
-    /// </summary>
-    public string MaintenanceRescanLabel
-    {
-        get => maintenanceRescanLabel;
-        internal set => SetStringValue(ref maintenanceRescanLabel, value, nameof(MaintenanceRescanLabel));
-    }
-
-    /// <summary>
-    /// Gets the secondary maintenance rescan progress label.
-    /// </summary>
-    public string MaintenanceRescanSubLabel
-    {
-        get => maintenanceRescanSubLabel;
-        internal set => SetStringValue(ref maintenanceRescanSubLabel, value, nameof(MaintenanceRescanSubLabel));
-    }
-
-    /// <summary>
-    /// Gets the current maintenance rescan progress value.
-    /// </summary>
-    public double MaintenanceRescanValue
-    {
-        get => maintenanceRescanValue;
-        internal set => SetValue(ref maintenanceRescanValue, value, nameof(MaintenanceRescanValue));
-    }
-
-    /// <summary>
-    /// Gets the maintenance rescan progress maximum, normalized to at least one for progress-bar binding.
-    /// </summary>
-    public double MaintenanceRescanMaximum
-    {
-        get => maintenanceRescanMaximum;
-        internal set => SetValue(ref maintenanceRescanMaximum, Math.Max(1.0, value), nameof(MaintenanceRescanMaximum));
-    }
-
-    /// <summary>
-    /// Gets whether active maintenance rescan work can be canceled.
-    /// </summary>
-    public bool MaintenanceRescanCanCancel
-    {
-        get => maintenanceRescanCanCancel;
-        internal set => SetValue(ref maintenanceRescanCanCancel, value, nameof(MaintenanceRescanCanCancel));
-    }
-
-    private void UpdateMaintenanceRescanProgress(MaintenanceWorkflowProgress progress)
-    {
-        if (progress == null)
+        playlistWorkspace.PlaylistUrlDownloadStatusChanged += (_, snapshot) => dispatchPlaylistProgressAction(() =>
         {
-            return;
-        }
-        if (progress.IsCompleted)
-        {
-            MaintenanceRescanLabel = progress.IsCanceled
-                ? BeMusicSeeker.Properties.Resources.Maintenance_rescan_canceled
-                : BeMusicSeeker.Properties.Resources.Maintenance_rescan_complete;
-            MaintenanceRescanSubLabel = string.Empty;
-            MaintenanceRescanCanCancel = false;
-            IsMaintenanceRescanProgressActive = false;
-            return;
-        }
-
-        IsMaintenanceRescanProgressActive = true;
-        int total = Math.Max(progress.TotalCount, 1);
-        int processed = Math.Max(0, Math.Min(progress.ProcessedCount, total));
-        MaintenanceRescanMaximum = total;
-        MaintenanceRescanValue = processed;
-        MaintenanceRescanLabel = string.Format(
-            BeMusicSeeker.Properties.Resources.Maintenance_rescan_progress_label_format,
-            processed,
-            total);
-        MaintenanceRescanSubLabel = progress.CurrentPath ?? string.Empty;
-        MaintenanceRescanCanCancel = !progress.IsCanceled;
-    }
-
-    /// <summary>
-    /// Gets whether automatic folder rename progress is visible.
-    /// </summary>
-    public bool IsFolderAutoRenameProgressActive
-    {
-        get => isFolderAutoRenameProgressActive;
-        internal set => SetValue(ref isFolderAutoRenameProgressActive, value, nameof(IsFolderAutoRenameProgressActive));
-    }
-
-    /// <summary>
-    /// Gets the primary automatic folder rename progress label.
-    /// </summary>
-    public string FolderAutoRenameProgressLabel
-    {
-        get => folderAutoRenameProgressLabel;
-        internal set => SetStringValue(ref folderAutoRenameProgressLabel, value, nameof(FolderAutoRenameProgressLabel));
-    }
-
-    /// <summary>
-    /// Gets the secondary automatic folder rename progress label.
-    /// </summary>
-    public string FolderAutoRenameProgressSubLabel
-    {
-        get => folderAutoRenameProgressSubLabel;
-        internal set => SetStringValue(ref folderAutoRenameProgressSubLabel, value, nameof(FolderAutoRenameProgressSubLabel));
-    }
-
-    /// <summary>
-    /// Gets the current automatic folder rename progress value.
-    /// </summary>
-    public double FolderAutoRenameProgressValue
-    {
-        get => folderAutoRenameProgressValue;
-        internal set => SetValue(ref folderAutoRenameProgressValue, value, nameof(FolderAutoRenameProgressValue));
-    }
-
-    /// <summary>
-    /// Gets the automatic folder rename progress maximum, normalized to at least one for progress-bar binding.
-    /// </summary>
-    public double FolderAutoRenameProgressMaximum
-    {
-        get => folderAutoRenameProgressMaximum;
-        internal set => SetValue(ref folderAutoRenameProgressMaximum, Math.Max(1.0, value), nameof(FolderAutoRenameProgressMaximum));
-    }
-
-    private void UpdateFolderAutoRenameProgress(FolderAutoRenameProgressSnapshot progress)
-    {
-        if (progress == null)
-        {
-            return;
-        }
-        if (progress.IsCompleted)
-        {
-            FolderAutoRenameProgressLabel = string.Empty;
-            FolderAutoRenameProgressSubLabel = string.Empty;
-            FolderAutoRenameProgressValue = 0.0;
-            FolderAutoRenameProgressMaximum = 1.0;
-            IsFolderAutoRenameProgressActive = false;
-            return;
-        }
-
-        int total = Math.Max(progress.TotalCount, 1);
-        int processed = Math.Max(0, Math.Min(progress.ProcessedCount, total));
-        IsFolderAutoRenameProgressActive = true;
-        FolderAutoRenameProgressMaximum = total;
-        FolderAutoRenameProgressValue = processed;
-        FolderAutoRenameProgressLabel = BeMusicSeeker.Properties.Resources.Rename_folder_auto + " " + processed + "/" + total;
-        FolderAutoRenameProgressSubLabel = progress.CurrentPath ?? string.Empty;
-    }
-
-    /// <summary>
-    /// Gets whether playlist sync progress is visible.
-    /// </summary>
-    public bool IsPlaylistSyncProgressActive
-    {
-        get => isPlaylistSyncProgressActive;
-        internal set
-        {
-            SetValue(ref isPlaylistSyncProgressActive, value, nameof(IsPlaylistSyncProgressActive));
-            RecomputeStartupBackgroundInitializationPresentation();
-        }
-    }
-
-    /// <summary>
-    /// Gets the primary playlist sync progress label.
-    /// </summary>
-    public string PlaylistSyncProgressLabel
-    {
-        get => playlistSyncProgressLabel;
-        internal set => SetStringValue(ref playlistSyncProgressLabel, value, nameof(PlaylistSyncProgressLabel));
-    }
-
-    /// <summary>
-    /// Gets the secondary playlist sync progress label.
-    /// </summary>
-    public string PlaylistSyncProgressSubLabel
-    {
-        get => playlistSyncProgressSubLabel;
-        internal set => SetStringValue(ref playlistSyncProgressSubLabel, value, nameof(PlaylistSyncProgressSubLabel));
-    }
-
-    /// <summary>
-    /// Gets the current playlist sync progress value.
-    /// </summary>
-    public double PlaylistSyncProgressValue
-    {
-        get => playlistSyncProgressValue;
-        internal set => SetValue(ref playlistSyncProgressValue, value, nameof(PlaylistSyncProgressValue));
-    }
-
-    /// <summary>
-    /// Gets the playlist sync progress maximum.
-    /// </summary>
-    public double PlaylistSyncProgressMaximum
-    {
-        get => playlistSyncProgressMaximum;
-        internal set => SetValue(ref playlistSyncProgressMaximum, value, nameof(PlaylistSyncProgressMaximum));
-    }
-
-    private void PlaylistWorkspacePlaylistSyncProgressChanged(
-        object sender,
-        PlaylistSyncProgressChangedEventArgs request)
-    {
-        long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
-        Action reflect = delegate
-        {
-            if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion)
-                || isShellClosing())
+            if (isShellClosing())
             {
                 return;
             }
-            UpdatePlaylistSyncProgress(request?.Snapshot);
-        };
-        dispatchPlaylistProgressAction(reflect);
+
+            playlistUrlDownloadStatus = snapshot ?? PlaylistUrlDownloadStatusSnapshot.Inactive;
+            RaiseRowsChanged();
+        });
     }
 
-    private void UpdatePlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
+    /// <summary>起動後グループが既存の複合終端まで存続しているかを取得します。</summary>
+    public bool IsStartupBackgroundInitializationActive => startupBackgroundOperationToken != 0;
+
+    /// <summary>起動後グループの親ラベルを取得します。</summary>
+    public string StartupBackgroundInitializationLabel => BeMusicSeeker.Properties.Resources.Statusbar_progress_startup_additional;
+
+    /// <summary>既存の後続グループ開始境界で親行を表示します。</summary>
+    internal void BeginStartupBackgroundInitializationPresentation(long operationToken, long generation)
     {
-        bool isActive = snapshot?.IsActive == true;
-        IsPlaylistSyncProgressActive = isActive;
-        if (!isActive)
-        {
-            PlaylistSyncProgressLabel = string.Empty;
-            PlaylistSyncProgressSubLabel = string.Empty;
-            PlaylistSyncProgressValue = 0.0;
-            PlaylistSyncProgressMaximum = 0.0;
-            return;
-        }
-
-        int total = Math.Max(snapshot.TotalTableCount, 1);
-        int completed = Math.Max(0, Math.Min(snapshot.CompletedTableCount, total));
-        PlaylistSyncProgressMaximum = total;
-        PlaylistSyncProgressValue = completed;
-        string labelFormat = !string.IsNullOrWhiteSpace(snapshot.LabelFormat)
-            ? snapshot.LabelFormat
-            : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format;
-        string singleLabel = !string.IsNullOrWhiteSpace(snapshot.SingleLabel)
-            ? snapshot.SingleLabel
-            : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label;
-        PlaylistSyncProgressLabel = snapshot.TotalTableCount > 0
-            ? string.Format(labelFormat, completed, total)
-            : singleLabel;
-        PlaylistSyncProgressSubLabel = !string.IsNullOrWhiteSpace(snapshot.CurrentTableName)
-            ? snapshot.CurrentTableName
-            : (snapshot.CurrentUri?.ToString() ?? string.Empty);
+        startupBackgroundOperationToken = operationToken;
+        startupBackgroundOriginGeneration = generation;
+        RaiseRowsChanged();
     }
 
-    /// <summary>
-    /// Gets whether LR2 song DB sync status is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncStatusActive
+    /// <summary>既存の複合終端で後続グループ親行を消します。</summary>
+    internal void CompleteStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
+
+    /// <summary>新しい操作が開始されたとき旧後続グループ親行を消します。</summary>
+    internal void ResetStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
+
+    /// <summary>導入先推定キューを、推定詳細と一つの仕事として反映します。</summary>
+    internal void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
     {
-        get => isLr2SongDbSyncStatusActive;
-        internal set
-        {
-            SetValue(ref isLr2SongDbSyncStatusActive, value, nameof(IsLr2SongDbSyncStatusActive));
-            RecomputeStartupBackgroundInitializationPresentation();
-        }
+        pendingInstallQueueStatus = snapshot?.Clone() ?? new();
+        RaiseRowsChanged();
     }
 
-    /// <summary>
-    /// Gets the primary LR2 song DB sync status label.
-    /// </summary>
-    public string Lr2SongDbSyncStatusLabel
+    /// <summary>実行中の導入先推定の詳細を反映します。</summary>
+    internal void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
     {
-        get => lr2SongDbSyncStatusLabel;
-        internal set => SetStringValue(ref lr2SongDbSyncStatusLabel, value, nameof(Lr2SongDbSyncStatusLabel));
+        installEstimationProgress = snapshot?.Clone() ?? new();
+        RaiseRowsChanged();
     }
 
-    /// <summary>
-    /// Gets the secondary LR2 song DB sync status label.
-    /// </summary>
-    public string Lr2SongDbSyncStatusSubLabel
-    {
-        get => lr2SongDbSyncStatusSubLabel;
-        internal set => SetStringValue(ref lr2SongDbSyncStatusSubLabel, value, nameof(Lr2SongDbSyncStatusSubLabel));
-    }
-
-    /// <summary>
-    /// Gets LR2 song DB sync status detail text for tooltips.
-    /// </summary>
-    public string Lr2SongDbSyncStatusToolTip
-    {
-        get => lr2SongDbSyncStatusToolTip;
-        internal set => SetStringValue(ref lr2SongDbSyncStatusToolTip, value, nameof(Lr2SongDbSyncStatusToolTip));
-    }
-
-    /// <summary>
-    /// Gets the current LR2 song DB sync status progress value.
-    /// </summary>
-    public double Lr2SongDbSyncStatusProgressValue
-    {
-        get => lr2SongDbSyncStatusProgressValue;
-        internal set => SetValue(ref lr2SongDbSyncStatusProgressValue, value, nameof(Lr2SongDbSyncStatusProgressValue));
-    }
-
-    /// <summary>
-    /// Gets the LR2 song DB sync status progress maximum.
-    /// </summary>
-    public double Lr2SongDbSyncStatusProgressMaximum
-    {
-        get => lr2SongDbSyncStatusProgressMaximum;
-        internal set => SetValue(ref lr2SongDbSyncStatusProgressMaximum, value, nameof(Lr2SongDbSyncStatusProgressMaximum));
-    }
-
-    /// <summary>
-    /// Gets whether the LR2 song DB sync status progress bar is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncStatusProgressVisible
-    {
-        get => isLr2SongDbSyncStatusProgressVisible;
-        internal set => SetValue(ref isLr2SongDbSyncStatusProgressVisible, value, nameof(IsLr2SongDbSyncStatusProgressVisible));
-    }
-
-    /// <summary>
-    /// Gets whether the LR2 song DB sync retry action is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncRetryVisible
-    {
-        get => isLr2SongDbSyncRetryVisible;
-        internal set => SetValue(ref isLr2SongDbSyncRetryVisible, value, nameof(IsLr2SongDbSyncRetryVisible));
-    }
-
+    /// <summary>LR2専用状態を他の行と同時に反映します。</summary>
     internal void UpdateLr2SongDbSyncStatus(Lr2SongDbSyncRuntimeStatus status)
     {
         latestLr2SongDbSyncStatus = status ?? Lr2SongDbSyncStatusMapper.CreateNone();
-        RecomputeLr2SongDbSyncStatusPresentation();
+        RaiseRowsChanged();
     }
 
-    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e) => RaiseRowsChanged();
+
+    private void PlaylistWorkspacePlaylistSyncProgressChanged(object sender, PlaylistSyncProgressChangedEventArgs request)
     {
-        RecomputeLr2SongDbSyncStatusPresentation();
-        RecomputeStartupBackgroundInitializationPresentation();
+        string key = GetPlaylistKey(request?.Snapshot);
+        long version = Interlocked.Increment(ref playlistUiVersionSeed);
+        playlistUiVersions[key] = version;
+        dispatchPlaylistProgressAction(() =>
+        {
+            if (!playlistUiVersions.TryGetValue(key, out long currentVersion) || currentVersion != version || isShellClosing())
+            {
+                return;
+            }
+
+            if (request?.Snapshot?.IsActive == true)
+            {
+                playlistStatuses[key] = request.Snapshot;
+            }
+            else
+            {
+                playlistStatuses.Remove(key);
+                playlistUiVersions.TryRemove(new KeyValuePair<string, long>(key, version));
+            }
+
+            RaiseRowsChanged();
+            if (request?.Snapshot?.IsActive != true)
+            {
+                ((ICollection<KeyValuePair<string, long>>)playlistUiVersions).Remove(new(key, version));
+            }
+        });
     }
 
-    private void RecomputeStartupBackgroundInitializationPresentation()
+    /// <summary>独立処理を固定の意味順で同時に表示する共通行一覧を取得します。</summary>
+    public IReadOnlyList<OperationProgressRow> Rows
     {
-        bool isVisible = startupBackgroundInitializationPresentationLatched
-            && !StartupProgress.IsActive
-            && !IsPlaylistSyncProgressActive
-            && !IsLr2SongDbSyncStatusActive;
-        SetStartupBackgroundInitializationValue(isVisible);
+        get
+        {
+            var rows = new List<OperationProgressRow>();
+            if (StartupProgress.IsActive)
+            {
+                string label = StartupProgressWorkflowOwner.FormatStartupProgressCountLabel(StartupProgress.Label,
+                    (int)StartupProgress.Value, (int)StartupProgress.Maximum, string.Empty);
+                rows.Add(new("startup", label, StartupProgress.SubLabel,
+                    StartupProgress.Value, StartupProgress.Maximum));
+            }
+
+            rows.AddRange(StartupProgress.DetailRows);
+            if (IsStartupBackgroundInitializationActive)
+            {
+                rows.Add(new("startup_background", StartupBackgroundInitializationLabel, string.Empty, IsIndeterminate: true));
+            }
+
+            foreach (StartupBackgroundTaskProgressSnapshot status in backgroundStatuses.Values.OrderBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.Version))
+            {
+                if (HasDedicatedPresentation(status, rows))
+                {
+                    continue;
+                }
+
+                rows.Add(new("background:" + status.Name + ":" + status.Version + (status.Request == null ? string.Empty : ":" + GetRequestKey(status.Request)),
+                    GetBackgroundTaskLabel(status.Name), string.Empty, IsIndeterminate: true,
+                    ParentKey: GetBackgroundParentKey(status)));
+            }
+            if (playlistUrlDownloadStatus.IsActive)
+            {
+                PlaylistUrlDownloadStatusSnapshot status = playlistUrlDownloadStatus;
+                rows.Add(new("url", string.Format(string.IsNullOrWhiteSpace(status.LabelFormat)
+                    ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format : status.LabelFormat,
+                    Math.Max(0, status.CompletedCount), Math.Max(0, status.TotalCount)), status.CurrentDisplayName,
+                    Math.Max(0, status.CompletedCount), Math.Max(1, status.TotalCount), status.TotalCount <= 0,
+                    status.CanCancel ? OperationProgressAction.CancelUrlDownload : OperationProgressAction.None));
+            }
+            if (dropInstallQueueStatus.IsActive)
+            {
+                DropInstallQueueStatusSnapshot status = dropInstallQueueStatus;
+                int workTotal = Math.Max(0, status.CurrentWorkTotal);
+                int workIndex = Math.Max(0, status.CurrentWorkIndex);
+                bool showWork = status.IsCurrentWorkInProgress && workTotal > 0 && workIndex > 0;
+                int total = showWork ? workTotal : Math.Max(0, status.TotalPathCount);
+                int completed = showWork ? Math.Min(workIndex, total) : Math.Max(0, status.CompletedPathCount);
+                rows.Add(new("install", string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format,
+                    Math.Max(0, status.CompletedPathCount), Math.Max(0, status.TotalPathCount), Math.Max(0, status.PendingBatchCount)),
+                    GetDropInstallQueueSubLabel(status), completed, Math.Max(1, total), total <= 0,
+                    status.CanCancel ? OperationProgressAction.CancelInstall : OperationProgressAction.None));
+            }
+            if (installEstimationProgress.IsActive || pendingInstallQueueStatus.IsActive)
+            {
+                bool detail = installEstimationProgress.IsActive;
+                int total = detail ? installEstimationProgress.TotalWorkCount : pendingInstallQueueStatus.CurrentPackageCount;
+                int completed = detail ? installEstimationProgress.CompletedWorkCount : pendingInstallQueueStatus.CompletedPackageCount;
+                int pending = Math.Max(0, pendingInstallQueueStatus.PendingBatchCount);
+                rows.Add(new("estimate", string.Format(BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
+                    Math.Max(0, completed), Math.Max(0, total), pending),
+                    detail ? installEstimationProgress.CurrentDisplayName : pendingInstallQueueStatus.CurrentDisplayName,
+                    Math.Max(0, completed), Math.Max(1, total), total <= 0));
+            }
+            foreach (KeyValuePair<string, PlaylistSyncProgressSnapshot> pair in playlistStatuses.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                PlaylistSyncProgressSnapshot status = pair.Value;
+                string format = string.IsNullOrWhiteSpace(status.LabelFormat)
+                    ? BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format : status.LabelFormat;
+                string single = string.IsNullOrWhiteSpace(status.SingleLabel)
+                    ? BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label : status.SingleLabel;
+                int completed = Math.Clamp(status.CompletedTableCount, 0, Math.Max(1, status.TotalTableCount));
+                rows.Add(new("playlist:" + pair.Key, status.TotalTableCount > 0
+                    ? string.Format(format, completed, status.TotalTableCount) : single,
+                    !string.IsNullOrWhiteSpace(status.CurrentTableName) ? status.CurrentTableName : status.CurrentUri?.ToString() ?? string.Empty,
+                    completed, Math.Max(1, status.TotalTableCount), status.TotalTableCount <= 0,
+                    ParentKey: GetRequestParentKey(status.Request)));
+            }
+            if (maintenanceProgress is { IsCompleted: false } maintenance)
+            {
+                int total = Math.Max(0, maintenance.TotalCount);
+                int processed = Math.Clamp(maintenance.ProcessedCount, 0, Math.Max(1, total));
+                rows.Add(new("maintenance", string.Format(BeMusicSeeker.Properties.Resources.Maintenance_rescan_progress_label_format,
+                    processed, total), maintenance.CurrentPath ?? string.Empty, processed, Math.Max(1, total), total <= 0,
+                    maintenance.IsCanceled ? OperationProgressAction.None : OperationProgressAction.CancelMaintenance));
+            }
+            if (renameProgress is { IsCompleted: false } rename)
+            {
+                int total = Math.Max(0, rename.TotalCount);
+                int processed = Math.Clamp(rename.ProcessedCount, 0, Math.Max(1, total));
+                rows.Add(new("rename", BeMusicSeeker.Properties.Resources.Statusbar_progress_task_folder_rename + " " + processed + "/" + total,
+                    rename.CurrentPath ?? string.Empty, processed, Math.Max(1, total), total <= 0));
+            }
+            if (latestLr2SongDbSyncStatus.HasWarningStatus)
+            {
+                Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus;
+                rows.Add(new("lr2", status.StatusText, status.ProgressText, status.ProgressValue, status.ProgressMaximum,
+                    status.Kind == Lr2SongDbSyncStatusKind.Running && !status.HasProgress,
+                    status.CanRetry ? OperationProgressAction.RetryLr2 : OperationProgressAction.None, status.Detail,
+                    ParentKey: GetLr2ParentKey(),
+                    HasGauge: status.HasProgress || status.Kind == Lr2SongDbSyncStatusKind.Running));
+            }
+            // 分類は保持し、表示されていない親への見かけの所属だけを外します。
+            var visibleParents = rows.Where(row => !row.IsChild).Select(row => row.Key).ToHashSet(StringComparer.Ordinal);
+            rows = rows.Select(row => row.IsChild && !visibleParents.Contains(row.ParentKey)
+                ? row with { ParentKey = string.Empty } : row).ToList();
+            // 親と子の所属を先に決め、件数の変化で表示順を入れ替えません。
+            rows = rows.OrderBy(GetRowGroup).ThenBy(row => row.IsChild ? 1 : 0)
+                .ThenBy(GetChildOrder).ThenBy(row => row.Key, StringComparer.Ordinal).ToList();
+            return rows;
+        }
     }
 
-    private void SetStartupBackgroundInitializationValue(bool value)
+    /// <summary>共通行の有無に応じてステータスバー全体を表示します。</summary>
+    public bool HasRows => Rows.Count != 0;
+
+    private static string GetPlaylistKey(PlaylistSyncProgressSnapshot snapshot) =>
+        (snapshot?.Source ?? "playlist") + ":" + (snapshot?.OperationId ?? 0) + (snapshot?.Request == null ? string.Empty : ":" + GetRequestKey(snapshot.Request));
+
+    private static string GetRequestKey(OperationProgressRequest request) => request == null ? string.Empty
+        : request.Generation + ":" + request.OperationToken + ":" + request.Source + ":" + request.Version;
+
+    /// <summary>操作開始時に旧世代の表示通知を排除します。</summary>
+    internal void BeginBackgroundProgressGeneration(long generation)
     {
-        if (isStartupBackgroundInitializationActive == value)
+        backgroundGeneration = generation;
+        backgroundStatuses.Clear();
+        RaiseRowsChanged();
+    }
+
+    /// <summary>スケジューラーの実行境界を表示へ反映し、旧世代を拒否します。</summary>
+    internal void UpdateBackgroundTaskProgress(StartupBackgroundTaskProgressSnapshot status)
+    {
+        if (status.Generation != backgroundGeneration)
         {
             return;
         }
 
-        isStartupBackgroundInitializationActive = value;
-        try
+        string key = status.Name + ":" + status.Version + (status.Request == null ? string.Empty : ":" + GetRequestKey(status.Request));
+        if (status.IsRunning)
         {
-            RaisePropertyChanged(nameof(IsStartupBackgroundInitializationActive));
+            backgroundStatuses[key] = status;
         }
-        catch
+        else
         {
-            // Presentation observers are best-effort and must not affect startup scheduling.
-        }
-    }
-
-    private void RecomputeLr2SongDbSyncStatusPresentation()
-    {
-        Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus ?? Lr2SongDbSyncStatusMapper.CreateNone();
-        bool isActive = status.HasWarningStatus && !StartupProgress.IsStartupProgressBlockingDedicatedStatus;
-        IsLr2SongDbSyncStatusActive = isActive;
-        Lr2SongDbSyncStatusLabel = isActive ? status.StatusText : string.Empty;
-        Lr2SongDbSyncStatusSubLabel = isActive ? status.ProgressText : string.Empty;
-        Lr2SongDbSyncStatusToolTip = isActive ? status.Detail : string.Empty;
-        Lr2SongDbSyncStatusProgressValue = isActive ? status.ProgressValue : 0.0;
-        Lr2SongDbSyncStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
-        IsLr2SongDbSyncStatusProgressVisible = isActive && status.HasProgress;
-        IsLr2SongDbSyncRetryVisible = isActive && status.CanRetry;
-    }
-
-    private void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)
-    {
-        dropInstallQueueStatus = snapshot ?? new DropInstallQueueStatusSnapshot();
-        RefreshInstallPipelinePresentation();
-    }
-
-    internal void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        pendingInstallQueueStatus = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-        RefreshInstallPipelinePresentation();
-    }
-
-    internal void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
-    {
-        installEstimationProgress = snapshot?.Clone() ?? new InstallEstimationProgressSnapshot();
-        RefreshInstallPipelinePresentation();
-    }
-
-    private void PlaylistWorkspacePlaylistUrlDownloadStatusChanged(
-        object sender,
-        PlaylistUrlDownloadStatusSnapshot snapshot)
-    {
-        dispatchPlaylistProgressAction(() => UpdatePlaylistUrlDownloadStatus(snapshot));
-    }
-
-    private void UpdatePlaylistUrlDownloadStatus(PlaylistUrlDownloadStatusSnapshot snapshot)
-    {
-        playlistUrlDownloadStatus = snapshot ?? PlaylistUrlDownloadStatusSnapshot.Inactive;
-        RefreshInstallPipelinePresentation();
-    }
-
-    private void SetStringValue(ref string storage, string value, string propertyName)
-    {
-        SetValue(ref storage, value ?? string.Empty, propertyName);
-    }
-
-    private void SetValue<T>(ref T storage, T value, string propertyName)
-    {
-        if (!Equals(storage, value))
-        {
-            storage = value;
-            RaisePropertyChanged(propertyName);
-        }
-    }
-
-    private void RefreshInstallPipelinePresentation()
-    {
-        if (playlistUrlDownloadStatus.IsActive)
-        {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                string.IsNullOrWhiteSpace(playlistUrlDownloadStatus.LabelFormat)
-                    ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format
-                    : playlistUrlDownloadStatus.LabelFormat,
-                Math.Max(0, playlistUrlDownloadStatus.CompletedCount),
-                Math.Max(0, playlistUrlDownloadStatus.TotalCount));
-            InstallPipelineSubLabel = playlistUrlDownloadStatus.CurrentDisplayName;
-            InstallPipelineMaximum = Math.Max(1, playlistUrlDownloadStatus.TotalCount);
-            InstallPipelineValue = Math.Max(0, playlistUrlDownloadStatus.CompletedCount);
-            InstallPipelineCanCancel = playlistUrlDownloadStatus.CanCancel;
-            return;
+            backgroundStatuses.Remove(key);
         }
 
-        bool dropActive = dropInstallQueueStatus.IsActive;
-        bool pendingQueueActive = pendingInstallQueueStatus.IsActive;
-        bool estimateActive = installEstimationProgress.IsActive;
-        int pendingBatchCount = Math.Max(0, dropInstallQueueStatus.PendingBatchCount)
-            + Math.Max(0, pendingInstallQueueStatus.PendingBatchCount);
-        if (dropActive)
+        RaiseRowsChanged();
+    }
+
+    private bool HasDedicatedPresentation(StartupBackgroundTaskProgressSnapshot status, IReadOnlyList<OperationProgressRow> rows)
+    {
+        if (status.Name == "lr2_song_db_sync")
         {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format,
-                Math.Max(0, dropInstallQueueStatus.CompletedPathCount),
-                Math.Max(0, dropInstallQueueStatus.TotalPathCount),
-                pendingBatchCount);
-            InstallPipelineSubLabel = GetDropInstallQueueSubLabel(dropInstallQueueStatus);
-            int currentWorkTotal = Math.Max(0, dropInstallQueueStatus.CurrentWorkTotal);
-            int currentWorkIndex = Math.Max(0, dropInstallQueueStatus.CurrentWorkIndex);
-            bool showCurrentWorkProgress = dropInstallQueueStatus.IsCurrentWorkInProgress
-                && currentWorkTotal > 0
-                && currentWorkIndex > 0;
-            InstallPipelineMaximum = showCurrentWorkProgress
-                ? Math.Max(1, currentWorkTotal)
-                : Math.Max(1, dropInstallQueueStatus.TotalPathCount);
-            InstallPipelineValue = showCurrentWorkProgress
-                ? Math.Min(currentWorkIndex, InstallPipelineMaximum)
-                : Math.Max(0, dropInstallQueueStatus.CompletedPathCount);
-            InstallPipelineCanCancel = dropInstallQueueStatus.CanCancel;
-            return;
+            return latestLr2SongDbSyncStatus.Kind == Lr2SongDbSyncStatusKind.Running;
         }
-        if (estimateActive)
+        if (playlistStatuses.Values.Any(value => value.Request != null && value.Request == status.Request))
         {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
-                Math.Max(0, installEstimationProgress.CompletedWorkCount),
-                Math.Max(0, installEstimationProgress.TotalWorkCount),
-                pendingBatchCount);
-            InstallPipelineSubLabel = installEstimationProgress.CurrentDisplayName;
-            InstallPipelineMaximum = Math.Max(1, installEstimationProgress.TotalWorkCount);
-            InstallPipelineValue = Math.Max(0, installEstimationProgress.CompletedWorkCount);
-            InstallPipelineCanCancel = false;
-            return;
+            return true;
         }
-        if (pendingQueueActive)
+        string detailName = status.Name == "chart_info_backfill_after_hydration" ? "chart_info_backfill" : status.Name;
+        return StartupProgress.IsExecutionProgressPartOfStartup(status.Request)
+            && rows.Any(row => row.Key == "task:" + detailName);
+    }
+
+    private static string GetBackgroundTaskLabel(string name) => name switch
+    {
+        "score_hydration_deferred" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_score_hydration,
+        "ranking_refresh" or "ranking_refresh_deferred" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ranking_refresh,
+        "chart_info_backfill" or "chart_info_backfill_after_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info,
+        "chart_info_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load,
+        "playlist_entries_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading,
+        "maintenance_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance,
+        "installable_maintenance" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance,
+        "lr2_song_db_sync" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync,
+        "lr2_song_db_sync_enrollment" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_lr2_sync_enrollment,
+        "playlist_ref_apply" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref,
+        "external_playlist_sync" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync,
+        "external_table_catalog" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_table_catalog,
+        "playlist_library_index_prewarm" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_index,
+        "playlist_virtual_order_prewarm" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_chart_list_preparation,
+        "playlist_url_completion" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_url_completion,
+        "library_folder_tree_refresh" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_folder_tree,
+        "playlist_custom_folder_output_repair" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_custom_folder_repair,
+        "post_initialize_gc" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_gc,
+        _ when name.StartsWith("beatoraja_bmt_", StringComparison.Ordinal) => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_bmt_output,
+        _ => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background
+    };
+
+
+    private static int GetRowGroup(OperationProgressRow row)
+    {
+        string key = row.IsChild ? row.ParentKey : row.Key;
+        if (key == "startup")
         {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
-                Math.Max(0, pendingInstallQueueStatus.CompletedPackageCount),
-                Math.Max(1, pendingInstallQueueStatus.CurrentPackageCount),
-                pendingBatchCount);
-            InstallPipelineSubLabel = pendingInstallQueueStatus.CurrentDisplayName;
-            InstallPipelineMaximum = Math.Max(1, pendingInstallQueueStatus.CurrentPackageCount);
-            InstallPipelineValue = Math.Max(0, pendingInstallQueueStatus.CompletedPackageCount);
-            InstallPipelineCanCancel = false;
-            return;
+            return 0;
         }
 
-        IsInstallPipelineStatusActive = false;
-        InstallPipelineLabel = string.Empty;
-        InstallPipelineSubLabel = string.Empty;
-        InstallPipelineValue = 0;
-        InstallPipelineMaximum = 1;
-        InstallPipelineCanCancel = false;
+        if (key == "startup_background")
+        {
+            return 1;
+        }
+
+        if (key == "url")
+        {
+            return 2;
+        }
+
+        if (key == "install")
+        {
+            return 3;
+        }
+
+        if (key == "estimate")
+        {
+            return 4;
+        }
+
+        if (key.StartsWith("playlist:", StringComparison.Ordinal))
+        {
+            return 5;
+        }
+
+        if (key == "maintenance")
+        {
+            return 6;
+        }
+
+        if (key == "rename")
+        {
+            return 7;
+        }
+
+        return 8;
+    }
+
+    private static int GetChildOrder(OperationProgressRow row)
+    {
+        if (!row.IsChild)
+        {
+            return 0;
+        }
+        string[] parts = row.Key.Split(':');
+        string name = parts.Length > 1 ? parts[1] : row.Key;
+        if (parts[0] == "library")
+        {
+            return name switch { "DatabaseLoad" => 10, "FileEnumeration" => 20, "FileDiff" => 30, "Lr2FolderFileCheck" => 40, _ => 50 };
+        }
+        // 専用通知へ切り替わっても、同じ仕事の意味順はスケジューラー行と一致させます。
+        return name switch
+        {
+            "score_hydration_deferred" => 100,
+            "ranking_refresh_deferred" or "ranking_refresh" => 110,
+            "chart_info_hydration" => 120,
+            "chart_info_backfill" or "chart_info_backfill_after_hydration" => 130,
+            "playlist_entries_hydration" => 140,
+            "playlist_ref_apply" => 150,
+            "external_playlist_sync" or "playlist" => 160,
+            "external_table_catalog" => 170,
+            "playlist_url_completion" => 180,
+            "library_folder_tree_refresh" => 190,
+            "maintenance_hydration" => 200,
+            "installable_maintenance" => 210,
+            "playlist_custom_folder_output_repair" or "custom_folder_repair" => 220,
+            "bmt" => 230,
+            _ when name.StartsWith("beatoraja_bmt_", StringComparison.Ordinal) => 230,
+            "lr2_song_db_sync_enrollment" => 235,
+            "lr2_song_db_sync" or "lr2" => 240,
+            "playlist_library_index_prewarm" => 250,
+            "playlist_virtual_order_prewarm" => 260,
+            "post_initialize_gc" => 270,
+            _ => 300
+        };
+    }
+
+    private string GetLr2ParentKey()
+    {
+        if (latestLr2SongDbSyncStatus.Kind != Lr2SongDbSyncStatusKind.Running)
+        {
+            return string.Empty;
+        }
+        // LR2の既存単一実行中だけ対応通知を持ちます。終端後の警告や再試行には所属を引き継ぎません。
+        return backgroundStatuses.Values.Where(status => status.Name == "lr2_song_db_sync")
+            .Select(GetBackgroundParentKey).FirstOrDefault(parent => parent == "startup_background") ?? string.Empty;
+    }
+
+    private string GetBackgroundParentKey(StartupBackgroundTaskProgressSnapshot status) => GetRequestParentKey(status?.Request);
+
+    private string GetRequestParentKey(OperationProgressRequest request)
+    {
+        if (request == null || request.OperationToken == 0)
+        {
+            return string.Empty;
+        }
+        if (StartupProgress.IsExecutionProgressPartOfStartup(request))
+        {
+            return "startup";
+        }
+        return IsStartupBackgroundInitializationActive
+            && request.OperationToken == startupBackgroundOperationToken
+            && request.Generation == startupBackgroundOriginGeneration
+            && StartupBackgroundTaskSchedulerOwner.IsPostInitializationTask(
+                request.Source.StartsWith("scheduler:", StringComparison.Ordinal) ? request.Source[10..] : request.Source)
+            && request.Source is not "ranking_refresh_deferred" and not "score_hydration_deferred"
+            ? "startup_background" : string.Empty;
+    }
+
+    private void RaiseRowsChanged()
+    {
+        // 表示購読先の失敗が受付済みの仕事や起動後グループの終結を変えないよう隔離します。
+        try { RaisePropertyChanged(nameof(Rows)); } catch { }
+        try { RaisePropertyChanged(nameof(HasRows)); } catch { }
+        try { RaisePropertyChanged(nameof(IsStartupBackgroundInitializationActive)); } catch { }
     }
 
     private static string GetDropInstallQueueSubLabel(DropInstallQueueStatusSnapshot snapshot)
     {
-        if (snapshot == null)
-        {
-            return string.Empty;
-        }
         if (snapshot.IsCurrentWorkInProgress && snapshot.CurrentWorkIndex > 0 && snapshot.CurrentWorkTotal > 0)
         {
-            return string.Format(
-                BeMusicSeeker.Properties.Resources.Drop_install_queue_extracting_sub_label_format,
-                Math.Max(0, snapshot.CurrentWorkIndex),
-                Math.Max(0, snapshot.CurrentWorkTotal),
-                snapshot.CurrentWorkDisplayName ?? string.Empty);
+            return string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_extracting_sub_label_format,
+                Math.Max(0, snapshot.CurrentWorkIndex), Math.Max(0, snapshot.CurrentWorkTotal), snapshot.CurrentWorkDisplayName ?? string.Empty);
         }
+
         return snapshot.CurrentDisplayName ?? string.Empty;
     }
 }

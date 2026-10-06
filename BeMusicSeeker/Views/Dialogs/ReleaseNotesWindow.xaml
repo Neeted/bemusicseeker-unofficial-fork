@@ -37,6 +37,38 @@
 </FrameworkContentElement.Resources>
 <List>
 <ListItem>
+<Paragraph FontWeight="Bold">3.1.0.0:</Paragraph>
+<List MarkerStyle="Box">
+<ListItem>
+<Paragraph>bmson 1.0.0 / 旧 0.21 の内蔵再生・音声ファイル変換に対応しました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>次曲の先読みと音源ロードの最適化で待ち時間を短縮し、発音タイミングの精度と再生中の音量変更を改善しました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>オーディオ設定を整理し、機器の対応情報の確認、サンプルレート変換の品質・再生時SRC並列度の選択に対応しました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>保留パッケージの導入先候補を ▼ で示し、「新規としてインストール」の名称と確認画面を分かりやすくしました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>曲全体の音量に基づく正規化で録音・音声ファイル変換の精度を改善し、失敗理由や省略した音源数を確認できるようにしました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>Walkure Offline を組み込み、難度推定表と LR2 / beatoraja のスコアに基づくリコメンドをオフラインで生成できるようにしました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>ランプビューアに割合・曲数の表示切り替えを追加し、フォルダ間の譜面数を比較しやすくしました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>進捗を複数行と親子の行で表示し、並行して進む処理や初期化後に残る処理を確認しやすくしました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>ユーザーマニュアルを整理し、Ogg Vorbis 音源の読み込みと ASIO の整数 PCM 形式への対応、プレイリスト詳細への再生状態の反映を改善しました。</Paragraph>
+</ListItem>
+</List>
+</ListItem>
+<ListItem>
 <Paragraph FontWeight="Bold">3.0.1.0:</Paragraph>
 <List MarkerStyle="Box">
 <ListItem>

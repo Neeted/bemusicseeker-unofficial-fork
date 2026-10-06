@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -49,6 +50,8 @@ internal sealed class StartupBackgroundTaskReservation
 /// </summary>
 internal sealed class StartupBackgroundTaskSchedulerOwner
 {
+    private readonly AsyncLocal<StartupBackgroundTaskProgressSnapshot> progressContext = new();
+
     private const int ReservationStateQueued = 1;
     private const int ReservationStateRunning = 2;
     private const int ReservationStateTerminal = 3;
@@ -72,6 +75,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         internal long Version;
 
         internal long Generation;
+
+        internal OperationProgressRequest ProgressRequest;
 
         internal StartupBackgroundTaskReservation Reservation;
 
@@ -181,6 +186,84 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         this.formatTextForLog = formatTextForLog ?? throw new ArgumentNullException(nameof(formatTextForLog));
         this.schedulerIdleChanged = schedulerIdleChanged ?? throw new ArgumentNullException(nameof(schedulerIdleChanged));
         this.progressSynchronization = progressSynchronization ?? throw new ArgumentNullException(nameof(progressSynchronization));
+    }
+
+    /// <summary>要求の実行開始・終端を、捕捉した世代と分類付きで通知します。</summary>
+    internal event Action<StartupBackgroundTaskProgressSnapshot> ProgressChanged;
+
+    /// <summary>要求受付側の既存世代を捕捉し、要求ごとの実行境界を通知する窓口を返します。</summary>
+    /// <param name="name">要求を識別する処理名。</param>
+    /// <returns>モデルの要求版と実行中フラグを受け取る通知。文脈がなければ表示を通知しません。</returns>
+    /// <remarks>スコア適用と順位更新の通知版はモデル要求版です。worker再利用時にも捕捉世代を付け直しません。</remarks>
+    internal Action<int, bool> CaptureExecutionProgressReporter(string name)
+    {
+        StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        return (requestVersion, running) =>
+        {
+            if (context != null)
+            {
+                PublishProgress(new(name, context.Generation, requestVersion, IsPostInitializationTask(name), running,
+                    context.Request with { Source = name, Version = requestVersion }));
+            }
+        };
+    }
+
+    /// <summary>受付時の呼出し文脈から、機能要求版の発生元を捕捉します。</summary>
+    /// <param name="source">要求版の発行主体と処理。</param>
+    /// <param name="requestVersion">同じ主体の要求版。</param>
+    /// <returns>呼出し元の世代と操作を保持した識別。文脈がなければ受付時の現世代で、操作トークン0の独立した要求です。</returns>
+    internal OperationProgressRequest CaptureProgressRequest(string source, long requestVersion)
+    {
+        StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        return new(context?.Generation ?? CurrentGeneration, context?.Request?.OperationToken ?? 0, source, requestVersion);
+    }
+
+    /// <summary>捕捉済みの機能要求の実行境界を、その要求のまま表示先へ通知します。</summary>
+    internal void ReportRequestProgress(OperationProgressRequest request, bool running)
+    {
+        if (request != null)
+        {
+            string name = request.Source.StartsWith("scheduler:", StringComparison.Ordinal) ? request.Source[10..] : request.Source;
+            PublishProgress(new(name, request.Generation, request.Version,
+                IsPostInitializationTask(name), running, request));
+        }
+    }
+
+    /// <summary>実行中のスケジューラー要求を専用件数通知へ渡します。</summary>
+    internal OperationProgressRequest CaptureCurrentProgressRequest() => progressContext.Value?.Request;
+
+    private static bool UsesExecutionProgressReporter(string name) =>
+        name is "score_hydration_deferred" or "ranking_refresh_deferred"
+            or "chart_info_hydration" or "chart_info_backfill" or "chart_info_backfill_after_hydration"
+            or "maintenance_hydration" or "installable_maintenance" or "playlist_entries_hydration"
+            or "external_playlist_sync" or "playlist_ref_apply"
+            or "playlist_custom_folder_output_repair" or "beatoraja_bmt_export_all";
+
+    private void PublishProgress(Request request, bool running)
+    {
+        if (UsesExecutionProgressReporter(request.Name))
+        {
+            return;
+        }
+
+        var status = new StartupBackgroundTaskProgressSnapshot(request.Name, request.ProgressRequest.Generation,
+            request.Version, request.IsPostInitialization, running, request.ProgressRequest);
+        PublishProgress(status);
+    }
+
+    private void PublishProgress(StartupBackgroundTaskProgressSnapshot status)
+    {
+        Action<StartupBackgroundTaskProgressSnapshot> handlers = ProgressChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<StartupBackgroundTaskProgressSnapshot> handler in handlers.GetInvocationList())
+        {
+            try { handler(status); }
+            catch { /* 表示通知の失敗は受理済みの仕事の結果や収束を変えません。 */ }
+        }
     }
 
     internal object ProgressSynchronization => progressSynchronization;
@@ -419,6 +502,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             existing.IsPostInitialization = isPostInitialization;
                             existing.Priority = priority;
                             existing.Version = requestVersion;
+                            existing.ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion);
                             existing.Work = work;
                             existing.Discard = discard;
                             replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
@@ -438,6 +522,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Priority = priority,
                             Version = requestVersion,
                             Generation = generation,
+                            ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion),
                             Reservation = null,
                             ReservationState = 0,
                             Work = work,
@@ -570,6 +655,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Priority = priority,
                             Version = requestVersion,
                             Generation = generation,
+                            ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion),
                             Reservation = reservation,
                             ReservationState = ReservationStateQueued,
                             Work = work,
@@ -655,7 +741,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
-    internal void Reset(bool startImmediately)
+    /// <summary>既存のスケジュールを再設定し、以後の子Taskへ表示世代を捕捉します。</summary>
+    internal void Reset(bool startImmediately, long operationToken = 0L)
     {
         bool shouldStartWorker;
         lock (progressSynchronization)
@@ -666,6 +753,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 postInitializationSchedulingComplete = false;
                 requiredInitializationSchedulingComplete = false;
                 generation++;
+                // 同期の操作開始入口から流すため、後で旧子Taskへ現在世代を付け直しません。
+                progressContext.Value = new StartupBackgroundTaskProgressSnapshot(string.Empty, generation, 0, false, false,
+                    new(generation, operationToken, string.Empty, 0));
                 latestReservationSequenceByName.Clear();
                 idleRevision++;
                 for (int i = 0; i < queue.Count; i++)
@@ -884,8 +974,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
+    /// <summary>捕捉した要求文脈の外部子処理を、集計と表示へ通知します。</summary>
     internal void Report(string name, string status, long elapsedMs, bool failed, string detail)
     {
+        StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        if (context != null && !UsesExecutionProgressReporter(name)
+            && !string.Equals(context.Name, name, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, "queued", StringComparison.OrdinalIgnoreCase))
+        {
+            bool running = string.Equals(status, "start", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(status, "running", StringComparison.OrdinalIgnoreCase);
+            PublishProgress(new(name, context.Generation, context.Version, IsPostInitializationTask(name), running, context.Request));
+        }
         lock (syncRoot)
         {
             Metric metric = GetOrCreateMetricUnsafe(name);
@@ -1086,9 +1186,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         Task.Run(async delegate
         {
+            progressContext.Value = new(request.Name, request.ProgressRequest.Generation, request.Version, request.IsPostInitialization, true, request.ProgressRequest);
             var stopwatch = Stopwatch.StartNew();
             logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
             RecordStarted(request);
+            PublishProgress(request, true);
             try
             {
                 await request.Work().ConfigureAwait(false);
@@ -1106,6 +1208,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             }
             finally
             {
+                PublishProgress(request, false);
                 lock (progressSynchronization)
                 {
                     lock (syncRoot)
@@ -1325,7 +1428,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsPostInitializationTask(string name)
+    /// <summary>既存の後続処理分類を、表示の所属判定でも共用します。</summary>
+    internal static bool IsPostInitializationTask(string name)
     {
         return string.Equals(name, "lr2_song_db_sync_enrollment", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
@@ -1357,18 +1461,66 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetPriority(string name)
     {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)) return 10;
-        if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)) return 15;
-        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return 16;
-        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)) return int.MaxValue;
-        if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)) return 20;
-        if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)) return 30;
-        if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return 40;
-        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)) return 50;
-        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)) return 55;
-        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)) return 60;
-        if (string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)) return 70;
-        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 10;
+        }
+
+        if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase))
+        {
+            return 15;
+        }
+
+        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase))
+        {
+            return 16;
+        }
+
+        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase))
+        {
+            return int.MaxValue;
+        }
+
+        if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase))
+        {
+            return 20;
+        }
+
+        if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase))
+        {
+            return 30;
+        }
+
+        if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
+        {
+            return 40;
+        }
+
+        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 50;
+        }
+
+        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 55;
+        }
+
+        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase))
+        {
+            return 60;
+        }
+
+        if (string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
+        {
+            return 70;
+        }
+
+        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
+        {
+            return 90;
+        }
+
         return 100;
     }
 
@@ -1383,14 +1535,34 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     private static string GetBaseLane(string name)
     {
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)) return "read_hydration";
-        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)) return "maintenance_hydration";
+            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return "read_hydration";
+        }
+
+        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return "maintenance_hydration";
+        }
+
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return "playlist_followup";
-        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return "folder_tree_refresh";
+            || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
+        {
+            return "playlist_followup";
+        }
+
+        if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase))
+        {
+            return "folder_tree_refresh";
+        }
+
         if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)) return "dependent_maintenance";
+            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
+        {
+            return "dependent_maintenance";
+        }
+
         return "default";
     }
 
@@ -1451,7 +1623,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static string Sanitize(string value)
     {
-        if (string.IsNullOrWhiteSpace(value)) return "-";
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
         return value
             .Replace(Environment.NewLine, " ")
             .Replace("\r", " ")

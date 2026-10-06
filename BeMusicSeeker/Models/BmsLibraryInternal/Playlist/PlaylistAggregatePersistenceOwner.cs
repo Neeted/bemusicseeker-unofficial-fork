@@ -7,7 +7,6 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -77,6 +76,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     internal sealed class PlaylistReloadPersistenceDecision
     {
+        /// <summary>表示名または取得元名の差です。ヘッダー保存を必要としますが、更新日時は進めません。</summary>
+        public bool NamesChanged { get; internal set; }
+
         public bool EntryFingerprintChanged { get; internal set; }
 
         public bool HeaderKnownChanged { get; internal set; }
@@ -91,7 +93,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
         public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
 
-        public bool NeedsHeaderPersistence => HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
+        /// <summary>名称差、ハッシュ差または初期化によって、ヘッダーとコースを保存する必要があるかを返します。</summary>
+        public bool NeedsHeaderPersistence => NamesChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
 
         public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
 
@@ -1580,6 +1583,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out _, out _, out persistenceDecision, logLastUpdateDecision);
     }
 
+    /// <summary>取得結果へ既存設定・所属・メモを統合し、名称差のヘッダー保存と既知ハッシュ差の更新日時を別々に判定します。</summary>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
     {
         if (oldTable == null)
@@ -1599,6 +1603,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
         PlaylistHashChangeResult hashChangeResult = AnalyzePlaylistHashChanges(oldTable, newTable);
         persistenceDecision = new PlaylistReloadPersistenceDecision
         {
+            NamesChanged = !string.Equals(oldTable.name, newTable.name, StringComparison.Ordinal)
+                || !string.Equals(oldTable.org_name, newTable.org_name, StringComparison.Ordinal),
             EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
             HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
             HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,

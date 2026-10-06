@@ -44,6 +44,8 @@ XAMLは原則として `DynamicResource` を使います。コード描画はテ
 
 ボタン、入力欄、選択欄、チェック、ラジオボタン、ラベル、グループ、タブ、折りたたみ、メニューと区切り、一覧、スクロール等を共通化します。標準のキーボード操作とアクセシビリティを保ち、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewerの部品、Expanderの `HeaderSite` を欠かしません。
 
+共通Expanderの見出しは、通常背景に `App.ControlBackgroundBrush`、1 DIPの枠に `App.BorderBrush` を使い、表示中のテーマ切替へ追随します。折畳み・展開の矢印は見出しの文字色と揃え、通常は `App.TextBrush`、無効時は `App.DisabledTextBrush` に追随します。開閉の双方向の結び付け、内容の表示、アクセシビリティ、ホバー・フォーカス表示と余白を保ちます。
+
 検証対象は同一ウィンドウ内で実際に適用された役割とテンプレート、未採用の部品への非波及です。別々に読み込んだ辞書のオブジェクト同一性、ソース文字列、子要素の順序、固定座標を契約にしません。
 
 ### スクロールとフォーカス
@@ -67,6 +69,8 @@ WPF既定の点線のフォーカス飾りは使いません。表は選択と�
 検索欄の絞込み、構文警告、ヘルプ、クリアと、左サイドバーのプレイリスト、フォルダ、検索、パッケージ、処理中の状態は共通アイコン体系へ揃えます。`[NO SONG]` は通常フォルダと同じ表示にせず、未所持の特殊フォルダと分かるフォルダ系アイコンを使います。処理中は通常アイコンを同期アイコンへ置き換えて回転させ、処理状態の判定や寿命は既存の管理主体から変えません。
 
 ### 設定画面の構造と即時反映
+
+設定画面の区画には `SettingsSection` を使い、区画間の下余白は `SettingsSectionMargin` で揃えます。区画内の補足を折り畳む `Expander` は共通の `SettingsExpanderStyle` を使います。親が区画間の下余白を持ち、展開内容との間隔は共通テンプレートが持つため、呼出し側で同じ余白を重ねません。
 
 設定画面は左のカテゴリ一覧、見出し、本文、下部の操作から成り、上部タブは使いません。カテゴリ、見出し、下部操作を固定し、選択中の本文だけを一つの縦ScrollViewerでスクロールします。横スクロールは使いません。長い翻訳のラベルや選択文は折り返します。
 
@@ -131,6 +135,7 @@ OS標準の選択画面、利用者定義テーマ、個別色の編集、OSテ�
 | --- | --- | --- |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs) は明色・暗色の切替で、配色辞書の交換、共通スタイルの解決、変更通知と版更新を確認する。 |
 | テーマの切替、標準題名部の接続・解除と失敗 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs) | [`NativeWindowThemeContractTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../BeMusicSeeker.Tests/Themes/NativeWindowTitleBarTests.cs) |
+| 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |
 | 設定の表示部品、検証状態、アクセシビリティ、候補幅、即時反映と取消 | [`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsField`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsPathPicker`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、[`SettingsSection`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation`、`SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone`、および既存の表示・アクセシビリティ検査、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ダイアログの表示面、標準メニュー、結果とサイズ | [`ThemedMessageBox`](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`ThemedMessageBoxTests`](../../../BeMusicSeeker.Tests/Dialogs/ThemedMessageBoxTests.cs)、[`UiDialogCoordinatorWpfTests`](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) |
 | 表とツリーへの配色・表示、共通アイコンの描画 | [`CustomTablePalette`](../../../BeMusicSeeker/Views/CustomTable/CustomTablePalette.cs)、[`AppFontIcon`](../../../BeMusicSeeker/Views/AppFontIcon.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |

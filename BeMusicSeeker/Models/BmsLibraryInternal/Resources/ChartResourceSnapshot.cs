@@ -6,6 +6,10 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// 譜面のリソースから用途別の検索キーを作り、実際の解析に由来する非対応理由を保持します。
+/// 拡張子除去後の空キーや種類不明だけを、親ディレクトリ参照の理由にはしません。
+/// </summary>
 internal sealed class ChartResourceSnapshot
 {
     internal readonly struct ResourceReference(string normalizedPath, uint relativePathHash, bool isPathAware, string rawPath = null, ChartResourceKind kind = ChartResourceKind.Unknown)
@@ -77,6 +81,7 @@ internal sealed class ChartResourceSnapshot
 
     public int UnsupportedResourceReferenceCount => unsupportedResourceReferences.Count;
 
+    /// <summary>独立した <c>..</c> セグメントが解析で検出された非対応参照を含むかを返します。</summary>
     public bool HasUnsupportedParentTraversalReference => unsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
 
     public int PathSegmentReferenceCount { get; private set; }
@@ -325,7 +330,6 @@ internal sealed class ChartResourceSnapshot
         string normalizedPath = StripLookupExtension(reference.NormalizedPath);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
-            AddUnsupportedReferenceIfNeeded(reference.Kind, reference.RawPath);
             return;
         }
         var resourceReference = new ResourceReference(
@@ -347,7 +351,7 @@ internal sealed class ChartResourceSnapshot
                 AddResourceKey(MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, resourceReference);
                 break;
             default:
-                AddUnsupportedReferenceIfNeeded(reference.Kind, reference.RawPath);
+                AddUnsupportedReferenceIfNeeded(reference.Kind, reference.RawPath, ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(reference.RawPath).Status);
                 break;
         }
     }
@@ -366,7 +370,7 @@ internal sealed class ChartResourceSnapshot
                 AddNormalized(kind, MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, path, rawPath);
                 break;
             default:
-                AddUnsupportedReferenceIfNeeded(kind, rawPath);
+                AddUnsupportedReferenceIfNeeded(kind, rawPath, ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(path).Status);
                 break;
         }
     }
@@ -403,7 +407,7 @@ internal sealed class ChartResourceSnapshot
     private void AddUnsupportedReferenceIfNeeded(
         ChartResourceKind kind,
         string path,
-        ChartResourcePathNormalizationStatus status = ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+        ChartResourcePathNormalizationStatus status)
     {
         if (!ShouldPreserveUnsupportedReference(status))
         {

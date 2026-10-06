@@ -4,6 +4,7 @@
 
 | 仕様 | 対象 |
 | --- | --- |
+| [内蔵の難度推定表とリコメンド](local-recommendations.md) | 同梱固定モデルと選択中のスコアで生成する表、数学、三方針、URI互換、更新と通知を定めます。 |
 | [プレイリストの保存と更新](storage-and-export.md) | プレイリストの正本、外部同期の変更判定、手動編集、バックアップと復元を定めます。 |
 | [プレイリストのLR2カスタムフォルダ出力](lr2-custom-folders.md) | プレイリストから `.lr2folder` と対応するLR2のフォルダ行を生成する契約を定めます。 |
 | [beatoraja向けBMT出力](bmt-export.md) | プレイリストのBMTファイル、管理台帳、beatorajaのTable URL登録を定めます。 |
