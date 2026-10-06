@@ -1005,7 +1005,7 @@ internal sealed partial class LibraryMutationOwner
                 includeWarningSnapshot: true,
                 includeResourceReferences: false);
             return ChartFileProjection.WithPackageState(
-                detachedChart,
+                ChartFileProjection.WithResources(detachedChart, target.ChartSnapshot?.Resources),
                 target.ChartSnapshot?.InstallDestination,
                 target.ChartSnapshot?.InstallDestinationTitle,
                 target.ChartSnapshot?.InstallDestinationArtist,
@@ -1032,17 +1032,14 @@ internal sealed partial class LibraryMutationOwner
                 backbmp = source.backbmp,
                 stagefile = source.stagefile,
                 preview_music = source.preview_music,
-                updated_at = source.updated_at,
-                wav_files = [.. (source.wav_files ?? [])],
-                bga_files = [.. (source.bga_files ?? [])],
-                HasFreshResourceReferences = source.HasFreshResourceReferences
+                updated_at = source.updated_at
             };
             ChartFile detachedChart = ChartFileProjection.FromBmsonSong(
                 detachedOwner,
                 includeWarningSnapshot: true,
                 includeResourceReferences: false);
             return ChartFileProjection.WithPackageState(
-                detachedChart,
+                ChartFileProjection.WithResources(detachedChart, target.ChartSnapshot?.Resources),
                 target.ChartSnapshot?.InstallDestination,
                 target.ChartSnapshot?.InstallDestinationTitle,
                 target.ChartSnapshot?.InstallDestinationArtist,

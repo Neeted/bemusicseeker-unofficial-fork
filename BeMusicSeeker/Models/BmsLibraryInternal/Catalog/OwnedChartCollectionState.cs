@@ -438,9 +438,9 @@ internal sealed class OwnedChartCollectionState
         return new OwnedChartCollectionState(charts, cancellationToken, sequenceWorkObserver);
     }
 
+    /// <summary>現在の基本情報を投影し、入力譜面の取得済みリソース結果を共有します。</summary>
     internal List<ChartFile> CreateSnapshot(
         bool includeWarningSnapshot = false,
-        bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
         return [.. charts
@@ -448,7 +448,6 @@ internal sealed class OwnedChartCollectionState
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: includeWarningSnapshot,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: includeScoreSnapshot))
             .Where(chart => chart != null)];
     }
@@ -484,7 +483,6 @@ internal sealed class OwnedChartCollectionState
         {
             return CreateSnapshot(
                 includeWarningSnapshot: includeWarningSnapshot,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: includeScoreSnapshot);
         }
 
@@ -513,10 +511,10 @@ internal sealed class OwnedChartCollectionState
             refs.Select(chart => chart?.GetBmsonStorageOwner()));
     }
 
+    /// <summary>指定MD5の基本情報を投影し、入力譜面の取得済みリソース結果を共有します。</summary>
     internal List<ChartFile> CreateSnapshotForMd5Hashes(
         ISet<string> md5Hashes,
         bool includeWarningSnapshot = false,
-        bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
         if (md5Hashes == null || md5Hashes.Count == 0)
@@ -529,7 +527,6 @@ internal sealed class OwnedChartCollectionState
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: includeWarningSnapshot,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: includeScoreSnapshot))
             .Where(chart => chart != null)];
     }
@@ -562,14 +559,13 @@ internal sealed class OwnedChartCollectionState
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: false,
-                includeResourceReferences: true,
                 includeScoreSnapshot: false))
             .Where(chart => chart != null)];
     }
 
+    /// <summary>BMSの基本情報を投影し、入力譜面の取得済みリソース結果を共有します。</summary>
     internal List<ChartFile> CreateBmsSnapshot(
         bool includeWarningSnapshot = false,
-        bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
         return [.. charts
@@ -578,7 +574,6 @@ internal sealed class OwnedChartCollectionState
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: includeWarningSnapshot,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: includeScoreSnapshot))
             .Where(chart => chart != null)];
     }
@@ -2143,6 +2138,15 @@ internal sealed class OwnedChartCollectionState
         bool includeResourceReferences,
         bool includeScoreSnapshot)
     {
+        ChartFile chartSnapshot = chart?.GetChartSnapshot();
+        if (chartSnapshot != null)
+        {
+            return ChartFileProjection.FromStorageOwner(
+                chartSnapshot,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeScoreSnapshot: includeScoreSnapshot) ?? chartSnapshot;
+        }
+
         BMSFile bmsOwner = chart?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
@@ -2162,12 +2166,7 @@ internal sealed class OwnedChartCollectionState
                 includeResourceReferences: includeResourceReferences);
         }
 
-        ChartFile chartSnapshot = chart?.GetChartSnapshot();
-        return ChartFileProjection.FromStorageOwner(
-            chartSnapshot,
-            includeWarningSnapshot: includeWarningSnapshot,
-            includeResourceReferences: includeResourceReferences,
-            includeScoreSnapshot: includeScoreSnapshot) ?? chartSnapshot;
+        return null;
     }
 
     private static void ClassifyChartInfoHydrationOwner(

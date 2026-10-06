@@ -194,18 +194,18 @@ public sealed class BMSFileSnapshotTests
             Assert.AreEqual(title, actual.title);
             Assert.AreEqual(artist, actual.artist);
             Assert.AreEqual(
-                shiftJisParsed.ResourceReferences.Single().RawPath,
-                actual.ResourceReferences.Single().RawPath);
+                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
+                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
             Assert.AreEqual(
-                shiftJisParsed.ResourceReferences.Single().NormalizedPath,
-                actual.ResourceReferences.Single().NormalizedPath);
+                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).NormalizedPath,
+                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).NormalizedPath);
             CollectionAssert.AreEqual(
-                shiftJisParsed.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray(),
-                actual.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+                shiftJisParsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
             Assert.AreEqual(shiftJisParsed.stagefile, actual.stagefile);
             Assert.AreEqual(shiftJisParsed.banner, actual.banner);
             Assert.AreEqual(shiftJisParsed.backbmp, actual.backbmp);
-            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
             Assert.AreNotEqual(imageName, actual.stagefile);
         });
     }
@@ -234,9 +234,9 @@ public sealed class BMSFileSnapshotTests
 
             Assert.AreEqual(title, actual.title);
             Assert.AreEqual(
-                shiftJisParsed.ResourceReferences.Single().RawPath,
-                actual.ResourceReferences.Single().RawPath);
-            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
+                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
         });
     }
 
@@ -257,9 +257,9 @@ public sealed class BMSFileSnapshotTests
             var actual = BMSFile.CreateBMSFileFromFile(filePath);
 
             Assert.AreEqual(
-                shiftJisSnapshotParsed.ResourceReferences.Single().RawPath,
-                actual.ResourceReferences.Single().RawPath);
-            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+                shiftJisSnapshotParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
+                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
         });
     }
 
@@ -278,14 +278,14 @@ public sealed class BMSFileSnapshotTests
             var shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             actual.ClearResourceReferenceCollections();
-            actual.WAVfiles = [];
+            actual.Resources = TestChartResources.ReplaceAudio(actual.Resources, []);
 
             BMSFile.SetBMSComponentFilesFromBMSFile(actual);
 
             Assert.AreEqual(
-                shiftJisSnapshotParsed.ResourceReferences.Single().RawPath,
-                actual.ResourceReferences.Single().RawPath);
-            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+                shiftJisSnapshotParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
+                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
         });
     }
 
@@ -357,12 +357,12 @@ public sealed class BMSFileSnapshotTests
             var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             AssertBmsMetadataEqual(expected, actual);
-            CollectionAssert.Contains(actual.WAVfiles.ToArray(), "sound.wav");
-            CollectionAssert.Contains(actual.WAVfiles.ToArray(), Path.Combine("audio", "hit.wav"));
-            CollectionAssert.Contains(actual.BGAfiles.ToArray(), "image.png");
-            CollectionAssert.Contains(actual.BGAfiles.ToArray(), "movie.mp4");
-            Assert.IsFalse(actual.WAVfiles.Any(string.IsNullOrWhiteSpace));
-            Assert.IsFalse(actual.BGAfiles.Any(value => value.Contains(":")));
+            CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "sound.wav");
+            CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), Path.Combine("audio", "hit.wav"));
+            CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "image.png");
+            CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "movie.mp4");
+            Assert.IsFalse(actual.Resources.Where(reference => reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Any(reference => string.IsNullOrWhiteSpace(reference.NormalizedPath)));
+            Assert.IsFalse(actual.Resources.Where(reference => reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Any(reference => reference.NormalizedPath.Contains(":")));
             Assert.AreEqual(5, actual.mode);
         });
     }
@@ -562,12 +562,12 @@ public sealed class BMSFileSnapshotTests
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
             var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
-            Assert.AreEqual(3, actual.ResourceReferences.Count);
+            Assert.AreEqual(4, actual.Resources.Count);
             AssertResourceReference(actual, ChartResourceKind.Audio, @".\sound\kick.wav", Path.Combine("sound", "kick.wav"));
             AssertResourceReference(actual, ChartResourceKind.Image, @"visual\bg.final.png", Path.Combine("visual", "bg.final.png"));
             AssertResourceReference(actual, ChartResourceKind.Movie, @"movie\op.mpg", Path.Combine("movie", "op.mpg"));
-            Assert.AreEqual(1, actual.UnsupportedResourceReferences.Count);
-            Assert.AreEqual(@"..\shared\hit.wav", actual.UnsupportedResourceReferences[0].RawPath);
+            Assert.AreEqual(1, actual.Resources.Count(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported || reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+            Assert.AreEqual(@"..\shared\hit.wav", actual.Resources.First(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported).RawPath);
         });
     }
 
@@ -739,7 +739,7 @@ public sealed class BMSFileSnapshotTests
             Assert.AreEqual(subartist, file.subartist);
             Assert.AreEqual(artist + " " + subartist, file.Artist);
             Assert.AreEqual(genre, file.genre);
-            CollectionAssert.Contains(file.WAVfiles.ToArray(), "sound.wav");
+            CollectionAssert.Contains(file.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "sound.wav");
         });
     }
 
@@ -758,20 +758,17 @@ public sealed class BMSFileSnapshotTests
         Assert.AreEqual(expected.mode, actual.mode);
         Assert.AreEqual(expected.hash, actual.hash);
         Assert.AreEqual(expected.sha256, actual.sha256);
-        CollectionAssert.AreEquivalent(expected.WAVfiles.ToArray(), actual.WAVfiles.ToArray());
-        CollectionAssert.AreEquivalent(expected.BGAfiles.ToArray(), actual.BGAfiles.ToArray());
+        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         CollectionAssert.AreEqual(
-            (expected.ResourceReferences ?? []).Select(ToComparableResourceReference).ToArray(),
-            (actual.ResourceReferences ?? []).Select(ToComparableResourceReference).ToArray());
-        CollectionAssert.AreEqual(
-            (expected.UnsupportedResourceReferences ?? []).Select(ToComparableUnsupportedResourceReference).ToArray(),
-            (actual.UnsupportedResourceReferences ?? []).Select(ToComparableUnsupportedResourceReference).ToArray());
+            (expected.Resources ?? []).Select(ToComparableResourceReference).ToArray(),
+            (actual.Resources ?? []).Select(ToComparableResourceReference).ToArray());
     }
 
     private static void AssertResourceReference(BMSFile file, ChartResourceKind kind, string rawPath, string normalizedPath)
     {
         Assert.IsTrue(
-            file.ResourceReferences.Any(reference =>
+            file.Resources.Any(reference =>
                 reference.Kind == kind
                 && reference.RawPath == rawPath
                 && reference.NormalizedPath == normalizedPath),
@@ -780,12 +777,7 @@ public sealed class BMSFileSnapshotTests
 
     private static string ToComparableResourceReference(ChartResourceReference reference)
     {
-        return reference.Kind + "|" + reference.RawPath + "|" + reference.NormalizedPath;
-    }
-
-    private static string ToComparableUnsupportedResourceReference(UnsupportedChartResourceReference reference)
-    {
-        return reference.Kind + "|" + reference.RawPath + "|" + reference.Reason;
+        return reference.Kind + "|" + reference.Usage + "|" + reference.RawPath + "|" + reference.NormalizedPath + "|" + reference.LookupKey + "|" + reference.Status;
     }
 
     private static void WithTempDirectory(Action<string> action)

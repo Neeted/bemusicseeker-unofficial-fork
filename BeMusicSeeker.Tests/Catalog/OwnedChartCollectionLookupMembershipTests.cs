@@ -210,7 +210,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
             OwnedChartRemoveRequest.FromOwnerReference(first),
             OwnedChartRemoveRequest.FromOwnerReference(bmsonSong)
         ]));
-        List<ChartFile> afterRemove = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> afterRemove = state.CreateSnapshot();
 
         Assert.AreEqual(1, afterRemove.Count);
         Assert.AreSame(second, afterRemove[0].GetBmsStorageOwner());
@@ -234,7 +234,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreEqual(0, state.RemoveChartRequests([
             OwnedChartRemoveRequest.FromOwnerReference(staleSamePathBmsOwner)
         ]));
-        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> snapshot = state.CreateSnapshot();
 
         Assert.AreEqual(2, snapshot.Count);
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), bmsFile)));
@@ -253,7 +253,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreEqual(1, state.RemoveChartRequests([
             OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, bmsPath)
         ]));
-        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> snapshot = state.CreateSnapshot();
 
         Assert.AreEqual(1, snapshot.Count);
         Assert.AreSame(other, snapshot[0].GetBmsStorageOwner());
@@ -271,7 +271,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
 
         Assert.AreEqual(1, filterSummary.DuplicatePathBmsCount);
         Assert.AreEqual(1, state.RemoveChartRequests([OwnedChartRemoveRequest.FromOwnerReference(first)]));
-        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> snapshot = state.CreateSnapshot();
 
         Assert.AreEqual(1, snapshot.Count);
         Assert.AreSame(other, snapshot[0].GetBmsStorageOwner());
@@ -357,7 +357,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
 
         Assert.AreEqual(1, filterSummary.DuplicatePathBmsCount);
         Assert.IsTrue(state.ContainsKnownChart(pathOnlyChart));
-        Assert.AreEqual(1, state.CreateSnapshot(includeResourceReferences: false).Count);
+        Assert.AreEqual(1, state.CreateSnapshot().Count);
     }
 
     [TestMethod]
@@ -404,7 +404,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         var state = OwnedChartCollectionState.FromStorageRows([keptBms, replacedBms], [replacedBmson, keptBmson]);
 
         state.UpsertStorageRows([newBms, addedBms], [newBmson, addedBmson]);
-        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> snapshot = state.CreateSnapshot();
 
         Assert.AreEqual(6, snapshot.Count);
         Assert.AreSame(keptBms, snapshot[0].GetBmsStorageOwner());
@@ -429,7 +429,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
 
         state.UpsertStorageRows([replacement, added], []);
 
-        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> snapshot = state.CreateSnapshot();
         CollectionAssert.AreEqual(
             new[] { first, third, replacement, added },
             snapshot.Select(chart => chart.GetBmsStorageOwner()).ToArray());
@@ -456,7 +456,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         state.UpsertStorageRows([bms], []);
         CollectionAssert.AreEqual(
             new object[] { bms, upper, lower, z },
-            state.CreateSnapshot(includeResourceReferences: false)
+            state.CreateSnapshot()
                 .Select(chart => chart.Kind == ChartFileKind.Bms
                     ? (object)chart.GetBmsStorageOwner()
                     : chart.GetBmsonStorageOwner())
@@ -465,7 +465,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         state.UpsertStorageRows([], [replacement]);
         CollectionAssert.AreEqual(
             new object[] { bms, lower, replacement, z },
-            state.CreateSnapshot(includeResourceReferences: false)
+            state.CreateSnapshot()
                 .Select(chart => chart.Kind == ChartFileKind.Bms
                     ? (object)chart.GetBmsStorageOwner()
                     : chart.GetBmsonStorageOwner())
@@ -506,7 +506,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
 
         CollectionAssert.AreEqual(
             new object[] { bms, upper, lower, z },
-            state.CreateSnapshot(includeResourceReferences: false)
+            state.CreateSnapshot()
                 .Select(chart => chart.Kind == ChartFileKind.Bms
                     ? (object)chart.GetBmsStorageOwner()
                     : chart.GetBmsonStorageOwner())
@@ -575,7 +575,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
             workObserver,
             out _);
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
-        List<ChartFile> oldSnapshot = state.CreateSnapshot(includeResourceReferences: false);
+        List<ChartFile> oldSnapshot = state.CreateSnapshot();
         workObserver.Reset();
         state.UpsertStorageRows([
             CreateFile(
@@ -600,7 +600,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
 
         Assert.AreEqual(backgroundCount + bmsonCount, oldSnapshot.Count);
         Assert.IsTrue(oldSnapshot.Any(chart => chart.GetBmsonStorageOwner() != null));
-        Assert.AreEqual(backgroundCount + bmsonCount + 2, state.CreateSnapshot(includeResourceReferences: false).Count);
+        Assert.AreEqual(backgroundCount + bmsonCount + 2, state.CreateSnapshot().Count);
         return new CanonicalWorkScenario(
             cold.EnumerationCount,
             cold.VisitedEntryCount,

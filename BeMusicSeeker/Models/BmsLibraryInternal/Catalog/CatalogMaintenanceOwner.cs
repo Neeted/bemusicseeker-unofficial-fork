@@ -682,7 +682,6 @@ internal sealed class CatalogMaintenanceOwner
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: false,
-                includeResourceReferences: true,
                 includeScoreSnapshot: false))
             .Where(chart => chart != null)];
     }

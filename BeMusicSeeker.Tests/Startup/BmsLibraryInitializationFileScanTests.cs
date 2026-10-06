@@ -2061,7 +2061,10 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             CollectionAssert.Contains(result.DeletedBmsonPaths, deletedBmsonPath);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
-            Assert.IsTrue(result.AddedBmsonSongs[0].HasFreshResourceReferences);
+            Assert.IsNull(result.AddedBmsonSongs[0].Resources);
+            Assert.AreEqual(1, result.InlineMaintenanceBmsonCount);
+            Assert.AreEqual(1, result.InlineMaintenanceSuccessCount);
+            Assert.IsTrue(result.AddedBmsonSongs[0].MaintenanceInfo.IsInformationChecked());
             Assert.AreEqual(2, result.NextBmsonSongs.Count);
             Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
@@ -2072,6 +2075,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(rows.Any(song => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(rows.Any(song => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsFalse(rows.Any(song => string.Equals(song.path, deletedBmsonPath, StringComparison.OrdinalIgnoreCase)));
+            BMSFileMaintenanceInfo savedHealth = verify.Table<BMSFileMaintenanceInfo>().Single(info => info.path == addedBmsonPath);
+            Assert.AreEqual(result.AddedBmsonSongs[0].md5, savedHealth.hash);
+            Assert.IsTrue(savedHealth.IsInformationChecked());
         });
     }
 
@@ -3202,7 +3208,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual("New", result.AddedBmsonSongs[0].title);
             Assert.AreEqual(newTimestamp, result.AddedBmsonSongs[0].updated_at);
-            Assert.IsTrue(result.AddedBmsonSongs[0].HasFreshResourceReferences);
+            Assert.IsNull(result.AddedBmsonSongs[0].Resources);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
             Assert.AreEqual("New", result.NextBmsonSongs[0].title);
             ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
@@ -3478,7 +3484,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.BmsonUpsertTargetCount);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
-            Assert.IsFalse(result.NextBmsonSongs[0].HasFreshResourceReferences);
+            Assert.IsNull(result.NextBmsonSongs[0].Resources);
         });
     }
 
@@ -3552,7 +3558,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, oldTimestamp);
             LR2SongDBExtended.bmson_song existingSong = BmsonSongParser.Parse(bmsonPath);
-            existingSong.HasFreshResourceReferences = false;
+            existingSong.Resources = null;
 
             File.WriteAllText(bmsonPath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
@@ -3591,7 +3597,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
             Assert.AreEqual("Old", result.NextBmsonSongs[0].title);
-            Assert.IsFalse(result.NextBmsonSongs[0].HasFreshResourceReferences);
+            Assert.IsNull(result.NextBmsonSongs[0].Resources);
         });
     }
 

@@ -565,7 +565,7 @@ internal sealed class BmsLibraryPackageInstallService
                 List<IEnumerable<string>> resourcesByChart = [.. parsedChartEntries
                     .Select(EnumeratePackageGroupingResourcePaths)
                     .Select(paths => paths
-                        .Select(path => Path.GetFileNameWithoutExtension(path).ToUpperInvariant())
+                        .Select(path => Path.GetFileName(path).ToUpperInvariant())
                         .Distinct()
                         .ToList()
                         .AsEnumerable())];
@@ -630,7 +630,7 @@ internal sealed class BmsLibraryPackageInstallService
         return PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(
             CreateBmsChartForDiscovery(filePath),
             includeWarningSnapshot: true,
-            includeResourceReferences: false));
+            includeResourceReferences: true));
     }
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)
@@ -669,6 +669,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     internal static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry)
     {
+        entry?.AcquireResources();
         BMSFileMaintenanceInfo maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
         if (maintenanceInfo == null)
         {
@@ -1863,8 +1864,7 @@ internal sealed class BmsLibraryPackageInstallService
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,

@@ -2230,7 +2230,7 @@ internal static class Lr2SongDbSyncService
         }
 
         Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(row.path);
-        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateBmsResourceReferences(row.path, row);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(row.path, ChartResourceSnapshot.Create(row.Resources));
         info = new BMSFileMaintenanceInfo
         {
             path = row.path,

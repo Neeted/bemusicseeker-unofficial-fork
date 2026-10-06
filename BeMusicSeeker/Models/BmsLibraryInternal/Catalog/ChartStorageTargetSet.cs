@@ -96,7 +96,7 @@ internal sealed class ChartStorageTargetSet
         }
     }
 
-    /// <summary>確定した譜面のstorage ownerを集め、BMSONは同じexact path内だけで集約します。</summary>
+    /// <summary>確定した譜面のstorage ownerを集め、リソース結果は入力から共有します。BMSONは同じexact path内だけで集約します。</summary>
     internal static ChartStorageTargetSet FromCharts(IEnumerable<ChartFile> charts)
     {
         List<BMSFile> bmsFiles = [];
@@ -115,10 +115,9 @@ internal sealed class ChartStorageTargetSet
             {
                 ThrowIfInvalidStorageIdentity(bmsFile.path, bmsFile.hash);
                 bmsFiles.Add(bmsFile);
-                bmsCharts.Add(ChartFileProjection.FromBmsFile(
-                    bmsFile,
+                bmsCharts.Add(ChartFileProjection.FromStorageOwner(
+                    chart,
                     includeWarningSnapshot: false,
-                    includeResourceReferences: true,
                     includeScoreSnapshot: false));
                 continue;
             }
@@ -128,10 +127,9 @@ internal sealed class ChartStorageTargetSet
             {
                 ThrowIfInvalidStorageIdentity(bmsonSong.path, bmsonSong.md5);
                 bmsonSongsByPath[bmsonSong.path] = bmsonSong;
-                bmsonChartsByPath[bmsonSong.path] = ChartFileProjection.FromBmsonSong(
-                    bmsonSong,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: true);
+                bmsonChartsByPath[bmsonSong.path] = ChartFileProjection.FromStorageOwner(
+                    chart,
+                    includeWarningSnapshot: false);
             }
         }
 

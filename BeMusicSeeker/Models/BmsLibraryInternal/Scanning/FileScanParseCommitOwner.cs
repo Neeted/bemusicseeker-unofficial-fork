@@ -1459,6 +1459,7 @@ internal sealed class FileScanParseCommitOwner
         finally
         {
             stopwatch.Stop();
+            song.Resources = null;
         }
         return new InlineMaintenanceItemResult(
             kind: FileDiffChartKind.Bmson,

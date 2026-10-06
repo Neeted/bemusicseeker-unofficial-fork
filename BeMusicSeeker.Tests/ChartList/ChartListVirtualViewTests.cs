@@ -2884,6 +2884,8 @@ public sealed class ChartListVirtualViewTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong();
+        // 操作接続のfixtureには、リソース定義0件の解析成功結果を明示します。
+        bmsonSong.Resources = [];
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
         var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try
@@ -2925,6 +2927,8 @@ public sealed class ChartListVirtualViewTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong();
+        // 操作接続のfixtureには、リソース定義0件の解析成功結果を明示します。
+        bmsonSong.Resources = [];
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
         var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         try

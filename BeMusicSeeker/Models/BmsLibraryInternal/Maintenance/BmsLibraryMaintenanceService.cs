@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -74,6 +75,7 @@ internal sealed class BmsLibraryMaintenanceService
         return GetResourceHealthMaintenanceInfo(chart)?.is_files_warning_ignored == true;
     }
 
+    /// <summary>保存済みまたは取得済み結果の健全性を返します。未取得の表示用保守情報は件数未確定のまま保持し、読取りを開始しません。</summary>
     internal static BMSFileMaintenanceInfo GetResourceHealthMaintenanceInfo(ChartFile chart)
     {
         BMSFile bmsFile = chart?.GetBmsStorageOwner();
@@ -92,7 +94,9 @@ internal sealed class BmsLibraryMaintenanceService
                 maintenanceInfo.NormalizeForBmson(song.path, song.md5);
                 return maintenanceInfo;
             }
-            BMSFileMaintenanceInfo computedInfo = BuildResourceHealthMaintenanceInfo(chart);
+            BMSFileMaintenanceInfo computedInfo = chart.Resources == null
+                ? BMSFileMaintenanceInfo.CreateForBmson(chart.Path, chart.Md5)
+                : BuildResourceHealthMaintenanceInfo(chart);
             if (computedInfo != null && IsCurrentBmsonMaintenanceInfo(song, maintenanceInfo))
             {
                 computedInfo.is_files_warning_ignored = maintenanceInfo.is_files_warning_ignored;
@@ -102,6 +106,10 @@ internal sealed class BmsLibraryMaintenanceService
         if (chart?.ResourceHealthMaintenanceSnapshot is ResourceHealthMaintenanceSnapshot maintenanceSnapshot)
         {
             return maintenanceSnapshot.ToMutable();
+        }
+        if (chart?.Resources == null)
+        {
+            return null;
         }
         BMSFileMaintenanceInfo snapshot = BuildResourceHealthMaintenanceInfo(chart);
         if (snapshot != null)
@@ -230,31 +238,31 @@ internal sealed class BmsLibraryMaintenanceService
                 lookupContext,
                 ref counters)
             : 0;
-        string stagefile = chart.Stagefile;
-        bool stagefileDefined = !string.IsNullOrWhiteSpace(stagefile);
+        ChartResourceReference? stagefile = resources.GetOptionalImage(ChartResourceUsage.Stagefile);
+        bool stagefileDefined = IsOptionalImageDefined(chart.Kind, stagefile);
         bool stagefileExisting = stagefileDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
             resourceEntry,
-            NormalizeOptionalImageResourceKey(stagefile),
+            stagefile?.LookupKey,
             lookupContext,
             ref counters);
-        string backbmp = chart.Backbmp;
-        bool backbmpDefined = !string.IsNullOrWhiteSpace(backbmp);
+        ChartResourceReference? backbmp = resources.GetOptionalImage(ChartResourceUsage.Backbmp);
+        bool backbmpDefined = IsOptionalImageDefined(chart.Kind, backbmp);
         bool backbmpExisting = backbmpDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
             resourceEntry,
-            NormalizeOptionalImageResourceKey(backbmp),
+            backbmp?.LookupKey,
             lookupContext,
             ref counters);
-        string banner = chart.Banner;
-        bool bannerDefined = !string.IsNullOrWhiteSpace(banner);
+        ChartResourceReference? banner = resources.GetOptionalImage(ChartResourceUsage.Banner);
+        bool bannerDefined = IsOptionalImageDefined(chart.Kind, banner);
         bool bannerExisting = bannerDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
             resourceEntry,
-            NormalizeOptionalImageResourceKey(banner),
+            banner?.LookupKey,
             lookupContext,
             ref counters);
         counters.Flush(lookupContext);
@@ -311,9 +319,12 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static ResourceHealthLookupContext.ResourceHealthSetSignature BuildResourceHealthSetSignature(ChartFile chart, ChartResourceSnapshot resources)
     {
-        string stagefile = NormalizeOptionalImageResourceKey(chart?.Stagefile);
-        string backbmp = NormalizeOptionalImageResourceKey(chart?.Backbmp);
-        string banner = NormalizeOptionalImageResourceKey(chart?.Banner);
+        string stagefile = IsOptionalImageDefined(chart.Kind, resources.GetOptionalImage(ChartResourceUsage.Stagefile))
+            ? resources.GetOptionalImage(ChartResourceUsage.Stagefile)?.LookupKey : null;
+        string backbmp = IsOptionalImageDefined(chart.Kind, resources.GetOptionalImage(ChartResourceUsage.Backbmp))
+            ? resources.GetOptionalImage(ChartResourceUsage.Backbmp)?.LookupKey : null;
+        string banner = IsOptionalImageDefined(chart.Kind, resources.GetOptionalImage(ChartResourceUsage.Banner))
+            ? resources.GetOptionalImage(ChartResourceUsage.Banner)?.LookupKey : null;
         return new ResourceHealthLookupContext.ResourceHealthSetSignature(
             resources?.AudioRelativePaths,
             resources?.VisualRelativePaths,
@@ -323,9 +334,12 @@ internal sealed class BmsLibraryMaintenanceService
             banner);
     }
 
-    private static string NormalizeOptionalImageResourceKey(string reference)
+    /// <summary>BMSの原文定義とbmsonの有効パス定義という既存の形式差を維持します。</summary>
+    private static bool IsOptionalImageDefined(ChartFileKind kind, ChartResourceReference? reference)
     {
-        return ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(reference);
+        return reference.HasValue && (kind == ChartFileKind.Bms
+            ? !string.IsNullOrWhiteSpace(reference.Value.RawPath)
+            : reference.Value.Status == ChartResourcePathNormalizationStatus.Valid && !string.IsNullOrWhiteSpace(reference.Value.NormalizedPath));
     }
 
     private static void ApplyLr2CompatibilityFacts(
@@ -354,10 +368,15 @@ internal sealed class BmsLibraryMaintenanceService
         }
         try
         {
+            if (file.Resources == null)
+            {
+                file.ApplyComponentFilesFromParsedSnapshot(BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(file.path)));
+            }
+
             ChartFile chart = ChartFileProjection.FromBmsFile(
                 file,
                 includeWarningSnapshot: false,
-                includeResourceReferences: false,
+                includeResourceReferences: true,
                 includeScoreSnapshot: false);
             return BuildResourceHealthMaintenanceInfo(chart, lookupContext, forceUpdate);
         }
@@ -574,7 +593,7 @@ internal sealed class BmsLibraryMaintenanceService
             }
 
             counters.RecordFileExistsFallback(GetFallbackKind(resourceKind));
-            if (ExistsWithCompatibleExtensions(chartDirectory, reference.NormalizedPath, extensions))
+            if (ExistsWithCompatibleExtensions(chartDirectory, reference.LookupKey, extensions))
             {
                 existingCount++;
             }
@@ -597,7 +616,7 @@ internal sealed class BmsLibraryMaintenanceService
         var reference = new ChartResourceSnapshot.ResourceReference(
             normalizedPath,
             ChartResourceKeyHash.GetLookupHash(normalizedPath),
-            ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath));
+            normalizedPath.IndexOf(Path.DirectorySeparatorChar) >= 0 || normalizedPath.IndexOf(Path.AltDirectorySeparatorChar) >= 0);
         if (TryResolveResourceReferenceFromCache(resourceEntry, reference, ChartResourceKind.Image, out bool existsInCache))
         {
             counters.RecordResourceIndexHit();
@@ -663,9 +682,9 @@ internal sealed class BmsLibraryMaintenanceService
         }
         try
         {
-            string fullPath = LongPathFileSystem.NormalizePathForStorage(Path.Combine(chartDirectory, ChartResourcePathNormalizer.NormalizeReferencePathForLookup(file) ?? file));
+            string fullPath = LongPathFileSystem.NormalizePathForStorage(Path.Combine(chartDirectory, file));
             string directory = Path.GetDirectoryName(fullPath) + Path.DirectorySeparatorChar;
-            string basename = Path.GetFileNameWithoutExtension(fullPath);
+            string basename = Path.GetFileName(fullPath);
             return LongPathFileSystem.FileExists(fullPath)
                 || (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && LongPathFileSystem.FileExists(directory + basename + ext));
         }
@@ -1670,9 +1689,10 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static bool HasLoadedResourceReferenceCollections(BMSFile file)
     {
-        return file?.WAVfiles != null && file.BGAfiles != null;
+        return file?.Resources != null;
     }
 
+    /// <summary>bmsonの保守結果を集約し、評価後は保存主体の短命なリソース参照を解放します。</summary>
     private static MaintenanceEvaluationResult EvaluateBmsonMaintenance(
         LR2SongDBExtended.bmson_song song,
         ChartFileSnapshot snapshot,
@@ -1689,47 +1709,55 @@ internal sealed class BmsLibraryMaintenanceService
             return result;
         }
 
-        BMSFileMaintenanceInfo beforeInfo = CloneMaintenanceInfo(GetBmsonMaintenanceInfoForWorkflow(song));
-        if (forceUpdate || !HasFreshCurrentBmsonResourceReferences(song))
+        try
         {
-            long refreshStart = Stopwatch.GetTimestamp();
-            result.BmsonRefreshResult = TryRefreshBmsonResourceReferences(song, forceUpdate, snapshot);
-            result.BmsonRefreshElapsedTicks = Stopwatch.GetTimestamp() - refreshStart;
-            if (result.BmsonRefreshResult == BmsonResourceRefreshResult.Failed
-                || result.BmsonRefreshResult == BmsonResourceRefreshResult.NotApplicable)
+            BMSFileMaintenanceInfo beforeInfo = CloneMaintenanceInfo(GetBmsonMaintenanceInfoForWorkflow(song));
+            if (forceUpdate || !HasFreshCurrentBmsonResourceReferences(song))
+            {
+                long refreshStart = Stopwatch.GetTimestamp();
+                result.BmsonRefreshResult = TryRefreshBmsonResourceReferences(song, forceUpdate, snapshot);
+                result.BmsonRefreshElapsedTicks = Stopwatch.GetTimestamp() - refreshStart;
+                if (result.BmsonRefreshResult == BmsonResourceRefreshResult.Failed
+                    || result.BmsonRefreshResult == BmsonResourceRefreshResult.NotApplicable)
+                {
+                    return result;
+                }
+            }
+            else
+            {
+                result.BmsonRefreshResult = BmsonResourceRefreshResult.Reused;
+            }
+
+            long healthStart = Stopwatch.GetTimestamp();
+            ChartFile chart = ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true);
+            BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
+            result.HealthElapsedTicks = Stopwatch.GetTimestamp() - healthStart;
+            if (afterInfo == null)
             {
                 return result;
             }
-        }
-        else
-        {
-            result.BmsonRefreshResult = BmsonResourceRefreshResult.Reused;
-        }
-
-        long healthStart = Stopwatch.GetTimestamp();
-        ChartFile chart = ChartFileProjection.FromBmsonSong(
-            song,
-            includeWarningSnapshot: false,
-            includeResourceReferences: false);
-        BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
-        result.HealthElapsedTicks = Stopwatch.GetTimestamp() - healthStart;
-        if (afterInfo == null)
-        {
+            if (!forceUpdate && IsCurrentBmsonMaintenanceInfo(song, beforeInfo))
+            {
+                afterInfo.is_files_warning_ignored = beforeInfo.is_files_warning_ignored;
+            }
+            afterInfo.NormalizeForBmson(song.path, song.md5);
+            song.MaintenanceInfo = afterInfo;
+            result.MaintenanceInfo = afterInfo;
+            result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, afterInfo);
+            result.CacheHitCount = Math.Max(0L, (resourceLookupContext?.CacheHitCount ?? 0L) - cacheHitCountBefore);
+            result.ResourceIndexHitCount = Math.Max(0L, (resourceLookupContext?.ResourceIndexHitCount ?? 0L) - resourceIndexHitCountBefore);
+            result.ResourceHealthSetCacheHitCount = Math.Max(0L, (resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L) - resourceHealthSetCacheHitCountBefore);
+            result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
             return result;
         }
-        if (!forceUpdate && IsCurrentBmsonMaintenanceInfo(song, beforeInfo))
+        finally
         {
-            afterInfo.is_files_warning_ignored = beforeInfo.is_files_warning_ignored;
+            // 確定用snapshotへ取得結果を残さず、処理用Chartが共有する結果の寿命は維持します。
+            song.Resources = null;
         }
-        afterInfo.NormalizeForBmson(song.path, song.md5);
-        song.MaintenanceInfo = afterInfo;
-        result.MaintenanceInfo = afterInfo;
-        result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, afterInfo);
-        result.CacheHitCount = Math.Max(0L, (resourceLookupContext?.CacheHitCount ?? 0L) - cacheHitCountBefore);
-        result.ResourceIndexHitCount = Math.Max(0L, (resourceLookupContext?.ResourceIndexHitCount ?? 0L) - resourceIndexHitCountBefore);
-        result.ResourceHealthSetCacheHitCount = Math.Max(0L, (resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L) - resourceHealthSetCacheHitCountBefore);
-        result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
-        return result;
     }
 
     private static bool MaintenanceRowsEquivalent(BMSFileMaintenanceInfo left, BMSFileMaintenanceInfo right)
@@ -2131,73 +2159,81 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 Parallel.ForEach(songsInSection, new ParallelOptions { MaxDegreeOfParallelism = maintenanceHealthDegree }, delegate (LR2SongDBExtended.bmson_song song)
                 {
-                    BMSFileMaintenanceInfo beforeInfo = GetBmsonMaintenanceInfoForWorkflow(song);
-                    beforeInfo?.NormalizeForBmson(song.path, song.md5);
-                    if (forceUpdate || beforeInfo?.IsInformationChecked() != true)
-                    {
-                        long bmsonRefreshStart = Stopwatch.GetTimestamp();
-                        BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(song, forceUpdate);
-                        AddElapsedTicks(ref bmsonRefreshTicks, bmsonRefreshStart);
-                        if (refreshResult == BmsonResourceRefreshResult.Success)
-                        {
-                            lock (bmsonReparseLock)
-                            {
-                                bmsonReparsedInSection++;
-                            }
-                        }
-                        else if (refreshResult == BmsonResourceRefreshResult.Failed)
-                        {
-                            lock (bmsonReparseLock)
-                            {
-                                bmsonReparseFailedInSection++;
-                            }
-                            return;
-                        }
-                        else if (refreshResult == BmsonResourceRefreshResult.Reused)
-                        {
-                            lock (bmsonReparseLock)
-                            {
-                                bmsonResourceReferencesReusedInSection++;
-                            }
-                        }
-                        else if (refreshResult == BmsonResourceRefreshResult.NotApplicable)
-                        {
-                            return;
-                        }
-                    }
-
                     try
                     {
-                        long healthStart = Stopwatch.GetTimestamp();
-                        ChartFile chart = ChartFileProjection.FromBmsonSong(
-                            song,
-                            includeWarningSnapshot: false,
-                            includeResourceReferences: false);
-                        BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
-                        AddElapsedTicks(ref healthTicks, healthStart);
-                        if (afterInfo == null)
+                        BMSFileMaintenanceInfo beforeInfo = GetBmsonMaintenanceInfoForWorkflow(song);
+                        beforeInfo?.NormalizeForBmson(song.path, song.md5);
+                        if (forceUpdate || beforeInfo?.IsInformationChecked() != true)
                         {
-                            return;
+                            long bmsonRefreshStart = Stopwatch.GetTimestamp();
+                            BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(song, forceUpdate);
+                            AddElapsedTicks(ref bmsonRefreshTicks, bmsonRefreshStart);
+                            if (refreshResult == BmsonResourceRefreshResult.Success)
+                            {
+                                lock (bmsonReparseLock)
+                                {
+                                    bmsonReparsedInSection++;
+                                }
+                            }
+                            else if (refreshResult == BmsonResourceRefreshResult.Failed)
+                            {
+                                lock (bmsonReparseLock)
+                                {
+                                    bmsonReparseFailedInSection++;
+                                }
+                                return;
+                            }
+                            else if (refreshResult == BmsonResourceRefreshResult.Reused)
+                            {
+                                lock (bmsonReparseLock)
+                                {
+                                    bmsonResourceReferencesReusedInSection++;
+                                }
+                            }
+                            else if (refreshResult == BmsonResourceRefreshResult.NotApplicable)
+                            {
+                                return;
+                            }
                         }
-                        if (!forceUpdate && IsCurrentBmsonMaintenanceInfo(song, beforeInfo))
+
+                        try
                         {
-                            afterInfo.is_files_warning_ignored = beforeInfo.is_files_warning_ignored;
+                            long healthStart = Stopwatch.GetTimestamp();
+                            ChartFile chart = ChartFileProjection.FromBmsonSong(
+                                song,
+                                includeWarningSnapshot: false,
+                                includeResourceReferences: true);
+                            BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
+                            AddElapsedTicks(ref healthTicks, healthStart);
+                            if (afterInfo == null)
+                            {
+                                return;
+                            }
+                            if (!forceUpdate && IsCurrentBmsonMaintenanceInfo(song, beforeInfo))
+                            {
+                                afterInfo.is_files_warning_ignored = beforeInfo.is_files_warning_ignored;
+                            }
+                            afterInfo.NormalizeForBmson(song.path, song.md5);
+                            song.MaintenanceInfo = afterInfo;
+                            lock (maintenanceInfoLock)
+                            {
+                                updatedMaintenanceInfos.Add(afterInfo);
+                            }
                         }
-                        afterInfo.NormalizeForBmson(song.path, song.md5);
-                        song.MaintenanceInfo = afterInfo;
-                        lock (maintenanceInfoLock)
+                        catch (Exception ex)
                         {
-                            updatedMaintenanceInfos.Add(afterInfo);
+                            if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                            {
+                                dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, song.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                return;
+                            }
+                            throw;
                         }
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
-                        {
-                            dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, song.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            return;
-                        }
-                        throw;
+                        // 解析失敗を含め対象の評価が終了したら、長寿命の保存主体からだけ解放します。
+                        song.Resources = null;
                     }
                 });
                 List<BMSFileMaintenanceInfo> maintenanceInfos = [.. updatedMaintenanceInfos.Where(info => info?.IsInformationChecked() == true)];
@@ -2391,15 +2427,12 @@ internal sealed class BmsLibraryMaintenanceService
         target.banner = parsed.banner;
         target.backbmp = parsed.backbmp;
         target.preview_music = parsed.preview_music;
-        target.wav_files = parsed.wav_files ?? [];
-        target.bga_files = parsed.bga_files ?? [];
-        target.UnsupportedResourceReferences = [.. (parsed.UnsupportedResourceReferences ?? [])];
-        target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
+        target.Resources = parsed.Resources;
     }
 
     private static bool HasFreshCurrentBmsonResourceReferences(LR2SongDBExtended.bmson_song song)
     {
-        if (song == null || !song.HasFreshResourceReferences || string.IsNullOrWhiteSpace(song.path))
+        if (song == null || song.Resources == null || string.IsNullOrWhiteSpace(song.path))
         {
             return false;
         }
@@ -2613,10 +2646,7 @@ internal sealed class BmsLibraryMaintenanceService
             private readonly string banner;
             private readonly string backbmp;
             private readonly string previewMusic;
-            private readonly List<string> wavFiles;
-            private readonly List<string> bgaFiles;
-            private readonly List<UnsupportedChartResourceReference> unsupportedResourceReferences;
-            private readonly bool hasFreshResourceReferences;
+            private readonly ImmutableList<ChartResourceReference> resources;
             private readonly DateTime updatedAt;
             private readonly BMSFileMaintenanceInfo originalMaintenanceInfo;
             private readonly BMSFileMaintenanceInfo maintenanceInfo;
@@ -2628,12 +2658,7 @@ internal sealed class BmsLibraryMaintenanceService
                 banner = song.banner;
                 backbmp = song.backbmp;
                 previewMusic = song.preview_music;
-                wavFiles = song.wav_files == null ? null : [.. song.wav_files];
-                bgaFiles = song.bga_files == null ? null : [.. song.bga_files];
-                unsupportedResourceReferences = song.UnsupportedResourceReferences == null
-                    ? null
-                    : [.. song.UnsupportedResourceReferences];
-                hasFreshResourceReferences = song.HasFreshResourceReferences;
+                resources = song.Resources;
                 updatedAt = song.updated_at;
                 originalMaintenanceInfo = song.MaintenanceInfo;
                 maintenanceInfo = song.MaintenanceInfo?.CreatePersistenceCopy();
@@ -2650,12 +2675,7 @@ internal sealed class BmsLibraryMaintenanceService
                 song.banner = banner;
                 song.backbmp = backbmp;
                 song.preview_music = previewMusic;
-                song.wav_files = wavFiles == null ? null : [.. wavFiles];
-                song.bga_files = bgaFiles == null ? null : [.. bgaFiles];
-                song.UnsupportedResourceReferences = unsupportedResourceReferences == null
-                    ? null
-                    : [.. unsupportedResourceReferences];
-                song.HasFreshResourceReferences = hasFreshResourceReferences;
+                song.Resources = resources;
                 song.updated_at = updatedAt;
                 RestoreMaintenanceInfo();
             }
@@ -2666,12 +2686,7 @@ internal sealed class BmsLibraryMaintenanceService
                 song.banner = banner;
                 song.backbmp = backbmp;
                 song.preview_music = previewMusic;
-                song.wav_files = wavFiles == null ? null : [.. wavFiles];
-                song.bga_files = bgaFiles == null ? null : [.. bgaFiles];
-                song.UnsupportedResourceReferences = unsupportedResourceReferences == null
-                    ? null
-                    : [.. unsupportedResourceReferences];
-                song.HasFreshResourceReferences = hasFreshResourceReferences;
+                song.Resources = resources;
                 song.updated_at = updatedAt;
                 if (maintenanceInfo == null)
                 {

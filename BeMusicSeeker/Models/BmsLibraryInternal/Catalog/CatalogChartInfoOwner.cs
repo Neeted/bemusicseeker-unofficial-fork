@@ -818,7 +818,6 @@ internal sealed class CatalogChartInfoOwner
                     {
                         chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(
                             includeWarningSnapshot: false,
-                            includeResourceReferences: false,
                             includeScoreSnapshot: false);
                     }
                 }

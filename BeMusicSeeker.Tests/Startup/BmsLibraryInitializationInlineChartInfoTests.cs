@@ -121,8 +121,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
             Assert.AreEqual(0, result.InlineMaintenanceFailedCount);
             Assert.AreEqual(1, result.InlineMaintenanceBmsCount);
             Assert.IsTrue(result.InlineBmsMaintenanceWallMs >= 0);
-            Assert.IsNull(added.WAVfiles);
-            Assert.IsNull(added.BGAfiles);
+            Assert.IsNull(added.Resources);
             Assert.AreEqual(1, added.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(1, added.maintenanceInfo.wav_files_existing);
 
@@ -266,8 +265,8 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
             Assert.AreEqual("ks_c_5601-1987", korean.maintenanceInfo.encoding);
             Assert.IsTrue(korean.maintenanceInfo.is_encoding_fixed);
             Assert.AreEqual(koreanTitle, korean.Title);
-            Assert.IsNull(ascii.WAVfiles);
-            Assert.IsNull(korean.WAVfiles);
+            Assert.IsNull(ascii.Resources);
+            Assert.IsNull(korean.Resources);
             Assert.AreEqual(1, ascii.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, korean.maintenanceInfo.wav_files_existing);
 

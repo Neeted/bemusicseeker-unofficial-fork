@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
@@ -57,9 +59,8 @@ internal sealed class ChartFile
 
     internal string Subtitle { get; }
 
-    internal IReadOnlyList<string> AudioResourcePaths { get; }
-
-    internal IReadOnlyList<string> VisualResourcePaths { get; }
+    /// <summary>抽出済みの不変結果です。nullは未取得または解放、空集合は成功した0件です。</summary>
+    internal ImmutableList<ChartResourceReference> Resources { get; }
 
     internal string Stagefile { get; }
 
@@ -113,6 +114,7 @@ internal sealed class ChartFile
         return Kind == ChartFileKind.Bmson ? BmsonSong : null;
     }
 
+    /// <summary>譜面の読取り値を構成します。不変リソース結果は複製せず共有し、nullの未取得と成功0件を区別します。</summary>
     internal ChartFile(
         ChartFileKind kind,
         string path,
@@ -131,8 +133,7 @@ internal sealed class ChartFile
         BMSFile bmsFile,
         LR2SongDBExtended.bmson_song bmsonSong,
         string subtitle = null,
-        IReadOnlyList<string> audioResourcePaths = null,
-        IReadOnlyList<string> visualResourcePaths = null,
+        ImmutableList<ChartResourceReference> resources = null,
         string stagefile = null,
         string backbmp = null,
         string banner = null,
@@ -170,8 +171,7 @@ internal sealed class ChartFile
         ChartInfo = chartInfo;
         ChartInfoDisplay = ChartInfoDisplaySnapshot.FromChartInfo(chartInfo);
         Subtitle = subtitle ?? string.Empty;
-        AudioResourcePaths = audioResourcePaths ?? [];
-        VisualResourcePaths = visualResourcePaths ?? [];
+        Resources = resources;
         Stagefile = stagefile ?? string.Empty;
         Backbmp = backbmp ?? string.Empty;
         Banner = banner ?? string.Empty;

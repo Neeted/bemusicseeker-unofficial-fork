@@ -25,6 +25,8 @@ BMSは `BMSDecoder`、`Section`、`BMSModel`、`TimeLine`、BMSONは `BMSONDecod
 
 ### BMSの文字コードと行の解釈
 
+軽量解析のリソース抽出は[共通譜面の不変結果](chart-model.md#譜面情報とリソース保守)へ確定します。BMSのCP932元記述とbmsonのJSON文字列を保持し、照合用の別名拡張子・用途・解析状態を抽出入口で一度だけ決めます。種類不明や拡張子のみの空キー、実際の親参照、CP932のパスなし診断を区別し、従来受理したデータを厳格化して拒否しません。詳細解析の戻り値・解釈とは別の保証です。
+
 通常の詳細解析はMS932系の既定で読み、表示用の `maintenance.encoding` を使いません。低水準の検証用 `encodingName` は残しますが、通常の補完解析からはnullを渡します。
 
 予約語は単なる空白区切りではなく、参照実装の位置依存の切出しに合わせます。`#DIFFICULTY 2`、`#DIFFICULTY=2`、古い無空白の `#TITLExxx`、添字付きのBPM・STOP・SCROLLを区別して処理します。

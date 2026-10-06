@@ -405,7 +405,7 @@ internal sealed class PlaylistDetailSourceRow
                 projectedChart = ApplyChartInfoProjection(projectedChart, ownerSource);
                 return ChartFileProjection.WithTransientState(
                     projectedChart,
-                    GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false, includeResourceReferences: false), includeWarningSnapshot: true));
+                    GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false), includeWarningSnapshot: true));
             }
             ChartFile identityChart = ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false, includeResourceReferences: false);
             return ChartFileProjection.FromStorageOwnerWithTransientState(

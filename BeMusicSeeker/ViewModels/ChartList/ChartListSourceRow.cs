@@ -311,7 +311,6 @@ internal sealed class ChartListSourceRow
             ChartFile identityOwnerChart = ChartFileProjection.FromStorageOwner(
                 currentSource,
                 includeWarningSnapshot: false,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: false);
             if (identityOwnerChart != null)
             {
@@ -320,7 +319,6 @@ internal sealed class ChartListSourceRow
                     currentSource,
                     transientState,
                     includeWarningSnapshot: includeWarningSnapshot,
-                    includeResourceReferences: includeResourceReferences,
                     includeScoreSnapshot: false);
                 return ApplyScoreProjection(ApplySourceProjectionWarnings(ApplyChartInfoProjection(currentChart), transientState, includeWarningSnapshot, currentSource), includeScoreSnapshot);
             }
@@ -342,7 +340,6 @@ internal sealed class ChartListSourceRow
             ownerIdentityChart,
             transientState,
             includeWarningSnapshot: includeWarningSnapshot,
-            includeResourceReferences: includeResourceReferences,
             includeScoreSnapshot: false);
         return ApplyScoreProjection(ApplySourceProjectionWarnings(ApplyChartInfoProjection(currentChart), transientState, includeWarningSnapshot, ownerIdentityChart), includeScoreSnapshot: includeScoreSnapshot);
     }

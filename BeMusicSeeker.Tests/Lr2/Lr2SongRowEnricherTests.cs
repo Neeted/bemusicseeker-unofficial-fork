@@ -77,12 +77,12 @@ public sealed class Lr2SongRowEnricherTests
             Assert.AreEqual(title, parsed.title);
             Assert.AreEqual(artist, parsed.artist);
             Assert.AreEqual(
-                shiftJisParsed.ResourceReferences.Single().RawPath,
-                parsed.ResourceReferences.Single().RawPath);
+                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
+                parsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
             CollectionAssert.AreEqual(
-                shiftJisParsed.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray(),
-                parsed.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray());
-            Assert.AreNotEqual(resourceName, parsed.ResourceReferences.Single().RawPath);
+                shiftJisParsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
+            Assert.AreNotEqual(resourceName, parsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
         }
         finally
         {

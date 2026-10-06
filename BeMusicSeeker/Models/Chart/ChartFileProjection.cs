@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -26,6 +27,7 @@ internal static class ChartFileProjection
             warnings);
     }
 
+    /// <summary>保存主体を外した読取り値を作ります。取得済みリソースの原文と解析状態は同じ不変結果で共有します。</summary>
     internal static ChartFile ToImmutableSnapshot(ChartFile source)
     {
         if (source == null)
@@ -65,8 +67,7 @@ internal static class ChartFileProjection
             null,
             null,
             source.Subtitle,
-            [.. (source.AudioResourcePaths ?? [])],
-            [.. (source.VisualResourcePaths ?? [])],
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -118,6 +119,7 @@ internal static class ChartFileProjection
             null);
     }
 
+    /// <summary>一時状態を投影し、取得済みリソース結果の寿命と内容を維持します。</summary>
     internal static ChartFile WithTransientState(
         ChartFile source,
         ChartFileTransientState state,
@@ -146,8 +148,7 @@ internal static class ChartFileProjection
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             string.IsNullOrWhiteSpace(state.Subtitle) ? source.Subtitle : state.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -167,6 +168,7 @@ internal static class ChartFileProjection
             source.Status);
     }
 
+    /// <summary>譜面情報を差し替え、リソースの再抽出や保存主体からの補完を行いません。</summary>
     internal static ChartFile WithChartInfo(ChartFile source, LR2SongDBExtended.chart_info chartInfo)
     {
         if (source == null)
@@ -192,8 +194,7 @@ internal static class ChartFileProjection
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -213,6 +214,7 @@ internal static class ChartFileProjection
             source.Status);
     }
 
+    /// <summary>状態を差し替え、同じ不変リソース結果を共有します。</summary>
     internal static ChartFile WithStatus(ChartFile source, ChartFileStatus status)
     {
         if (source == null)
@@ -238,8 +240,7 @@ internal static class ChartFileProjection
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -259,6 +260,7 @@ internal static class ChartFileProjection
             status);
     }
 
+    /// <summary>スコアを差し替え、同じ不変リソース結果を共有します。</summary>
     internal static ChartFile WithScore(ChartFile source, ChartScoreSnapshot score)
     {
         if (source == null)
@@ -288,8 +290,7 @@ internal static class ChartFileProjection
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -309,6 +310,7 @@ internal static class ChartFileProjection
             status);
     }
 
+    /// <summary>パッケージの一時状態を差し替え、抽出した原文と用途を同じ不変結果で維持します。</summary>
     internal static ChartFile WithPackageState(
         ChartFile source,
         string installDestination,
@@ -325,6 +327,7 @@ internal static class ChartFileProjection
             warnings);
     }
 
+    /// <summary>パッケージの一時状態を差し替え、抽出した原文と用途を同じ不変結果で維持します。</summary>
     internal static ChartFile WithPackageState(
         ChartFile source,
         string installDestination,
@@ -356,8 +359,7 @@ internal static class ChartFileProjection
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -377,6 +379,7 @@ internal static class ChartFileProjection
             source.Status);
     }
 
+    /// <summary>配置を差し替えます。譜面相対の不変リソース結果は共有し、配置に依存する評価は呼出元が行います。</summary>
     internal static ChartFile WithPath(ChartFile source, string path)
     {
         if (source == null)
@@ -402,8 +405,7 @@ internal static class ChartFileProjection
             source.GetBmsStorageOwner(),
             source.GetBmsonStorageOwner(),
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -423,6 +425,53 @@ internal static class ChartFileProjection
             source.Status);
     }
 
+    /// <summary>基本情報を維持して明示取得済みの不変リソース結果を受け渡します。</summary>
+    internal static ChartFile WithResources(ChartFile source, System.Collections.Immutable.ImmutableList<ChartResourceReference> resources)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            source.Kind,
+            source.Path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            source.ChartInfo,
+            source.GetBmsStorageOwner(),
+            source.GetBmsonStorageOwner(),
+            source.Subtitle,
+            resources,
+            source.Stagefile,
+            source.Backbmp,
+            source.Banner,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            source.InstallDestinationSuggestions,
+            source.Warnings,
+            source.WAVHealth,
+            source.BGAHealth,
+            source.MovieHealth,
+            source.StagefileHealth,
+            source.BannerHealth,
+            source.BackbmpHealth,
+            source.EncodingName,
+            source.Score,
+            source.Status);
+    }
+
+    /// <summary>変更した一時値を引き継ぎ、現在値の不変リソース結果を共有します。</summary>
     internal static ChartFile WithTransientOverrides(
         ChartFile current,
         ChartFile overrideChart,
@@ -452,8 +501,7 @@ internal static class ChartFileProjection
             current.GetBmsStorageOwner(),
             current.GetBmsonStorageOwner(),
             SelectStringOverride(current.Subtitle, overrideChart.Subtitle, baseline.Subtitle),
-            current.AudioResourcePaths,
-            current.VisualResourcePaths,
+            current.Resources,
             current.Stagefile,
             current.Backbmp,
             current.Banner,
@@ -473,12 +521,21 @@ internal static class ChartFileProjection
             current.Status);
     }
 
+    /// <summary>BMSの基本情報を投影します。指定時は取得済みリソースを共有し、非取得指定や未取得では補完や読取りを行いません。</summary>
     internal static ChartFile FromBmsFile(
         BMSFile file,
         ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
         bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
+    {
+        return ProjectBmsBasicInfo(file, includeResourceReferences ? file?.Resources : null,
+            levelParsing, includeWarningSnapshot, includeScoreSnapshot);
+    }
+
+    /// <summary>基本情報を保存主体から投影し、呼出元が選んだ不変リソース結果をそのまま受け渡します。</summary>
+    private static ChartFile ProjectBmsBasicInfo(BMSFile file, ImmutableList<ChartResourceReference> resources,
+        ChartFileLevelParsing levelParsing, bool includeWarningSnapshot, bool includeScoreSnapshot)
     {
         if (file == null)
         {
@@ -514,8 +571,7 @@ internal static class ChartFileProjection
             file,
             null,
             file.subtitle,
-            includeResourceReferences ? file.WAVfiles?.ToArray() : null,
-            includeResourceReferences ? file.BGAfiles?.ToArray() : null,
+            resources,
             file.stagefile,
             file.backbmp,
             file.banner,
@@ -537,6 +593,7 @@ internal static class ChartFileProjection
             ResourceHealthMaintenanceSnapshot.From(maintenanceInfo));
     }
 
+    /// <summary>bmsonの基本情報を投影します。指定時は取得済みリソースを共有し、非取得指定や未取得では補完や読取りを行いません。</summary>
     internal static ChartFile FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
         bool includeWarningSnapshot = true,
@@ -549,11 +606,20 @@ internal static class ChartFileProjection
             includeResourceReferences);
     }
 
+    /// <summary>bmsonの基本情報を投影します。指定時は取得済みリソースを共有し、非取得指定や未取得では補完や読取りを行いません。</summary>
     internal static ChartFile FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
         ChartFileTransientState transientState,
         bool includeWarningSnapshot = true,
         bool includeResourceReferences = true)
+    {
+        return ProjectBmsonBasicInfo(song, transientState, includeResourceReferences ? song?.Resources : null,
+            includeWarningSnapshot);
+    }
+
+    /// <summary>基本情報と一時状態を投影し、呼出元が選んだ不変リソース結果をそのまま受け渡します。</summary>
+    private static ChartFile ProjectBmsonBasicInfo(LR2SongDBExtended.bmson_song song,
+        ChartFileTransientState transientState, ImmutableList<ChartResourceReference> resources, bool includeWarningSnapshot)
     {
         if (song == null)
         {
@@ -579,8 +645,7 @@ internal static class ChartFileProjection
             null,
             song,
             string.IsNullOrWhiteSpace(song.subtitle) ? transientState.Subtitle : song.subtitle,
-            includeResourceReferences ? song.wav_files : null,
-            includeResourceReferences ? song.bga_files : null,
+            resources,
             song.stagefile,
             song.backbmp,
             song.banner,
@@ -602,11 +667,11 @@ internal static class ChartFileProjection
             ResourceHealthMaintenanceSnapshot.From(song.MaintenanceInfo));
     }
 
+    /// <summary>基本情報だけを保存主体の現在値へ更新し、未取得も含めsourceの不変リソース結果を共有します。</summary>
     internal static ChartFile FromStorageOwner(
         ChartFile source,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
-        bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
         if (source == null)
@@ -617,33 +682,34 @@ internal static class ChartFileProjection
         BMSFile bmsFile = source.GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return FromBmsFile(bmsFile, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot);
+            return ProjectBmsBasicInfo(bmsFile, source.Resources, bmsLevelParsing, includeWarningSnapshot, includeScoreSnapshot);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
-        return bmsonSong == null ? null : FromBmsonSong(bmsonSong, includeWarningSnapshot, includeResourceReferences);
+        return bmsonSong == null ? null : ProjectBmsonBasicInfo(bmsonSong, ChartFileTransientState.Empty, source.Resources, includeWarningSnapshot);
     }
 
+    /// <summary>基本情報と一時状態を更新し、リソースはsourceの確定結果を共有します。保存主体から補完しません。</summary>
     internal static ChartFile FromStorageOwnerWithTransientState(
         ChartFile source,
         ChartFileTransientState transientState,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
-        bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
         LR2SongDBExtended.bmson_song bmsonSong = source?.GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
-            return FromBmsonSong(bmsonSong, transientState, includeWarningSnapshot, includeResourceReferences);
+            return ProjectBmsonBasicInfo(bmsonSong, transientState, source.Resources, includeWarningSnapshot);
         }
 
         return WithTransientState(
-            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot),
+            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot, includeScoreSnapshot),
             transientState,
             includeWarningSnapshot);
     }
 
+    /// <summary>一覧用の基本情報を更新し、sourceの短命なリソース結果を同じ寿命の読取り値へ受け渡します。</summary>
     internal static ChartFile FromStorageOwnerListIdentity(
         ChartFile source,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant)
@@ -673,7 +739,8 @@ internal static class ChartFileProjection
                 null,
                 bmsFile,
                 null,
-                bmsFile.subtitle);
+                bmsFile.subtitle,
+                source.Resources);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
@@ -699,7 +766,8 @@ internal static class ChartFileProjection
             null,
             null,
             bmsonSong,
-            bmsonSong.subtitle);
+            bmsonSong.subtitle,
+            source.Resources);
     }
 
     internal static List<ChartFile> FromStorageRows(

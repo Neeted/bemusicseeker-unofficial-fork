@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -76,7 +77,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         get
         {
-            ChartFile currentChart = CreateCurrentChartFromStorageOwner();
+            ChartFile currentChart = ChartFileProjection.FromStorageOwner(chart) ?? chart;
             ChartFile projectedChart = projectedWarningCategories.Count > 0 || hasInstallDestinationProjection
                 ? ChartFileProjection.WithPackageState(
                     currentChart,
@@ -96,6 +97,20 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 ? ChartFileProjection.WithStatus(projectedChart, ApplySearchingStatusProjection(projectedChart.Status, searchingStatusProjection.Value))
                 : projectedChart;
         }
+    }
+
+    /// <summary>評価入口で不足するリソースを明示取得します。取得失敗は空成功に置き換えません。</summary>
+    internal void AcquireResources()
+    {
+        if (chart.Resources != null)
+        {
+            return;
+        }
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chart.Path);
+        ImmutableList<ChartResourceReference> resources = chart.Kind == ChartFileKind.Bmson
+            ? BmsonSongParser.ParseSnapshot(snapshot).Resources
+            : BMSFile.CreateBMSFileFromSnapshot(snapshot).Resources;
+        chart = ChartFileProjection.WithResources(chart, resources);
     }
 
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
@@ -191,10 +206,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             bmsFile.path = installedPath;
             ClearInstalledBmsMetadata(bmsFile);
             ApplyInstalledBmsDate(bmsFile);
-            chart = ChartFileProjection.FromBmsFile(
-                bmsFile,
-                includeWarningSnapshot: true,
-                includeResourceReferences: false);
+            chart = ChartFileProjection.FromStorageOwner(chart);
             RaiseChartChanged();
             return;
         }
@@ -205,10 +217,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             bmsonSong.path = installedPath;
             bmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
             bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
-            chart = ChartFileProjection.FromBmsonSong(
-                bmsonSong,
-                includeWarningSnapshot: true,
-                includeResourceReferences: false);
+            chart = ChartFileProjection.FromStorageOwner(chart);
             RaiseChartChanged();
         }
     }
@@ -586,29 +595,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         return chart?.GetBmsStorageOwner();
     }
 
-    private ChartFile CreateCurrentChartFromStorageOwner()
-    {
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return ChartFileProjection.FromBmsFile(
-                bmsFile,
-                includeWarningSnapshot: true,
-                includeResourceReferences: false);
-        }
-
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        if (bmsonSong != null)
-        {
-            return ChartFileProjection.FromBmsonSong(
-                bmsonSong,
-                includeWarningSnapshot: true,
-                includeResourceReferences: false);
-        }
-
-        return chart;
-    }
-
     internal static PackageChartEntry FromPath(string filePath)
     {
         try
@@ -618,12 +604,12 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 return FromChart(ChartFileProjection.FromBmsonSong(
                     BmsonSongParser.Parse(filePath),
                     includeWarningSnapshot: true,
-                    includeResourceReferences: false));
+                    includeResourceReferences: true));
             }
             return FromChart(ChartFileProjection.FromBmsFile(
                 BMSFile.CreateBMSFileFromFile(filePath),
                 includeWarningSnapshot: true,
-                includeResourceReferences: false));
+                includeResourceReferences: true));
         }
         catch
         {

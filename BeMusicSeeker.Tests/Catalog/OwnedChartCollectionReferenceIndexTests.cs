@@ -167,7 +167,6 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         List<ChartFile> snapshot = state.CreateSnapshotForMd5Hashes(
             new HashSet<string>(["dddddddddddddddddddddddddddddddd"], StringComparer.OrdinalIgnoreCase),
             includeWarningSnapshot: false,
-            includeResourceReferences: false,
             includeScoreSnapshot: false);
 
         Assert.AreEqual(1, snapshot.Count);
@@ -187,7 +186,6 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         List<ChartFile> snapshot = state.CreateSnapshotForMd5Hashes(
             new HashSet<string>([pathlessBms.hash, pathlessBmson.md5], StringComparer.OrdinalIgnoreCase),
             includeWarningSnapshot: false,
-            includeResourceReferences: false,
             includeScoreSnapshot: false);
 
         Assert.AreEqual(0, snapshot.Count);
@@ -254,7 +252,6 @@ public sealed class OwnedChartCollectionReferenceIndexTests
 
         List<ChartFile> snapshot = state.CreateBmsSnapshot(
             includeWarningSnapshot: false,
-            includeResourceReferences: false,
             includeScoreSnapshot: false);
 
         Assert.AreEqual(1, snapshot.Count);

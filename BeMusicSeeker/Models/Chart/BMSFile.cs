@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -386,13 +387,8 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public HashSet<string> WAVfiles { get; set; }
-
-    public HashSet<string> BGAfiles { get; set; }
-
-    internal List<ChartResourceReference> ResourceReferences { get; set; } = [];
-
-    internal List<UnsupportedChartResourceReference> UnsupportedResourceReferences { get; set; } = [];
+    /// <summary>一度取得した不変リソース結果です。公開確定後は解放します。</summary>
+    internal ImmutableList<ChartResourceReference> Resources { get; set; }
 
     internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(RaiseWarningPresentationChanged, () => string.Empty);
 
@@ -548,10 +544,7 @@ public class BMSFile : LR2SongDB.song
         private readonly int? adddate;
         private readonly string hash;
         private readonly string sha256;
-        private readonly HashSet<string> wavFiles;
-        private readonly HashSet<string> bgaFiles;
-        private readonly List<ChartResourceReference> resourceReferences;
-        private readonly List<UnsupportedChartResourceReference> unsupportedResourceReferences;
+        private readonly ImmutableList<ChartResourceReference> resources;
         private readonly BMSFileMaintenanceInfo originalMaintenanceInfo;
         private readonly BMSFileMaintenanceInfo maintenanceInfo;
         private readonly MaintenanceInfoOrigin maintenanceInfoOrigin;
@@ -568,10 +561,7 @@ public class BMSFile : LR2SongDB.song
             adddate = file.adddate;
             hash = file.hash;
             sha256 = file.sha256;
-            wavFiles = file.WAVfiles == null ? null : new HashSet<string>(file.WAVfiles, StringComparer.OrdinalIgnoreCase);
-            bgaFiles = file.BGAfiles == null ? null : new HashSet<string>(file.BGAfiles, StringComparer.OrdinalIgnoreCase);
-            resourceReferences = file.ResourceReferences == null ? null : [.. file.ResourceReferences];
-            unsupportedResourceReferences = file.UnsupportedResourceReferences == null ? null : [.. file.UnsupportedResourceReferences];
+            resources = file.Resources;
             originalMaintenanceInfo = file._maintenanceInfo;
             maintenanceInfo = file._maintenanceInfo?.CreatePersistenceCopy();
             maintenanceInfoOrigin = file.maintenanceInfoOrigin;
@@ -599,10 +589,7 @@ public class BMSFile : LR2SongDB.song
                 file.adddate = adddate;
                 file.hash = hash;
                 file.sha256 = sha256;
-                file.WAVfiles = wavFiles == null ? null : new HashSet<string>(wavFiles, StringComparer.OrdinalIgnoreCase);
-                file.BGAfiles = bgaFiles == null ? null : new HashSet<string>(bgaFiles, StringComparer.OrdinalIgnoreCase);
-                file.ResourceReferences = resourceReferences == null ? null : [.. resourceReferences];
-                file.UnsupportedResourceReferences = unsupportedResourceReferences == null ? null : [.. unsupportedResourceReferences];
+                file.Resources = resources;
                 RestoreMaintenanceInfo(originalMaintenanceInfo, maintenanceInfo);
                 file.maintenanceInfoOrigin = maintenanceInfoOrigin;
                 file._cachedComposedTitle = null;
@@ -628,10 +615,7 @@ public class BMSFile : LR2SongDB.song
                 file.adddate = adddate;
                 file.hash = hash;
                 file.sha256 = sha256;
-                file.WAVfiles = wavFiles == null ? null : new HashSet<string>(wavFiles, StringComparer.OrdinalIgnoreCase);
-                file.BGAfiles = bgaFiles == null ? null : new HashSet<string>(bgaFiles, StringComparer.OrdinalIgnoreCase);
-                file.ResourceReferences = resourceReferences == null ? null : [.. resourceReferences];
-                file.UnsupportedResourceReferences = unsupportedResourceReferences == null ? null : [.. unsupportedResourceReferences];
+                file.Resources = resources;
                 RestoreMaintenanceInfo(file._maintenanceInfo, maintenanceInfo);
                 file.maintenanceInfoOrigin = maintenanceInfoOrigin;
                 file._cachedComposedTitle = null;
@@ -829,32 +813,13 @@ public class BMSFile : LR2SongDB.song
         mtInfo.is_encoding_fixed = false;
     }
 
+    /// <summary>必要な保守事実へ畳み込んだ後に取得結果を解放します。解放後のgetterでは再取得しません。</summary>
     internal void ClearResourceReferenceCollections()
     {
         lock (filesCacheLock)
         {
-            WAVfiles = null;
-            BGAfiles = null;
-            ResourceReferences = null;
-            UnsupportedResourceReferences = null;
+            Resources = null;
         }
-    }
-
-    internal void ReplaceResourceReferences(
-        string stagefile,
-        string banner,
-        string backbmp,
-        IEnumerable<string> wavFiles,
-        IEnumerable<string> bgaFiles,
-        IEnumerable<UnsupportedChartResourceReference> unsupportedResourceReferences = null)
-    {
-        this.stagefile = stagefile;
-        this.banner = banner;
-        this.backbmp = backbmp;
-        WAVfiles = new HashSet<string>(wavFiles ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        BGAfiles = new HashSet<string>(bgaFiles ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        ResourceReferences = [];
-        UnsupportedResourceReferences = [.. (unsupportedResourceReferences ?? [])];
     }
 
     internal void SetMode()
@@ -1047,10 +1012,7 @@ public class BMSFile : LR2SongDB.song
             mode = 5,
             judge = 2
         };
-        var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resourceReferences = new List<ChartResourceReference>();
-        var unsupportedReferences = new List<UnsupportedChartResourceReference>();
         bool flag8 = false;
         bool flag9 = false;
         bool flag10 = false;
@@ -1137,10 +1099,10 @@ public class BMSFile : LR2SongDB.song
             switch (directive)
             {
                 case BmsDirective.Wav:
-                    AddNormalizedResourceReference(hashSet, value, unsupportedReferences, resourceReferences, ChartResourceKind.Audio);
+                    resourceReferences.Add(ChartResourceReference.Parse(value, ChartResourceKind.Audio));
                     break;
                 case BmsDirective.Bmp:
-                    AddNormalizedResourceReference(hashSet2, value, unsupportedReferences, resourceReferences, ChartResourceKind.Unknown);
+                    resourceReferences.Add(ChartResourceReference.Parse(value, ChartResourceKind.Unknown));
                     break;
                 case BmsDirective.Title:
                     if (string.IsNullOrWhiteSpace(bMSFile.title))
@@ -1206,10 +1168,8 @@ public class BMSFile : LR2SongDB.song
                     break;
             }
         }
-        bMSFile.WAVfiles = hashSet;
-        bMSFile.BGAfiles = hashSet2;
-        bMSFile.ResourceReferences = resourceReferences;
-        bMSFile.UnsupportedResourceReferences = unsupportedReferences;
+        AddOptionalImages(resourceReferences, bMSFile._stagefile, bMSFile._backbmp, bMSFile._banner);
+        bMSFile.Resources = resourceReferences.ToImmutableList();
         bMSFile.hash = md5Provider();
         bMSFile.ApplySha256(sha256Provider());
         bMSFile.path = filePath;
@@ -1644,27 +1604,22 @@ public class BMSFile : LR2SongDB.song
         return IsAsciiAlphaNumeric(value);
     }
 
-    private static void AddNormalizedResourceReference(
-        HashSet<string> references,
-        string value,
-        ICollection<UnsupportedChartResourceReference> unsupportedReferences = null,
-        ICollection<ChartResourceReference> resourceReferences = null,
-        ChartResourceKind kind = ChartResourceKind.Unknown)
+    /// <summary>BMSの選択済み任意画像を抽出結果に含めます。空の定義も解析状態を保持します。</summary>
+    private static void AddOptionalImages(List<ChartResourceReference> references, string stagefile, string backbmp, string banner)
     {
-        ChartResourcePathNormalizationResult result = ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(value);
-        if (result.IsValid)
+        if (stagefile != null)
         {
-            references.Add(result.NormalizedPath);
-            ChartResourceKind resolvedKind = kind == ChartResourceKind.Unknown ? ChartResourcePathNormalizer.ClassifyReferencePathExtension(value) : kind;
-            resourceReferences?.Add(new ChartResourceReference(resolvedKind, value, result.NormalizedPath));
-            return;
+            references.Add(ChartResourceReference.Parse(stagefile, ChartResourceKind.Image, ChartResourceUsage.Stagefile));
         }
-        if (result.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+
+        if (backbmp != null)
         {
-            unsupportedReferences?.Add(new UnsupportedChartResourceReference(
-                kind == ChartResourceKind.Unknown ? ChartResourcePathNormalizer.ClassifyReferencePathExtension(value) : kind,
-                value,
-                result.Status));
+            references.Add(ChartResourceReference.Parse(backbmp, ChartResourceKind.Image, ChartResourceUsage.Backbmp));
+        }
+
+        if (banner != null)
+        {
+            references.Add(ChartResourceReference.Parse(banner, ChartResourceKind.Image, ChartResourceUsage.Banner));
         }
     }
 
@@ -1769,47 +1724,22 @@ public class BMSFile : LR2SongDB.song
         return value >= '0' && value <= '9';
     }
 
+    /// <summary>既存の明示取得入口で同じバイト列からリソースとハッシュを確定します。</summary>
     internal static void SetBMSComponentFilesFromBMSFile(BMSFile bmsFile, string codepageName = "shift_jis")
     {
-        IEnumerable<string> enumerable = ReadFileLines(bmsFile.path, codepageName);
-        var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var resourceReferences = new List<ChartResourceReference>();
-        var unsupportedReferences = new List<UnsupportedChartResourceReference>();
-        foreach (string item in enumerable)
-        {
-            if (!TryParseDirectiveLine(item, out BmsDirective directive, out int valueStart))
-            {
-                continue;
-            }
-            string value = valueStart >= 0 && valueStart <= item.Length ? item.Substring(valueStart) : string.Empty;
-            if (directive == BmsDirective.Wav)
-            {
-                AddNormalizedResourceReference(hashSet, value, unsupportedReferences, resourceReferences, ChartResourceKind.Audio);
-            }
-            else if (directive == BmsDirective.Bmp)
-            {
-                AddNormalizedResourceReference(hashSet2, value, unsupportedReferences, resourceReferences, ChartResourceKind.Unknown);
-            }
-        }
-        bmsFile.WAVfiles = hashSet;
-        bmsFile.BGAfiles = hashSet2;
-        bmsFile.ResourceReferences = resourceReferences;
-        bmsFile.UnsupportedResourceReferences = unsupportedReferences;
-        bmsFile.hash = getMD5Hash(bmsFile.path);
-        bmsFile.ApplySha256(GetSHA256Hash(bmsFile.path));
+        ArgumentNullException.ThrowIfNull(bmsFile);
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(bmsFile.path);
+        bmsFile.ApplyComponentFilesFromParsedSnapshot(CreateBMSFileFromSnapshot(snapshot, codepageName));
     }
 
+    /// <summary>同じバイト列から得たリソース結果とハッシュを適用します。参照集合は複製せず、基本情報の変更と分離します。</summary>
     internal void ApplyComponentFilesFromParsedSnapshot(BMSFile parsedFile)
     {
         if (parsedFile == null)
         {
             return;
         }
-        WAVfiles = parsedFile.WAVfiles;
-        BGAfiles = parsedFile.BGAfiles;
-        ResourceReferences = [.. (parsedFile.ResourceReferences ?? [])];
-        UnsupportedResourceReferences = [.. (parsedFile.UnsupportedResourceReferences ?? [])];
+        Resources = parsedFile.Resources;
         hash = parsedFile.hash;
         ApplySha256(parsedFile.sha256);
     }
@@ -2000,14 +1930,17 @@ public class BMSFile : LR2SongDB.song
         {
             return;
         }
-        bmsFile.UnsupportedResourceReferences ??= [];
-        if (bmsFile.UnsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported))
+        if (bmsFile.Resources == null)
+        {
+            throw new InvalidOperationException("Resource references have not been acquired.");
+        }
+
+        if (bmsFile.Resources.Any(reference => reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported))
         {
             return;
         }
-        bmsFile.UnsupportedResourceReferences.Add(new UnsupportedChartResourceReference(
-            kind,
-            string.Empty,
+        bmsFile.Resources = bmsFile.Resources.Add(new ChartResourceReference(
+            kind, ChartResourceUsage.InputDiagnostic, string.Empty, string.Empty, string.Empty,
             ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
     }
 

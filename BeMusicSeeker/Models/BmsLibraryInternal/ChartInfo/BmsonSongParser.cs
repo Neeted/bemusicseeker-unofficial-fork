@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -50,7 +51,7 @@ internal static class BmsonSongParser
         DateTime updatedAt)
     {
         BmsonInfo info = root?.Info ?? new BmsonInfo();
-        var unsupportedReferences = new List<UnsupportedChartResourceReference>();
+        var references = new List<ChartResourceReference>();
         var result = new LR2SongDBExtended.bmson_song
         {
             path = fullPath,
@@ -63,17 +64,24 @@ internal static class BmsonSongParser
             mode_hint = info.ModeHint ?? string.Empty,
             md5 = md5,
             sha256 = sha256,
-            banner = NormalizeComponentPath(info.BannerImage, unsupportedReferences, ChartResourceKind.Image),
-            backbmp = NormalizeComponentPath(info.BackImage, unsupportedReferences, ChartResourceKind.Image),
-            stagefile = NormalizeComponentPath(info.EyecatchImage, unsupportedReferences, ChartResourceKind.Image),
-            preview_music = NormalizeComponentPath(info.PreviewMusic, unsupportedReferences, ChartResourceKind.Audio),
+            banner = ExtractComponentPath(info.BannerImage, references, ChartResourceKind.Image, ChartResourceUsage.Banner),
+            backbmp = ExtractComponentPath(info.BackImage, references, ChartResourceKind.Image, ChartResourceUsage.Backbmp),
+            stagefile = ExtractComponentPath(info.EyecatchImage, references, ChartResourceKind.Image, ChartResourceUsage.Stagefile),
+            preview_music = ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio, ChartResourceUsage.Normal),
             updated_at = updatedAt
         };
-        result.wav_files = ReadBmsonWavFiles(root, result.preview_music, unsupportedReferences);
-        result.bga_files = ReadBmsonBgaFiles(root, unsupportedReferences);
-        result.UnsupportedResourceReferences = unsupportedReferences;
+        foreach (string name in EnumerateAudioChannelNames(root))
+        {
+            ExtractComponentPath(name, references, ChartResourceKind.Audio);
+        }
+
+        foreach (BmsonBgaHeader header in root?.Bga?.BgaHeader ?? [])
+        {
+            ExtractComponentPath(header?.Name, references, ChartResourceKind.Unknown);
+        }
+
+        result.Resources = references.ToImmutableList();
         result.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(result.path, result.md5);
-        result.HasFreshResourceReferences = true;
         return result;
     }
 
@@ -126,35 +134,6 @@ internal static class BmsonSongParser
         return Path.GetFileName(trimmed) ?? string.Empty;
     }
 
-    private static List<string> ReadBmsonWavFiles(BmsonDocument document, string previewMusic, ICollection<UnsupportedChartResourceReference> unsupportedReferences)
-    {
-        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        AddNormalizedComponentPath(files, previewMusic, unsupportedReferences, ChartResourceKind.Audio);
-        foreach (string channelName in EnumerateAudioChannelNames(document))
-        {
-            AddNormalizedComponentPath(files, channelName, unsupportedReferences, ChartResourceKind.Audio);
-        }
-        return [.. files.OrderBy(item => item, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static List<string> ReadBmsonBgaFiles(BmsonDocument document, ICollection<UnsupportedChartResourceReference> unsupportedReferences)
-    {
-        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BmsonBgaHeader header in document?.Bga?.BgaHeader ?? [])
-        {
-            string normalized = NormalizeComponentPath(header?.Name, unsupportedReferences, ChartResourceKind.Unknown);
-            if (!string.IsNullOrWhiteSpace(normalized))
-            {
-                ChartResourceKind kind = ChartResourcePathNormalizer.ClassifyPath(normalized);
-                if (kind == ChartResourceKind.Image || kind == ChartResourceKind.Movie)
-                {
-                    files.Add(normalized);
-                }
-            }
-        }
-        return [.. files.OrderBy(item => item, StringComparer.OrdinalIgnoreCase)];
-    }
-
     private static IEnumerable<string> EnumerateAudioChannelNames(BmsonDocument document)
     {
         return (document?.SoundChannels ?? []).Select(channel => channel?.Name)
@@ -162,41 +141,24 @@ internal static class BmsonSongParser
             .Concat((document?.MineChannels ?? []).Select(channel => channel?.Name));
     }
 
-    private static void AddNormalizedComponentPath(
-        ISet<string> files,
-        string filePath,
-        ICollection<UnsupportedChartResourceReference> unsupportedReferences,
-        ChartResourceKind kind)
+    /// <summary>原文と解析状態を一回の入口で確定します。bmsonの音声分類と任意画像定義条件を維持します。</summary>
+    private static string ExtractComponentPath(string path, ICollection<ChartResourceReference> references,
+        ChartResourceKind expectedKind, ChartResourceUsage usage = ChartResourceUsage.Normal)
     {
-        string normalized = NormalizeComponentPath(filePath, unsupportedReferences, kind);
-        if (files == null || string.IsNullOrWhiteSpace(normalized))
+        if (path == null)
         {
-            return;
+            return string.Empty;
         }
-        if (ChartResourcePathNormalizer.ClassifyPath(normalized) == ChartResourceKind.Audio)
-        {
-            files.Add(normalized);
-        }
-    }
-
-    private static string NormalizeComponentPath(
-        string filePath,
-        ICollection<UnsupportedChartResourceReference> unsupportedReferences,
-        ChartResourceKind kind)
-    {
-        ChartResourcePathNormalizationResult result = ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(filePath);
-        if (result.IsValid)
-        {
-            return result.NormalizedPath;
-        }
-        if (result.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
-        {
-            unsupportedReferences?.Add(new UnsupportedChartResourceReference(
-                kind == ChartResourceKind.Unknown ? ChartResourcePathNormalizer.ClassifyReferencePathExtension(filePath) : kind,
-                filePath,
-                result.Status));
-        }
-        return string.Empty;
+        var reference = ChartResourceReference.Parse(path, ChartResourceKind.Unknown, usage);
+        // bmsonの音声候補は音声拡張子だけを検索対象とする。非対応理由の種別は定義用途を維持する。
+        ChartResourceKind kind = usage != ChartResourceUsage.Normal || reference.Status != ChartResourcePathNormalizationStatus.Valid
+            ? expectedKind == ChartResourceKind.Unknown ? reference.Kind : expectedKind
+            : (expectedKind == ChartResourceKind.Audio && reference.Kind != ChartResourceKind.Audio)
+                || (expectedKind == ChartResourceKind.Unknown && reference.Kind == ChartResourceKind.Audio)
+                    ? ChartResourceKind.Unknown : reference.Kind;
+        reference = new ChartResourceReference(kind, usage, reference.RawPath, reference.NormalizedPath, reference.LookupKey, reference.Status);
+        references.Add(reference);
+        return reference.Status == ChartResourcePathNormalizationStatus.Valid ? reference.NormalizedPath : string.Empty;
     }
 
     private static string ComposeSubtitle(string subtitle, string chartName)

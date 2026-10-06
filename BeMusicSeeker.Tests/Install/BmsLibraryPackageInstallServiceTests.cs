@@ -4081,7 +4081,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 title = "BMSON",
                 artist = "Artist",
                 md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                wav_files = ["missing.wav"]
+                Resources = TestChartResources.Create(["missing.wav"])
             };
             var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
@@ -4106,8 +4106,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 title = "BMSON",
                 artist = "Artist",
                 md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                wav_files = ["missing.wav"],
-                bga_files = ["missing.png"]
+                Resources = TestChartResources.Create(["missing.wav"], ["missing.png"])
             };
             var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
@@ -4551,7 +4550,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_ResourceSnapshotReadsBmsOwnerResourcesFromLightweightProjection()
+    public void PackageChartEntry_ResourceSnapshotUsesAcquiredBmsResourcesWithoutOwner()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -4569,8 +4568,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             ChartFile lightweightChart = ChartFileProjection.FromBmsFile(
                 bmsFile,
                 includeWarningSnapshot: false,
-                includeResourceReferences: false);
-            var entry = PackageChartEntry.FromChart(lightweightChart);
+                includeResourceReferences: true);
+            var entry = PackageChartEntry.FromChart(ChartFileProjection.ToImmutableSnapshot(lightweightChart));
 
             Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, entry.ResourceSnapshot.MovieReferenceCount);
@@ -4579,22 +4578,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_ResourceSnapshotReadsBmsonOwnerResourcesFromLightweightProjection()
+    public void PackageChartEntry_ResourceSnapshotUsesAcquiredBmsonResourcesWithoutOwner()
     {
         var song = new LR2SongDBExtended.bmson_song
         {
             path = @"D:\BMS\pkg\chart.bmson",
             md5 = "11111111111111111111111111111111",
             title = "Resource Owner",
-            wav_files = ["audio.wav"],
-            bga_files = ["movie.mpg"],
+            Resources = TestChartResources.Create(["audio.wav"], ["movie.mpg"], stagefile: "stage.png"),
             stagefile = "stage.png"
         };
         ChartFile lightweightChart = ChartFileProjection.FromBmsonSong(
             song,
             includeWarningSnapshot: false,
-            includeResourceReferences: false);
-        var entry = PackageChartEntry.FromChart(lightweightChart);
+            includeResourceReferences: true);
+        var entry = PackageChartEntry.FromChart(ChartFileProjection.ToImmutableSnapshot(lightweightChart));
 
         Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
         Assert.AreEqual(1, entry.ResourceSnapshot.MovieReferenceCount);

@@ -736,7 +736,6 @@ public partial class BMSLibrary
             ChartFile projected = ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: false,
-                includeResourceReferences: true,
                 includeScoreSnapshot: false);
             if (projected?.Kind != ChartFileKind.Bmson || string.IsNullOrWhiteSpace(projected.Path))
             {
@@ -778,6 +777,10 @@ public partial class BMSLibrary
                         || targetEntryList.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)))
                     {
                         return;
+                    }
+                    foreach (PackageChartEntry entry in targetEntryList)
+                    {
+                        entry.AcquireResources();
                     }
                     if (HasUnsupportedResourcePath(targetEntryList))
                     {
@@ -942,6 +945,10 @@ public partial class BMSLibrary
                         if (missingEntries.Count == 0)
                         {
                             return;
+                        }
+                        foreach (PackageChartEntry entry in missingEntries)
+                        {
+                            entry.AcquireResources();
                         }
                         if (HasUnsupportedResourcePath(missingEntries))
                         {
@@ -2544,8 +2551,7 @@ public partial class BMSLibrary
                 // the install rows have been durably updated.
                 ChartFile storageProjection = ChartFileProjection.FromStorageOwner(
                     sourceChart,
-                    includeWarningSnapshot: true,
-                    includeResourceReferences: true);
+                    includeWarningSnapshot: true);
                 ChartFile packageProjection = storageProjection == null
                     ? sourceChart
                     : ChartFileProjection.WithPackageState(

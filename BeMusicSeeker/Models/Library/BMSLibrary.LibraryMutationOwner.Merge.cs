@@ -270,8 +270,7 @@ internal sealed partial class LibraryMutationOwner
             bmsFile,
             bmsonSong,
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            source.Resources,
             source.Stagefile,
             source.Backbmp,
             source.Banner,
@@ -313,10 +312,7 @@ internal sealed partial class LibraryMutationOwner
             stagefile = source.stagefile,
             preview_music = source.preview_music,
             updated_at = source.updated_at,
-            wav_files = [.. (source.wav_files ?? [])],
-            bga_files = [.. (source.bga_files ?? [])],
-            UnsupportedResourceReferences = [.. (source.UnsupportedResourceReferences ?? [])],
-            HasFreshResourceReferences = source.HasFreshResourceReferences,
+            Resources = source.Resources,
             MaintenanceInfo = source.MaintenanceInfo?.CreatePersistenceCopy()
         };
     }

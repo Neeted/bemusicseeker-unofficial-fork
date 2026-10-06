@@ -150,7 +150,11 @@ UIスレッド上で選択を固定し、機能別の要求へ変換してから
 
 `ChartFileSnapshot` はファイル内容・長さ・更新時刻・ハッシュを持つ短命な読取り結果です。アプリ内の譜面を表す `ChartFile` と混同しません。読取り済みの内容は[ファイル読取り](chart-file-reading.md)の契約で再利用します。
 
-BMSは `maintenanceInfo`、BMSONは `MaintenanceInfo` と解析済みのリソース参照を使います。定義・存在件数の計算は `ChartResourceSnapshot.Create(ChartFile)` に集約し、BMSの文字コード・修正済み状態をリソース計算で上書きしません。保守はファイル内容のハッシュ更新通知の生成元ではありません。
+BMSは `maintenanceInfo`、BMSONは `MaintenanceInfo` と、`ChartFile.Resources` の取得済み不変結果を使います。参照は種別、用途（通常・stagefile・backbmp・banner・入力診断）、元記述、拡張子付きの `NormalizedPath`、拡張子を一回除去した `LookupKey`、実際の解析状態を保持します。照合用の拡張子別名は元記述を変更しません。空キー・種類不明・親参照と、パスなしのCP932入力診断も同じ結果に保持します。
+
+`Resources` のnullは未取得または解放、空集合は解析に成功した0件です。投影・複製・パッケージは同じ不変結果を共有し、getterで読取り、保存主体からの補完、原文の逆引き、再正規化を行いません。基本情報を保存主体の現在値へ再投影するコピーでも、リソースはsourceの結果を共有します。コピー側に取得省略の優先分岐を設けず、保存行から初めて軽量基本値を作る入口の取得省略と区別します。基本情報用の解析戻り値は必要期間だけ同じ結果を一時保持します。`ChartResourceSnapshot.Create(ChartFile)` は取得済み結果だけを索引化し、未取得を正常な空結果として扱いません。
+
+保守の既存入口が不足する結果を明示取得し、時刻・ハッシュ・強制更新の既存条件で再評価します。取得・解析に失敗した結果を成功0件として保存しません。BMSの文字コード・修正済み状態をリソース計算で上書きせず、保守はファイル内容のハッシュ更新通知の生成元にしません。定義・存在件数と任意画像の形式差は[リソース健全性](../core/data-and-indexes.md#リソース健全性)、短命な保持と解放は[読取り仕様](chart-file-reading.md#リソース参照と文字コード)に従います。
 
 リソース参照の `.` は譜面相対のキーへ正規化し、`..` は未対応の親ディレクトリ参照として区別します。通常変更は対象譜面だけの保守を行い、全件対象は明示的な全件検査・索引再構築に限定します。同じ操作で必要な全件対象を二重生成しません。
 
@@ -168,6 +172,7 @@ BMSは `maintenanceInfo`、BMSONは `MaintenanceInfo` と解析済みのリソ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 不変リソースの原文・用途・状態・両キー、未取得と成功0件 | [`ChartResourceReference`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceReference.cs)、[`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs)、[`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs) | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs) は重複検索と全原文、未取得拒否、解析後ファイル削除と保存主体変更後の共有・投影・パッケージ・消費を確認する。両形式の抽出は [`BMSFileSnapshotTests`](../../../BeMusicSeeker.Tests/Chart/BMSFileSnapshotTests.cs)、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs)。getter・他の複製経路の非読取りと同じ結果の受渡しは静的に確認する。 |
 | 共通再生対象、BMS・bmsonの変換能力とBMS専用能力の分離 | [`GridRowResolver`](../../../BeMusicSeeker/ViewModels/ChartList/GridRowResolver.cs) の `TryGetPlaybackChart` と権限生成、[`PlaybackChart`](../../../BeMusicSeeker/Ribbit/BMS/PlaybackChart.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の変換メニュー | [`PlaylistViewPipelineTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistViewPipelineTests.cs) の `ChartOperationTarget_CapabilityMatrix_SeparatesBmsOnlyAndBmsonCommonOperations` は所持BMS・bmsonの変換許可、両形式の保留拒否とBMS専用能力の維持を確認し、所持プレイリスト・新規導入済み・未所持の既存ケースも変換能力を確認する。[`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) の `CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles` は実ファイルを使い、bmsonのみの表示・有効状態、正確な譜面と混在選択順、保留・消失ファイルの非実行を確認する。要求と実行への受渡しは[音声変換](../runtime/audio-conversion.md#実装とテストの対応)を参照する。 |
 | 保存行からの投影・識別条件・所持集合 | [`ChartFile`](../../../BeMusicSeeker/Models/Chart/ChartFile.cs)、[`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs)、[`OwnedChartCollectionLookupMembershipTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLookupMembershipTests.cs) |
 | 実パス参照・導入先状態の分離 | [`LibraryChartRef`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/LibraryChartRef.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs)、[`OwnedChartCollectionInstalledOverlayTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInstalledOverlayTests.cs) |

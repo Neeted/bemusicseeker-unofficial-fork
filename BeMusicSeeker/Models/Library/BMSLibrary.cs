@@ -1374,7 +1374,7 @@ public partial class BMSLibrary : ObservableObject
         GetGarbledBmsStorageRows(BMSFiles, isInFixedList: true));
 
     internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
-        CreateOwnedBmsChartFilesUnsafe(includeResourceReferences: false),
+        CreateOwnedBmsChartFilesUnsafe(),
         ResolveChartInfoForChart);
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
@@ -3796,6 +3796,10 @@ public partial class BMSLibrary : ObservableObject
         {
             return result;
         }
+        foreach (PackageChartEntry entry in request.MissingEntries)
+        {
+            entry.AcquireResources();
+        }
         if (HasUnsupportedResourcePath(request.MissingEntries))
         {
             result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath;
@@ -4549,6 +4553,10 @@ public partial class BMSLibrary : ObservableObject
         foreach (ChartPackage package in packageList ?? Enumerable.Empty<ChartPackage>())
         {
             PendingPackageChartEntryPartition partition = BuildPendingPackageChartEntryPartitionUnsafe(package);
+            foreach (PackageChartEntry entry in partition.MissingEntries)
+            {
+                entry.AcquireResources();
+            }
             var state = new PendingEstimateSourceBatchPackageState
             {
                 Package = package,
@@ -8038,7 +8046,6 @@ public partial class BMSLibrary : ObservableObject
         {
             return catalogOwnedCollectionOwner.Collection.CreateSnapshot(
                 includeWarningSnapshot: false,
-                includeResourceReferences: false,
                 includeScoreSnapshot: false);
         }
     }
@@ -8264,8 +8271,7 @@ public partial class BMSLibrary : ObservableObject
 
     private List<ChartFile> CreateOwnedChartFilesForMd5HashesUnsafe(
         ISet<string> md5Hashes,
-        bool includeWarningSnapshot,
-        bool includeResourceReferences)
+        bool includeWarningSnapshot)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
@@ -8273,7 +8279,6 @@ public partial class BMSLibrary : ObservableObject
             return catalogOwnedCollectionOwner.Collection.CreateSnapshotForMd5Hashes(
                 md5Hashes,
                 includeWarningSnapshot: includeWarningSnapshot,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: false);
         }
     }
@@ -8294,14 +8299,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private List<ChartFile> CreateOwnedBmsChartFilesUnsafe(bool includeResourceReferences)
+    private List<ChartFile> CreateOwnedBmsChartFilesUnsafe()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateBmsSnapshot(
                 includeWarningSnapshot: false,
-                includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: false);
         }
     }
@@ -9040,7 +9044,6 @@ public partial class BMSLibrary : ObservableObject
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: false,
-                includeResourceReferences: true,
                 includeScoreSnapshot: false))
             .Where(chart => chart != null)];
     }
@@ -9590,7 +9593,7 @@ public partial class BMSLibrary : ObservableObject
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            allCharts = CreateOwnedBmsChartFilesUnsafe(includeResourceReferences: false);
+            allCharts = CreateOwnedBmsChartFilesUnsafe();
         }
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(
             allCharts,
@@ -9616,8 +9619,7 @@ public partial class BMSLibrary : ObservableObject
         {
             failedCharts = CreateOwnedChartFilesForMd5HashesUnsafe(
                 failedMd5s,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
+                includeWarningSnapshot: false);
         }
         List<ChartFile> result = [];
         foreach (ChartFile chart in failedCharts)

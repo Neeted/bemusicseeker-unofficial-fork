@@ -1022,21 +1022,9 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public DateTime updated_at { get; set; }
 
+        /// <summary>解析入口で確定した短命の不変リソース結果です。未取得・解放はnullです。</summary>
         [Ignore]
-        public List<string> wav_files { get; set; } = [];
-
-        [Ignore]
-        public List<string> bga_files { get; set; } = [];
-
-        [Ignore]
-        internal List<BeMusicSeeker.Models.BmsLibraryInternal.UnsupportedChartResourceReference> UnsupportedResourceReferences { get; set; } = [];
-
-        /// <summary>
-        /// この実行中に parser から resource reference を構築済みかどうか。
-        /// DB へ保存せず、file diff 直後の maintenance で再パースを避けるためだけに使います。
-        /// </summary>
-        [Ignore]
-        public bool HasFreshResourceReferences { get; set; }
+        internal System.Collections.Immutable.ImmutableList<BeMusicSeeker.Models.BmsLibraryInternal.ChartResourceReference> Resources { get; set; }
 
         /// <summary>
         /// maintenance table から読み込んだ bmson 用の構成ファイル検査結果です。

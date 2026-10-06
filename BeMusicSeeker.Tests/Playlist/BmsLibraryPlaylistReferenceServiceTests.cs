@@ -424,8 +424,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var file = new TestableBmsFile
         {
             path = path,
-            WAVfiles = [.. wavFiles],
-            BGAfiles = []
+            Resources = TestChartResources.Create(wavFiles)
         };
         file.SetHash(hash);
         return file;

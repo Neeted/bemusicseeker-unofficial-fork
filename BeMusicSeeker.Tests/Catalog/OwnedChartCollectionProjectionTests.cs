@@ -29,7 +29,7 @@ public sealed class OwnedChartCollectionProjectionTests
 
         List<ChartFile> snapshot = OwnedChartCollectionState
             .FromStorageRows([bmsFile], [bmsonSong])
-            .CreateSnapshot(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
+            .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
 
         Assert.AreEqual(2, snapshot.Count);
         ChartFile bmsChart = snapshot.Single(chart => chart.Kind == ChartFileKind.Bms);
@@ -60,7 +60,7 @@ public sealed class OwnedChartCollectionProjectionTests
 
         List<ChartFile> snapshot = OwnedChartCollectionState
             .FromStorageRows([pathfulBms, pathlessBms, md5lessBms, duplicateBms], [pathfulBmson, pathlessBmson, md5lessBmson, duplicateBmson], out OwnedChartStorageRowFilterSummary filterSummary)
-            .CreateSnapshot(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
+            .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
 
         Assert.AreEqual(3, snapshot.Count);
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathfulBms)));
@@ -146,7 +146,7 @@ public sealed class OwnedChartCollectionProjectionTests
 
         List<ChartFile> ownedSnapshot = OwnedChartCollectionState
             .FromStorageRows([bmsFile], [bmsonSong])
-            .CreateSnapshot(includeWarningSnapshot: false, includeResourceReferences: true, includeScoreSnapshot: false);
+            .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
         List<ChartFile> projectionSnapshot = ChartFileProjection.FromStorageRows(
             [bmsFile],
             [bmsonSong],
@@ -170,7 +170,6 @@ public sealed class OwnedChartCollectionProjectionTests
 
         ChartFile snapshot = state.CreateSnapshot(
             includeWarningSnapshot: false,
-            includeResourceReferences: false,
             includeScoreSnapshot: false).Single();
 
         Assert.AreEqual(newPath, snapshot.Path);

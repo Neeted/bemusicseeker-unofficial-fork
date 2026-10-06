@@ -89,10 +89,10 @@ public sealed class BmsonSongParserTests
                 + "}");
 
             Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
-            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav", ".wav" }, parsed.wav_files.ToArray());
-            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4", ".png" }, parsed.bga_files.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav", ".wav" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4", ".png" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
             ChartFile chart = ChartFileProjection.FromBmsonSong(parsed, includeWarningSnapshot: false, includeResourceReferences: true);
-            foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(parsed), ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
+            foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(parsed.Resources), ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
             {
                 Assert.AreEqual(2, snapshot.AudioReferenceCount);
                 Assert.AreEqual(1, snapshot.VisualReferenceCount);
@@ -136,11 +136,11 @@ public sealed class BmsonSongParserTests
                 + "}");
 
             Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
-            var snapshot = ChartResourceSnapshot.Create(parsed);
+            var snapshot = ChartResourceSnapshot.Create(parsed.Resources);
 
-            Assert.AreEqual(0, parsed.wav_files.Count);
-            Assert.AreEqual(0, parsed.bga_files.Count);
-            Assert.AreEqual(4, parsed.UnsupportedResourceReferences.Count);
+            Assert.AreEqual(0, parsed.Resources.Count(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio));
+            Assert.AreEqual(0, parsed.Resources.Count(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)));
+            Assert.AreEqual(4, parsed.Resources.Count(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported || reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
             Assert.AreEqual(4, snapshot.UnsupportedResourceReferenceCount);
             Assert.IsTrue(snapshot.HasUnsupportedParentTraversalReference);
             Assert.AreEqual(2, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Audio));
@@ -187,14 +187,14 @@ public sealed class BmsonSongParserTests
 
             CollectionAssert.AreEquivalent(
                 new[] { "preview.wav", Path.Combine("sounds", "keysound.wav"), Path.Combine("keys", "hidden.wav"), Path.Combine("mines", "mine.wav") },
-                parsed.wav_files.ToArray());
+                parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
             CollectionAssert.AreEquivalent(
                 new[] { Path.Combine("images", "layer.png"), Path.Combine("movies", "clip.mp4") },
-                parsed.bga_files.ToArray());
+                parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
             Assert.AreEqual("banner.png", parsed.banner);
             Assert.AreEqual(Path.Combine("bg", "back.png"), parsed.backbmp);
             Assert.AreEqual("stage.png", parsed.stagefile);
-            Assert.IsFalse(parsed.wav_files.Contains("ignored.ogg"));
+            Assert.IsFalse(parsed.Resources.Any(reference => reference.Usage == ChartResourceUsage.Normal && reference.Kind == ChartResourceKind.Audio && reference.NormalizedPath == "ignored.ogg"));
         }
         finally
         {
@@ -242,8 +242,8 @@ public sealed class BmsonSongParserTests
             Models.LR2.LR2SongDBExtended.bmson_song actual = BmsonSongParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
 
             AssertBmsonEqual(expected, actual);
-            Assert.IsTrue(expected.HasFreshResourceReferences);
-            Assert.IsTrue(actual.HasFreshResourceReferences);
+            Assert.IsNotNull(expected.Resources);
+            Assert.IsNotNull(actual.Resources);
         }
         finally
         {
@@ -284,7 +284,7 @@ public sealed class BmsonSongParserTests
             Assert.AreEqual("Before", actual.title);
             Assert.AreEqual(snapshot.Md5, actual.md5);
             Assert.AreEqual(snapshot.Sha256, actual.sha256);
-            Assert.IsTrue(actual.HasFreshResourceReferences);
+            Assert.IsNotNull(actual.Resources);
             Assert.AreNotEqual(BmsonSongParser.Parse(filePath).md5, actual.md5);
         }
         finally
@@ -356,7 +356,7 @@ public sealed class BmsonSongParserTests
         Assert.AreEqual(expected.md5, actual.md5);
         Assert.AreEqual(expected.sha256, actual.sha256);
         Assert.AreEqual(expected.updated_at, actual.updated_at);
-        CollectionAssert.AreEquivalent(expected.wav_files.ToArray(), actual.wav_files.ToArray());
-        CollectionAssert.AreEquivalent(expected.bga_files.ToArray(), actual.bga_files.ToArray());
+        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 }

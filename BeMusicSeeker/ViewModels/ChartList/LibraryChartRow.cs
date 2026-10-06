@@ -98,7 +98,6 @@ internal sealed class LibraryChartRow : NotificationObject
             storageOwnerSource,
             ChartFileLevelParsing.CurrentCultureThenInvariant,
             includeWarningSnapshot: false,
-            includeResourceReferences: false,
             includeScoreSnapshot: !hasSourceChartProjection);
         ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot: true);
         ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
@@ -106,7 +105,6 @@ internal sealed class LibraryChartRow : NotificationObject
             transientState,
             ChartFileLevelParsing.CurrentCultureThenInvariant,
             includeWarningSnapshot: true,
-            includeResourceReferences: false,
             includeScoreSnapshot: !hasSourceChartProjection);
         if (hasSourceChartProjection)
         {
@@ -695,13 +693,19 @@ internal sealed class LibraryChartRow : NotificationObject
 
         return ChartFileProjection.FromStorageOwner(
             CreateCurrentStorageOwnerSource(),
-            ChartFileLevelParsing.CurrentCultureThenInvariant,
-            includeResourceReferences: false);
+            ChartFileLevelParsing.CurrentCultureThenInvariant);
     }
 
     private ChartFile CreateCurrentStorageOwnerSource()
     {
-        if (BmsFile != null)
+        if (BmsonSong != null && !ReferenceEquals(BmsonSong, sourceChart?.GetBmsonStorageOwner()))
+        {
+            // 保存モデルの差し替えは基本情報の参照先だけを更新し、取得状態は元の投影から引き継ぎます。
+            return ChartFileProjection.WithResources(
+                ChartFileProjection.FromBmsonStorageOwnerIdentity(BmsonSong),
+                sourceChart?.Resources);
+        }
+        if (sourceChart != null)
         {
             return sourceChart;
         }

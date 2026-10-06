@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -111,7 +112,7 @@ public sealed class ChartResourceSnapshotTests
     public void Create_UnknownResourcePreservesOnlyActualParentTraversal(string path, bool hasParentTraversal)
     {
         BMSFile file = CreateBmsFile(@"C:\Pending\unknown.bms", [], [path]);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: true, includeScoreSnapshot: false);
         foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
         {
             Assert.AreEqual(0, snapshot.TotalReferenceCount);
@@ -134,23 +135,20 @@ public sealed class ChartResourceSnapshotTests
                 + "#BMPAA bg.final.png\r\n#BMPAB movie.mpg\r\n#BMPAC .png\r\n#BMPAD mystery.xyz\r\n"
                 + "#BANNER .png\r\n#BACKBMP \r\n#STAGEFILE .png\r\n#00111:AA\r\n");
             var file = BMSFile.CreateBMSFileFromFile(chartPath);
-            Assert.IsTrue(file.BGAfiles.Contains("mystery.xyz"));
-            Assert.IsTrue(file.ResourceReferences.Any(reference => reference.Kind == ChartResourceKind.Unknown && reference.RawPath == "mystery.xyz"));
+            Assert.IsTrue(file.Resources.Any(reference => reference.NormalizedPath == "mystery.xyz"));
+            Assert.IsTrue(file.Resources.Any(reference => reference.Kind == ChartResourceKind.Unknown && reference.RawPath == "mystery.xyz"));
 
-            foreach (bool includeResourceReferences in new[] { false, true })
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: true, includeScoreSnapshot: false);
+            foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
             {
-                ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: includeResourceReferences, includeScoreSnapshot: false);
-                foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
-                {
-                    Assert.AreEqual(1, snapshot.AudioReferenceCount);
-                    Assert.AreEqual(1, snapshot.VisualReferenceCount);
-                    Assert.AreEqual(1, snapshot.MovieReferenceCount);
-                    Assert.AreEqual(0, snapshot.OptionalImageReferenceCount);
-                    CollectionAssert.AreEquivalent(new[] { Path.Combine("sound", "kick"), "bg.final", "movie" }, snapshot.EnumerateAllRelativePaths().ToArray());
-                    CollectionAssert.AreEquivalent(new[] { ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick")), ChartResourceKeyHash.GetLookupHash("bg.final"), ChartResourceKeyHash.GetLookupHash("movie") }, snapshot.EnumerateAllRelativePathHashes().ToArray());
-                    Assert.AreEqual(0, snapshot.UnsupportedResourceReferenceCount);
-                    Assert.IsFalse(snapshot.HasUnsupportedParentTraversalReference);
-                }
+                Assert.AreEqual(1, snapshot.AudioReferenceCount);
+                Assert.AreEqual(1, snapshot.VisualReferenceCount);
+                Assert.AreEqual(1, snapshot.MovieReferenceCount);
+                Assert.AreEqual(0, snapshot.OptionalImageReferenceCount);
+                CollectionAssert.AreEquivalent(new[] { Path.Combine("sound", "kick"), "bg.final", "movie" }, snapshot.EnumerateAllRelativePaths().ToArray());
+                CollectionAssert.AreEquivalent(new[] { ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick")), ChartResourceKeyHash.GetLookupHash("bg.final"), ChartResourceKeyHash.GetLookupHash("movie") }, snapshot.EnumerateAllRelativePathHashes().ToArray());
+                Assert.AreEqual(0, snapshot.UnsupportedResourceReferenceCount);
+                Assert.IsFalse(snapshot.HasUnsupportedParentTraversalReference);
             }
         }
         finally
@@ -203,7 +201,7 @@ public sealed class ChartResourceSnapshotTests
     }
 
     [TestMethod]
-    public void Create_PreservesBmsRawResourcePathsFromStorageOwner()
+    public void Create_PreservesAcquiredBmsRawResourcePaths()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "ChartResourceSnapshotTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -232,18 +230,18 @@ public sealed class ChartResourceSnapshotTests
             Assert.AreEqual(1, snapshot.AudioReferenceCount);
             Assert.AreEqual(1, snapshot.VisualReferenceCount);
             Assert.AreEqual(1, snapshot.MovieReferenceCount);
-            Assert.AreEqual(@".\sound\kick.wav", snapshot.AudioReferences.Single().RawPath);
-            Assert.AreEqual(Path.Combine("sound", "kick"), snapshot.AudioReferences.Single().NormalizedPath);
+            Assert.AreEqual(@".\sound\kick.wav", snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Audio).RawPath);
+            Assert.AreEqual(Path.Combine("sound", "kick"), snapshot.AudioReferences.Single().LookupKey);
             Assert.AreEqual(ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick")), snapshot.AudioReferences.Single().RelativePathHash);
             CollectionAssert.Contains(snapshot.AudioRelativePathHashes.ToArray(), ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick")));
             CollectionAssert.DoesNotContain(snapshot.AudioRelativePathHashes.ToArray(), ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick.wav")));
-            Assert.AreEqual(@"visual\bg.final.png", snapshot.VisualReferences.Single().RawPath);
-            Assert.AreEqual(Path.Combine("visual", "bg.final"), snapshot.VisualReferences.Single().NormalizedPath);
-            Assert.AreEqual(@"movie\op.mpg", snapshot.MovieReferences.Single().RawPath);
-            Assert.AreEqual(Path.Combine("movie", "op"), snapshot.MovieReferences.Single().NormalizedPath);
-            Assert.AreEqual(snapshot.AudioReferences.Single().RawPath, aggregate.AudioReferences.Single().RawPath);
-            Assert.AreEqual(snapshot.VisualReferences.Single().RawPath, aggregate.VisualReferences.Single().RawPath);
-            Assert.AreEqual(snapshot.MovieReferences.Single().RawPath, aggregate.MovieReferences.Single().RawPath);
+            Assert.AreEqual(@"visual\bg.final.png", snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Image).RawPath);
+            Assert.AreEqual(Path.Combine("visual", "bg.final"), snapshot.VisualReferences.Single().LookupKey);
+            Assert.AreEqual(@"movie\op.mpg", snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Movie).RawPath);
+            Assert.AreEqual(Path.Combine("movie", "op"), snapshot.MovieReferences.Single().LookupKey);
+            Assert.AreEqual(snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Audio).RawPath, aggregate.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Audio).RawPath);
+            Assert.AreEqual(snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Image).RawPath, aggregate.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Image).RawPath);
+            Assert.AreEqual(snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Movie).RawPath, aggregate.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Movie).RawPath);
             Assert.AreEqual(3, snapshot.ResourceReferences.Count);
             CollectionAssert.AreEquivalent(
                 snapshot.ResourceReferences.Select(reference => reference.RawPath).ToArray(),
@@ -259,12 +257,12 @@ public sealed class ChartResourceSnapshotTests
     }
 
     [TestMethod]
-    public void Create_ProjectedResourceListsRemainAuthoritativeWhenStorageOwnerHasRawReferences()
+    public void Create_ResourcesRemainAuthoritativeWhenStorageOwnerHasDifferentResources()
     {
         BMSFile file = CreateBmsFile("C:\\Pending\\owner.bms", ["owner.wav"], []);
-        file.ResourceReferences =
+        file.Resources =
         [
-            new ChartResourceReference(ChartResourceKind.Audio, "owner.wav", "owner.wav")
+            ChartResourceReference.Parse("owner.wav", ChartResourceKind.Audio)
         ];
         var chart = new ChartFile(
             ChartFileKind.Bms,
@@ -283,24 +281,23 @@ public sealed class ChartResourceSnapshotTests
             null,
             file,
             null,
-            audioResourcePaths: ["projected.wav"],
-            visualResourcePaths: []);
+            resources: TestChartResources.Create(["projected.wav"]));
 
         var snapshot = ChartResourceSnapshot.Create(chart);
 
         CollectionAssert.Contains(snapshot.AudioRelativePaths.ToArray(), "projected");
         CollectionAssert.DoesNotContain(snapshot.AudioRelativePaths.ToArray(), "owner");
-        Assert.AreEqual("projected.wav", snapshot.AudioReferences.Single().RawPath);
+        Assert.AreEqual("projected.wav", snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Audio).RawPath);
     }
 
     [TestMethod]
     public void Create_DuplicateNormalizedResourceKeepsUniqueLookupAndAllRawReferences()
     {
         BMSFile file = CreateBmsFile("C:\\Pending\\duplicate.bms", ["sound.wav", "sound.ogg"], []);
-        file.ResourceReferences =
+        file.Resources =
         [
-            new ChartResourceReference(ChartResourceKind.Audio, @".\sound.wav", "sound.wav"),
-            new ChartResourceReference(ChartResourceKind.Audio, "sound.ogg", "sound.ogg")
+            ChartResourceReference.Parse(@".\sound.wav", ChartResourceKind.Audio),
+            ChartResourceReference.Parse("sound.ogg", ChartResourceKind.Audio)
         ];
         var chart = new ChartFile(
             ChartFileKind.Bms,
@@ -318,12 +315,13 @@ public sealed class ChartResourceSnapshotTests
             file.mode,
             null,
             file,
-            null);
+            null,
+            resources: file.Resources);
 
         var snapshot = ChartResourceSnapshot.Create(chart);
 
         Assert.AreEqual(1, snapshot.AudioReferenceCount);
-        Assert.AreEqual(@".\sound.wav", snapshot.AudioReferences.Single().RawPath);
+        Assert.AreEqual(@".\sound.wav", snapshot.ResourceReferences.First(reference => reference.Kind == ChartResourceKind.Audio).RawPath);
         CollectionAssert.Contains(snapshot.AudioRelativePaths.ToArray(), "sound");
         Assert.AreEqual(2, snapshot.ResourceReferences.Count);
         CollectionAssert.AreEqual(
@@ -359,13 +357,150 @@ public sealed class ChartResourceSnapshotTests
         CollectionAssert.DoesNotContain(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "target");
     }
 
+    [TestMethod]
+    public void Create_UnacquiredResourcesFailAndSuccessfulEmptyResourcesRemainEmpty()
+    {
+        var owner = new BMSFile { path = @"C:\Missing\chart.bms" };
+        ChartFile unacquired = ChartFileProjection.FromBmsFile(owner);
+        Assert.IsNull(unacquired.Resources);
+        Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(unacquired));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.CreateAggregate([unacquired]));
+        owner.Resources = [];
+        ChartFile acquired = ChartFileProjection.FromBmsFile(owner);
+        Assert.IsNotNull(acquired.Resources);
+        Assert.AreEqual(0, ChartResourceSnapshot.Create(acquired).TotalReferenceCount);
+        ChartFile omitted = ChartFileProjection.FromBmsFile(owner, includeResourceReferences: false);
+        Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(omitted));
+    }
+
+    [TestMethod]
+    public void AcquiredResourcesRemainSharedAcrossOwnerlessCopiesAfterChartDeletion()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(ChartResourceSnapshotTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string path = Path.Combine(directory, "chart.bms");
+            File.WriteAllText(path, "#WAV01 .\\audio\\foo.v2.flac\n#WAV02 audio/foo.v2.ogg\n#BMP01 mystery.xyz\n#BMP02 .png\n#WAV03 ..\\base\\hit.wav\n#BANNER .\\banner.jpeg\n#BACKBMP ..\\back.png\n#STAGEFILE stage.png\n");
+            var owner = BMSFile.CreateBMSFileFromFile(path);
+            ChartFile chart = ChartFileProjection.FromBmsFile(owner);
+            ChartFile detached = ChartFileProjection.ToImmutableSnapshot(chart);
+            File.Delete(path);
+            owner.Resources = [];
+            owner.banner = "different.png";
+            var entry = PackageChartEntry.FromChart(detached);
+            ChartFile copy = ChartFileProjection.WithWarnings(entry.Chart, []);
+            foreach (ChartFile result in new[] { detached, entry.Chart, copy })
+            {
+                Assert.IsNull(result.GetBmsStorageOwner());
+                Assert.AreSame(chart.Resources, result.Resources);
+                Assert.AreEqual(8, result.Resources.Count);
+                ChartResourceReference audio = result.Resources[0];
+                Assert.AreEqual(@".\audio\foo.v2.flac", audio.RawPath);
+                Assert.AreEqual(@"audio\foo.v2.wav", audio.NormalizedPath);
+                Assert.AreEqual(@"audio\foo.v2", audio.LookupKey);
+                Assert.AreEqual(ChartResourceUsage.Normal, audio.Usage);
+                Assert.AreEqual(ChartResourcePathNormalizationStatus.Valid, audio.Status);
+                Assert.AreEqual("banner.png", result.Resources.Single(reference => reference.Usage == ChartResourceUsage.Banner).NormalizedPath);
+                Assert.AreEqual(".\\banner.jpeg", result.Resources.Single(reference => reference.Usage == ChartResourceUsage.Banner).RawPath);
+                var index = ChartResourceSnapshot.Create(result);
+                Assert.AreEqual(1, index.AudioReferenceCount);
+                Assert.AreEqual(2, index.UnsupportedResourceReferenceCount);
+                Assert.AreEqual(8, index.ResourceReferences.Count);
+                CollectionAssert.AreEqual(chart.Resources.ToArray(), index.ResourceReferences.ToArray());
+                CollectionAssert.AreEqual(chart.Resources.ToArray(), ChartResourceSnapshot.CreateAggregate([result]).ResourceReferences.ToArray());
+                BMSFileMaintenanceInfo health = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(result);
+                Assert.AreEqual(1, health.wav_files_defined);
+                Assert.AreEqual(true, health.is_stagefile_defined);
+                Assert.AreEqual(true, health.is_banner_defined);
+                Assert.AreEqual(true, health.is_backbmp_defined);
+                Assert.AreEqual(false, health.is_stagefile_existing);
+                Assert.AreEqual(false, health.is_banner_existing);
+                Assert.AreEqual(false, health.is_backbmp_existing);
+                Lr2ResourceReferenceEvaluation compatibility = Lr2CompatibilityEvaluator.EvaluateResourceReferences(result.Path, index);
+                Assert.IsTrue(compatibility.HasParentTraversal);
+                Assert.AreEqual(@"audio\foo.v2.flac".Length, compatibility.MaxRelativeCp932Bytes);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StorageOwnerCopiesKeepSourceResourcesWhenOwnersReleaseOrReplaceThem()
+    {
+        ImmutableList<ChartResourceReference> resources =
+        [
+            ChartResourceReference.Parse(@".\audio\foo.v2.flac", ChartResourceKind.Audio),
+            ChartResourceReference.Parse(@"..\base\sound.wav", ChartResourceKind.Audio),
+            ChartResourceReference.Parse("mystery.xyz", ChartResourceKind.Unknown),
+            ChartResourceReference.Parse(".wav", ChartResourceKind.Audio),
+            ChartResourceReference.Parse(@".\banner.jpeg", ChartResourceKind.Image, ChartResourceUsage.Banner),
+            ChartResourceReference.Parse("stage.png", ChartResourceKind.Image, ChartResourceUsage.Stagefile),
+            ChartResourceReference.Parse(@"..\back.png", ChartResourceKind.Image, ChartResourceUsage.Backbmp),
+            new(ChartResourceKind.Unknown, ChartResourceUsage.InputDiagnostic, string.Empty, string.Empty,
+                string.Empty, ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported)
+        ];
+        var bmsOwner = new BMSFile { path = @"C:\Missing\source.bms", hash = new string('a', 32), title = "before", Resources = resources };
+        var bmsonOwner = new LR2SongDBExtended.bmson_song { path = @"C:\Missing\source.bmson", md5 = new string('b', 32), title = "before", Resources = resources };
+        ChartFile[] sources = [ChartFileProjection.FromBmsFile(bmsOwner), ChartFileProjection.FromBmsonSong(bmsonOwner)];
+        ChartFile[] unacquiredSources =
+        [
+            ChartFileProjection.FromBmsFile(bmsOwner, includeResourceReferences: false),
+            ChartFileProjection.FromBmsonSong(bmsonOwner, includeResourceReferences: false)
+        ];
+        foreach (ImmutableList<ChartResourceReference>? ownerResources in new ImmutableList<ChartResourceReference>?[]
+            { null, TestChartResources.Create(["different.wav"]) })
+        {
+            bmsOwner.Resources = ownerResources;
+            bmsonOwner.Resources = ownerResources;
+            bmsOwner.title = "after";
+            bmsonOwner.title = "after";
+            foreach (ChartFile source in sources)
+            {
+                ChartFile[] copies =
+                [
+                    ChartFileProjection.FromStorageOwner(source),
+                    ChartFileProjection.FromStorageOwnerWithTransientState(source, ChartFileTransientState.Empty),
+                    ChartFileProjection.FromStorageOwnerListIdentity(source),
+                    PackageChartEntry.FromChart(source).Chart,
+                    ChartStorageTargetSet.FromCharts([source]).Charts.Single()
+                ];
+                foreach (ChartFile copy in copies)
+                {
+                    Assert.AreEqual("after", copy.RawTitle);
+                    Assert.AreSame(resources, copy.Resources);
+                    CollectionAssert.AreEqual(resources.ToArray(), ChartResourceSnapshot.Create(copy).ResourceReferences.ToArray());
+                    Assert.AreEqual(@"audio\foo.v2", copy.Resources[0].LookupKey);
+                    Assert.AreEqual(3, ChartResourceSnapshot.Create(copy).UnsupportedResourceReferenceCount);
+                }
+            }
+            foreach (ChartFile source in unacquiredSources)
+            {
+                foreach (ChartFile copy in new[]
+                {
+                    ChartFileProjection.FromStorageOwner(source),
+                    ChartFileProjection.FromStorageOwnerWithTransientState(source, ChartFileTransientState.Empty),
+                    ChartFileProjection.FromStorageOwnerListIdentity(source),
+                    PackageChartEntry.FromChart(source).Chart,
+                    ChartStorageTargetSet.FromCharts([source]).Charts.Single()
+                })
+                {
+                    Assert.IsNull(copy.Resources);
+                    Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(copy));
+                }
+            }
+        }
+    }
+
     private static BMSFile CreateBmsFile(string path, IEnumerable<string> wavFiles, IEnumerable<string> bgaFiles)
     {
         return new BMSFile
         {
             path = path,
-            WAVfiles = new HashSet<string>(wavFiles ?? [], System.StringComparer.OrdinalIgnoreCase),
-            BGAfiles = new HashSet<string>(bgaFiles ?? [], System.StringComparer.OrdinalIgnoreCase)
+            Resources = TestChartResources.Create(wavFiles, bgaFiles)
         };
     }
 }

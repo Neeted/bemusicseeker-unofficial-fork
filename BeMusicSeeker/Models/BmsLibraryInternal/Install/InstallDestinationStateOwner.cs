@@ -221,7 +221,7 @@ internal sealed class InstallDestinationStateOwner
     private static ChartFile CreatePackageStateChart(ChartFile source, ChartFile ownerProjection)
     {
         return ChartFileProjection.WithPackageState(
-            ownerProjection,
+            ChartFileProjection.WithResources(ownerProjection, source.Resources),
             source.InstallDestination,
             source.InstallDestinationTitle,
             source.InstallDestinationArtist,

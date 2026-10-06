@@ -1886,28 +1886,37 @@ public sealed class PlaylistViewPipelineTests
             md5 = oldSong.md5,
             sha256 = oldSong.sha256
         };
-        var row = LibraryChartRow.FromBmsonSong(oldSong);
+        oldSong.Resources = TestChartResources.Create(audio: [@"..\audio\foo.v2.flac"], banner: @".\banner.jpeg");
+        newSong.Resources = TestChartResources.Create(audio: ["different.wav"]);
         ChartFile statefulChart = ChartFileProjection.WithPackageState(
             ChartFileProjection.FromBmsonSong(newSong),
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
             [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
-        int transientStateLookupCount = 0;
-        row.SetChartTransientStateProvider((chart, includeWarningSnapshot) =>
+        foreach (bool includeResources in new[] { false, true })
         {
-            transientStateLookupCount++;
+            LibraryChartRow row = includeResources
+                ? LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(oldSong))
+                : LibraryChartRow.FromBmsonSong(oldSong);
+            int transientStateLookupCount = 0;
+            row.SetChartTransientStateProvider((chart, includeWarningSnapshot) =>
+            {
+                transientStateLookupCount++;
+                Assert.AreSame(newSong, chart.GetBmsonStorageOwner());
+                return ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot);
+            });
+
+            row.UpdateFromBmsonSong(newSong);
+            ChartFile chart = row.Chart;
+
             Assert.AreSame(newSong, chart.GetBmsonStorageOwner());
-            return ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot);
-        });
-
-        row.UpdateFromBmsonSong(newSong);
-        ChartFile chart = row.Chart;
-
-        Assert.AreSame(newSong, chart.GetBmsonStorageOwner());
-        Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
-        Assert.IsTrue(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
-        Assert.IsTrue(transientStateLookupCount > 0);
+            Assert.AreEqual("New Bmson", chart.RawTitle);
+            Assert.AreSame(includeResources ? oldSong.Resources : null, chart.Resources);
+            Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
+            Assert.IsTrue(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            Assert.IsTrue(transientStateLookupCount > 0);
+        }
     }
 
     [TestMethod]

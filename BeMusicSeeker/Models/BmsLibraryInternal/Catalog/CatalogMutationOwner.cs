@@ -824,10 +824,25 @@ internal sealed class CatalogMutationOwner
 
     private static void RefreshRelocatedBmsMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo, string newPath)
     {
-        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(
-            maintenanceInfo,
-            newPath,
-            () => ChartFileContentReader.ReadSnapshot(newPath));
+        ChartResourceSnapshot resources = null;
+        if (maintenanceInfo?.lr2_resource_has_parent_traversal == true)
+        {
+            try
+            {
+                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(newPath);
+                var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+                resources = ChartResourceSnapshot.Create(parsed.Resources);
+            }
+            catch (Exception ex) when (ex is IOException
+                || ex is UnauthorizedAccessException
+                || ex is ArgumentException
+                || ex is NotSupportedException
+                || ex is PathTooLongException)
+            {
+                // 既存の移転契約では取得失敗時に直前の親参照の保守事実を維持する。
+            }
+        }
+        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(maintenanceInfo, newPath, resources);
     }
 
     private static void ValidateBmsFilePathChange(BMSFile bmsFile, string newPath, string oldPath)

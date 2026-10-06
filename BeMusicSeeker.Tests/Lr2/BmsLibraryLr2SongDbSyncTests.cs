@@ -6032,7 +6032,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string songDirectory = Path.Combine(scope.DirectoryPath, "LiveLr2Compatibility");
             Directory.CreateDirectory(songDirectory);
             string chartPath = Path.Combine(songDirectory, "chart.bms");
-            WriteBasicBms(chartPath, "live lr2 compatibility", CreateLr2TooLongResourcePath());
+            WriteBasicBms(chartPath, "live lr2 compatibility", Path.ChangeExtension(CreateLr2TooLongResourcePath(), ".flac"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
             file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
