@@ -479,6 +479,39 @@ public sealed class OperationProgressHubViewModelTests
             Assert.IsTrue((GetRow(hub, "lr2") != null));
             CollectionAssert.AreEquivalent(new[] { "startup", "lr2" }, hub.Rows.Select(row => row.Key).ToArray());
             Assert.AreEqual(status.ProgressValue, hub.Rows.Single(row => row.Key == "lr2").Value);
+            OperationProgressRow lr2Row = hub.Rows.Single(row => row.Key == "lr2");
+            Assert.IsTrue(lr2Row.HasGauge);
+            Assert.IsFalse(lr2Row.IsIndeterminate);
+            double startupValue = hub.Rows.Single(row => row.Key == "startup").Value;
+            double startupMaximum = hub.Rows.Single(row => row.Key == "startup").Maximum;
+            hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Running,
+                Stage = "song_rows",
+                StageProcessedCount = 8,
+                StageTotalCount = 10,
+                ProcessedCursor = 12,
+                TotalCount = 100
+            }, DateTime.UtcNow));
+            lr2Row = hub.Rows.Single(row => row.Key == "lr2");
+            Assert.IsTrue(lr2Row.HasGauge);
+            Assert.IsFalse(lr2Row.IsIndeterminate);
+            Assert.AreEqual(8d, lr2Row.Value);
+            Assert.AreEqual(10d, lr2Row.Maximum);
+            StringAssert.Contains(lr2Row.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
+            hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Running,
+                Stage = "final_validation",
+                ProcessedCursor = 12,
+                TotalCount = 100
+            }, DateTime.UtcNow));
+            lr2Row = hub.Rows.Single(row => row.Key == "lr2");
+            Assert.IsTrue(lr2Row.HasGauge);
+            Assert.IsTrue(lr2Row.IsIndeterminate);
+            StringAssert.Contains(lr2Row.Detail, Resources.Lr2_song_db_sync_stage_final_validation);
+            Assert.AreEqual(startupValue, hub.Rows.Single(row => row.Key == "startup").Value);
+            Assert.AreEqual(startupMaximum, hub.Rows.Single(row => row.Key == "startup").Maximum);
             CompleteStartupProgress(owner);
             await delayEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsTrue((GetRow(hub, "lr2") != null));
@@ -489,6 +522,12 @@ public sealed class OperationProgressHubViewModelTests
         }
         await hidden.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.AreEqual("lr2", hub.Rows.Single().Key);
+        hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+        {
+            Status = Lr2SongDbSyncStatusKind.Completed,
+            Stage = "completed"
+        }, DateTime.UtcNow));
+        Assert.IsFalse(hub.Rows.Any(row => row.Key == "lr2"));
     }
 
     [TestMethod]

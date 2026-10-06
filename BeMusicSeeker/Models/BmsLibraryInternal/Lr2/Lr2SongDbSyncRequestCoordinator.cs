@@ -573,6 +573,9 @@ internal static class Lr2SongDbSyncRequestCoordinator
         }
     }
 
+    /// <summary>
+    /// 事前準備の実段階と対象件数を公開します。保存済みカーソルを持たないため、全体の保存位置は指定しません。
+    /// </summary>
     internal static void PublishExternalStageProgress(
         BMSLibrary.Lr2SynchronizationOwner host,
         string stage,
@@ -594,8 +597,8 @@ internal static class Lr2SongDbSyncRequestCoordinator
             Lr2SongDbSyncStatusKind.Running,
             signature,
             stage: stage,
-            processedCursor: safeProcessed,
-            totalCount: safeTotal,
+            processedCursor: null,
+            totalCount: null,
             lastError: detail,
             stageProcessedCount: safeProcessed,
             stageTotalCount: safeTotal));

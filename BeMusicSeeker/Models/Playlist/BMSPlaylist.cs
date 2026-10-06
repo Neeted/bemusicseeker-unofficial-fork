@@ -2599,14 +2599,13 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// Rebuilds LR2 custom-folder output and returns the physical surface needed
-    /// by the full LR2 reconciliation.  Folder-row persistence is deferred to
-    /// that reconciliation; progress is an intermediate diagnostic.
+    /// 受理済み予約の下でカスタムフォルダを出力し、全体同期に必要な物理入力を返します。folder表の保存は全体同期へ委ねます。
+    /// LR2専用の任意通知先へ実段階・対象件数を渡します。通知の失敗は出力結果を変更しません。
     /// </summary>
     internal Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
         string reason,
         LibraryFileMutationCapability mutationCapability,
-        Action<int, int, string> progressCallback = null)
+        Action<string, int, int> stageProgressReporter = null)
     {
         if (mutationCapability == null)
         {
@@ -2617,7 +2616,7 @@ public partial class BMSPlaylist : ObservableObject
                 reason,
                 yieldBetweenTables: false,
                 mutationCapability: mutationCapability,
-                progressCallback: progressCallback)
+                stageProgressReporter: stageProgressReporter)
             .GetAwaiter()
             .GetResult();
     }
@@ -2626,7 +2625,7 @@ public partial class BMSPlaylist : ObservableObject
         string reason,
         bool yieldBetweenTables,
         LibraryFileMutationCapability mutationCapability,
-        Action<int, int, string> progressCallback = null)
+        Action<string, int, int> stageProgressReporter = null)
     {
         CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
@@ -2646,7 +2645,8 @@ public partial class BMSPlaylist : ObservableObject
                 "playlist_lr2_song_db_sync_data_resync",
                 forceWriteAllFiles: false,
                 throwOnProjectionFailure: false,
-                settings: settings);
+                settings: settings,
+                stageProgressReporter: stageProgressReporter);
         CustomFolderBatchOutputResult result = await customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync(
             preparation,
             reason,
@@ -2654,7 +2654,7 @@ public partial class BMSPlaylist : ObservableObject
             buildPreparedDataSurface: true,
             yieldBetweenTables: yieldBetweenTables,
             syncMaterialization: null,
-            progressCallback: progressCallback);
+            stageProgressReporter: stageProgressReporter);
         if (result.HasUnverifiedFiles)
         {
             throw new InvalidOperationException(

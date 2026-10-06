@@ -105,6 +105,22 @@
 
 反映成功後に `LibraryFileDiffCompletedVersion` を進め、表示スケジューラーの排出を待たせません。反映失敗を成功完了へ変換せず、進捗の通知例外でもDB反映・取消・失敗の意味を変えません。
 
+### LR2楽曲DB全体同期の段階
+
+事前のプレイリスト準備は表の投影を表数、物理出力を実ファイル数で通知し、変更不要のファイルも確認済みに含めます。実体の探索、出力後の整理、ディレクトリ情報の構成、出力状態の保存、準備結果の構成は不定段階です。表ごとの不要ファイル・空ディレクトリの再帰整理は独立した不定段階を残し、次の表の出力では同じ全体ファイル数の有限段階へ戻します。物理整理の順序は変えません。共通の出力処理へLR2専用通知を接続し、独立したプレイリスト操作の既存の複合通知・失敗契約は維持します。
+
+全体同期は同じLR2行を更新し、段階の実対象数を分母、確認・処理済み数を分子にします。カスタム定義の読込み、ディレクトリ情報と `folderinfo.txt` の読込み、検索ルート・通常フォルダ・カスタムフォルダ・親行の生成、投影の構成、利用者値の引継ぎ、楽曲処理は、それぞれの対象件数を使います。対象外パスを省いた場合も、その対象の確認は処理済みに数えます。件数や単位が変わる境界で段階を分け、生成行数と入力候補数を混ぜません。
+
+入力準備・探索、初回DBスキーマ準備、投影の一括検証、既存DB行の取得、全folder表保存、入力の最終確認、同期状態の確定は不定段階として通知します。楽曲は準備終了後に有限段階を開始し、同じ対象の短いチャンク保存は楽曲処理へ含め、同じ役割と実対象分母・処理済み分子を維持します。楽曲の読取り・計算とチャンク保存は既存どおり並行できます。表示のための再走査、追加の複製、待機、保存方式の変更は行いません。
+
+進捗文言とゲージは `StageProcessedCount` / `StageTotalCount` だけを使い、総数がない段階で全体の保存カーソルを借りません。詳細の保存位置は診断としてラベル付きで残します。既知の現行・旧段階識別子は進捗と詳細の両方で役割に対応するリソースへ変換し、未知の保存済み識別子は情報を保持します。準備100%は保存成功・正常終端を意味しません。
+
+通知粒度は処理速度を優先して間引けます。件数が確定した対象ありの段階は件数付きの開始と末尾を生産し、同名の件数なし開始を重ねません。既知0件の件数段階は通知を省略し、量不定の作業へ読み替えません。共通の最新値集約により全中間値の描画や厳密な時機・通知順・数値の絶対単調増加は保証しません。処理の完了条件にUI排出を加えません。
+
+LR2事前準備は段階件数だけを通知し、保存位置を持たない全体のカーソル・総数は未指定にします。並行する楽曲処理・保存の公開スナップショットは一回の通知の段階名と件数から構成し、個別の観測プロパティを読み戻して異なる通知の値を混ぜません。通知順や全中間値の描画は保証しません。
+
+Playlist・通常フォルダ・差分更新・出力先設定変更・Catalog書込み失敗から届く既知の固定段階も、進捗と詳細を処理の役割リソースへ対応付けます。診断は保存形式を変えず、既知の段階と一致する既定の先頭 `ID: ` だけを表示時に置き換えます。未知IDや他の先頭形式、元の例外本文・型・パス・引数・内部例外は保持します。
+
 ### 失敗と変更時の制約
 
 失敗は操作を失敗状態にし、通常の使用中と再試行可能な失敗を分けます。進捗完了を理由に作業スレッドからUIの集合を直接変えません。計測を短く見せるために必須処理を後続へ移したり、後続通信を起動進捗へ戻して通常操作を止めたりしません。
@@ -120,9 +136,17 @@
 | 後続の動的登録を含む先行処理の終了、一回の事前計算と背景表示の終了 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の `StartupPostInitializationIdleRouteEnrollsWarmupOnceAfterPredecessors` は、UI上で開始表示を反映し、本体の収束とUIの終端反映を分けて確認する。実ライブラリの書込みガードで事前計算の未完了を保持し、ゲート解放後は所有する処理を回収する。[`MainWindowProgressStatusBarWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs) は、表示を保留しても本体が完了すること、UIで実際の背景行を消すこと、設定保存による次の全初期化の背景行を古い終端で消さないことを確認する。 |
 | LR2未完了状態と初期化の同時表示、親計算からの独立と再試行 | [`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) | [`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) |
 | LR2反映の保存結果と表示排出に依存しない差分完了 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) は実DB結果・完了版とUI排出前の未通知、排出後の最新モデル状態・通知例外隔離を確認する。[`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) は差分完了の親反映を確認し、LR2表示は [`Lr2SongDbSyncStatusMapperTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncStatusMapperTests.cs) とHubのLR2ケースで確認する。 |
+| LR2全体同期の実段階・件数と保存前の未確定 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、[`Lr2FolderTableReconciliationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderTableReconciliationService.cs) | [`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs) の `SyncService_ReportsActualStageTargetsAndKeepsPreparationSeparateFromCommit` は小さい実DBと通常・カスタム・楽曲の複数入力から通知を観測し、分母を入力から判定する。通知例外・空投影は既存ケース、実QueueとUI排出の独立は `BmsLibraryLr2SongDbSyncTests` が担う。 |
+| LR2の翻訳・保存位置から独立した段階進捗 | [`Lr2SongDbSyncStatusMapper`](../../../BeMusicSeeker/ViewModels/Lr2/Lr2SongDbSyncStatusMapper.cs) | `Lr2SongDbSyncStatusMapperTests` は既知・旧・未知・空段階、段階総数なし・0・正数、日本語と英語を確認する。辞書整合は `LocalizationResourceParityTests`、有限→不定→正常終端と親計算の独立は `OperationProgressHubViewModelTests`、Bindingは既存の `MainWindowProgressStatusBarWpfTests` が担う。 |
 | 処理別の行、伸縮する配置と行固有の操作 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) | [`MainWindowProgressStatusBarWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs) |
 | プレイリストの要求元ごとの生産・終端、同じ外部同期だけの表示統合 | [`PlaylistWorkspaceViewModel.SyncProgress`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.SyncProgress.cs)、[`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) | [`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)、[`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) は実操作からの進捗・終端を確認する。[`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistSync_UsesHttpAndUiTerminalBeforeAcceptingAnotherEdit` は実Queue外部同期の要求元・対象・終端と既存の受付・UI終端を確認する。[`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) の `PlaylistRows_SyncAndBeatorajaImportRemainIndependentInEitherCompletionOrder` は進捗受付境界への開始・更新・終端入力で、併存・同源だけの統合・両完了順の片側保持・保留表示排出後の消去を確認する。 |
 
 ## 関連資料
+
+LR2事前準備の生産境界は `PlaylistCustomFolderOutputOwnerTests` が2表3ファイル（1件変更不要）の実出力、不要ファイル・空子ディレクトリの再帰整理と有限復帰、専用通知例外での同等結果を確認します。`BmsPlaylistCustomFolderOutputTests` の `Lr2SongDbSyncPreparation_ReportsActualTablesAndFilesThroughWorkflowWithoutSavingFolderRows` は実Workflowから通知・保存済み出力状態・準備入力・folder表不変・予約解放まで確認します。空表と空ファイル投影では件数段階の通知省略を確認します。
+
+`Lr2SongDbSyncServiceTests.SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits` は小さい実譜面1001件を実writerで更新し、複数チャンクの保存前後の有限段階と実対象分母、生成列更新・利用者列保持を確認します。複数入力の段階ケースは同名の0/0通知を含めて全イベントを検査し、空入力は件数段階を通知しないことを確認します。Hubは同じ楽曲役割の有限継続と、独立した最終確認の不定表示を分担します。
+
+事前準備の保存カーソル未指定は上記の実Workflowケース、保存位置なしの表示は `Lr2SongDbSyncStatusMapperTests.Create_PreparationStageCountsDoNotAppearAsSavedPosition` が確認します。公開状態の段階名と件数の対応は `BmsLibraryLr2SongDbSyncTests.ProgressPublication_InterleavedOwnerUpdatesKeepStageAndCountsFromOneNotification` が所有者の観測プロパティ更新境界で別通知を挟んで確認します。
 
 [起動](startup.md)、[設定](settings.md)、[終了](shutdown.md)、[性能](../core/performance-and-scale.md)を参照します。

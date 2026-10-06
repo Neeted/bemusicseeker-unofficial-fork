@@ -2137,26 +2137,31 @@ public partial class BMSLibrary
             }
         }
 
+        /// <summary>
+        /// 一回の進捗通知の値から公開状態を構成し、既存の観測プロパティも更新します。
+        /// 楽曲処理と保存の通知が並行しても、公開状態の段階名と件数を別通知の値から読み戻しません。
+        /// </summary>
         internal void UpdateProgress(Lr2SongDbSyncProgress progress)
         {
             if (progress == null)
             {
                 return;
             }
-            SetObservableTotalCount(Math.Max(0, progress.TotalCount));
-            SetObservableProcessedCount(Math.Max(0, progress.ProcessedCursor));
-            SetObservableStage(progress.Stage ?? string.Empty);
-            SetObservableStageProcessedCount(Math.Max(0, progress.StageProcessedCount));
-            SetObservableStageTotalCount(Math.Max(0, progress.StageTotalCount));
-            PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
+            Lr2SongDbSyncStatusSnapshot status = BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
                 Lr2SongDbSyncStatusKind.Running,
                 GetStatusSnapshot().Signature,
-                ObservableStage,
-                ObservableProcessedCount,
-                ObservableTotalCount,
+                progress.Stage ?? string.Empty,
+                Math.Max(0, progress.ProcessedCursor),
+                Math.Max(0, progress.TotalCount),
                 lastError: null,
-                ObservableStageProcessedCount,
-                ObservableStageTotalCount));
+                Math.Max(0, progress.StageProcessedCount),
+                Math.Max(0, progress.StageTotalCount));
+            SetObservableTotalCount(status.TotalCount.GetValueOrDefault());
+            SetObservableProcessedCount(status.ProcessedCursor.GetValueOrDefault());
+            SetObservableStage(status.Stage);
+            SetObservableStageProcessedCount(status.StageProcessedCount.GetValueOrDefault());
+            SetObservableStageTotalCount(status.StageTotalCount.GetValueOrDefault());
+            PublishStatus(status);
         }
 
         internal void DisposeCancellation()

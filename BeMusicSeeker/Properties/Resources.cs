@@ -43,6 +43,86 @@ public class Resources
         }
     }
 
+    public static string Lr2_song_db_sync_stage_queued => ResourceManager.GetString("Lr2_song_db_sync_stage_queued", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_chart_info_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_type_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_song_type_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_level_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_level_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_location_update => ResourceManager.GetString("Lr2_song_db_sync_stage_song_location_update", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_removal => ResourceManager.GetString("Lr2_song_db_sync_stage_song_removal", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_encoding_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_song_encoding_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_preparing => ResourceManager.GetString("Lr2_song_db_sync_stage_preparing", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_materialization => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_materialization", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_builtin_folder_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_builtin_folder_preparation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_chart_info_hydration => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_hydration", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_input_surface => ResourceManager.GetString("Lr2_song_db_sync_stage_input_surface", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_compatibility_projection_index => ResourceManager.GetString("Lr2_song_db_sync_stage_compatibility_projection_index", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_chart_info_resolver_snapshot => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_resolver_snapshot", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_projection_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_projection_preparation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_directory_metadata => ResourceManager.GetString("Lr2_song_db_sync_stage_directory_metadata", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_normal_folder_roots => ResourceManager.GetString("Lr2_song_db_sync_stage_normal_folder_roots", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_normal_folders => ResourceManager.GetString("Lr2_song_db_sync_stage_normal_folders", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_lr2folder_files => ResourceManager.GetString("Lr2_song_db_sync_stage_lr2folder_files", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_projection_candidates => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_projection_candidates", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_custom_folder_rows => ResourceManager.GetString("Lr2_song_db_sync_stage_custom_folder_rows", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_custom_folder_parents => ResourceManager.GetString("Lr2_song_db_sync_stage_custom_folder_parents", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_projection_validation => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_projection_validation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_existing_rows => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_existing_rows", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_reconciliation => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_reconciliation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_folder_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_folder_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_rows_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_song_rows_preparation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_rows => ResourceManager.GetString("Lr2_song_db_sync_stage_song_rows", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_song_rows_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_song_rows_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_final_validation => ResourceManager.GetString("Lr2_song_db_sync_stage_final_validation", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_sync_state_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_sync_state_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_source_stale => ResourceManager.GetString("Lr2_song_db_sync_stage_source_stale", resourceCulture);
+
+    public static string Lr2_song_db_sync_saved_position => ResourceManager.GetString("Lr2_song_db_sync_saved_position", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_projection => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_projection", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_output_discovery => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_output_discovery", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_files => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_files", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_output_cleanup => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_output_cleanup", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_directory_metadata => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_directory_metadata", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_state_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_state_saving", resourceCulture);
+
+    public static string Lr2_song_db_sync_stage_playlist_result_preparation => ResourceManager.GetString("Lr2_song_db_sync_stage_playlist_result_preparation", resourceCulture);
+
     public static string Add => ResourceManager.GetString("Add", resourceCulture);
 
     public static string Add_ignore => ResourceManager.GetString("Add_ignore", resourceCulture);

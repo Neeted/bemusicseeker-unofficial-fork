@@ -133,14 +133,21 @@ internal sealed class PlaylistCustomFolderOutputOwner
         };
     }
 
+    /// <summary>
+    /// 共通の出力処理で物理ファイルと同期入力を構成します。LR2専用の任意通知には実ファイル数と確認済み数を渡します。
+    /// 変更不要・検証不能も確認済みに含み、専用通知の例外は結果・既存の表単位通知の失敗契約を変更しません。
+    /// </summary>
     internal CustomFolderBatchMaterializationResult MaterializeBatch(
         IReadOnlyList<CustomFolderOutputProjection> projections,
         Action<int, int, string> progressCallback = null,
         string operation = null,
         string reason = null,
-        CustomFolderOutputSettingsSnapshot settingsOverride = null)
+        CustomFolderOutputSettingsSnapshot settingsOverride = null,
+        Action<string, int, int> stageProgressReporter = null)
     {
         var result = new CustomFolderBatchMaterializationResult();
+        var progress = new Lr2SongDbSyncStageProgressReporter(stageProgressReporter);
+        progress.Begin("playlist_output_discovery");
         var shiftJis = Encoding.GetEncoding("shift_jis");
         IReadOnlyList<CustomFolderOutputProjection> projectionList = [.. (projections ?? [])
             .Where(projection => projection != null && !string.IsNullOrWhiteSpace(projection.OutputDirectory))];
@@ -184,6 +191,8 @@ internal sealed class PlaylistCustomFolderOutputOwner
                 && !batchOutputRowScopeDirectories.Contains(directory))
             .Distinct(StringComparer.OrdinalIgnoreCase));
 
+        int totalFiles = projectionList.Sum(projection => projection.Files?.Count ?? 0);
+        int processedFiles = 0;
         for (int projectionIndex = 0; projectionIndex < projectionList.Count; projectionIndex++)
         {
             CustomFolderOutputProjection projection = projectionList[projectionIndex];
@@ -208,6 +217,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
                         projection.Table,
                         projection.Settings ?? settings) ?? []);
                 IReadOnlyList<CustomFolderOutputFileProjection> files = projection.Files ?? [];
+                progress.Begin("playlist_files", totalFiles, processedFiles);
                 if (files.Count > 0)
                 {
                     LongPathFileSystem.CreateDirectory(projection.OutputDirectory);
@@ -217,6 +227,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
                 {
                     if (file == null || string.IsNullOrWhiteSpace(file.FilePath))
                     {
+                        progress.Advance(++processedFiles, totalFiles);
                         continue;
                     }
 
@@ -237,6 +248,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
                         if (existingFileState == ExistingFileState.Unverified)
                         {
                             result.UnverifiedFilePaths.Add(file.FilePath);
+                            progress.Advance(++processedFiles, totalFiles);
                             continue;
                         }
                     }
@@ -264,7 +276,9 @@ internal sealed class PlaylistCustomFolderOutputOwner
                     };
                     ApplySourceClassification(syncItem, projection.Table, projection.Settings ?? settings);
                     result.SyncItems.Add(syncItem);
+                    progress.Advance(++processedFiles, totalFiles);
                 }
+                progress.Begin("playlist_output_cleanup");
                 RemoveStaleManagedFiles(projection, batchExpectedFilePaths, result);
                 if (files.Count == 0)
                 {
@@ -302,6 +316,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
             }
         }
 
+        progress.Begin("playlist_output_cleanup");
         foreach (CustomFolderOutputProjection projection in projectionList
             .OrderByDescending(projection => projection.OutputDirectory.Length))
         {
@@ -312,6 +327,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
             }
         }
 
+        progress.Begin("playlist_directory_metadata");
         result.OutputDirectories.RemoveAll(string.IsNullOrWhiteSpace);
         AddOwnedDirectoryEntries(result.DirectoryEntries, result.SyncItems, result.DirectoryRowGenerationScopeDirectories);
         return result;

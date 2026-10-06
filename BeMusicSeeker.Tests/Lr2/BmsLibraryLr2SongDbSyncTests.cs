@@ -697,6 +697,60 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void ProgressPublication_InterleavedOwnerUpdatesKeepStageAndCountsFromOneNotification()
+    {
+        using var scope = TestDatabaseScope.Create();
+        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null, new InlineUiScheduler());
+        BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
+        var published = new List<Lr2SongDbSyncStatusSnapshot>();
+        var saving = new Lr2SongDbSyncProgress
+        {
+            Stage = "song_rows_saving",
+            StageProcessedCount = 0,
+            StageTotalCount = 0,
+            ProcessedCursor = 4,
+            TotalCount = 20
+        };
+        var processing = new Lr2SongDbSyncProgress
+        {
+            Stage = "song_rows",
+            StageProcessedCount = 7,
+            StageTotalCount = 20,
+            ProcessedCursor = 4,
+            TotalCount = 20
+        };
+        bool interleaved = false;
+        System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.Lr2SongDbSyncStage) && !interleaved)
+            {
+                // 既存の観測プロパティ更新境界で別通知を完了させ、最初の通知の公開を再開する。
+                interleaved = true;
+                owner.UpdateProgress(processing);
+                published.Add(library.GetLr2SongDbSyncStatusSnapshot());
+            }
+        };
+        library.PropertyChanged += handler;
+        try
+        {
+            owner.UpdateProgress(saving);
+            published.Add(library.GetLr2SongDbSyncStatusSnapshot());
+
+            Assert.IsTrue(interleaved);
+            Assert.IsTrue(published.All(snapshot =>
+                snapshot.ProcessedCursor == 4 && snapshot.TotalCount == 20
+                && ((snapshot.Stage == saving.Stage && snapshot.StageProcessedCount == saving.StageProcessedCount
+                        && snapshot.StageTotalCount == saving.StageTotalCount)
+                    || (snapshot.Stage == processing.Stage && snapshot.StageProcessedCount == processing.StageProcessedCount
+                        && snapshot.StageTotalCount == processing.StageTotalCount))));
+        }
+        finally
+        {
+            library.PropertyChanged -= handler;
+        }
+    }
+
+    [TestMethod]
     public void FileDiffNormalFolderSyncFailureMarksLr2SongDbSyncIncomplete()
     {
         using var scope = TestDatabaseScope.Create();
@@ -1226,7 +1280,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 () => playlist,
                 () => true);
             BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
-            var playlistMaterializationObserved = new TaskCompletionSource<bool>(
+            var preparationResultObserved = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             int preparationThreadId = 0;
             int notificationThreadId = 0;
@@ -1239,12 +1293,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         StringComparison.Ordinal)
                     && string.Equals(
                         library.GetLr2SongDbSyncStatusSnapshot().Stage,
-                        "playlist_materialization",
+                        "playlist_result_preparation",
                         StringComparison.Ordinal)
                     && Interlocked.CompareExchange(ref subscriberFailureCount, 1, 0) == 0)
                 {
                     notificationThreadId = Thread.CurrentThread.ManagedThreadId;
-                    playlistMaterializationObserved.TrySetResult(true);
+                    preparationResultObserved.TrySetResult(true);
                     throw new InvalidOperationException("forced LR2 progress subscriber failure");
                 }
             };
@@ -1264,10 +1318,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default);
 
-                await scheduler.WaitForNextAsync().WaitAsync(TimeSpan.FromSeconds(5));
-                scheduler.Drain();
-                await playlistMaterializationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 await preparation.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(0, subscriberFailureCount);
+                // 完了継続は準備スレッド上でも動けるため、UI排出は別の実行境界で行う。
+                await Task.Run(scheduler.Drain).WaitAsync(TimeSpan.FromSeconds(5));
+                await preparationResultObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
                 Assert.IsTrue(preparationResult);
                 Assert.AreEqual(1, subscriberFailureCount);
@@ -1452,6 +1507,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.IsNotNull(row);
             Assert.AreEqual("lr2_playlist_lr2folder_sync_failed", row.stage);
             StringAssert.Contains(row.last_error, "forced playlist folder failure");
+            Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+            Lr2SongDbSyncRuntimeStatus presentation = Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.MinValue);
+            Assert.AreEqual(Resources.Lr2_song_db_sync_stage_folder_saving, presentation.ProgressText);
+            StringAssert.Contains(presentation.Detail, Resources.Lr2_song_db_sync_stage_folder_saving + ": " + originalException.Message);
+            Assert.AreEqual(row.last_error, snapshot.LastError);
         }
         finally
         {

@@ -589,17 +589,22 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     }
 
     /// <summary>
-    /// Builds a target-table projection and hydrates entries before lease admission.
+    /// 対象表の項目を読み、表投影と物理入力を準備します。LR2専用の任意通知は表の実対象件数と探索段階を渡します。
+    /// 専用通知の失敗は投影の結果・失敗分類を変更しません。
     /// </summary>
     internal CustomFolderOutputPreparation PrepareTables(
         IReadOnlyList<BMSTable> tables,
         string operation,
         bool forceWriteAllFiles,
         bool throwOnProjectionFailure,
-        CustomFolderOutputSettingsSnapshot settings = null)
+        CustomFolderOutputSettingsSnapshot settings = null,
+        Action<string, int, int> stageProgressReporter = null)
     {
         settings ??= GetSettings();
         tables ??= [];
+        var progress = new Lr2SongDbSyncStageProgressReporter(stageProgressReporter);
+        progress.Begin("playlist_projection", tables.Count);
+        int processed = 0;
         var projections = new List<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>();
         var preparedTables = new List<BMSTable>();
         int failedCount = 0;
@@ -607,6 +612,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             if (table == null || string.IsNullOrWhiteSpace(table.Output_dir))
             {
+                progress.Advance(++processed, tables.Count);
                 continue;
             }
 
@@ -629,8 +635,10 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                     ExceptionDispatchInfo.Capture(ex).Throw();
                 }
             }
+            progress.Advance(++processed, tables.Count);
         }
 
+        progress.Begin("playlist_output_discovery");
         PrepareProjectionSurfaceAndScopes(projections, settings, operation ?? "ReOutputCustomFolders");
         return new CustomFolderOutputPreparation(preparedTables, projections, settings, failedCount);
     }
@@ -649,10 +657,9 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     }
 
     /// <summary>
-    /// Materializes a previously prepared table projection under the active lease.
-    /// When <paramref name="buildPreparedDataSurface"/> is enabled, a null
-    /// <paramref name="syncMaterialization"/> performs physical materialization
-    /// and prepared-surface construction without persisting LR2 folder rows.
+    /// 受理済み予約の下で準備済み表投影を物理出力します。
+    /// buildPreparedDataSurfaceが有効ならsyncMaterializationなしでfolder表を保存せず入力を構成できます。
+    /// LR2専用の任意通知は実ファイル数と保存・結果構成の段階を渡し、既存の複合通知の契約を変更しません。
     /// </summary>
     internal Task<CustomFolderBatchOutputResult> ReOutputPreparedTablesAsync(
         CustomFolderOutputPreparation preparation,
@@ -661,7 +668,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null,
+        Action<string, int, int> stageProgressReporter = null)
     {
         ArgumentNullException.ThrowIfNull(preparation);
         if (!buildPreparedDataSurface)
@@ -680,9 +688,13 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             progressCallback,
             preparation.Settings,
             preparation.ProjectionFailedCount,
-            Stopwatch.StartNew());
+            Stopwatch.StartNew(),
+            stageProgressReporter);
     }
 
+    /// <summary>
+    /// 準備済み投影を共通の物理出力・保存経路へ渡します。任意のLR2段階通知は既存の複合通知から独立します。
+    /// </summary>
     internal Task<CustomFolderBatchOutputResult> ReOutputProjectionsAsync(
         IReadOnlyList<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection> projections,
         int tableCount,
@@ -694,7 +706,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Action<int, int, string> progressCallback = null,
         CustomFolderOutputSettingsSnapshot settings = null,
         int projectionFailedCount = 0,
-        Stopwatch stopwatch = null)
+        Stopwatch stopwatch = null,
+        Action<string, int, int> stageProgressReporter = null)
     {
         if (!buildPreparedDataSurface)
         {
@@ -710,7 +723,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             settings,
             projectionFailedCount,
             stopwatch ?? Stopwatch.StartNew(),
-            syncMaterialization);
+            syncMaterialization,
+            stageProgressReporter);
     }
 
     private Task<CustomFolderBatchOutputResult> ReOutputProjectionsCoreAsync(
@@ -723,10 +737,12 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         CustomFolderOutputSettingsSnapshot settings,
         int projectionFailedCount,
         Stopwatch stopwatch,
-        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
+        Action<string, int, int> stageProgressReporter)
     {
         projections ??= [];
         settings ??= GetSettings();
+        var progress = new Lr2SongDbSyncStageProgressReporter(stageProgressReporter);
         int total = GetProgressTotal(tableCount, progressCallback);
         progressCallback?.Invoke(
             Math.Min(tableCount, total),
@@ -740,7 +756,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 tableName ?? Resources.Custom_folder_output_progress_single_label),
             operation: operation,
             reason: reason,
-            settingsOverride: settings);
+            settingsOverride: settings,
+            stageProgressReporter: stageProgressReporter);
         bool materializationSyncCompleted = !materialization.HasUnverifiedFiles
             && syncMaterialization != null;
         Lr2FolderFileDbSyncResult syncResult = materializationSyncCompleted
@@ -755,12 +772,14 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 total,
                 total,
                 completionLabel);
+            progress.Begin("playlist_state_saving");
             statusOwner.PersistStatuses(
                 [.. projections],
                 PlaylistCustomFolderOutputOwner.CreatePhysicalSurfaceFromSyncItems(materialization.SyncItems));
         }
         stopwatch.Stop();
 
+        progress.Begin("playlist_result_preparation");
         Lr2SongDbSyncPreparedDataSurface preparedDataSurface = buildPreparedDataSurface
             ? Lr2SongDbSyncPreparedDataSurface.FromSyncItems(
                 materialization.Lr2FolderSurfaceScopeDirectories,

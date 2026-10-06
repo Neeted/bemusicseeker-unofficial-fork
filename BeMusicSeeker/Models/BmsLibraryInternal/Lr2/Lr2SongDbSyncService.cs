@@ -106,6 +106,7 @@ internal sealed class Lr2SongDbSyncRequest
 
     public Func<bool> IsSourceCurrent { get; init; }
 
+    /// <summary>段階内の実対象件数と保存済みカーソルを区別して通知します。通知失敗は同期結果に影響しません。</summary>
     public Action<Lr2SongDbSyncProgress> ProgressReporter { get; init; }
 
     public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; init; }
@@ -181,6 +182,10 @@ internal static class Lr2SongDbSyncService
 
     internal const string SourceStaleReason = "source_stale_detected";
 
+    /// <summary>
+    /// 完全なfolder投影の一括保存と既存のsong保存を実行し、実処理の段階・件数を通知します。
+    /// 保存済みカーソルは観測用に維持し、準備の進捗や表示排出を同期成功の条件にしません。
+    /// </summary>
     internal static Lr2SongDbSyncResult Run(
         LR2SongDBExtended songDb,
         Lr2SongDbSyncRequest request,
@@ -192,6 +197,7 @@ internal static class Lr2SongDbSyncService
         }
 
         request ??= new Lr2SongDbSyncRequest();
+        ReportProgress(request, 0, 0, "input_preparation", 0, 0);
         var stopwatch = Stopwatch.StartNew();
         List<string> roots = [.. (request.RootDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -235,7 +241,7 @@ internal static class Lr2SongDbSyncService
         // processed_cursor is commit-backed progress for observers only and
         // must never select a later input item on a subsequent run.
         const int freshStartCursor = 0;
-        string initialStage = ResolveInitialStage(freshStartCursor, normalFolderEndCursor, lr2FolderEndCursor, songRowsEndCursor);
+        const string initialStage = "folder_projection_preparation";
 
         Lr2SongDbSyncStatusService.MarkRunning(
             songDb,
@@ -255,7 +261,7 @@ internal static class Lr2SongDbSyncService
             + " durableTotal=" + totalCount
             + " startCursor=" + freshStartCursor
             + " initialStage=" + initialStage);
-        ReportProgress(request, freshStartCursor, totalCount, initialStage, ResolveStageProcessedCount(freshStartCursor, normalFolderEndCursor, lr2FolderEndCursor), ResolveStageTotalCount(initialStage, normalFolderTargetCount, lr2FolderFilePaths.Count, songRows.Count));
+        ReportProgress(request, freshStartCursor, totalCount, initialStage, 0, 0);
         ThrowIfCancellationRequested(songDb, request, freshStartCursor, totalCount, initialStage);
 
         Lr2NormalFolderDbSyncResult normalFolderResult = null;
@@ -300,11 +306,11 @@ internal static class Lr2SongDbSyncService
         folderTableResult = Lr2FolderTableReconciliationService.Reconcile(
             songDb,
             request,
-            progressReporter: (stageProcessedCount, stageTotalCount, currentPath) => ReportProgress(
+            stageProgressReporter: (stage, stageProcessedCount, stageTotalCount) => ReportProgress(
                 request,
                 freshStartCursor,
                 totalCount,
-                "folder_reconciliation",
+                stage,
                 stageProcessedCount,
                 stageTotalCount));
         normalFolderProcessedCount = normalFolderTargetCount;
@@ -327,13 +333,16 @@ internal static class Lr2SongDbSyncService
             totalCount: totalCount,
             stage: "folder_reconciliation_completed",
             nowUtc: DateTime.UtcNow);
-        ReportProgress(
-            request,
-            folderProcessedCount,
-            totalCount,
-            "folder_reconciliation_completed",
-            normalFolderTargetCount + lr2FolderFilePaths.Count,
-            normalFolderTargetCount + lr2FolderFilePaths.Count);
+        if (folderTableResult.GeneratedCount > 0)
+        {
+            ReportProgress(
+                request,
+                folderProcessedCount,
+                totalCount,
+                "folder_reconciliation_completed",
+                folderTableResult.GeneratedCount,
+                folderTableResult.GeneratedCount);
+        }
 
         if (freshStartCursor < songRowsEndCursor)
         {
@@ -348,7 +357,6 @@ internal static class Lr2SongDbSyncService
                 totalCount: totalCount,
                 stage: "song_rows",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, songStageProcessedCursor, totalCount, "song_rows", songStageStart, songRows.Count);
         }
         ThrowIfCancellationRequested(songDb, request, Math.Max(folderProcessedCount, freshStartCursor), totalCount, "song_rows");
 
@@ -387,9 +395,13 @@ internal static class Lr2SongDbSyncService
                 totalCount: totalCount,
                 stage: "song_rows_completed",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, processedCount, totalCount, "song_rows_completed", songRowStartIndex + songRowResult.ProcessedCount, songRows.Count);
+            if (songRows.Count > 0)
+            {
+                ReportProgress(request, processedCount, totalCount, "song_rows_completed", songRowStartIndex + songRowResult.ProcessedCount, songRows.Count);
+            }
             LogStage(request, "stage_done", "song_rows", songRows.Count, songRowStartIndex + songRowResult.ProcessedCount, processedCount);
         }
+        ReportProgress(request, processedCount, totalCount, "final_validation", 0, 0);
         string finalStage;
         string incompleteReason;
         if (!IsSourceCurrent(request))
@@ -409,6 +421,7 @@ internal static class Lr2SongDbSyncService
         }
         else
         {
+            ReportProgress(request, processedCount, totalCount, "sync_state_saving", 0, 0);
             Lr2SongDbSyncStatusService.MarkCompleted(
                 songDb,
                 request.Signature,
@@ -494,47 +507,6 @@ internal static class Lr2SongDbSyncService
         {
             throw new OperationCanceledException(request.CancellationToken);
         }
-    }
-
-    private static string ResolveInitialStage(int startCursor, int normalFolderEndCursor, int lr2FolderEndCursor, int songRowsEndCursor)
-    {
-        if (startCursor >= songRowsEndCursor)
-        {
-            return "final_validation";
-        }
-        if (startCursor >= lr2FolderEndCursor)
-        {
-            return "song_rows";
-        }
-        if (startCursor >= normalFolderEndCursor)
-        {
-            return "lr2folder_files";
-        }
-        return "normal_folders";
-    }
-
-    private static int ResolveStageProcessedCount(int durableCursor, int normalFolderEndCursor, int lr2FolderEndCursor)
-    {
-        if (durableCursor >= lr2FolderEndCursor)
-        {
-            return Math.Max(0, durableCursor - lr2FolderEndCursor);
-        }
-        if (durableCursor >= normalFolderEndCursor)
-        {
-            return Math.Max(0, durableCursor - normalFolderEndCursor);
-        }
-        return Math.Max(0, durableCursor);
-    }
-
-    private static int ResolveStageTotalCount(string stage, int normalFolderTotalCount, int lr2FolderTotalCount, int songRowTotalCount)
-    {
-        return stage switch
-        {
-            "normal_folders" or "normal_folders_completed" => Math.Max(0, normalFolderTotalCount),
-            "lr2folder_files" or "lr2folder_files_completed" => Math.Max(0, lr2FolderTotalCount),
-            "song_rows" or "song_rows_completed" => Math.Max(0, songRowTotalCount),
-            _ => 0,
-        };
     }
 
     private static void ReportProgress(
@@ -1106,6 +1078,7 @@ internal static class Lr2SongDbSyncService
             return new SongRowSyncResult(0, 0, 0, 0, 0);
         }
 
+        ReportProgress(request, baseProcessedCursor + safeStartIndex, totalCount, "song_rows_preparation", 0, 0);
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
@@ -1216,6 +1189,7 @@ internal static class Lr2SongDbSyncService
             totalCount,
             "song_rows");
         long lastWorkerProgressTicks = Stopwatch.GetTimestamp();
+        ReportProgress(request, committedProcessedCursor, totalCount, "song_rows", safeStartIndex, targetRows.Count);
 
         void ReportSongRowsWorkerProgress(int stageProcessedCount, bool force = false)
         {

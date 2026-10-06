@@ -141,10 +141,15 @@ internal static class Lr2FolderTableReconciliationService
     /// DBを開いたり変更したりせず、folder表の投影を作ります。
     /// LR2で表現できないパスの行は除外します。探索未完了、.lr2folderまたはfolderinfoの読込み失敗、必要なディレクトリメタデータ不足は既存の事前検査どおり失敗として返します。
     /// 全体同期ルートの事前検証境界です。
+    /// 任意の通知先には実処理の段階と確定した対象件数を渡し、量不定の準備・検証は総数0で通知します。
     /// </summary>
-    internal static Lr2FolderTableProjection BuildProjection(Lr2SongDbSyncRequest request)
+    internal static Lr2FolderTableProjection BuildProjection(
+        Lr2SongDbSyncRequest request,
+        Action<string, int, int> stageProgressReporter = null)
     {
         request ??= new Lr2SongDbSyncRequest();
+        var progress = new Lr2SongDbSyncStageProgressReporter(stageProgressReporter);
+        progress.Begin("folder_projection_preparation");
         if (!request.Lr2FolderFileDiscoveryComplete)
         {
             throw new Lr2FolderTableProjectionIncompleteException(
@@ -162,11 +167,13 @@ internal static class Lr2FolderTableReconciliationService
         List<string> lr2FolderPaths = NormalizePaths(
             (request.Lr2FolderFilePaths ?? [])
                 .Concat(request.Lr2FolderFileEntries?.Keys ?? []));
+        progress.Begin("lr2folder_files", lr2FolderPaths.Count);
         Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult fileItemsResult =
             Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
                 lr2FolderPaths,
                 request,
-                request.Lr2FolderFileEntries);
+                request.Lr2FolderFileEntries,
+                progressReporter: (total, processed, _) => progress.Advance(processed, total));
         List<Lr2FolderFileSyncItem> fileItems = [.. fileItemsResult.Items];
         if (fileItemsResult.HasReadFailures)
         {
@@ -174,6 +181,7 @@ internal static class Lr2FolderTableReconciliationService
                 "One or more .lr2folder files could not be read during full preflight.");
         }
 
+        progress.Begin("folder_projection_preparation");
         foreach (Lr2FolderFileSyncItem item in fileItems)
         {
             if (item?.LastWriteTimeUtc == null)
@@ -226,7 +234,8 @@ internal static class Lr2FolderTableReconciliationService
                     directoryEntries,
                     request.DirectoryLastWriteTimeUtcResolver),
                 FolderInfoLinesReader = request.FolderInfoLinesReader
-            });
+            },
+            (processed, total) => stageProgressReporter?.Invoke("directory_metadata", processed, total));
         if (metadata.MissingDirectoryCount > 0)
         {
             throw new Lr2FolderTableProjectionIncompleteException(
@@ -248,7 +257,8 @@ internal static class Lr2FolderTableReconciliationService
                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
                 DirectoryMetadataResolver = metadata.Resolve,
                 GeneratedAtUtc = request.StartedAtUtc
-            });
+            },
+            stageProgressReporter);
         // LR2で表現できないパスの行は生成器が除外する。必要な更新時刻を得られない場合だけ、入力不完全として扱う。
         if (normalGeneration.SkippedMissingMetadataCount > 0)
         {
@@ -256,6 +266,8 @@ internal static class Lr2FolderTableReconciliationService
                 "Full folder preflight skipped a normal directory projection.");
         }
 
+        progress.Begin("folder_projection_candidates", normalGeneration.Rows.Count);
+        int processed = 0;
         var candidates = new List<ProjectionCandidate>();
         foreach (LR2SongDB.folder row in normalGeneration.Rows)
         {
@@ -272,8 +284,11 @@ internal static class Lr2FolderTableReconciliationService
                     ? Lr2FolderTableProjectionSourceKind.FolderInfoDirectory
                     : Lr2FolderTableProjectionSourceKind.NormalDirectory,
                 "directory:" + row.path));
+            progress.Advance(++processed, normalGeneration.Rows.Count);
         }
 
+        progress.Begin("custom_folder_rows", fileItems.Count);
+        processed = 0;
         foreach (Lr2FolderFileSyncItem item in fileItems)
         {
             if (!Lr2FolderFileProjection.TryCreateFolderRow(
@@ -290,6 +305,7 @@ internal static class Lr2FolderTableReconciliationService
                     out LR2SongDB.folder row))
             {
                 // このパスをLR2のfolder行に変換できなくても、他の候補の投影は続ける。
+                progress.Advance(++processed, fileItems.Count);
                 continue;
             }
 
@@ -310,13 +326,17 @@ internal static class Lr2FolderTableReconciliationService
                 isBuiltin ? BuiltinPriority : Lr2FolderPriority,
                 sourceKind,
                 (isBuiltin ? "builtin:" : "lr2folder:") + (item.FilePath ?? string.Empty)));
+            progress.Advance(++processed, fileItems.Count);
         }
 
+        progress.Begin("custom_folder_parents", parentTargets.Count);
+        processed = 0;
         foreach (ParentTarget target in parentTargets)
         {
             if (!TryCreateParentRow(target, metadata, request, out LR2SongDB.folder row))
             {
                 // LR2で表現できない親行だけを省き、他のfolder行の投影は続ける。
+                progress.Advance(++processed, parentTargets.Count);
                 continue;
             }
 
@@ -327,8 +347,10 @@ internal static class Lr2FolderTableReconciliationService
                     : Lr2FolderPriority,
                 target.SourceKind,
                 "parent:" + target.DatabaseDirectory));
+            progress.Advance(++processed, parentTargets.Count);
         }
 
+        progress.Begin("folder_projection_validation");
         Dictionary<string, ProjectionCandidate> selected = SelectCandidates(candidates);
         List<LR2SongDB.folder> rows = [.. selected.Values
             .OrderBy(candidate => candidate.Row.path, StringComparer.OrdinalIgnoreCase)
@@ -342,24 +364,24 @@ internal static class Lr2FolderTableReconciliationService
     }
 
     /// <summary>
-    /// Runs complete preflight, reads existing folder rows once, then applies
-    /// one delete/upsert transaction for the app-generated folder table.
-    /// The optional reporter is invoked as each projection row is merged with
-    /// existing user columns, after the full projection count is known and
-    /// before that transaction starts.
+    /// 全投影を検証し、既存行を一回取得して利用者列を引き継ぎ、一括でfolder表へ保存します。
+    /// stageProgressReporterは準備から保存までの実段階を通知します。
+    /// 準備件数の100%は保存成功を意味せず、通知失敗も本体の結果に影響させません。
     /// </summary>
     internal static Lr2FolderTableReconciliationResult Reconcile(
         LR2SongDBExtended songDb,
         Lr2SongDbSyncRequest request,
         bool commitTransaction = true,
-        Action<int, int, string> progressReporter = null)
+        Action<string, int, int> stageProgressReporter = null)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        Lr2FolderTableProjection projection = BuildProjection(request);
+        Lr2FolderTableProjection projection = BuildProjection(request, stageProgressReporter);
+        var progress = new Lr2SongDbSyncStageProgressReporter(stageProgressReporter);
+        progress.Begin("folder_existing_rows");
         // The full route owns the app-generated folder table.  Direct
         // callers may be synchronizing a newly-created song database where
         // this table has not yet been materialized.
@@ -372,6 +394,7 @@ internal static class Lr2FolderTableReconciliationService
                 .OrderBy(row => row.path, StringComparer.Ordinal)
                 .First(), PathComparer);
         int total = projection.Rows.Count;
+        progress.Begin("folder_reconciliation", total);
         var rows = new List<LR2SongDB.folder>(total);
         for (int index = 0; index < total; index++)
         {
@@ -382,8 +405,9 @@ internal static class Lr2FolderTableReconciliationService
                 ? CopyWithAddDate(projectedRow, existingRow.adddate)
                 : projectedRow;
             rows.Add(preparedRow);
-            ReportProgress(progressReporter, index + 1, total, preparedRow?.path);
+            progress.Advance(index + 1, total);
         }
+        progress.Begin("folder_saving");
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ReplaceAllRows(
             songDb,
             existingRows,
@@ -394,27 +418,6 @@ internal static class Lr2FolderTableReconciliationService
             new Lr2FolderTableProjection(rows, projection.SourceKinds),
             existingRows.Count,
             writeResult);
-    }
-
-    private static void ReportProgress(
-        Action<int, int, string> progressReporter,
-        int processed,
-        int total,
-        string currentPath)
-    {
-        if (progressReporter == null || total <= 0)
-        {
-            return;
-        }
-
-        try
-        {
-            progressReporter(processed, total, currentPath);
-        }
-        catch
-        {
-            // Progress observation must not affect the atomic folder apply.
-        }
     }
 
     private static Dictionary<string, ProjectionCandidate> SelectCandidates(
