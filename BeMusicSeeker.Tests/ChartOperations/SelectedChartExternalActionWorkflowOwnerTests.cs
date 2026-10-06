@@ -146,8 +146,12 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens()
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens(bool bmson, bool pending)
     {
+        ChartFileKind kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
         Settings settings = new();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
@@ -159,18 +163,25 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
                     "--chart \"{filePath}\"",
                     enabled: true)]));
         TestExternalProgramLaunchGateway programGateway = new();
+        string chartPath = @"C:\Songs\folder name\alpha." + (kind == ChartFileKind.Bmson ? "bmson" : "bms");
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            fileExists: path => path == chartPath,
             settingsProvider: () => settings,
             externalProgramLaunchGateway: programGateway);
-        ChartOperationTarget target = CreateTarget(
-            @"C:\Songs\folder name\alpha.bms",
-            ChartOperationCapabilities.OpenFile);
+        ChartFile chart = CreateChart(chartPath, kind);
+        LibraryChartRow row = pending
+            ? LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart))
+            : LibraryChartRow.FromChartFile(chart);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, pending, out ChartOperationTarget target));
+        Assert.AreEqual(!pending, target.IsOwned);
+        Assert.AreEqual(pending, target.IsPending);
+        Assert.AreSame(row.PackageEntry, target.PackageEntry);
 
         Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
         RightClickActionResolution resolution = owner.ResolveConfiguredActions(input);
         Assert.AreEqual(1, resolution.ProgramActions.Count);
         CollectionAssert.AreEqual(
-            new[] { "--chart", @"C:\Songs\folder name\alpha.bms" },
+            new[] { "--chart", chartPath },
             resolution.ProgramActions[0].Arguments.ToArray());
 
         ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
@@ -181,9 +192,66 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.IsTrue(result.Succeeded);
         Assert.IsNotNull(programGateway.Request);
         Assert.AreEqual(@"C:\Tools\player.exe", programGateway.Request.ExecutablePath);
+        Assert.AreEqual(chartPath, programGateway.Request.ChartFilePath);
         CollectionAssert.AreEqual(
-            new[] { "--chart", @"C:\Songs\folder name\alpha.bms" },
+            new[] { "--chart", chartPath },
             programGateway.Request.Arguments.ToArray());
+
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+            new RightClickActionSettings([], []));
+        ExternalConfiguredActionResult unavailable = owner.ExecuteConfiguredAction(
+            input, ConfiguredExternalActionKind.Program, "player");
+
+        Assert.AreEqual(ExternalConfiguredActionFailureKind.ActionUnavailable, unavailable.FailureKind);
+        Assert.AreEqual(1, programGateway.RequestCount);
+    }
+
+    [TestMethod]
+    [DataRow("playlist-missing")]
+    [DataRow("hash-only")]
+    [DataRow("missing-pending-file")]
+    [DataRow("no-open-file-capability")]
+    public void ResolveConfiguredProgram_RejectsUnavailableFileTargetsWithoutLaunching(string condition)
+    {
+        const string chartPath = @"C:\Songs\alpha.bms";
+        Settings settings = new()
+        {
+            RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+                new RightClickActionSettings([], [new RightClickProgramActionDefinition(
+                    "player", "Player", @"C:\Tools\player.exe", "{filePath}", enabled: true)]))
+        };
+        TestExternalProgramLaunchGateway programGateway = new();
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            fileExists: path => path == chartPath && condition != "missing-pending-file",
+            settingsProvider: () => settings,
+            externalProgramLaunchGateway: programGateway);
+        ChartFile chart = CreateChart(condition == "hash-only" ? null : chartPath, ChartFileKind.Bms);
+        ChartOperationTarget target;
+        if (condition == "playlist-missing")
+        {
+            ChartFile missingChart = CreateChart(chartPath, ChartFileKind.Bms, md5: null);
+            var entry = new TestablePlaylistEntry(new string('d', 32));
+            PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, missingChart).CreateViewRow();
+            Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out target));
+            Assert.IsTrue(target.IsPlaylistMissing);
+        }
+        else if (condition == "no-open-file-capability")
+        {
+            target = CreateTarget(chartPath, ChartOperationCapabilities.None);
+        }
+        else
+        {
+            var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart));
+            Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, isPendingSection: true, out target));
+        }
+
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        Assert.IsNull(input.LocalFilePath);
+        Assert.AreEqual(0, owner.ResolveConfiguredActions(input).ProgramActions.Count);
+        ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
+            input, ConfiguredExternalActionKind.Program, "player");
+        Assert.AreEqual(ExternalConfiguredActionFailureKind.ActionUnavailable, result.FailureKind);
+        Assert.AreEqual(0, programGateway.RequestCount);
     }
 
     [TestMethod]
@@ -464,15 +532,27 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
 
     private sealed class TestExternalProgramLaunchGateway : IExternalProgramLaunchGateway
     {
-        internal ExternalProgramLaunchRequest Request { get; private set; } = null!;
+        internal ExternalProgramLaunchRequest? Request { get; private set; }
+
+        internal int RequestCount { get; private set; }
 
         internal ExternalProgramLaunchResult Result { get; set; } = ExternalProgramLaunchResult.Success;
 
         public ExternalProgramLaunchResult Launch(ExternalProgramLaunchRequest request)
         {
             Request = request;
+            RequestCount++;
             return Result;
         }
+    }
+
+    private static ChartFile CreateChart(string? path, ChartFileKind kind, string? md5 = "dddddddddddddddddddddddddddddddd")
+    {
+        return new ChartFile(
+            kind, path, md5, new string('a', 64), "Title", "Title", "Artist", "Genre", "Folder",
+            string.Empty, string.Empty, null, null, null,
+            kind == ChartFileKind.Bms ? new BMSFile { path = path, hash = md5 } : null,
+            kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path, md5 = md5 } : null);
     }
 
     private static ChartOperationTarget CreateTarget(

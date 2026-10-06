@@ -10,6 +10,7 @@ using System.Windows.Controls.Primitives;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -511,6 +512,77 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CompiledPendingProgramMenuLaunchesCurrentRightClickedChartWithMultipleSelection(bool bmson)
+    {
+        ChartFileKind kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
+        string extension = kind == ChartFileKind.Bmson ? ".bmson" : ".bms";
+        string chartPath = @"C:\Pending\right clicked" + extension;
+        string updatedPath = @"C:\Pending\current chart" + extension;
+        string otherPath = @"C:\Pending\first selected" + extension;
+        Settings settings = new()
+        {
+            RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+                new RightClickActionSettings([], [new RightClickProgramActionDefinition(
+                    "player", "Player", @"C:\Tools\player.exe", "--chart \"{filePath}\"", enabled: true)]))
+        };
+        var requests = new List<ExternalProgramLaunchRequest>();
+        SelectedChartExternalActionWorkflowOwner owner = new(
+            path => path == chartPath || path == updatedPath || path == otherPath,
+            ExternalShellGatewayPolicy.Current,
+            settingsProvider: () => settings,
+            externalProgramLaunchGateway: new CapturingProgramLaunchGateway(requests));
+        MainWindowSelectedChartExternalActionsTerminal external = new(
+            owner.CanExecute,
+            owner.Execute,
+            _ => false,
+            (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
+            owner.OpenRelatedDocument,
+            owner.CreateResolutionInput,
+            owner.ResolveConfiguredActions,
+            owner.ExecuteConfiguredAction);
+        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(
+            CreateChartRow(kind, new string('c', 32), chartPath).Chart));
+        var otherRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(
+            CreateChartRow(kind, new string('d', 32), otherPath).Chart));
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { otherRow, row };
+                table.SelectRowsByPredicate(_ => true);
+                CollectionAssert.AreEqual(new object[] { otherRow, row }, table.GetSelectedRowsSnapshot().ToArray());
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                OpenContextMenu(menu);
+
+                MenuItem parent = FindMenuItem(menu, "tableContextMenuItemOpenProgramActions");
+                Assert.AreEqual(Visibility.Visible, parent.Visibility);
+                Assert.IsTrue(parent.IsEnabled);
+                Assert.AreEqual(Resources.RightClick_open_with_program, parent.Header);
+                MenuItem child = FindMenuItem(parent, "configuredProgramAction_player");
+                Assert.AreEqual(Visibility.Visible, child.Visibility);
+                Assert.IsTrue(child.IsEnabled);
+                Assert.AreEqual("Player", child.Header);
+                Assert.AreEqual(0, requests.Count);
+
+                row.PackageEntry.ApplyInstalledPath(updatedPath);
+                Assert.AreEqual(updatedPath, row.Chart.Path);
+                Assert.IsTrue(RaiseMenuClick(child).Handled);
+
+                Assert.AreEqual(1, requests.Count);
+                Assert.AreEqual("player", requests[0].ActionId);
+                Assert.AreEqual(updatedPath, requests[0].ChartFilePath);
+                CollectionAssert.AreEqual(new[] { "--chart", updatedPath }, requests[0].Arguments.ToArray());
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    [TestMethod]
     public void CompiledSelectedChartExternalActionsUseEligibilityAndExactRowTargets()
     {
         var localActionCalls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
@@ -777,6 +849,15 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 (_, _, _) => ExternalConfiguredActionResult.Failure(
                     ExternalConfiguredActionFailureKind.ActionUnavailable,
                     string.Empty)));
+    }
+
+    private sealed class CapturingProgramLaunchGateway(List<ExternalProgramLaunchRequest> requests) : IExternalProgramLaunchGateway
+    {
+        public ExternalProgramLaunchResult Launch(ExternalProgramLaunchRequest request)
+        {
+            requests.Add(request);
+            return ExternalProgramLaunchResult.Success;
+        }
     }
 
     private static TaskCompletionSource<T> NewCompletion<T>()

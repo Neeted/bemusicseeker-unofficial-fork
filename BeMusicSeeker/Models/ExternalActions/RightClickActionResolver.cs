@@ -36,7 +36,7 @@ internal sealed class RightClickActionResolutionInput
     internal string Sha256 { get; }
 
     /// <summary>
-    /// 所持 chart の local absolute path を取得します。
+    /// 保留を含む既存のローカル譜面の絶対パスを取得します。パスがない場合は null です。
     /// </summary>
     internal string LocalFilePath { get; }
 

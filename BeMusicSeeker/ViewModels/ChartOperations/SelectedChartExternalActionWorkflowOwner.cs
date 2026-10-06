@@ -221,10 +221,13 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
     }
 
     /// <summary>
-    /// Converts one exact row target into the immutable context consumed by the
-    /// shared right-click resolver. A local path is supplied only for an owned,
-    /// existing chart; hash-only and playlist-missing targets never get a path.
+    /// 正確な一行の対象を、共通の右クリック操作解決に使う変更不能な入力へ変換します。
+    /// 所持状態にかかわらず、ファイルを開く権限と実在する譜面パスがある場合にパスを渡します。
+    /// 未所持のプレイリスト行とパスのない対象にはパスを渡しません。
     /// </summary>
+    /// <param name="target">メニューまたはクリック時点の正確な対象行。</param>
+    /// <param name="input">ハッシュ・形式と、条件を満たすローカルパスを持つ解決入力。</param>
+    /// <returns>対象に譜面情報がある場合は true。プログラム操作の有無は共通の解決処理で判定します。</returns>
     internal bool TryCreateResolutionInput(
         ChartOperationTarget target,
         out RightClickActionResolutionInput input)
@@ -235,12 +238,9 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
             return false;
         }
 
-        string localFilePath = target.IsOwned
-            && !target.IsPlaylistMissing
-            && target.HasCapability(ChartOperationCapabilities.OpenFile)
-            && !string.IsNullOrWhiteSpace(target.Chart.Path)
-            && fileExists(target.Chart.Path)
-                ? target.Chart.Path
+        string localFilePath = !target.IsPlaylistMissing
+            && TryGetExistingPath(target, ChartOperationCapabilities.OpenFile, out string path)
+                ? path
                 : null;
         input = new RightClickActionResolutionInput(
             target.Chart.Md5,
@@ -252,6 +252,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         return true;
     }
 
+    /// <summary>対象行の現在の譜面情報を共通の解決入力へ変換し、譜面情報がない場合は null を返します。</summary>
     internal RightClickActionResolutionInput CreateResolutionInput(ChartOperationTarget target)
     {
         return TryCreateResolutionInput(target, out RightClickActionResolutionInput input)
