@@ -23,6 +23,8 @@
 
 譜面の解決・参照・所持集計はMD5があればMD5を選び、ない場合だけSHA-256を選びます。MD5不一致の後で同じ行のSHA-256へ探索を広げません。手動追加では所持譜面から分かる両ハッシュを保存し、外部同期では取得元の値を保存します。手動追加の `org_md5` は同じディレクトリ内の所持BMS/BMSONのMD5集合です。
 
+所持譜面の参照解決索引は共通所持集合の管理主体が所有し、自身の単一の集合版と既存の失効版で構築・再利用を判断します。構築前の集合版捕捉と構築後の最新性確認、取消、digest更新範囲の待機を維持します。構築済み索引へ変更事実を差分適用し、未構築時は構築を起こさず、同MD5の別配置と捕捉済みの旧索引を保持します。排他境界は[データと索引](../core/data-and-indexes.md)を参照します。
+
 コースはヘッダー由来であり、入れ子配列もコースオブジェクトへ平坦化します。別のコースハッシュは保存せず、ヘッダーハッシュで更新を判定します。DB内部のコース改ざん検出を目的としません。
 
 ### 互換フォルダ名
@@ -149,6 +151,7 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 外部取得・変更判定・表示の完了 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs)、[`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistReloadMergeTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistReloadMergeTests.cs) |
 | DB失敗後の同一オブジェクト保持と次の正常編集 | [`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) |
 | 実ドロップ・分類・参照・通知 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
+| 所持参照解決索引の所有・版・差分と旧捕捉値 | [`CatalogOwnedCollectionOwner.Playlist`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Playlist.cs) | [`PlaylistSummaryResolveIndexTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryResolveIndexTests.cs)、[`PlaylistSummaryMutationAndWarmTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryMutationAndWarmTests.cs)、[`PlaylistSummaryOwnedHashTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryOwnedHashTests.cs) |
 | 復元の排他・DB待機・UI完了・準備失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
 | 見出し・項目の型と不正なJSONの失敗 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) |
 | 項目の題名の永続化 | [`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`Lr2PlaylistEntryPersistenceTests`](../../../BeMusicSeeker.Tests/Playlist/Lr2PlaylistEntryPersistenceTests.cs) |

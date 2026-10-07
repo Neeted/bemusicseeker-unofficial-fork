@@ -169,9 +169,8 @@ internal sealed partial class LibraryMutationOwner
             {
                 markDuplicateWarningFullClearPending();
             }
-            int ownedCollectionVersion = replacementReceipt.OwnedCollectionVersion;
             catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
-            catalogOwnedCollectionOwner.InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
+            catalogOwnedCollectionOwner.InvalidatePlaylistLibraryResolveIndexSnapshot();
             InvalidateInstalledDirectoryIndex();
             InvalidateParentFolderListCache();
             if (bmsonRowsChanged)
@@ -485,15 +484,13 @@ internal sealed partial class LibraryMutationOwner
 
         result.PlaylistResolveIndexMutationApplied = true;
         if (catalogOwnedCollectionOwner.ApplyPlaylistLibraryResolveIndexMutation(
-            catalogOwnedCollectionOwner,
             result.DigestChanges,
             result.DigestMutationApplied,
             result.InstalledLookupMutation,
             [.. result.StorageMutation.AddedCharts.Concat(result.PresentationChangedCharts)],
             result.OwnedCollectionChanged,
             result.PlaylistResolveIndexInvalidated,
-            result.BmsonCanonicalOrderNormalized,
-            result.OwnedCollectionVersion))
+            result.BmsonCanonicalOrderNormalized))
         {
             result.PlaylistResolveIndexInvalidated = true;
         }

@@ -7742,7 +7742,6 @@ public partial class BMSLibrary : ObservableObject
         out int staleRetryCount)
     {
         return catalogOwnedCollectionOwner.GetPlaylistLibraryResolveIndexSnapshot(
-            catalogOwnedCollectionOwner,
             cancellationToken,
             out cacheHit,
             out staleRetryCount);
@@ -7856,7 +7855,7 @@ public partial class BMSLibrary : ObservableObject
             long buildElapsedMs,
             int invalidationVersion,
             int ownedCollectionVersion) state =
-            catalogOwnedCollectionOwner.GetPlaylistLibraryResolveIndexRuntimeState(catalogOwnedCollectionOwner);
+            catalogOwnedCollectionOwner.GetPlaylistLibraryResolveIndexRuntimeState();
         return new PlaylistLibraryResolveIndexRuntimeState
         {
             IsCached = state.isCached,

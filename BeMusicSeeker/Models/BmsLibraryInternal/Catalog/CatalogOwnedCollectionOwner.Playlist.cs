@@ -18,8 +18,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
     private int playlistLibraryResolveIndexInvalidationVersion;
 
-    private int playlistLibraryResolveIndexInvalidationOwnedCollectionVersion;
-
     /// <summary>
     /// playlist resolve root の実格納処理を記録する任意の内部 observer です。
     /// production では設定せず、設定時も owner へ再入しません。
@@ -29,32 +27,20 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <summary>
     /// playlist resolve snapshot を破棄し、次回要求で再構築します。
     /// </summary>
-    /// <param name="ownedCollectionVersion">失効時点の owned collection version。未指定時は現在値を使います。</param>
-    internal void InvalidatePlaylistLibraryResolveIndexSnapshot(int ownedCollectionVersion = 0)
+    internal void InvalidatePlaylistLibraryResolveIndexSnapshot()
     {
-        int resolvedOwnedCollectionVersion = ownedCollectionVersion > 0
-            ? ownedCollectionVersion
-            : OwnedCollectionVersion;
         lock (lockPlaylistLibraryResolveIndexSnapshot)
         {
             playlistLibraryResolveIndexSnapshot = null;
             playlistLibraryResolveIndexInvalidationVersion++;
-            playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = resolvedOwnedCollectionVersion;
         }
     }
 
     /// <summary>
-    /// mutation 後の source version を、構築済み playlist resolve snapshot へ反映します。
+    /// 自身の mutation 後の集合版を、構築済み playlist resolve snapshot へ反映します。
     /// </summary>
-    /// <param name="storageRowsOwner">storage row version の所有者。</param>
-    internal void RebasePlaylistLibraryResolveIndexSnapshot(
-        CatalogOwnedCollectionOwner storageRowsOwner)
+    internal void RebasePlaylistLibraryResolveIndexSnapshot()
     {
-        if (storageRowsOwner == null)
-        {
-            throw new ArgumentNullException(nameof(storageRowsOwner));
-        }
-
         lock (lockPlaylistLibraryResolveIndexSnapshot)
         {
             PlaylistLibraryResolveIndexSnapshot snapshot = playlistLibraryResolveIndexSnapshot;
@@ -63,11 +49,8 @@ internal sealed partial class CatalogOwnedCollectionOwner
                 return;
             }
 
-            OwnedChartCollectionVersionSnapshot storageRowsVersion = storageRowsOwner.CaptureVersionSnapshot();
             int ownedCollectionVersion = OwnedCollectionVersion;
-            if (snapshot.OwnedCollectionVersion == ownedCollectionVersion
-                && snapshot.OwnedCollectionVersion == storageRowsVersion.OwnedCollectionVersion
-                && snapshot.OwnedCollectionVersion == storageRowsVersion.OwnedCollectionVersion)
+            if (snapshot.OwnedCollectionVersion == ownedCollectionVersion)
             {
                 return;
             }
@@ -84,7 +67,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// warm な playlist resolve root に mutation facts を局所適用します。
     /// facts 不足または全置換境界では既存の全失効契約へ戻します。
     /// </summary>
-    /// <param name="storageRowsOwner">storage row version の所有者。</param>
     /// <param name="digestChanges">digest の旧新 facts。</param>
     /// <param name="digestMutationApplied">digest facts が正本へ適用済みか。</param>
     /// <param name="installedLookupMutation">installed lookup の旧新 facts。</param>
@@ -92,24 +74,16 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <param name="ownedCollectionChanged">owned collection に変更があるか。</param>
     /// <param name="playlistResolveIndexInvalidated">事前に全失効が必要と判断されたか。</param>
     /// <param name="bmsonCanonicalOrderNormalized">BMSON canonical 順序を正規化したか。</param>
-    /// <param name="ownedCollectionVersion">mutation と対応する owned collection version。</param>
     /// <returns>全失効された場合は <see langword="true"/>。</returns>
     internal bool ApplyPlaylistLibraryResolveIndexMutation(
-        CatalogOwnedCollectionOwner storageRowsOwner,
         IReadOnlyList<LibraryChartDigestChange> digestChanges,
         bool digestMutationApplied,
         InstalledChartLookupMutation installedLookupMutation,
         IReadOnlyList<ChartFile> addedCharts,
         bool ownedCollectionChanged,
         bool playlistResolveIndexInvalidated,
-        bool bmsonCanonicalOrderNormalized,
-        int ownedCollectionVersion = 0)
+        bool bmsonCanonicalOrderNormalized)
     {
-        if (storageRowsOwner == null)
-        {
-            throw new ArgumentNullException(nameof(storageRowsOwner));
-        }
-
         int digestChangeCount = digestChanges?.Count ?? 0;
         if (!ownedCollectionChanged && digestChangeCount == 0)
         {
@@ -124,7 +98,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
         if (playlistResolveIndexInvalidated || bmsonCanonicalOrderNormalized)
         {
-            InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
             return true;
         }
 
@@ -139,7 +113,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
             && (addedCharts?.Count ?? 0) == 0)
         {
             // level/mode などの基本表示値だけの変更は、hash/path の root を維持して集合版だけを捕捉します。
-            RebasePlaylistLibraryResolveIndexSnapshot(storageRowsOwner);
+            RebasePlaylistLibraryResolveIndexSnapshot();
             return false;
         }
 
@@ -240,16 +214,15 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
         if (!factsComplete || (removals.Count == 0 && additionPaths.Count == 0))
         {
-            InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
             return true;
         }
 
         if (!TryCreateOwnedCanonicalPlaylistChartFacts(
-            storageRowsOwner,
             additionPaths,
             out List<PlaylistLibraryResolveChartFact> additions))
         {
-            InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
             return true;
         }
 
@@ -259,7 +232,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
             {
                 playlistLibraryResolveIndexSnapshot = null;
                 playlistLibraryResolveIndexInvalidationVersion++;
-                playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = OwnedCollectionVersion;
                 return true;
             }
 
@@ -271,11 +243,9 @@ internal sealed partial class CatalogOwnedCollectionOwner
             {
                 playlistLibraryResolveIndexSnapshot = null;
                 playlistLibraryResolveIndexInvalidationVersion++;
-                playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = OwnedCollectionVersion;
                 return true;
             }
 
-            OwnedChartCollectionVersionSnapshot storageRowsVersion = storageRowsOwner.CaptureVersionSnapshot();
             playlistLibraryResolveIndexSnapshot = nextSnapshot.WithMetadata(
                 version: Interlocked.Increment(ref playlistLibraryResolveIndexSnapshotVersion),
                 buildElapsedMs: snapshot.BuildElapsedMs,
@@ -287,23 +257,17 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned collection 隣接 index を返します。
+    /// 自身の読取り排他と集合排他で構築前の集合版を捕捉し、構築後の集合版・失効版を確認して公開します。
     /// </summary>
-    /// <param name="storageRowsOwner">storage row version の所有者。</param>
     /// <param name="cancellationToken">構築中の cancellation token。</param>
     /// <param name="cacheHit">既存 snapshot を再利用した場合は true。</param>
     /// <param name="staleRetryCount">version 競合による再試行回数。</param>
     /// <returns>playlist detail 用 resolve index。</returns>
     internal PlaylistLibraryResolveIndexSnapshot GetPlaylistLibraryResolveIndexSnapshot(
-        CatalogOwnedCollectionOwner storageRowsOwner,
         CancellationToken cancellationToken,
         out bool cacheHit,
         out int staleRetryCount)
     {
-        if (storageRowsOwner == null)
-        {
-            throw new ArgumentNullException(nameof(storageRowsOwner));
-        }
-
         PlaylistLibraryResolveIndexSnapshot snapshot;
         staleRetryCount = 0;
         while (true)
@@ -311,7 +275,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
             cancellationToken.ThrowIfCancellationRequested();
             bool waitForDigestWindow = false;
             int invalidationVersion;
-            int invalidationOwnedCollectionVersion;
             lock (lockPlaylistLibraryResolveIndexSnapshot)
             {
                 snapshot = playlistLibraryResolveIndexSnapshot;
@@ -320,7 +283,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
                 {
                     if (IsPlaylistLibraryResolveIndexSnapshotCurrent(
                         snapshot,
-                        storageRowsOwner,
                         currentOwnedCollectionVersion))
                     {
                         cacheHit = true;
@@ -328,14 +290,12 @@ internal sealed partial class CatalogOwnedCollectionOwner
                     }
                     playlistLibraryResolveIndexSnapshot = null;
                     playlistLibraryResolveIndexInvalidationVersion++;
-                    playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = currentOwnedCollectionVersion;
                 }
                 if (IsDigestMutationWindowActive())
                 {
                     waitForDigestWindow = true;
                 }
                 invalidationVersion = playlistLibraryResolveIndexInvalidationVersion;
-                invalidationOwnedCollectionVersion = playlistLibraryResolveIndexInvalidationOwnedCollectionVersion;
             }
             if (waitForDigestWindow)
             {
@@ -346,24 +306,18 @@ internal sealed partial class CatalogOwnedCollectionOwner
 
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             PlaylistLibraryResolveIndexSnapshot rebuiltSnapshot;
-            OwnedChartCollectionVersionSnapshot storageRowsVersion;
             int ownedCollectionVersion;
-            using (storageRowsOwner.WriteGate.GetReaderGuard())
+            using (WriteGate.GetReaderGuard())
             {
-
                 rebuiltSnapshot = CreatePlaylistLibraryResolveIndexSnapshotUnsafe(
-                    storageRowsOwner,
                     cancellationToken,
-                    out storageRowsVersion);
-                ownedCollectionVersion = OwnedCollectionVersion;
+                    out ownedCollectionVersion);
             }
             rebuiltSnapshot = rebuiltSnapshot.WithMetadata(
                 version: 0,
                 buildElapsedMs: stopwatch.ElapsedMilliseconds,
                 invalidationVersion: invalidationVersion,
-                ownedCollectionVersion: invalidationOwnedCollectionVersion == ownedCollectionVersion
-                    ? invalidationOwnedCollectionVersion
-                    : ownedCollectionVersion);
+                ownedCollectionVersion: ownedCollectionVersion);
 
             lock (lockPlaylistLibraryResolveIndexSnapshot)
             {
@@ -372,7 +326,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
                 {
                     if (IsPlaylistLibraryResolveIndexSnapshotCurrent(
                         snapshot,
-                        storageRowsOwner,
                         OwnedCollectionVersion))
                     {
                         cacheHit = true;
@@ -380,13 +333,11 @@ internal sealed partial class CatalogOwnedCollectionOwner
                     }
                     playlistLibraryResolveIndexSnapshot = null;
                     playlistLibraryResolveIndexInvalidationVersion++;
-                    playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = OwnedCollectionVersion;
                     staleRetryCount++;
                     continue;
                 }
                 if (playlistLibraryResolveIndexInvalidationVersion != invalidationVersion
-                    || OwnedCollectionVersion != ownedCollectionVersion
-                    || !IsStorageRowsVersionCurrent(storageRowsOwner, storageRowsVersion))
+                    || OwnedCollectionVersion != ownedCollectionVersion)
                 {
                     staleRetryCount++;
                     continue;
@@ -409,30 +360,22 @@ internal sealed partial class CatalogOwnedCollectionOwner
     }
 
     /// <summary>
-    /// playlist resolve index の runtime state を source version と同じ境界で取得します。
+    /// 自身の集合版で playlist resolve index の最新性を確認し、構築せず runtime state を取得します。
     /// </summary>
-    /// <param name="storageRowsOwner">storage row version の所有者。</param>
     /// <returns>cache 状態と version の値。</returns>
     internal (
         bool IsCached,
         int SnapshotVersion,
         long BuildElapsedMs,
         int InvalidationVersion,
-        int OwnedCollectionVersion) GetPlaylistLibraryResolveIndexRuntimeState(
-            CatalogOwnedCollectionOwner storageRowsOwner)
+        int OwnedCollectionVersion) GetPlaylistLibraryResolveIndexRuntimeState()
     {
-        if (storageRowsOwner == null)
-        {
-            throw new ArgumentNullException(nameof(storageRowsOwner));
-        }
-
         lock (lockPlaylistLibraryResolveIndexSnapshot)
         {
             PlaylistLibraryResolveIndexSnapshot snapshot = playlistLibraryResolveIndexSnapshot;
             int currentOwnedCollectionVersion = OwnedCollectionVersion;
             if (IsPlaylistLibraryResolveIndexSnapshotCurrent(
                 snapshot,
-                storageRowsOwner,
                 currentOwnedCollectionVersion))
             {
                 return (
@@ -463,98 +406,83 @@ internal sealed partial class CatalogOwnedCollectionOwner
         }
     }
 
-    private bool IsPlaylistLibraryResolveIndexSnapshotCurrent(
+    private static bool IsPlaylistLibraryResolveIndexSnapshotCurrent(
         PlaylistLibraryResolveIndexSnapshot snapshot,
-        CatalogOwnedCollectionOwner storageRowsOwner,
         int currentOwnedCollectionVersion)
     {
         return snapshot != null
-            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
-            && storageRowsOwner.OwnedCollectionVersion == snapshot.OwnedCollectionVersion
-            && storageRowsOwner.OwnedCollectionVersion == snapshot.OwnedCollectionVersion;
-    }
-
-    private bool IsStorageRowsVersionCurrent(
-        CatalogOwnedCollectionOwner storageRowsOwner,
-        OwnedChartCollectionVersionSnapshot storageRowsVersion)
-    {
-        return storageRowsOwner.OwnedCollectionVersion == storageRowsVersion.OwnedCollectionVersion;
+            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion;
     }
 
     private bool TryCreateOwnedCanonicalPlaylistChartFacts(
-        CatalogOwnedCollectionOwner storageRowsOwner,
         IEnumerable<(ChartFileKind Kind, string Path)> paths,
         out List<PlaylistLibraryResolveChartFact> facts)
     {
         facts = [];
-        using (storageRowsOwner.WriteGate.GetReaderGuard())
+        using (WriteGate.GetReaderGuard())
         {
-            lock (storageRowsOwner.Gate)
+            lock (gate)
             {
-                lock (gate)
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach ((ChartFileKind Kind, string Path) request in paths ?? [])
                 {
-                    var seen = new HashSet<string>(StringComparer.Ordinal);
-                    foreach ((ChartFileKind Kind, string Path) request in paths ?? [])
+                    if (string.IsNullOrWhiteSpace(request.Path))
                     {
-                        if (string.IsNullOrWhiteSpace(request.Path))
-                        {
-                            return false;
-                        }
-
-                        string identityKey = (request.Kind == ChartFileKind.Bmson ? "bmson" : "bms")
-                            + "\u001f"
-                            + request.Path;
-                        if (!seen.Add(identityKey))
-                        {
-                            continue;
-                        }
-
-                        PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_query");
-                        if (!collection.TryGetCanonicalChartRefForExactPath(
-                            request.Kind,
-                            request.Path,
-                            out LibraryChartRef chartRef,
-                            out OwnedChartCanonicalOrderKey stableOrder))
-                        {
-                            return false;
-                        }
-                        PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_entry_visited");
-                        var fact = PlaylistLibraryResolveChartFact.FromChart(
-                            ChartFileProjection.CaptureBasicSnapshot(collection.ResolveCurrentChart(chartRef)),
-                            stableOrder);
-                        if (fact == null)
-                        {
-                            return false;
-                        }
-                        facts.Add(fact);
+                        return false;
                     }
-                    return true;
+
+                    string identityKey = (request.Kind == ChartFileKind.Bmson ? "bmson" : "bms")
+                        + "\u001f"
+                        + request.Path;
+                    if (!seen.Add(identityKey))
+                    {
+                        continue;
+                    }
+
+                    PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_query");
+                    if (!collection.TryGetCanonicalChartRefForExactPath(
+                        request.Kind,
+                        request.Path,
+                        out LibraryChartRef chartRef,
+                        out OwnedChartCanonicalOrderKey stableOrder))
+                    {
+                        return false;
+                    }
+                    PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_entry_visited");
+                    var fact = PlaylistLibraryResolveChartFact.FromChart(
+                        ChartFileProjection.CaptureBasicSnapshot(collection.ResolveCurrentChart(chartRef)),
+                        stableOrder);
+                    if (fact == null)
+                    {
+                        return false;
+                    }
+                    facts.Add(fact);
                 }
+                return true;
             }
         }
     }
 
+    /// <summary>呼出側の読取り排他内で、自身の集合からfactsと構築前の集合版を同じ集合排他で捕捉します。</summary>
+    /// <param name="cancellationToken">構築中の取消要求。</param>
+    /// <param name="ownedCollectionVersion">factsを読み出す前に捕捉した、公開時の最新性確認に使う単一の集合版。</param>
+    /// <returns>構築したplaylist参照解決索引。公開版の付与と最新性確認は呼出側が行います。</returns>
     private PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshotUnsafe(
-        CatalogOwnedCollectionOwner storageRowsOwner,
         CancellationToken cancellationToken,
-        out OwnedChartCollectionVersionSnapshot storageRowsVersion)
+        out int ownedCollectionVersion)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (storageRowsOwner.Gate)
+        lock (gate)
         {
-            OwnedChartCollectionVersionSnapshot currentVersion = storageRowsOwner.CaptureVersionSnapshot();
-            lock (gate)
-            {
-                storageRowsVersion = currentVersion;
-                List<PlaylistLibraryResolveChartFact> facts = collection.CreatePlaylistLibraryResolveChartFactSnapshot(
-                    cancellationToken.ThrowIfCancellationRequested,
-                    PlaylistLibraryResolveIndexStoreWorkObserver);
-                cancellationToken.ThrowIfCancellationRequested();
-                return PlaylistLibraryResolveIndexSnapshot.FromLibraryChartFacts(
-                    facts,
-                    cancellationToken.ThrowIfCancellationRequested,
-                    PlaylistLibraryResolveIndexStoreWorkObserver);
-            }
+            ownedCollectionVersion = OwnedCollectionVersion;
+            List<PlaylistLibraryResolveChartFact> facts = collection.CreatePlaylistLibraryResolveChartFactSnapshot(
+                cancellationToken.ThrowIfCancellationRequested,
+                PlaylistLibraryResolveIndexStoreWorkObserver);
+            cancellationToken.ThrowIfCancellationRequested();
+            return PlaylistLibraryResolveIndexSnapshot.FromLibraryChartFacts(
+                facts,
+                cancellationToken.ThrowIfCancellationRequested,
+                PlaylistLibraryResolveIndexStoreWorkObserver);
         }
     }
 
