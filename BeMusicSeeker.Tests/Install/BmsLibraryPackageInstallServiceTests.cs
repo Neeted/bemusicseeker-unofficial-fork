@@ -2698,7 +2698,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
     /// <summary>
     /// 保留中のBMS/BMSONを本番導入入口から導入し、導入前の一時警告を表示した後も
-    /// 導入後のResourceHealthが不足継続・解消を正しく投影することを確認します。
+    /// 導入後の計算済み充足値とResourceHealthが新規・通常一覧へ届き、不足継続・解消を正しく投影することを確認します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false, false, false)]
@@ -2860,21 +2860,28 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackage installedPackage = library.ChartPackagesInstalled.Single();
                 Assert.AreEqual(installedDirectoryPath, installedPackage.path);
                 Assert.IsTrue(installedPackage.ChartEntries.Count > 0);
-                foreach (PackageChartEntry installedEntry in installedPackage.ChartEntries)
-                {
-                    Assert.IsNotNull(installedEntry.Chart);
-                    Assert.IsTrue(string.IsNullOrWhiteSpace(installedEntry.Chart.InstallDestination));
-                    Assert.IsFalse((installedEntry.Chart.Warnings ?? []).Any(
-                        warning => warning.Category == ChartWarningCategory.ResourceHealth));
-                }
                 using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     LR2SongDBExtended.maintenance maintenance = verifySongDb.Table<LR2SongDBExtended.maintenance>()
                         .Single(info => string.Equals(info.path, installed.Path, StringComparison.OrdinalIgnoreCase));
                     Assert.AreEqual(1, maintenance.wav_files_defined);
                     Assert.AreEqual(resourceAlreadyExistsAtDestination ? 1 : 0, maintenance.wav_files_existing);
+                    Assert.AreEqual(0, maintenance.bga_files_defined);
+                    Assert.IsNull(maintenance.bga_files_existing);
+                    Assert.AreEqual(0, maintenance.movie_files_defined);
+                    Assert.IsNull(maintenance.movie_files_existing);
                 }
-
+                Assert.IsNotNull(installed.Token);
+                AssertCalculatedInstallResourceHealth(installed, resourceAlreadyExistsAtDestination);
+                foreach (PackageChartEntry installedEntry in installedPackage.ChartEntries)
+                {
+                    Assert.IsNotNull(installedEntry.Chart);
+                    Assert.AreSame(installed.Token, installedEntry.Chart.Token);
+                    AssertCalculatedInstallResourceHealth(installedEntry.Chart, resourceAlreadyExistsAtDestination);
+                    Assert.IsTrue(string.IsNullOrWhiteSpace(installedEntry.Chart.InstallDestination));
+                    Assert.IsFalse((installedEntry.Chart.Warnings ?? []).Any(
+                        warning => warning.Category == ChartWarningCategory.ResourceHealth));
+                }
                 ResourceHealthIndexSnapshot beforeView = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                 if (resourceHealthIndexStartsWarm)
                 {
@@ -2908,6 +2915,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ResourceHealthIndexSnapshot afterNewlyInstalledView = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                 Assert.AreNotSame(ResourceHealthIndexSnapshot.Empty, afterNewlyInstalledView);
                 var installedRow = (LibraryChartRow)table.Rows[0]!;
+                Assert.AreSame(installed.Token, installedRow.Chart.Token);
+                AssertCalculatedInstallResourceHealth(installedRow.Chart, resourceAlreadyExistsAtDestination);
+                Assert.AreEqual(installed.WAVHealth, installedRow.WAVHealth);
+                Assert.AreEqual(installed.BGAHealth, installedRow.BGAHealth);
+                Assert.AreEqual(installed.MovieHealth, installedRow.MovieHealth);
                 if (resourceAlreadyExistsAtDestination)
                 {
                     Assert.IsFalse(installedRow.WarningDigestText.Contains(
@@ -2942,6 +2954,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.AreSame(afterNewlyInstalledView, library.TryGetCurrentResourceHealthIndexSnapshotForView());
                 Assert.AreEqual(1, table.Rows.Count);
                 var normalRow = (LibraryChartRow)table.Rows[0]!;
+                Assert.AreSame(installed.Token, normalRow.Chart.Token);
+                AssertCalculatedInstallResourceHealth(normalRow.Chart, resourceAlreadyExistsAtDestination);
+                Assert.AreEqual(installed.WAVHealth, normalRow.WAVHealth);
+                Assert.AreEqual(installed.BGAHealth, normalRow.BGAHealth);
+                Assert.AreEqual(installed.MovieHealth, normalRow.MovieHealth);
                 if (resourceAlreadyExistsAtDestination)
                 {
                     Assert.IsFalse(normalRow.WarningDigestText.Contains(
@@ -2960,8 +2977,25 @@ public sealed class BmsLibraryPackageInstallServiceTests
             finally
             {
                 library.PropertyChanged -= handler;
+                library.RequestShutdown("install_resource_health_projection_test_cleanup");
             }
         });
+    }
+
+    private static void AssertCalculatedInstallResourceHealth(ChartFile chart, bool wavExists)
+    {
+        ResourceHealthMaintenanceSnapshot maintenance = chart.ResourceHealthMaintenanceSnapshot;
+        Assert.IsNotNull(maintenance);
+        Assert.AreEqual(MaintenanceInfoOrigin.Calculated, maintenance.Origin);
+        Assert.AreEqual(1, maintenance.WavFilesDefined);
+        Assert.AreEqual(wavExists ? 1 : 0, maintenance.WavFilesExisting);
+        Assert.AreEqual(0, maintenance.BgaFilesDefined);
+        Assert.IsNull(maintenance.BgaFilesExisting);
+        Assert.AreEqual(0, maintenance.MovieFilesDefined);
+        Assert.IsNull(maintenance.MovieFilesExisting);
+        Assert.AreEqual(wavExists ? 100 : 0, chart.WAVHealth);
+        Assert.AreEqual(100, chart.BGAHealth);
+        Assert.AreEqual(100, chart.MovieHealth);
     }
 
     private static void AssertNormalInstallRouteUsesPreflightDestinationAndWarmDelta(

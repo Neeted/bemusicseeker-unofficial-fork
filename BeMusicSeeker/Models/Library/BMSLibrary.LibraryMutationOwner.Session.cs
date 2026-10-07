@@ -343,10 +343,10 @@ internal sealed partial class LibraryMutationOwner
         }
 
         /// <summary>
-        /// Applies all confirmed facts exactly once. A failure after the catalog durable point is
-        /// retained on the receipt and never causes filesystem rollback or replay.
+        /// 確定事実を一回適用し、導入の必須後処理が全て成功した場合だけ、今回の現在値を加入済み項目へ渡します。
+        /// DB確定後の失敗は証票に保持し、物理処理の巻戻しや再実行は行いません。公開通知は排他解放後へ延期します。
         /// </summary>
-        /// <returns>Immutable terminal facts for the operation-scoped session.</returns>
+        /// <returns>この変更セッションの変更不能な終端事実。</returns>
         internal LibraryMutationSessionReceipt Commit()
         {
             EnsureOpen();
@@ -551,6 +551,30 @@ internal sealed partial class LibraryMutationOwner
             if (hasInstallChanges && finalizationFailure == null)
             {
                 finalizationFailure = RunRequiredDurableFinalizers();
+                if (finalizationFailure == null && committedInstallCharts.Count > 0)
+                {
+                    try
+                    {
+                        // 物理完了時のpath/state反映は維持し、保守と所属登録が全て成功してから
+                        // 今回の所持項目だけを再捕捉して、加入済みentryへ計算済み値を渡します。
+                        var currentInstallCharts = new List<ChartFile>(committedInstallCharts.Count);
+                        lock (owner.catalogOwnedCollectionOwner.Gate)
+                        {
+                            foreach (ChartFile committedChart in committedInstallCharts.Values)
+                            {
+                                ChartFile current = owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
+                                    LibraryChartRef.FromChartFile(committedChart)) ?? throw new KeyNotFoundException();
+                                currentInstallCharts.Add(current);
+                            }
+                        }
+                        sessionNotifications.Add(owner.packageLifecycleOwner.PrepareCommittedChartApplication(
+                            currentInstallCharts));
+                    }
+                    catch (Exception exception)
+                    {
+                        finalizationFailure = exception;
+                    }
+                }
             }
 
             if (finalizationFailure == null)
