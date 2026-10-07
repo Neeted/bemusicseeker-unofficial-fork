@@ -1040,9 +1040,11 @@ internal sealed class OwnedChartCollectionState
     internal OwnedChartCollectionView CreateCollectionView() => CreateCollectionView(sortBmsonByPath: false);
 
     /// <summary>通常一覧の初期構築に使う共通現在値を捕捉します。</summary>
-    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView() => CreateCollectionView(sortBmsonByPath: true);
+    /// <param name="includeBmsonRows">BMSONを含めるか。含めない場合はその列挙・整列を行いません。</param>
+    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView(bool includeBmsonRows = true)
+        => CreateCollectionView(sortBmsonByPath: includeBmsonRows, includeBmsonRows: includeBmsonRows);
 
-    private OwnedChartCollectionView CreateCollectionView(bool sortBmsonByPath)
+    private OwnedChartCollectionView CreateCollectionView(bool sortBmsonByPath, bool includeBmsonRows = true)
     {
         if (collectionView == null)
         {
@@ -1050,6 +1052,10 @@ internal sealed class OwnedChartCollectionState
             collectionView = new OwnedChartCollectionView(
                 new CatalogStorageReadOnlyView<ChartFile>(chartSequence, 0, bmsCount),
                 new CatalogStorageReadOnlyView<ChartFile>(chartSequence, bmsCount, bmsonChartCount), chartsByPath);
+        }
+        if (!includeBmsonRows)
+        {
+            return new OwnedChartCollectionView(collectionView.BmsCharts, [], chartsByPath);
         }
         return sortBmsonByPath
             ? new OwnedChartCollectionView(collectionView.BmsCharts,

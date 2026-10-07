@@ -175,22 +175,42 @@ public sealed class OwnedChartCollectionProjectionTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile secondBms = CreateFile("ffffffffffffffffffffffffffffffff", Path.Combine("C:\\Installed", "Bms", "a.bms"), new string('1', 64));
         ChartFile lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         ChartFile earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
         ChartFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
         ChartFile pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
-        var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile, pathlessBms], [lateBmson, pathlessBmson, earlyBmson]));
+        var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile, pathlessBms, secondBms], [lateBmson, pathlessBmson, earlyBmson]));
 
         OwnedChartCollectionView view = state.CreateNormalLibrarySourceChartView();
 
-        Assert.AreEqual(3, view.Count);
-        Assert.AreEqual(bmsFile.Path, view.BmsCharts.Single().Path);
-        Assert.IsNotNull(view.BmsCharts.Single().Token);
+        Assert.AreEqual(4, view.Count);
+        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, view.BmsCharts.Select(chart => chart.Path).ToArray());
+        Assert.IsTrue(view.BmsCharts.All(chart => chart.Token != null));
         CollectionAssert.AreEqual(new[] { earlyBmson.Path, lateBmson.Path }, view.BmsonCharts.Select(chart => chart.Path).ToArray());
         Assert.IsTrue(view.ContainsOwnerPath(lateBmson.Path));
         Assert.IsTrue(view.ContainsOwnerPath(earlyBmson.Path));
         Assert.IsFalse(view.ContainsOwnerPath(pathlessBms.Path));
         Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.Path));
+
+        ChartFile capturedEarly = view.BmsonCharts[0];
+        string movedPath = Path.Combine("C:\\Installed", "Bmson", "zz.bmson");
+        state.ApplyPathChanges([new LibraryChartPathChange
+        {
+            Chart = capturedEarly,
+            OldPath = capturedEarly.Path,
+            NewPath = movedPath
+        }]);
+        OwnedChartCollectionView movedView = state.CreateNormalLibrarySourceChartView();
+        CollectionAssert.AreEqual(new[] { lateBmson.Path, movedPath }, movedView.BmsonCharts.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, movedView.BmsCharts.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(earlyBmson.Path, capturedEarly.Path);
+        Assert.AreSame(capturedEarly.Token, movedView.BmsonCharts[1].Token);
+        CollectionAssert.AreEqual(new[] { earlyBmson.Path, lateBmson.Path }, view.BmsonCharts.Select(chart => chart.Path).ToArray());
+
+        OwnedChartCollectionView bmsOnlyView = state.CreateNormalLibrarySourceChartView(includeBmsonRows: false);
+        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, bmsOnlyView.BmsCharts.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(0, bmsOnlyView.BmsonCharts.Count);
     }
 
     [TestMethod]

@@ -52,10 +52,10 @@ internal interface ICatalogStorageSequenceWorkObserver
     /// <summary>sequence の列挙開始を一回記録します。</summary>
     void ObserveEnumeration();
 
-    /// <summary>sequence の列挙で実際に訪問した entry を一つ記録します。</summary>
+    /// <summary>source から取得した entry を一つ記録します。範囲内の一時バッファへの先読みも含みます。</summary>
     void ObserveEntryVisit();
 
-    /// <summary>全 entry を読み出す明示的な materialization を記録します。</summary>
+    /// <summary>要求範囲を明示的な結果へ具体化した件数を記録します。一時的な列挙バッファは含めません。</summary>
     void ObserveMaterialization(int count);
 }
 
@@ -193,14 +193,12 @@ internal sealed class CatalogStorageIndexedSequence<T>
     internal IReadOnlyList<CatalogStorageSequenceEntry<T>> CaptureRange(int index, int count)
     {
         ValidateRange(index, count);
-        var captured = new List<CatalogStorageSequenceEntry<T>>(count);
+        var captured = new CatalogStorageSequenceEntry<T>[count];
         workObserver?.ObserveEnumeration();
+        entries.CopyTo(index, captured, 0, count);
         for (int offset = 0; offset < count; offset++)
         {
-            CatalogStorageSequenceEntry<T> entry = entries[index + offset];
-            workObserver?.ObserveAccess();
             workObserver?.ObserveEntryVisit();
-            captured.Add(entry);
         }
         workObserver?.ObserveMaterialization(count);
         return captured;
@@ -287,14 +285,45 @@ internal sealed class CatalogStorageIndexedSequence<T>
         return low;
     }
 
-    /// <summary>現在世代の entry を順序どおり列挙します。</summary>
-    internal IEnumerable<CatalogStorageSequenceEntry<T>> EnumerateEntries()
+    /// <summary>
+    /// 指定範囲だけを順序どおり列挙します。先頭以外は最大256件の局所配列を一つ再利用し、
+    /// 範囲内だけを先読みします。この一時バッファは明示結果の materialization とは区別します。
+    /// </summary>
+    /// <param name="start">列挙を開始する位置。</param>
+    /// <param name="count">列挙する件数。</param>
+    internal IEnumerable<CatalogStorageSequenceEntry<T>> EnumerateEntries(int start, int count)
     {
+        ValidateRange(start, count);
         workObserver?.ObserveEnumeration();
-        foreach (CatalogStorageSequenceEntry<T> entry in entries)
+        if (count == 0)
         {
-            workObserver?.ObserveEntryVisit();
-            yield return entry;
+            yield break;
+        }
+        if (start == 0)
+        {
+            using ImmutableList<CatalogStorageSequenceEntry<T>>.Enumerator enumerator = entries.GetEnumerator();
+            for (int remaining = count; remaining > 0 && enumerator.MoveNext(); remaining--)
+            {
+                workObserver?.ObserveEntryVisit();
+                yield return enumerator.Current;
+            }
+            yield break;
+        }
+
+        var buffer = new CatalogStorageSequenceEntry<T>[Math.Min(256, count)];
+        for (int offset = 0; offset < count;)
+        {
+            int copiedCount = Math.Min(buffer.Length, count - offset);
+            entries.CopyTo(start + offset, buffer, 0, copiedCount);
+            for (int index = 0; index < copiedCount; index++)
+            {
+                workObserver?.ObserveEntryVisit();
+            }
+            for (int index = 0; index < copiedCount; index++)
+            {
+                yield return buffer[index];
+            }
+            offset += copiedCount;
         }
     }
 
@@ -315,7 +344,8 @@ internal sealed class CatalogStorageIndexedSequence<T>
 
 /// <summary>
 /// immutable sequence を IList-compatible な read-only view として公開します。
-/// 要素の materialize は CopyTo など明示的な利用時だけ行われます。
+/// 結果の materialize は CopyTo など明示的な利用時だけ行われます。
+/// 途中開始の列挙は sequence の上限付き一時バッファを使い、範囲外を読みません。
 /// </summary>
 internal sealed class CatalogStorageReadOnlyView<T> : IReadOnlyList<T>, IList<T>, IList
 {
@@ -369,21 +399,9 @@ internal sealed class CatalogStorageReadOnlyView<T> : IReadOnlyList<T>, IList<T>
 
     public IEnumerator<T> GetEnumerator()
     {
-        if (count == 0)
+        foreach (CatalogStorageSequenceEntry<T> entry in sequence.EnumerateEntries(start, count))
         {
-            yield break;
-        }
-        int position = 0;
-        foreach (CatalogStorageSequenceEntry<T> entry in sequence.EnumerateEntries())
-        {
-            if (position >= start + count)
-            {
-                yield break;
-            }
-            if (position++ >= start)
-            {
-                yield return entry.Value;
-            }
+            yield return entry.Value;
         }
     }
 

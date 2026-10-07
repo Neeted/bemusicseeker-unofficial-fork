@@ -485,13 +485,11 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         CanonicalWorkScenario large = RunCanonicalWorkScenario(128);
 
         Assert.IsTrue(small.ColdEnumerationCount > 0);
-        Assert.IsTrue(small.ColdVisitedEntryCount > 0);
-        Assert.IsTrue(small.ColdMaterializationCount > 0);
-        Assert.IsTrue(small.ColdAccessCount > 0);
+        Assert.AreEqual(3, small.ColdVisitedEntryCount);
+        Assert.AreEqual(3, small.ColdMaterializationCount);
         Assert.IsTrue(large.ColdEnumerationCount > 0);
-        Assert.IsTrue(large.ColdVisitedEntryCount > 0);
-        Assert.IsTrue(large.ColdMaterializationCount > 0);
-        Assert.IsTrue(large.ColdAccessCount > 0);
+        Assert.AreEqual(3, large.ColdVisitedEntryCount);
+        Assert.AreEqual(3, large.ColdMaterializationCount);
 
         Assert.AreEqual(0, small.WarmEnumerationCount);
         Assert.AreEqual(0, small.WarmVisitedEntryCount);
@@ -562,7 +560,6 @@ public sealed class OwnedChartCollectionLookupMembershipTests
             cold.EnumerationCount,
             cold.VisitedEntryCount,
             cold.MaterializationCount,
-            cold.AccessCount,
             warm.EnumerationCount,
             warm.VisitedEntryCount,
             warm.MaterializationCount,
@@ -628,7 +625,6 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         int ColdEnumerationCount,
         int ColdVisitedEntryCount,
         int ColdMaterializationCount,
-        int ColdAccessCount,
         int WarmEnumerationCount,
         int WarmVisitedEntryCount,
         int WarmMaterializationCount,

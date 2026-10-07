@@ -8152,14 +8152,16 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView()
+    /// <summary>通常一覧の初期構築用に、含める形式の共通現在値を捕捉します。</summary>
+    /// <param name="includeBmsonRows">BMSONを一覧に含めるか。不要な場合は捕捉時のBMSON整列を省きます。</param>
+    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView(bool includeBmsonRows = true)
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
 
             lock (lockOwnedChartCollection)
             {
-                return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceChartView();
+                return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceChartView(includeBmsonRows);
             }
         }
     }

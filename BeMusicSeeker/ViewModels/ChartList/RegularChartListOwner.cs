@@ -3706,7 +3706,7 @@ internal sealed class RegularChartListOwner : IDisposable
             return lookup.Rows;
         }
 
-        OwnedChartCollectionView sourceOwnerView = library?.CreateNormalLibrarySourceChartView();
+        OwnedChartCollectionView sourceOwnerView = library?.CreateNormalLibrarySourceChartView(includeBmsonRows);
         List<ChartListSourceRow> sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(
             library,
             sourceOwnerView,

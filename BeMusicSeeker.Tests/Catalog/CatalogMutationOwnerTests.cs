@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -14,6 +16,166 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CatalogMutationOwnerTests
 {
+    [TestMethod]
+    public void FormatRangeOperations_VisitOnlyRequestedBmsonEntriesRegardlessOfBmsBackground()
+    {
+        StorageWorkCounts? firstContainsWork = null;
+        StorageWorkCounts? firstIndexOfWork = null;
+        foreach (int bmsCount in new[] { 16, 128 })
+        {
+            var observer = new RecordingCatalogStorageSequenceWorkObserver();
+            var owner = new CatalogOwnedCollectionOwner(observer);
+            ChartFile[] bms = Enumerable.Range(0, bmsCount)
+                .Select(index => CreateBms($"bms-{index:D3}.bms", $"{index + 1:x32}")).ToArray();
+            ChartFile[] bmson = Enumerable.Range(0, 64)
+                .Select(index => CreateBmson($"bmson-{index:D3}.bmson", $"{index + 1000:x32}")).ToArray();
+            owner.ReplaceChartsAndCaptureSnapshot(bms, bmson);
+            var view = (CatalogStorageReadOnlyView<ChartFile>)owner.BmsonRows;
+
+            observer.Reset();
+            CollectionAssert.AreEqual(bmson, view.ToArray());
+            AssertRangeWork(observer, 64, 64);
+
+            observer.Reset();
+            CollectionAssert.AreEqual(bmson, ReadEnumeratedValues(view));
+            AssertRangeWork(observer, 64, 0);
+
+            observer.Reset();
+            var genericCopy = new ChartFile[66];
+            view.CopyTo(genericCopy, 1);
+            CollectionAssert.AreEqual(bmson, genericCopy.Skip(1).Take(64).ToArray());
+            Assert.IsNull(genericCopy[0]);
+            Assert.IsNull(genericCopy[65]);
+            AssertRangeWork(observer, 64, 64);
+
+            observer.Reset();
+            object[] nonGenericCopy = new object[66];
+            ((ICollection)view).CopyTo(nonGenericCopy, 1);
+            CollectionAssert.AreEqual(bmson, nonGenericCopy.Skip(1).Take(64).ToArray());
+            Assert.IsNull(nonGenericCopy[0]);
+            Assert.IsNull(nonGenericCopy[65]);
+            AssertRangeWork(observer, 64, 64);
+
+            observer.Reset();
+            Assert.IsTrue(view.Contains(bmson[0]));
+            StorageWorkCounts containsWork = observer.Capture();
+            Assert.IsTrue(containsWork.VisitedEntryCount > 0 && containsWork.VisitedEntryCount <= 64);
+            Assert.AreEqual(0, containsWork.AccessCount);
+            Assert.AreEqual(0, containsWork.MaterializationCount);
+            if (firstContainsWork.HasValue)
+            {
+                Assert.AreEqual(firstContainsWork.Value, containsWork);
+            }
+            firstContainsWork = containsWork;
+
+            observer.Reset();
+            Assert.AreEqual(17, view.IndexOf(bmson[17]));
+            StorageWorkCounts indexOfWork = observer.Capture();
+            Assert.IsTrue(indexOfWork.VisitedEntryCount >= 18 && indexOfWork.VisitedEntryCount <= 64);
+            Assert.AreEqual(0, indexOfWork.AccessCount);
+            Assert.AreEqual(0, indexOfWork.MaterializationCount);
+            if (firstIndexOfWork.HasValue)
+            {
+                Assert.AreEqual(firstIndexOfWork.Value, indexOfWork);
+            }
+            firstIndexOfWork = indexOfWork;
+
+            observer.Reset();
+            Assert.IsFalse(view.Contains(bms[^1]));
+            AssertRangeWork(observer, 64, 0);
+            observer.Reset();
+            Assert.AreEqual(-1, view.IndexOf(bms[0]));
+            AssertRangeWork(observer, 64, 0);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(0, 0, 0)]
+    [DataRow(0, 0, 1)]
+    [DataRow(3, 0, 1)]
+    [DataRow(0, 255, 1)]
+    [DataRow(3, 255, 1)]
+    [DataRow(3, 256, 1)]
+    [DataRow(3, 257, 1)]
+    [DataRow(3, 257, 0)]
+    public void RangeEnumerationAndCapture_PreserveBoundsOrderAndCapturedValues(int start, int count, int trailingCount)
+    {
+        var observer = new RecordingCatalogStorageSequenceWorkObserver();
+        CatalogStorageSequenceEntry<int>[] entries = Enumerable.Range(0, start + count + trailingCount)
+            .Select(index => new CatalogStorageSequenceEntry<int>(index, index.ToString(), index.ToString(), index)).ToArray();
+        var sequence = CatalogStorageIndexedSequence<int>.FromEntries(
+            entries, (left, right) => left.Ordinal.CompareTo(right.Ordinal), observer);
+        var view = new CatalogStorageReadOnlyView<int>(sequence, start, count);
+        int[] expected = Enumerable.Range(start, count).ToArray();
+
+        observer.Reset();
+        CollectionAssert.AreEqual(expected, ReadEnumeratedValues(view));
+        AssertRangeWork(observer, count, 0);
+
+        observer.Reset();
+        IReadOnlyList<CatalogStorageSequenceEntry<int>> captured = sequence.CaptureRange(start, count);
+        CollectionAssert.AreEqual(expected, captured.Select(entry => entry.Value).ToArray());
+        AssertRangeWork(observer, count, count);
+
+        if (count > 0)
+        {
+            CatalogStorageIndexedSequence<int> changed = sequence.ReplaceAt(start,
+                new CatalogStorageSequenceEntry<int>(-1, "changed", "changed", start));
+            Assert.AreEqual(-1, new CatalogStorageReadOnlyView<int>(changed, start, count)[0]);
+            observer.Reset();
+            CollectionAssert.AreEqual(expected, ReadEnumeratedValues(view));
+            AssertRangeWork(observer, count, 0);
+            CollectionAssert.AreEqual(expected, captured.Select(entry => entry.Value).ToArray());
+        }
+    }
+
+    [TestMethod]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    public void NormalSourceCaptureAndProjection_VisitEachIncludedEntryOnce(int bmsCount, bool includeBmsonRows)
+    {
+        var observer = new RecordingCatalogStorageSequenceWorkObserver();
+        var owner = new CatalogOwnedCollectionOwner(observer);
+        ChartFile[] bms = Enumerable.Range(0, bmsCount)
+            .Select(index => CreateBms($"bms-{bmsCount - index:D3}.bms", $"{index + 1:x32}")).ToArray();
+        ChartFile[] bmson = Enumerable.Range(0, 64)
+            .Select(index => CreateBmson($"bmson-{63 - index:D3}.bmson", $"{index + 1000:x32}")).ToArray();
+        owner.ReplaceChartsAndCaptureSnapshot(bms, bmson);
+        observer.Reset();
+
+        OwnedChartCollectionView source = owner.Collection.CreateNormalLibrarySourceChartView(includeBmsonRows);
+        List<ChartListSourceRow> rows = new MainChartRowProjectionOwner().BuildNormalSourceRows(null, source, includeBmsonRows);
+
+        ChartFile[] expected = includeBmsonRows
+            ? [.. bms, .. bmson.OrderBy(chart => chart.Path, StringComparer.OrdinalIgnoreCase)] : bms;
+        CollectionAssert.AreEqual(expected.Select(chart => chart.Path).ToArray(), rows.Select(row => row.Chart.Path).ToArray());
+        Assert.AreEqual(expected.Length, observer.VisitedEntryCount);
+        Assert.AreEqual(0, observer.AccessCount);
+        Assert.AreEqual(includeBmsonRows ? 64 : 0, observer.MaterializationCount);
+        Assert.AreEqual(includeBmsonRows ? 64 : 0, source.BmsonCharts.Count);
+    }
+
+    private static void AssertRangeWork(RecordingCatalogStorageSequenceWorkObserver observer, int visitedCount, int materializedCount)
+    {
+        Assert.AreEqual(visitedCount, observer.VisitedEntryCount);
+        Assert.AreEqual(0, observer.AccessCount);
+        Assert.AreEqual(materializedCount, observer.MaterializationCount);
+        Assert.IsTrue(observer.EnumerationCount > 0);
+    }
+
+    private static T[] ReadEnumeratedValues<T>(IEnumerable<T> source)
+    {
+        // Select(...).ToArray() の IList 向け最適化では indexer が使われるため、列挙器を直接検査します。
+        var values = new List<T>();
+        foreach (T value in source)
+        {
+            values.Add(value);
+        }
+        return values.ToArray();
+    }
+
     [TestMethod]
     public void CreateRelocationRequest_SnapshotsPreparedPathFacts()
     {
