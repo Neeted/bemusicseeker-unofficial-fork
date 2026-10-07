@@ -6,7 +6,6 @@ using System.Linq;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualBasic.FileIO;
 using Ribbit.Util.Extensions;
@@ -62,16 +61,14 @@ internal sealed class MovedFolderReferenceUpdateResult
 }
 
 /// <summary>
-/// Captures the identity needed by a legacy chart-file command while keeping
-/// the storage owner available only to the command owner for the later catalog
-/// delta.  The filesystem executor receives only the immutable projection.
+/// 保留項目や導入先修正に必要な識別・配置・存在・安全属性を既存の処理境界で捕捉します。
+/// 通常削除と拡張子変更のprepared要求はこのFS捕捉値を持たず、不変ChartFileを使います。
 /// </summary>
 internal sealed class LibraryFileOperationTargetSnapshot
 {
-    private LibraryFileOperationTargetSnapshot(
+    /// <summary>既に捕捉した基本値と安全属性から、変更不能な操作対象を構成します。</summary>
+    internal LibraryFileOperationTargetSnapshot(
         ChartFile chartSnapshot,
-        BMSFile bmsOwner,
-        LR2SongDBExtended.bmson_song bmsonOwner,
         string sourcePath,
         string md5,
         string sha256,
@@ -80,8 +77,6 @@ internal sealed class LibraryFileOperationTargetSnapshot
         bool sourceFileSafetyFactsAvailable)
     {
         ChartSnapshot = chartSnapshot;
-        BmsOwner = bmsOwner;
-        BmsonOwner = bmsonOwner;
         SourcePath = sourcePath;
         Md5 = md5;
         Sha256 = sha256;
@@ -92,9 +87,8 @@ internal sealed class LibraryFileOperationTargetSnapshot
 
     internal ChartFile ChartSnapshot { get; }
 
-    internal BMSFile BmsOwner { get; }
-
-    internal LR2SongDBExtended.bmson_song BmsonOwner { get; }
+    /// <summary>確認時点の所持項目識別です。配置と内容が同じ別項目へ置換されても継承しません。</summary>
+    internal OwnedChartToken Token => ChartSnapshot?.Token;
 
     internal string SourcePath { get; }
 
@@ -108,7 +102,7 @@ internal sealed class LibraryFileOperationTargetSnapshot
 
     internal bool SourceFileSafetyFactsAvailable { get; }
 
-    internal ChartFileKind Kind => ChartSnapshot?.Kind ?? (BmsonOwner != null ? ChartFileKind.Bmson : ChartFileKind.Bms);
+    internal ChartFileKind Kind => ChartSnapshot.Kind;
 
     internal string PrimaryHash => !string.IsNullOrWhiteSpace(Md5) ? Md5 : Sha256;
 
@@ -119,8 +113,6 @@ internal sealed class LibraryFileOperationTargetSnapshot
             return null;
         }
 
-        BMSFile bmsOwner = chart.GetBmsStorageOwner();
-        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         bool sourceFileExisted = !captureSourceFileExistence || LongPathFileSystem.FileExists(chart.Path);
         bool sourceFileIsReparsePoint = false;
         bool sourceFileSafetyFactsAvailable = !captureSourceFileExistence || !sourceFileExisted;
@@ -142,8 +134,6 @@ internal sealed class LibraryFileOperationTargetSnapshot
         }
         return new LibraryFileOperationTargetSnapshot(
             ChartFileProjection.ToImmutableSnapshot(chart),
-            bmsOwner,
-            bmsonOwner,
             chart.Path,
             chart.Md5,
             chart.Sha256,
@@ -159,26 +149,13 @@ internal sealed class LibraryFileOperationTargetSnapshot
             return false;
         }
 
-        BMSFile currentBmsOwner = chart.GetBmsStorageOwner();
-        if (BmsOwner != null || currentBmsOwner != null)
+        if (!ReferenceEquals(Token, chart.Token))
         {
-            if (!ReferenceEquals(BmsOwner, currentBmsOwner))
-            {
-                return false;
-            }
+            return false;
         }
-        LR2SongDBExtended.bmson_song currentBmsonOwner = chart.GetBmsonStorageOwner();
-        if (BmsonOwner != null || currentBmsonOwner != null)
-        {
-            if (!ReferenceEquals(BmsonOwner, currentBmsonOwner))
-            {
-                return false;
-            }
-        }
-
-        string currentPath = currentBmsOwner?.path ?? currentBmsonOwner?.path ?? chart.Path;
-        string currentMd5 = currentBmsOwner?.hash ?? currentBmsonOwner?.md5 ?? chart.Md5;
-        string currentSha256 = currentBmsOwner?.sha256 ?? currentBmsonOwner?.sha256 ?? chart.Sha256;
+        string currentPath = chart.Path;
+        string currentMd5 = chart.Md5;
+        string currentSha256 = chart.Sha256;
         return string.Equals(SourcePath, currentPath, StringComparison.OrdinalIgnoreCase)
             && string.Equals(Md5 ?? string.Empty, currentMd5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             && string.Equals(Sha256 ?? string.Empty, currentSha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -223,29 +200,7 @@ internal sealed class LibraryFileOperationTargetSnapshot
         }
     }
 
-    internal static bool HasSameIdentity(
-        LibraryFileOperationTargetSnapshot expected,
-        LibraryFileOperationTargetSnapshot actual)
-    {
-        if (expected == null || actual == null
-            || expected.Kind != actual.Kind
-            || !string.Equals(expected.SourcePath, actual.SourcePath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(expected.Md5 ?? string.Empty, actual.Md5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(expected.Sha256 ?? string.Empty, actual.Sha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
 
-        if (expected.BmsOwner != null || actual.BmsOwner != null)
-        {
-            return ReferenceEquals(expected.BmsOwner, actual.BmsOwner);
-        }
-        if (expected.BmsonOwner != null || actual.BmsonOwner != null)
-        {
-            return ReferenceEquals(expected.BmsonOwner, actual.BmsonOwner);
-        }
-        return true;
-    }
 }
 
 /// <summary>
@@ -333,7 +288,7 @@ internal sealed class LibraryChartRemovalPlanTarget
 {
     internal int Index { get; init; }
 
-    internal LibraryChartKind Kind { get; init; }
+    internal ChartFileKind Kind { get; init; }
 
     internal string Path { get; init; }
 
@@ -361,7 +316,7 @@ internal sealed class LibraryChartRemovalInstallDestinationTarget
 {
     internal string FolderPath { get; init; }
 
-    internal LibraryChartKind Kind { get; init; }
+    internal ChartFileKind Kind { get; init; }
 
     internal string Path { get; init; }
 
@@ -489,7 +444,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 installDestinationTargets.Add(new LibraryChartRemovalInstallDestinationTarget
                 {
                     FolderPath = folderGroup.Key,
-                    Kind = chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
+                    Kind = chart.Kind,
                     Path = chart.Path,
                     Md5 = chart.Md5,
                     Sha256 = chart.Sha256,
@@ -734,6 +689,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 rejectUnsafeSource)));
     }
 
+    /// <summary>通常要求の固定配置と現在hashから計画を作り、FS観測は既存の実行直前処理へ委ねます。</summary>
+    internal LegacyInvalidExtensionRenamePlan BuildInvalidExtensionRenamePlan(
+        IEnumerable<ChartFile> targets, string newExt, bool rejectUnsafeSource = false)
+        => new((targets ?? []).Where(chart => !string.IsNullOrWhiteSpace(chart?.Path))
+            .Select(chart => new LegacyInvalidExtensionRenamePlanItem(chart.Path,
+                Path.Combine(Path.GetDirectoryName(chart.Path) ?? string.Empty,
+                    Path.GetFileNameWithoutExtension(chart.Path) + newExt),
+                !string.IsNullOrWhiteSpace(chart.Md5) ? chart.Md5 : chart.Sha256, rejectUnsafeSource)));
+
     /// <summary>
     /// Executes an immutable extension-rename plan without touching live chart
     /// or package state.
@@ -856,7 +820,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             removeRequests.AddRange(targetCharts
                 .Select(ToChartFile)
-                .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
+                .Select(OwnedChartRemoveRequest.FromChart)
                 .Where(request => request != null));
             return new LibraryFolderMoveFacts(
                 new LibraryCatalogMutationFacts(removeRequests, [], []),
@@ -877,7 +841,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         foreach (IGrouping<string, LibraryChartRef> group in targetCharts
-            .Where(chart => chart.GetBmsStorageOwner() != null)
+            .Where(chart => chart.Kind == ChartFileKind.Bms)
             .GroupBy(target => Path.GetDirectoryName(target.Path)))
         {
             string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
@@ -896,7 +860,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (LibraryChartRef chart in targetCharts.Where(chart => chart.GetBmsonStorageOwner() != null))
+        foreach (LibraryChartRef chart in targetCharts.Where(chart => chart.Kind == ChartFileKind.Bmson))
         {
             chartPathChanges.Add(new LibraryChartPathChange
             {
@@ -1171,11 +1135,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where(chart => IsChartUnderFolder(chart, srcDir))
             .Select(CreateStableLibraryChartRefSnapshot)
             .Where(chart => chart != null));
-        List<PackageChartEntry> sourceEntries = [.. result.SourceCharts.Select(ToPackageChartEntry).Where(entry => entry != null)];
-        result.Repackage = ChartPackage.FromChartEntries(sourceEntries);
-        result.Repackage.path = srcDir;
-        result.Repackage.delete_parent = false;
-        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? EmptyPrimaryHashLookup.Instance;
+        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceCharts.Select(chart => chart.ToChartFileIdentity()))
+            ?? EmptyPrimaryHashLookup.Instance;
         var installDestinationChanges = new List<LibraryInstallDestinationChange>(
             EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
         var installedPackagePathChanges = new List<LibraryInstalledPackagePathChange>();
@@ -1233,8 +1194,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             };
         }
         foreach (ChartFile chart in (libraryCharts ?? InstallDestinationOverlayChartRefSnapshot.Empty)
-            .GetChartRefsUnderInstallDestination(folderPath)
-            .Select(chart => chart?.GetChartSnapshot())
+            .GetChartsUnderInstallDestination(folderPath)
             .Where(chart => chart != null))
         {
             yield return new LibraryInstallDestinationChange
@@ -1246,23 +1206,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static ChartFile ToChartFile(LibraryChartRef chart)
     {
-        return chart?.ToChartFile();
+        return chart?.ToChartFileIdentity();
     }
 
     private static LibraryChartRef CreateStableLibraryChartRefSnapshot(LibraryChartRef chart)
     {
-        var chartSnapshot = chart?.ToChartFile();
-        return chartSnapshot == null ? null : LibraryChartRef.FromChartFile(chartSnapshot);
-    }
-
-    private static PackageChartEntry ToPackageChartEntry(LibraryChartRef chart)
-    {
-        ChartFile chartFile = ToChartFile(chart);
-        if (chartFile == null)
-        {
-            return null;
-        }
-        return PackageChartEntry.FromChart(chartFile);
+        return LibraryChartRef.FromImmutableSnapshot(chart);
     }
 
     private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)
@@ -1373,7 +1322,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<ChartFile> charts,
         string newExt,
         bool unregister,
-        Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
+        Func<ChartFile, string, RenameInvalidExtensionOutcome> processRename)
     {
         var removeRequests = new List<OwnedChartRemoveRequest>();
         var pathChanges = new List<LibraryChartPathChange>();
@@ -1382,11 +1331,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         int duplicateDeletedCount = 0;
         int skippedCount = 0;
         var stopwatch = Stopwatch.StartNew();
-        foreach (BMSFile file in (charts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null && LongPathFileSystem.FileExists(file.path)))
+        foreach (ChartFile file in (charts ?? [])
+            .Where(chart => chart?.Kind == ChartFileKind.Bms)
+            .Where(file => file != null && LongPathFileSystem.FileExists(file.Path)))
         {
-            string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
+            string requestedPath = Path.Combine(Path.GetDirectoryName(file.Path), Path.GetFileNameWithoutExtension(file.Path) + newExt);
             RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
             switch (renameResult.Action)
             {
@@ -1394,24 +1343,21 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     renamedCount++;
                     if (unregister)
                     {
-                        removeRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+                        removeRequests.Add(OwnedChartRemoveRequest.FromChart(file));
                     }
                     else
                     {
                         pathChanges.Add(new LibraryChartPathChange
                         {
-                            Chart = ChartFileProjection.FromBmsFile(
-                                file,
-                                includeWarningSnapshot: true,
-                                includeResourceReferences: false),
-                            OldPath = file.path,
+                            Chart = file,
+                            OldPath = file.Path,
                             NewPath = renameResult.FinalPath
                         });
                     }
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     duplicateDeletedCount++;
-                    removeRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+                    removeRequests.Add(OwnedChartRemoveRequest.FromChart(file));
                     break;
                 default:
                     skippedCount++;
@@ -1419,7 +1365,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     {
                         failures.Add(new LibraryDeleteFailure
                         {
-                            Path = file.path,
+                            Path = file.Path,
                             Exception = renameResult.FailureException,
                             IsDirectory = false
                         });
@@ -1438,10 +1384,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return new LibraryFileExtensionRenameResult(catalogFacts, report);
     }
 
-    public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)
+    public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(ChartFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)
     {
         return ProcessInvalidExtensionRename(
-            sourceFile?.path,
+            sourceFile?.Path,
             requestedPath,
             TryGetSourceHashForInvalidExtensionRename(sourceFile),
             fileMutationService,
@@ -1696,13 +1642,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return result;
     }
 
-    private string TryGetSourceHashForInvalidExtensionRename(BMSFile sourceFile)
+    private string TryGetSourceHashForInvalidExtensionRename(ChartFile sourceFile)
     {
-        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.hash))
+        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.Md5))
         {
-            return TryComputeFileMd5ForPath(sourceFile?.path);
+            return TryComputeFileMd5ForPath(sourceFile?.Path);
         }
-        return sourceFile.hash;
+        return sourceFile.Md5;
     }
 
     private static string BuildPathWithSuffix(string requestedPath, int suffix)

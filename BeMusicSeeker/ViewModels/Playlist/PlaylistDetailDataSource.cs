@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -15,7 +14,7 @@ internal interface IPlaylistDetailDataSource
 
     int ScoreSnapshotVersion { get; }
 
-    long OwnedChartCollectionVersion { get; }
+    long OwnedCollectionVersion { get; }
 
     void EnsureEntriesLoaded(BMSTable table, string reason);
 
@@ -28,13 +27,13 @@ internal interface IPlaylistDetailDataSource
 
     BMSLibrary.PlaylistLibraryResolveIndexRuntimeState GetResolveIndexRuntimeState();
 
-    LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5);
+    BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5);
 
     PlaylistDetailSourceRow CreateSourceRow(
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore score,
-        LR2SongDBExtended.chart_info chartInfo,
+        BeMusicSeeker.Models.ChartDetails chartInfo,
         LibraryChartRef resolvedChartRef);
 }
 
@@ -60,7 +59,7 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
 
     public int ScoreSnapshotVersion => library.GetScoreRuntimeStateForDiagnostics().SnapshotVersion;
 
-    public long OwnedChartCollectionVersion => library.OwnedChartCollectionVersion;
+    public long OwnedCollectionVersion => library.OwnedCollectionVersion;
 
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {
@@ -88,7 +87,7 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         return library.GetPlaylistLibraryResolveIndexRuntimeState();
     }
 
-    public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    public BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return library.ResolveChartInfo(sha256, md5);
     }
@@ -97,7 +96,7 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore score,
-        LR2SongDBExtended.chart_info chartInfo,
+        BeMusicSeeker.Models.ChartDetails chartInfo,
         LibraryChartRef resolvedChartRef)
     {
         return rowProjection.CreatePlaylistDetailSourceRow(

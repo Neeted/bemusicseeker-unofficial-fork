@@ -3708,4 +3708,7 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Lr2_song_db_sync_stage_song_encoding_saving" xml:space="preserve">
     <value>文字コード情報の保存</value>
   </data>
+  <data name="Error_PreparedChartTargetMismatch" xml:space="preserve">
+    <value>準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。</value>
+  </data>
 </root>

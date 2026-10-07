@@ -449,9 +449,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
             levelText: string.Empty,
             level: null,
             mode: null,
-            chartInfo: null,
-            bmsFile: null,
-            bmsonSong: null);
+            chartInfo: null);
         return new ChartOperationTarget(
             chart,
             null,

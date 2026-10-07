@@ -12,7 +12,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>One optional, bounded deletion report after the operation has released its leases.</summary>
 internal static class LibraryChartRemovalReport
 {
-    /// <summary>Renders confirmed and unconfirmed facts without probing paths or promising recovery.</summary>
+    /// <summary>確定成功・物理欠落・物理失敗・事前未解決を表示し、パスの再観測や回復を約束しません。</summary>
     internal static UiMessageRequest Create(LibraryChartRemovalOutcome outcome, Exception failure = null,
         CultureInfo culture = null)
     {
@@ -26,7 +26,7 @@ internal static class LibraryChartRemovalReport
         string body = Format(nameof(Resources.LibraryChartRemovalReport_Counts), outcome.ConfirmedChartCount,
             outcome.Targets.Count(target => target.State == LibraryChartRemovalState.NotExecuted),
             outcome.Targets.Count(target => target.State == LibraryChartRemovalState.Unconfirmed),
-            outcome.Targets.Count(target => target.State is LibraryChartRemovalState.Stale or LibraryChartRemovalState.Unresolved));
+            outcome.Targets.Count(target => target.State == LibraryChartRemovalState.Unresolved));
         body += Environment.NewLine + Localized(!outcome.CatalogApplyAttempted
             ? nameof(Resources.LibraryChartRemovalReport_CatalogNotAttempted)
             : outcome.RequiredFinalizationFailed ? nameof(Resources.LibraryChartRemovalReport_FinalizationFailed)

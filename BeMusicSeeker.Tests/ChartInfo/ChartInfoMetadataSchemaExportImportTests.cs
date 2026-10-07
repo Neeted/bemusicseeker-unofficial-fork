@@ -163,8 +163,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(CreateChartInfoRow(shaA, md5A, BmsLibraryDbGateway.CurrentChartInfoParserVersion), typeof(LR2SongDBExtended.chart_info));
-                songDb.InsertOrReplace(CreateChartInfoRow(shaB, md5B, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(shaA, md5A, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(shaB, md5B, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1)), typeof(LR2SongDBExtended.chart_info));
                 songDb.InsertOrReplace(CreateChartDigestRow(md5C, shaC), typeof(LR2SongDBExtended.chart_digest_map));
             }
 
@@ -218,7 +218,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
 
             string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
@@ -330,12 +330,12 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             string bundleDigestSha = new('5', 64);
             string localDigestSha = new('6', 64);
             string unrelatedFailureSha = new('7', 64);
-            LR2SongDBExtended.chart_info missingBundleRow = CreateChartInfoRow(missingSha, missingMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            missingBundleRow.level = 5;
-            LR2SongDBExtended.chart_info staleBundleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            staleBundleRow.level = 8;
-            LR2SongDBExtended.chart_info currentBundleRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            currentBundleRow.level = 12;
+            BeMusicSeeker.Models.ChartDetails missingBundleRow = CreateChartInfoRow(missingSha, missingMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            missingBundleRow = missingBundleRow with { level = 5 };
+            BeMusicSeeker.Models.ChartDetails staleBundleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            staleBundleRow = staleBundleRow with { level = 8 };
+            BeMusicSeeker.Models.ChartDetails currentBundleRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            currentBundleRow = currentBundleRow with { level = 12 };
             string bundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
                 [missingBundleRow, staleBundleRow, currentBundleRow],
@@ -348,19 +348,19 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                LR2SongDBExtended.chart_info staleLocalRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
-                staleLocalRow.level = 1;
-                LR2SongDBExtended.chart_info currentLocalRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-                currentLocalRow.level = 3;
-                songDb.InsertOrReplace(staleLocalRow, typeof(LR2SongDBExtended.chart_info));
-                songDb.InsertOrReplace(currentLocalRow, typeof(LR2SongDBExtended.chart_info));
+                BeMusicSeeker.Models.ChartDetails staleLocalRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
+                staleLocalRow = staleLocalRow with { level = 1 };
+                BeMusicSeeker.Models.ChartDetails currentLocalRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+                currentLocalRow = currentLocalRow with { level = 3 };
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(staleLocalRow), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentLocalRow), typeof(LR2SongDBExtended.chart_info));
                 songDb.InsertOrReplace(CreateChartDigestRow(existingDigestMd5, localDigestSha), typeof(LR2SongDBExtended.chart_digest_map));
-                songDb.InsertOrReplace(CreateChartInfoParseFailureRow(missingMd5, missingSha, "missing.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null), typeof(LR2SongDBExtended.chart_info_parse_failure));
-                songDb.InsertOrReplace(CreateChartInfoParseFailureRow(currentMd5, currentSha, "current.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null), typeof(LR2SongDBExtended.chart_info_parse_failure));
-                songDb.InsertOrReplace(CreateChartInfoParseFailureRow(unrelatedFailureMd5, unrelatedFailureSha, "unrelated.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(missingMd5, missingSha, "missing.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(currentMd5, currentSha, "current.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(unrelatedFailureMd5, unrelatedFailureSha, "unrelated.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
             }
 
-            string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
+            string bundleSha256 = ChartFileContentReader.ComputeSha256(bundlePath);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             ChartInfoMetadataBundleImportResult result = gateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
             ChartInfoMetadataBundleImportResult repeated = gateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
@@ -374,9 +374,9 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             Assert.AreEqual(4, result.ImportedDigestCount);
             Assert.AreEqual(2, result.FailureClearedCount);
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(5, verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", missingSha).Single().level);
-            Assert.AreEqual(8, verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", staleSha).Single().level);
-            Assert.AreEqual(3, verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", currentSha).Single().level);
+            Assert.AreEqual(5, verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", missingSha).Single().level);
+            Assert.AreEqual(8, verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", staleSha).Single().level);
+            Assert.AreEqual(3, verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", currentSha).Single().level);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", digestOnlyMd5, digestOnlySha));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", missingMd5, missingSha));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", existingDigestMd5, localDigestSha));
@@ -399,7 +399,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
 
-            Assert.ThrowsException<InvalidDataException>(() => gateway.ImportChartInfoMetadataBundle(bundlePath, BMSFile.GetSHA256Hash(bundlePath)));
+            Assert.ThrowsException<InvalidDataException>(() => gateway.ImportChartInfoMetadataBundle(bundlePath, ChartFileContentReader.ComputeSha256(bundlePath)));
         });
     }
 
@@ -420,18 +420,17 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<BMSFileMaintenanceInfo>();
-                var song = new TestableBmsFile
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                ChartFile song = ChartTestValues.Empty() with
                 {
-                    path = chartPath,
-                    folder = "Songs",
-                    parent = string.Empty
+                    Path = chartPath,
+                    Folder = "Songs"
                 };
-                song.SetHash(md5);
-                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+                song = song with { Md5 = md5 };
+                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, string.Empty), typeof(LR2SongDB.song));
             }
 
-            new BmsLibraryDbGateway(songDbPath).ImportChartInfoMetadataBundle(bundlePath, BMSFile.GetSHA256Hash(bundlePath));
+            new BmsLibraryDbGateway(songDbPath).ImportChartInfoMetadataBundle(bundlePath, ChartFileContentReader.ComputeSha256(bundlePath));
 
             SongTableLoadResult result = new BmsLibraryInitializationService().LoadSongTable(
                 new BmsLibraryDbGateway(songDbPath),
@@ -442,7 +441,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 ex => ex.Message);
 
             Assert.AreEqual(1, result.LoadedFiles.Count);
-            Assert.AreEqual(sha, result.LoadedFiles[0].sha256);
+            Assert.AreEqual(sha, result.LoadedFiles[0].Sha256);
             Assert.AreEqual(sha, result.ChartDigestMap[md5]);
         });
     }
@@ -515,7 +514,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             Directory.CreateDirectory(Path.Combine(importedDirectoryPath, "old-directory"));
             string archivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
             File.WriteAllText(archivePath, "archive identity", Encoding.ASCII);
-            string archiveSha256 = BMSFile.GetSHA256Hash(archivePath);
+            string archiveSha256 = ChartFileContentReader.ComputeSha256(archivePath);
             List<string> tempDirectories = [];
             int extractCount = 0;
             List<string> logs = [];
@@ -632,12 +631,12 @@ createTempDirectory);
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = Path.Combine(tempRootPath, "Songs", "delete.bms")
+                Path = Path.Combine(tempRootPath, "Songs", "delete.bms")
             };
-            file.SetHash(new string('a', 32));
-            file.SetSha256(new string('b', 64));
+            file = file with { Md5 = new string('a', 32) };
+            file = file with { Sha256 = new string('b', 64) };
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -645,40 +644,34 @@ createTempDirectory);
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = file.path, hash = file.hash }, typeof(LR2SongDBExtended.maintenance));
-                songDb.InsertOrReplace(CreateChartInfoRow(file.sha256, file.hash, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5 }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(file.Sha256, file.Md5, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
                 songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
                 {
-                    md5 = file.hash,
-                    sha256 = file.sha256
+                    md5 = file.Md5,
+                    sha256 = file.Sha256
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             }
 
-            var storageRowsOwner = new CatalogStorageRowsOwner();
-            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([file], []);
-            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-                OwnedChartCollectionState.FromStorageRows([file], []),
-                initialRows.BmsRowsVersion,
-                initialRows.BmsonRowsVersion));
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            CatalogChartCollectionSnapshot initialRows = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([file], []);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            file = initialRows.BmsRows.Single();
             var catalogFacts = new LibraryCatalogMutationFacts(
-                [OwnedChartRemoveRequest.FromOwnerReference(file)],
+                [OwnedChartRemoveRequest.FromChart(file)],
                 [],
                 []);
-            CatalogMutationReceipt receipt = new CatalogMutationOwner(
-                storageRowsOwner,
-                ownedCollectionOwner,
-                new BmsLibraryDbGateway(songDbPath))
+            CatalogMutationReceipt receipt = new CatalogMutationOwner(storageRowsOwner, new BmsLibraryDbGateway(songDbPath))
                 .ApplyCatalogMutation(catalogFacts);
             Assert.IsTrue(receipt.Applied);
-            Assert.AreEqual(file.hash, receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bms).Md5);
+            Assert.AreEqual(file.Md5, receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bms).Md5);
 
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + file.path.Replace("'", "''") + "';"));
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = '" + file.path.Replace("'", "''") + "';"));
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "';"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + file.sha256 + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + file.Path.Replace("'", "''") + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = '" + file.Path.Replace("'", "''") + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.Md5 + "';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + file.Sha256 + "';"));
         });
     }
 

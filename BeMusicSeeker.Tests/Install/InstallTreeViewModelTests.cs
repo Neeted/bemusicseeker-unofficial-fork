@@ -76,6 +76,17 @@ public sealed class InstallTreeViewModelTests
             Assert.AreEqual(0, sections.Count);
             replacement.Add(new ChartPackage { path = "new" });
             Assert.AreEqual(InstallTreePresentationSection.Installed, sections.Single());
+            sections.Clear();
+            replacement.RemoveAt(0);
+            Assert.AreEqual(InstallTreePresentationSection.Installed, sections.Single());
+            replacement.Add(new ChartPackage { path = "reset" });
+            sections.Clear();
+            replacement.Clear();
+            Assert.AreEqual(InstallTreePresentationSection.Installed, sections.Single());
+            sections.Clear();
+            installed.Clear();
+            Assert.AreEqual(0, sections.Count);
+            owner.DetachLibrary();
         });
     }
 

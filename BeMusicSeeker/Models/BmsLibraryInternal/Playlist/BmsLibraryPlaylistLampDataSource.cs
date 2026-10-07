@@ -6,7 +6,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -173,7 +172,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             LibraryChartRef resolved = resolveIndex.ResolveChartForPlaylistHash(entry.Md5, entry.Sha256);
             string resolvedMd5 = resolved?.Md5;
             string resolvedSha256 = resolved?.Sha256;
-            LR2SongDBExtended.chart_info chartInfo = library.ResolveChartInfo(entry.Sha256, entry.Md5);
+            BeMusicSeeker.Models.ChartDetails chartInfo = library.ResolveChartInfo(entry.Sha256, entry.Md5);
             string chartInfoSha256 = chartInfo?.sha256;
             string identityKey = !string.IsNullOrWhiteSpace(resolvedMd5)
                 ? "md5:" + resolvedMd5
@@ -200,12 +199,12 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
                 chartInfoSha256));
         }
 
-        StorageRowsVersionSnapshot storageRowsVersion = library.CatalogStorageRowsVersion;
-        int catalogVersion = HashCode.Combine(storageRowsVersion.BmsRowsVersion, storageRowsVersion.BmsonRowsVersion);
+        OwnedChartCollectionVersionSnapshot storageRowsVersion = library.CatalogStorageRowsVersion;
+        int catalogVersion = HashCode.Combine(storageRowsVersion.OwnedCollectionVersion);
         PlaylistLampDependencyStamp dependencyStamp = new(
             entriesRevision,
             catalogVersion,
-            library.OwnedChartCollectionVersion,
+            library.OwnedCollectionVersion,
             lampScoreSnapshot.Version,
             lampScoreSnapshot.SourceGeneration,
             lampScoreSnapshot.Source,
@@ -310,7 +309,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         return new PlaylistLampDependencyStamp(
             entriesRevision,
             0,
-            library.OwnedChartCollectionVersion,
+            library.OwnedCollectionVersion,
             0,
             0L,
             ActiveScoreSource.None,
@@ -439,10 +438,10 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             || string.IsNullOrEmpty(e.PropertyName)
             || e.PropertyName is nameof(BMSLibrary.ScoreSnapshotVersion)
                 or nameof(BMSLibrary.ScoreSnapshotReady)
-                or nameof(BMSLibrary.BMSFiles)
-                or nameof(BMSLibrary.BmsonSongs)
+                or nameof(BMSLibrary.BmsCharts)
+                or nameof(BMSLibrary.BmsonCharts)
                 or nameof(BMSLibrary.BMSParentFolderListCacheVersion)
-                or nameof(BMSLibrary.OwnedChartCollectionVersion)
+                or nameof(BMSLibrary.OwnedCollectionVersion)
                 or nameof(BMSLibrary.ChartInfoIndexVersion))
         {
             NotifyChanged(string.Empty);

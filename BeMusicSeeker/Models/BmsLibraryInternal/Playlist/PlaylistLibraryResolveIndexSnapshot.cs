@@ -11,12 +11,12 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class PlaylistLibraryResolveChartFact
 {
     private PlaylistLibraryResolveChartFact(
-        LibraryChartKind kind,
+        ChartFileKind kind,
         string path,
         string md5,
         string sha256,
         OwnedChartCanonicalOrderKey canonicalOrder,
-        LibraryChartRef chart)
+        LibraryChartRef chart, ChartFile chartSnapshot = null)
     {
         Kind = kind;
         Path = path;
@@ -24,10 +24,11 @@ internal sealed class PlaylistLibraryResolveChartFact
         Sha256 = sha256;
         CanonicalOrder = canonicalOrder;
         Chart = chart;
+        ChartSnapshot = chartSnapshot;
     }
 
     /// <summary>chartのkindです。</summary>
-    internal LibraryChartKind Kind { get; }
+    internal ChartFileKind Kind { get; }
 
     /// <summary>加工前のexact pathです。</summary>
     internal string Path { get; }
@@ -43,6 +44,9 @@ internal sealed class PlaylistLibraryResolveChartFact
 
     /// <summary>追加時に保持するimmutable chart refです。削除factではnullです。</summary>
     internal LibraryChartRef Chart { get; }
+
+    /// <summary>索引の捕捉時点の不変な共通基本値です。</summary>
+    internal ChartFile ChartSnapshot { get; }
 
     /// <summary>
     /// 現在のchart refから、snapshotへ取り込める不変factを作成します。
@@ -71,6 +75,18 @@ internal sealed class PlaylistLibraryResolveChartFact
             immutableChart);
     }
 
+    /// <summary>共通の現在値とその所持識別を、索引の捕捉値として保持します。</summary>
+    internal static PlaylistLibraryResolveChartFact FromChart(ChartFile chart, OwnedChartCanonicalOrderKey canonicalOrder)
+    {
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path) || string.IsNullOrWhiteSpace(chart.Md5))
+        {
+            return null;
+        }
+        ChartFile snapshot = ChartFileProjection.ToImmutableSnapshot(chart);
+        var reference = LibraryChartRef.FromChartFile(snapshot);
+        return new PlaylistLibraryResolveChartFact(reference.Kind, reference.Path, reference.Md5,
+            reference.Sha256, canonicalOrder, reference, snapshot);
+    }
     /// <summary>
     /// 旧候補を除去するためのimmutable factを作成します。
     /// </summary>
@@ -80,7 +96,7 @@ internal sealed class PlaylistLibraryResolveChartFact
     /// <param name="sha256">旧候補のSHA-256。</param>
     /// <returns>削除fact。</returns>
     internal static PlaylistLibraryResolveChartFact ForRemoval(
-        LibraryChartKind kind,
+        ChartFileKind kind,
         string path,
         string md5,
         string sha256)
@@ -120,9 +136,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         version: 0,
         buildElapsedMs: 0L,
         invalidationVersion: 0,
-        ownedCollectionVersion: 0,
-        bmsRowsVersion: 0,
-        bmsonRowsVersion: 0);
+        ownedCollectionVersion: 0);
 
     private readonly ImmutableDictionary<string, PlaylistLibraryResolveChartFact> candidatesByIdentity;
 
@@ -137,9 +151,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         int version,
         long buildElapsedMs,
         int invalidationVersion,
-        int ownedCollectionVersion,
-        int bmsRowsVersion,
-        int bmsonRowsVersion)
+        int ownedCollectionVersion)
     {
         this.candidatesByIdentity = candidatesByIdentity ?? EmptyMembership;
         this.candidatesByMd5 = candidatesByMd5 ?? EmptyCandidateBuckets;
@@ -148,8 +160,8 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         BuildElapsedMs = buildElapsedMs;
         InvalidationVersion = invalidationVersion;
         OwnedCollectionVersion = ownedCollectionVersion;
-        BmsRowsVersion = bmsRowsVersion;
-        BmsonRowsVersion = bmsonRowsVersion;
+
+
     }
 
     /// <summary>空のresolve indexです。</summary>
@@ -167,25 +179,20 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// <summary>build元のowned collection版数です。</summary>
     internal int OwnedCollectionVersion { get; }
 
-    /// <summary>build元のBMS storage rows版数です。</summary>
-    internal int BmsRowsVersion { get; }
-
-    /// <summary>build元のbmson storage rows版数です。</summary>
-    internal int BmsonRowsVersion { get; }
-
     /// <summary>現在のMD5 hash bucket数です。</summary>
     internal int Md5HashCount => candidatesByMd5.Count;
 
     /// <summary>現在のSHA-256 hash bucket数です。</summary>
     internal int Sha256HashCount => candidatesBySha256.Count;
 
-    /// <summary>
-    /// chart ref列挙からplaylist detail用resolve indexを構築します。
-    /// 直接呼び出しでは入力順を同値canonical順として扱います。
-    /// </summary>
-    /// <param name="charts">登録対象のchart ref。</param>
-    /// <param name="cancellationCheck">構築中に呼び出すcancellation callback。</param>
-    /// <returns>playlist detail用resolve index。</returns>
+    /// <summary>共通基本値を入力順に捕捉した索引を作成します。</summary>
+    internal static PlaylistLibraryResolveIndexSnapshot FromCharts(IEnumerable<ChartFile> charts)
+    {
+        long ordinal = 0;
+        return FromLibraryChartFacts((charts ?? []).Select(chart => PlaylistLibraryResolveChartFact.FromChart(
+            chart, new OwnedChartCanonicalOrderKey(chart?.Kind ?? ChartFileKind.Bms, null, ordinal++, usesCapturedPathOrder: false))));
+    }
+    /// <summary>基本値を含まない参照だけの索引を構築します。入力順を同値順序として保持します。</summary>
     internal static PlaylistLibraryResolveIndexSnapshot FromLibraryChartRefs(
         IEnumerable<LibraryChartRef> charts,
         Action cancellationCheck = null)
@@ -203,7 +210,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             facts.Add(PlaylistLibraryResolveChartFact.FromChart(
                 chart,
                 new OwnedChartCanonicalOrderKey(
-                    chart.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
+                    chart.Kind,
                     null,
                     ordinal++,
                     usesCapturedPathOrder: false)));
@@ -259,9 +266,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             version: 0,
             buildElapsedMs: 0L,
             invalidationVersion: 0,
-            ownedCollectionVersion: 0,
-            bmsRowsVersion: 0,
-            bmsonRowsVersion: 0);
+            ownedCollectionVersion: 0);
     }
 
     /// <summary>
@@ -395,9 +400,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             Version,
             BuildElapsedMs,
             InvalidationVersion,
-            OwnedCollectionVersion,
-            BmsRowsVersion,
-            BmsonRowsVersion);
+            OwnedCollectionVersion);
         return true;
     }
 
@@ -406,8 +409,8 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// </summary>
     /// <param name="version">新しいsnapshot版数。</param>
     /// <param name="ownedCollectionVersion">owned collection版数。</param>
-    /// <param name="bmsRowsVersion">BMS storage rows版数。</param>
-    /// <param name="bmsonRowsVersion">bmson storage rows版数。</param>
+    /// <param name="ownedCollectionVersion">BMS storage rows版数。</param>
+    /// <param name="ownedCollectionVersion">bmson storage rows版数。</param>
     /// <param name="buildElapsedMs">初回build時間。</param>
     /// <param name="invalidationVersion">invalidation版数。</param>
     /// <returns>rootを共有するmetadata更新snapshot。</returns>
@@ -415,9 +418,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         int version,
         long buildElapsedMs,
         int invalidationVersion,
-        int ownedCollectionVersion,
-        int bmsRowsVersion,
-        int bmsonRowsVersion)
+        int ownedCollectionVersion)
     {
         return new PlaylistLibraryResolveIndexSnapshot(
             candidatesByIdentity,
@@ -426,9 +427,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
             version,
             buildElapsedMs,
             invalidationVersion,
-            ownedCollectionVersion,
-            bmsRowsVersion,
-            bmsonRowsVersion);
+            ownedCollectionVersion);
     }
 
     /// <summary>
@@ -447,7 +446,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// <param name="kind">候補kind。</param>
     /// <param name="path">候補exact path。</param>
     /// <returns>候補が存在すればtrue。</returns>
-    internal bool ContainsCandidate(LibraryChartKind kind, string path)
+    internal bool ContainsCandidate(ChartFileKind kind, string path)
     {
         return candidatesByIdentity.ContainsKey(CreateIdentityKey(kind, path));
     }
@@ -479,6 +478,14 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         return ResolveChartForPlaylistLookupKey(lookupKey);
     }
 
+    /// <summary>捕捉したMD5索引に所持BMSが存在するかを調べます。bmsonは含めません。</summary>
+    internal bool ContainsBmsMd5(string md5)
+    {
+        return !string.IsNullOrWhiteSpace(md5)
+            && candidatesByMd5.TryGetValue(md5, out ImmutableArray<PlaylistLibraryResolveChartFact> candidates)
+            && candidates.Any(candidate => candidate.Kind == ChartFileKind.Bms);
+    }
+
     private LibraryChartRef ResolveChartForPlaylistLookupKey(PlaylistEntryLookupKey lookupKey)
     {
         if (!lookupKey.HasValue)
@@ -500,6 +507,16 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         return null;
     }
 
+    /// <summary>この索引が捕捉した共通基本値を返します。保存行や現在のカタログへ遡りません。</summary>
+    internal ChartFile ResolveChartSnapshot(LibraryChartRef reference)
+    {
+        if (reference == null)
+        {
+            return null;
+        }
+        return candidatesByIdentity.TryGetValue(CreateIdentityKey(reference.Kind, reference.Path), out PlaylistLibraryResolveChartFact fact)
+            ? fact.ChartSnapshot : null;
+    }
     private static PlaylistLibraryResolveChartFact CreateCandidate(PlaylistLibraryResolveChartFact fact)
     {
         if (fact == null
@@ -523,9 +540,9 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
                 || string.Equals(candidate.Sha256, removal.Sha256, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string CreateIdentityKey(LibraryChartKind kind, string path)
+    private static string CreateIdentityKey(ChartFileKind kind, string path)
     {
-        return (kind == LibraryChartKind.Bmson ? "bmson" : "bms")
+        return (kind == ChartFileKind.Bmson ? "bmson" : "bms")
             + "\u001f"
             + (path ?? string.Empty);
     }

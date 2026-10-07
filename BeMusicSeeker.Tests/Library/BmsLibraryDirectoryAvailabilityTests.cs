@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -56,16 +57,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             chartFileScanner: chartFileScanner)
         {
             SearchTargets = [rootDirectoryA, rootDirectoryB],
-            BMSFiles =
+            BmsCharts =
             [
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathA
-                }.WithHashAndFavorite(hashA, 1),
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathB
-                }.WithHashAndFavorite(hashB, 2)
+                ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },
+                ((ChartTestValues.Empty() with { Path = chartPathB })) with { Md5 = hashB, Favorite = 2 }
             ]
         };
 
@@ -106,8 +101,8 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         Assert.IsNotNull(preservedFolder);
         LR2SongDB.folder preservedFolderRow = preservedFolder!;
         Assert.AreEqual("keep-b-folder", preservedFolderRow.title);
-        Assert.IsTrue(library.BMSFiles.Any(row =>
-            string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(library.BmsCharts.Any(row =>
+            string.Equals(row?.Path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]
@@ -162,16 +157,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             chartFileScanner: scanner)
         {
             SearchTargets = [rootDirectoryA, rootDirectoryB],
-            BMSFiles =
+            BmsCharts =
             [
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathA
-                }.WithHashAndFavorite(hashA, 1),
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathB
-                }.WithHashAndFavorite(hashB, 2)
+                ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },
+                ((ChartTestValues.Empty() with { Path = chartPathB })) with { Md5 = hashB, Favorite = 2 }
             ]
         };
 
@@ -251,16 +240,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             chartFileScanner: chartFileScanner)
         {
             SearchTargets = [rootDirectoryA, rootDirectoryB],
-            BMSFiles =
+            BmsCharts =
             [
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathA
-                }.WithHashAndFavorite(hashA, 1),
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathB
-                }.WithHashAndFavorite(hashB, 2)
+                ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },
+                ((ChartTestValues.Empty() with { Path = chartPathB })) with { Md5 = hashB, Favorite = 2 }
             ]
         };
 
@@ -290,8 +273,8 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
                 row?.path,
                 Lr2SongDbSyncTestSupport.ToFolderPath(rootDirectoryB),
                 StringComparison.OrdinalIgnoreCase)));
-        Assert.IsTrue(library.BMSFiles.Any(row =>
-            string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(library.BmsCharts.Any(row =>
+            string.Equals(row?.Path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]
@@ -314,22 +297,8 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         using (var setup = new LR2SongDBExtended(scope.SongDbPath))
         {
             setup.CreateTable<LR2SongDB.song>();
-            setup.InsertOrReplace(
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathA,
-                    adddate = 1,
-                    tag = "keep-a"
-                }.WithHashAndFavorite(hashA, 1),
-                typeof(LR2SongDB.song));
-            setup.InsertOrReplace(
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathB,
-                    adddate = 2,
-                    tag = "keep-b"
-                }.WithHashAndFavorite(hashB, 2),
-                typeof(LR2SongDB.song));
+            setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with { Path = chartPathA, AddDate = 1, Tag = "keep-a" })) with { Md5 = hashA, Favorite = 1 }), typeof(LR2SongDB.song));
+            setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with { Path = chartPathB, AddDate = 2, Tag = "keep-b" })) with { Md5 = hashB, Favorite = 2 }), typeof(LR2SongDB.song));
         }
 
         var options = new BmsLibraryOptionsSnapshot
@@ -354,16 +323,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             chartFileScanner: chartFileScanner)
         {
             SearchTargets = [rootDirectoryA, rootDirectoryB],
-            BMSFiles =
+            BmsCharts =
             [
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathA
-                }.WithHashAndFavorite(hashA, 1),
-                new Lr2SongDbSyncTestSupport.TestableBmsFile
-                {
-                    path = chartPathB
-                }.WithHashAndFavorite(hashB, 2)
+                ((ChartTestValues.Empty() with { Path = chartPathA })) with { Md5 = hashA, Favorite = 1 },
+                ((ChartTestValues.Empty() with { Path = chartPathB })) with { Md5 = hashB, Favorite = 2 }
             ]
         };
 
@@ -391,8 +354,8 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         Assert.AreEqual("keep-b", preservedSong.tag);
         Assert.AreEqual(2, preservedSong.favorite);
         Assert.AreEqual(2, preservedSong.adddate);
-        Assert.IsTrue(library.BMSFiles.Any(row =>
-            string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(library.BmsCharts.Any(row =>
+            string.Equals(row?.Path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static void SeedCatalogSentinels(
@@ -406,31 +369,15 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         setup.CreateTable<LR2SongDB.song>();
         setup.CreateTable<LR2SongDBExtended.bmson_song>();
         setup.CreateTable<LR2SongDB.folder>();
-        setup.InsertOrReplace(
-            new Lr2SongDbSyncTestSupport.TestableBmsFile
-            {
-                path = chartPathA,
-                adddate = 1,
-                tag = "keep-a"
-            }.WithHashAndFavorite(hashA, 1),
-            typeof(LR2SongDB.song));
-        setup.InsertOrReplace(
-            new Lr2SongDbSyncTestSupport.TestableBmsFile
-            {
-                path = chartPathB,
-                adddate = 2,
-                tag = "keep-b"
-            }.WithHashAndFavorite(hashB, 2),
-            typeof(LR2SongDB.song));
-        setup.InsertOrReplace(
-            new LR2SongDBExtended.bmson_song
-            {
-                path = chartPathB,
-                folder = Lr2SongDbSyncTestSupport.ToFolderPath(rootDirectoryB),
-                title = "keep-bmson",
-                md5 = hashB
-            },
-            typeof(LR2SongDBExtended.bmson_song));
+        setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with { Path = chartPathA, AddDate = 1, Tag = "keep-a" })) with { Md5 = hashA, Favorite = 1 }), typeof(LR2SongDB.song));
+        setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with { Path = chartPathB, AddDate = 2, Tag = "keep-b" })) with { Md5 = hashB, Favorite = 2 }), typeof(LR2SongDB.song));
+        setup.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
+        {
+            Path = chartPathB,
+            Folder = Lr2SongDbSyncTestSupport.ToFolderPath(rootDirectoryB),
+            RawTitle = "keep-bmson",
+            Md5 = hashB
+        }), typeof(LR2SongDBExtended.bmson_song));
         setup.InsertOrReplace(
             new LR2SongDB.folder
             {

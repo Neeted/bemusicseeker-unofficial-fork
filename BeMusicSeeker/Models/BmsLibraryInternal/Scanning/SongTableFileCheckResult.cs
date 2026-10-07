@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -9,27 +8,29 @@ internal sealed class SongTableFileCheckResult
 {
     public List<string> Pragmas { get; } = [];
 
-    public List<BMSFile> AddedFiles { get; } = [];
+    public List<ChartFile> UpdatedCharts { get; } = [];
+
+    public List<ChartFile> AddedFiles { get; } = [];
 
     public HashSet<string> NewlyInsertedBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<string> CommittedLr2SongDbSyncBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
+    public List<ChartFile> AddedBmsonSongs { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> InlineChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> InlineChartInfoAppliedRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> InlineChartInfoAppliedRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> InlineChartInfoParseFailureRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartParseFailure> InlineChartInfoParseFailureRows { get; } = [];
 
     public List<string> InlineChartInfoParseFailureDeleteMd5s { get; } = [];
 
     public List<ChartFileScanFailure> FileScanFailures { get; } = [];
 
-    public List<BMSFile> NextFiles { get; } = [];
+    public List<ChartFile> NextFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = [];
+    public List<ChartFile> NextBmsonSongs { get; } = [];
 
     public List<string> DeletedPaths { get; } = [];
 

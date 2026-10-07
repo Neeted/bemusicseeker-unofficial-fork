@@ -60,21 +60,9 @@ public sealed class RegularChartListFilterServiceTests
 
     private static LibraryChartRow CreateRow(string path, string title, int? mode)
     {
-        var file = new TestableBmsFile();
-        file.Apply(path, title, "folder", mode);
-        return LibraryChartRow.FromBmsFile(file);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Path = path, Title = title, RawTitle = title, Folder = "folder", Mode = mode, Level = 1, LevelText = "1", Md5 = new string('a', 32) };
+        return LibraryChartRow.FromChartFile(file);
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        internal void Apply(string filePath, string fileTitle, string folderName, int? modeValue)
-        {
-            path = filePath;
-            title = fileTitle;
-            folder = folderName;
-            level = 1;
-            mode = modeValue;
-            hash = new string('a', 32);
-        }
-    }
 }

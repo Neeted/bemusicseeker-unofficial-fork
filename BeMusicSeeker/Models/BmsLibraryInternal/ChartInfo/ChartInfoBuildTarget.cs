@@ -1,12 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// chart_info build が処理する chart storage owner の集合です。
-/// build service 本体から BMS / bmson owner mutation の分岐を切り離す境界です。
+/// 同じ内容の詳細解析を共有する捕捉済み共通譜面の集合です。現在値や保存行は変更しません。
 /// </summary>
 internal sealed class ChartInfoBuildTarget
 {
@@ -28,9 +26,9 @@ internal sealed class ChartInfoBuildTarget
 
     internal string Sha256 { get; }
 
-    internal bool NeedsDigest => charts.Any(ChartStorageOwnerMutator.HasMissingBmsSha256);
+    internal bool NeedsDigest => charts.Any(HasMissingDigest);
 
-    internal int MissingDigestOwnerCount => charts.Count(ChartStorageOwnerMutator.HasMissingBmsSha256);
+    internal int MissingDigestOwnerCount => charts.Count(HasMissingDigest);
 
     internal int OwnerCount => charts.Count;
 
@@ -58,68 +56,41 @@ internal sealed class ChartInfoBuildTarget
         }
     }
 
-    internal int ApplyDigest(
-        string sha256,
-        ICollection<BMSFile> completedDigestFiles,
-        ICollection<LibraryChartDigestChange> digestChanges = null)
+    private static bool HasMissingDigest(ChartFile chart)
+        => chart?.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(chart.Sha256);
+
+    /// <summary>確定したSHA256の旧新事実を返します。捕捉した譜面を変更しません。</summary>
+    internal int CreateDigestChanges(string sha256, ICollection<LibraryChartDigestChange> changes)
     {
         if (string.IsNullOrWhiteSpace(sha256))
         {
             return 0;
         }
 
-        int applied = 0;
-        foreach (ChartFile chart in charts)
+        int count = 0;
+        foreach (ChartFile chart in charts.Where(HasMissingDigest))
         {
-            applied += ChartStorageOwnerMutator.ApplyMissingBmsSha256(chart, sha256, completedDigestFiles, digestChanges);
+            changes?.Add(new LibraryChartDigestChange(ChartFileKind.Bms, chart.Path, chart.Md5, chart.Sha256, chart.Md5, sha256));
+            count++;
         }
-
-        return applied;
+        return count;
     }
 
-    /// <summary>
-    /// Creates update-only chart-info song projections for every BMS owner represented by this target.
-    /// BMSON owners deliberately do not materialize LR2 compatibility rows.
-    /// </summary>
-    internal IReadOnlyList<Lr2ChartInfoSongProjection> CreateBmsChartInfoSongProjections(
-        LR2SongDBExtended.chart_info row)
-    {
-        var result = new List<Lr2ChartInfoSongProjection>();
-        foreach (ChartFile chart in charts)
-        {
-            Lr2ChartInfoSongProjection projection =
-                ChartStorageOwnerMutator.CreateBmsChartInfoSongProjection(chart, row);
-            if (projection == null)
-            {
-                continue;
-            }
-            result.Add(projection);
-        }
-        return result;
-    }
+    /// <summary>既存BMS保存行のパスとMD5へ限定する詳細列の更新要求を返します。</summary>
+    internal IReadOnlyList<Lr2ChartInfoSongProjection> CreateBmsChartInfoSongProjections(ChartDetails row)
+        => [.. charts.Where(chart => chart.Kind == ChartFileKind.Bms)
+            .Select(chart => Lr2ChartInfoSongProjection.Create(chart.Path, chart.Md5, row)).Where(value => value != null)];
 
-    /// <summary>
-    /// Projects durable chart-info generated columns to every canonical BMS owner.
-    /// This is called only after the catalog transaction returns a successful receipt.
-    /// </summary>
-    internal int ApplyCommittedChartInfo(
-        LR2SongDBExtended.chart_info row,
+    /// <summary>詳細を適用する共通値を返します。基本レベルはDBで同じパスとMD5が一致した項目だけへ適用します。</summary>
+    internal IReadOnlyList<ChartFile> CreateCommittedChartInfoValues(ChartDetails row,
         IReadOnlySet<Lr2ChartInfoSongProjectionIdentity> matchedIdentities)
-    {
-        if (row == null)
+        => row == null ? [] : [.. charts.Select(chart =>
         {
-            return 0;
-        }
-
-        int applied = 0;
-        foreach (ChartFile chart in charts)
-        {
-            applied += ChartStorageOwnerMutator.ApplyCommittedBmsChartInfoProjection(
-                chart,
-                row,
-                matchedIdentities);
-        }
-        return applied;
-    }
-
+            ChartFile next = ChartFileProjection.WithChartInfo(chart, row);
+            Lr2ChartInfoSongProjection projection = chart.Kind == ChartFileKind.Bms
+                ? Lr2ChartInfoSongProjection.Create(chart.Path, chart.Md5, row) : null;
+            return projection != null && matchedIdentities?.Contains(projection.Identity) == true
+                ? next with { Level = row.level, LevelText = row.level?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                    Difficulty = projection.Difficulty } : next;
+        })];
 }

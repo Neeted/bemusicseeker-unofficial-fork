@@ -8,46 +8,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal static class Lr2SongRowEnricher
 {
-    internal static void EnrichParsedSong(
-        BMSFile song,
-        ChartFileSnapshot snapshot,
-        int textFlag,
-        BMSFile existingSong,
-        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache = null)
-    {
-        if (song == null)
-        {
-            return;
-        }
-        if (snapshot != null)
-        {
-            song.date = ToLr2UnixSeconds(snapshot.LastWriteTimeUtc);
-        }
-        song.SetTextGroupFlag(textFlag);
-        song.PreserveUserSongColumnsFrom(existingSong);
-        EnrichGeneratedSong(song, folderParentHashCache);
-    }
-
-    internal static BMSFile CreateParsedSongRowFromSnapshot(
-        ChartFileSnapshot snapshot,
-        int textFlag,
-        BMSFile existingSong,
-        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache = null)
-    {
-        if (snapshot == null)
-        {
-            return null;
-        }
-
-        BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
-        var song = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
-        song.RememberSnapshotEncodingDetectionResult(snapshot, detectionResult);
-        EnrichParsedSong(song, snapshot, textFlag, existingSong, folderParentHashCache);
-        return song;
-    }
-
     internal static void EnrichGeneratedSong(
-        BMSFile song,
+        LR2SongDB.song song,
         Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache = null)
     {
         if (song == null)
@@ -55,11 +17,14 @@ internal static class Lr2SongRowEnricher
             return;
         }
         Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song, folderParentHashCache);
-        song.ApplyLr2LightweightDefaults();
+        song.level ??= 0;
+        song.difficulty ??= -1;
+        song.mode ??= 5;
+        song.judge ??= 2;
         song.exlevel ??= 0;
     }
 
-    internal static void EnrichFromChartInfo(BMSFile song, LR2SongDBExtended.chart_info chartInfo)
+    internal static void EnrichFromChartInfo(LR2SongDB.song song, BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         if (song == null)
         {
@@ -70,7 +35,7 @@ internal static class Lr2SongRowEnricher
         ApplyLr2ChartMetadataDefaults(song);
     }
 
-    internal static void ApplyLr2ChartMetadataDefaults(BMSFile song)
+    internal static void ApplyLr2ChartMetadataDefaults(LR2SongDB.song song)
     {
         if (song == null)
         {

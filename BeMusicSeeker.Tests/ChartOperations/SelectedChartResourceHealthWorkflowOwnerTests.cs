@@ -145,24 +145,8 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 
     private static ChartFile CreateChart(string path)
     {
-        var file = new BMSFile { path = path };
-        return new ChartFile(
-            ChartFileKind.Bms,
-            path,
-            "resource-health-hash",
-            null,
-            "Title",
-            "Title",
-            "Artist",
-            "Genre",
-            "Folder",
-            string.Empty,
-            string.Empty,
-            null,
-            null,
-            null,
-            file,
-            null);
+        ChartFile file = (ChartTestValues.Empty() with { Path = path });
+        return new ChartFile(ChartFileKind.Bms, path, "resource-health-hash", null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 
     private sealed class RecordingStore : ISelectedChartResourceHealthStore

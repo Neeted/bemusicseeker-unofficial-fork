@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
@@ -354,7 +355,7 @@ public sealed class LibraryFolderTreeViewModelTests
             var stages = new ConcurrentQueue<string>();
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = []
+                BmsCharts = []
             };
             library.SearchTargets = [tempRootPath];
             LibraryFolderTreeViewModel owner = CreateTreeOwner(
@@ -581,13 +582,12 @@ public sealed class LibraryFolderTreeViewModelTests
             bmsValues[7] = bmsPath;
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [BMSFile.FromSongTableRawValues(bmsValues)],
-                BmsonSongs =
+                BmsCharts = [ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(bmsValues))],
+                BmsonCharts =
                 [
-                    new LR2SongDBExtended.bmson_song
-                    {
-                        path = bmsonPath,
-                        md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    ChartTestValues.Empty(ChartFileKind.Bmson) with {
+                        Path = bmsonPath,
+                        Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                     }
                 ]
             };

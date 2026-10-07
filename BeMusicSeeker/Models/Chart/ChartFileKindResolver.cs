@@ -29,13 +29,8 @@ internal static class ChartFileKindResolver
             || BmsonExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
-    internal static bool IsBmsChartFile(BMSFile file)
-    {
-        return file != null;
-    }
-
     internal static bool IsBmsChartFile(ChartFile chart)
     {
-        return IsBmsChartFile(chart?.GetBmsStorageOwner());
+        return chart?.Kind == ChartFileKind.Bms;
     }
 }

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -68,7 +67,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new(resolvedEntries.Count);
+        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, BeMusicSeeker.Models.ChartDetails entryChartInfo)> preparedEntries = new(resolvedEntries.Count);
         var resolvedChartSnapshotCache = new Dictionary<LibraryChartRef, ChartFile>();
         var chartInfoLookupStopwatch = Stopwatch.StartNew();
         int missingChartInfoResolveTargets = 0;
@@ -76,8 +75,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef) in resolvedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ChartFile resolvedChart = ResolveChartSnapshot(resolvedChartRef, resolvedChartSnapshotCache);
-            LR2SongDBExtended.chart_info entryChartInfo = null;
+            ChartFile resolvedChart = ResolveChartSnapshot(libraryResolveIndex, resolvedChartRef, resolvedChartSnapshotCache);
+            BeMusicSeeker.Models.ChartDetails entryChartInfo = null;
             if (resolvedChart == null)
             {
                 missingChartInfoResolveTargets++;
@@ -100,8 +99,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         cancellationToken.ThrowIfCancellationRequested();
         cancellationStage = "score_probe";
         var scoreProbeStopwatch = Stopwatch.StartNew();
-        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
-        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
+        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, BeMusicSeeker.Models.ChartDetails entryChartInfo, BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
+        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, BeMusicSeeker.Models.ChartDetails entryChartInfo) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             BMSScore scoreSnapshotForRow = PlaylistEntryScoreSnapshotResolver.Resolve(
@@ -125,7 +124,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         var playlistRows = new List<PlaylistDetailSourceRow>(scoredEntries.Count);
         cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BMSScore scoreSnapshotForRow) in scoredEntries)
+        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, BeMusicSeeker.Models.ChartDetails entryChartInfo, BMSScore scoreSnapshotForRow) in scoredEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             playlistRows.Add(dataSource.CreateSourceRow(
@@ -178,7 +177,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         IReadOnlyDictionary<string, BMSScore> scoresBySha256 = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja
             ? scoreSnapshot.ScoresBySha256
             : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-        var resolvedChartInfos = new LR2SongDBExtended.chart_info[sourceRows.Count];
+        var resolvedChartInfos = new BeMusicSeeker.Models.ChartDetails[sourceRows.Count];
         var resolvedScores = new BMSScore[sourceRows.Count];
         bool[] chartInfoPatchCandidates = new bool[sourceRows.Count];
         for (int index = 0; index < sourceRows.Count; index++)
@@ -190,7 +189,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 continue;
             }
             dependencyCount++;
-            LR2SongDBExtended.chart_info resolved = dataSource.ResolveChartInfo(row.sha256, row.hash);
+            BeMusicSeeker.Models.ChartDetails resolved = dataSource.ResolveChartInfo(row.sha256, row.hash);
             if (AreSameChartInfoIdentity(row.EntryChartInfo, resolved))
             {
                 continue;
@@ -228,7 +227,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         continue;
                     }
                     PlaylistDetailSourceRow currentRow = sourceRows[index];
-                    LR2SongDBExtended.chart_info resolved = resolvedChartInfos[index];
+                    BeMusicSeeker.Models.ChartDetails resolved = resolvedChartInfos[index];
                     if (currentRow == null
                         || !currentRow.HasEntryChartInfoDependency
                         || AreSameChartInfoIdentity(currentRow.EntryChartInfo, resolved))
@@ -252,6 +251,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private static ChartFile ResolveChartSnapshot(
+        PlaylistLibraryResolveIndexSnapshot index,
         LibraryChartRef chartRef,
         IDictionary<LibraryChartRef, ChartFile> cache)
     {
@@ -263,7 +263,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return cachedChart;
         }
-        ChartFile chart = chartRef.ToChartFileIdentity();
+        ChartFile chart = index.ResolveChartSnapshot(chartRef);
         if (cache != null)
         {
             cache[chartRef] = chart;
@@ -272,8 +272,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private static bool AreSameChartInfoIdentity(
-        LR2SongDBExtended.chart_info existing,
-        LR2SongDBExtended.chart_info incoming)
+        BeMusicSeeker.Models.ChartDetails existing,
+        BeMusicSeeker.Models.ChartDetails incoming)
     {
         if (ReferenceEquals(existing, incoming))
         {

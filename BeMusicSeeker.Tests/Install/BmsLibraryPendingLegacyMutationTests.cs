@@ -21,18 +21,18 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "target");
             Directory.CreateDirectory(packageDirectoryPath);
-            var chartFile = new TestableBmsFile
+            ChartFile chartFile = ChartTestValues.Empty() with
             {
-                path = Path.Combine(packageDirectoryPath, "missing.bms")
+                Path = Path.Combine(packageDirectoryPath, "missing.bms")
             };
-            chartFile.SetHash(new string('a', 32));
+            chartFile = chartFile with { Md5 = new string('a', 32) };
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
-            package.path = chartFile.path;
+            package.path = chartFile.Path;
             var fileMutationService = new RecordingDeleteFileMutationService();
             var service = new BmsLibraryPackageInstallService();
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
-                [ChartFileProjection.FromBmsFile(chartFile)],
+                [(chartFile)],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -47,7 +47,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Assert.AreEqual(0, fileMutationService.DeleteFileShellPaths.Count);
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
-            Assert.AreEqual(chartFile.path, result.Failures[0].Path);
+            Assert.AreEqual(chartFile.Path, result.Failures[0].Path);
             Assert.IsInstanceOfType(result.Failures[0].Exception, typeof(FileNotFoundException));
         });
     }
@@ -59,18 +59,18 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "target");
             Directory.CreateDirectory(packageDirectoryPath);
-            var chartFile = new TestableBmsFile
+            ChartFile chartFile = ChartTestValues.Empty() with
             {
-                path = packageDirectoryPath
+                Path = packageDirectoryPath
             };
-            chartFile.SetHash(new string('a', 32));
+            chartFile = chartFile with { Md5 = new string('a', 32) };
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
-            package.path = chartFile.path;
+            package.path = chartFile.Path;
             var fileMutationService = new RecordingDeleteFileMutationService();
             var service = new BmsLibraryPackageInstallService();
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
-                [ChartFileProjection.FromBmsFile(chartFile)],
+                [(chartFile)],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -110,18 +110,18 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 Assert.Inconclusive("The test environment does not permit file symbolic links: " + exception.Message);
                 return;
             }
-            var chartFile = new TestableBmsFile
+            ChartFile chartFile = ChartTestValues.Empty() with
             {
-                path = linkPath
+                Path = linkPath
             };
-            chartFile.SetHash(new string('a', 32));
+            chartFile = chartFile with { Md5 = new string('a', 32) };
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
-            package.path = chartFile.path;
+            package.path = chartFile.Path;
             var fileMutationService = new RecordingDeleteFileMutationService();
             var service = new BmsLibraryPackageInstallService();
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
-                [ChartFileProjection.FromBmsFile(chartFile)],
+                [(chartFile)],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -150,11 +150,11 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             File.WriteAllBytes(songDbPath, []);
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "target");
             Directory.CreateDirectory(packageDirectoryPath);
-            TestableBmsFile failedFile = CreateChart(packageDirectoryPath, "failed.bms", "a");
-            TestableBmsFile successfulFile = CreateChart(packageDirectoryPath, "successful.bms", "b");
+            ChartFile failedFile = CreateChart(packageDirectoryPath, "failed.bms", "a");
+            ChartFile successfulFile = CreateChart(packageDirectoryPath, "successful.bms", "b");
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([failedFile, successfulFile]);
             package.path = packageDirectoryPath;
-            var fileMutationService = new RecordingDeleteFileMutationService(failedFile.path);
+            var fileMutationService = new RecordingDeleteFileMutationService(failedFile.Path);
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
@@ -171,20 +171,20 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             };
 
             library.RemovePendingCharts(
-                [ChartFileProjection.FromBmsFile(failedFile), ChartFileProjection.FromBmsFile(successfulFile)],
+                [(failedFile), (successfulFile)],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: false);
 
             Assert.AreEqual(1, fileMutationService.DeleteFileDirectPaths.Count);
-            CollectionAssert.AreEqual(new[] { successfulFile.path }, fileMutationService.DeleteFileDirectPaths);
-            Assert.IsTrue(File.Exists(failedFile.path));
-            Assert.IsFalse(File.Exists(successfulFile.path));
+            CollectionAssert.AreEqual(new[] { successfulFile.Path }, fileMutationService.DeleteFileDirectPaths);
+            Assert.IsTrue(File.Exists(failedFile.Path));
+            Assert.IsFalse(File.Exists(successfulFile.Path));
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
             Assert.IsTrue(Directory.Exists(packageDirectoryPath));
             Assert.AreSame(package, library.ChartPackagesPending.Single());
             Assert.AreEqual(1, package.ChartEntries.Count);
-            Assert.AreEqual(failedFile.path, package.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(failedFile.Path, package.ChartEntries.Single().Chart.Path);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             verifySongDb.CreateTable<LR2SongDBExtended.install>();
             Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.install>().Count());
@@ -210,8 +210,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             string successfulNestedDirectoryPath = Path.Combine(successfulDirectoryPath, "sub");
             Directory.CreateDirectory(failedNestedDirectoryPath);
             Directory.CreateDirectory(successfulNestedDirectoryPath);
-            TestableBmsFile failedA = CreateChart(failedDirectoryPath, "a.bms", "a");
-            TestableBmsFile failedB = CreateChart(failedNestedDirectoryPath, "b.bms", "b");
+            ChartFile failedA = CreateChart(failedDirectoryPath, "a.bms", "a");
+            ChartFile failedB = CreateChart(failedNestedDirectoryPath, "b.bms", "b");
             CreateChart(successfulDirectoryPath, "a.bms", "c");
             CreateChart(successfulNestedDirectoryPath, "b.bms", "d");
             string failedResourcePath = Path.Combine(failedDirectoryPath, "sound.wav");
@@ -256,14 +256,14 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 fileMutationService.DeleteDirectoryNormalizationScopes);
             Assert.AreEqual(0, fileMutationService.DeleteFileShellPaths.Count);
             Assert.AreEqual(0, fileMutationService.DeleteFileDirectPaths.Count);
-            Assert.IsTrue(File.Exists(failedA.path));
-            Assert.IsTrue(File.Exists(failedB.path));
+            Assert.IsTrue(File.Exists(failedA.Path));
+            Assert.IsTrue(File.Exists(failedB.Path));
             Assert.AreEqual("keep resource", File.ReadAllText(failedResourcePath));
             Assert.IsFalse(Directory.Exists(successfulDirectoryPath));
             Assert.AreEqual("keep parent content", File.ReadAllText(unrelatedPath));
             Assert.AreSame(failedPackage, library.ChartPackagesPending.Single());
             CollectionAssert.AreEquivalent(
-                new[] { failedA.path, failedB.path },
+                new[] { failedA.Path, failedB.Path },
                 failedPackage.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
             Assert.AreEqual(1, dialogService.Calls.Count);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
@@ -286,8 +286,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Package");
             string nestedDirectoryPath = Path.Combine(packageDirectoryPath, "sub");
             Directory.CreateDirectory(nestedDirectoryPath);
-            string rootChartPath = CreateChart(packageDirectoryPath, "root.bms", "a").path;
-            string nestedChartPath = CreateChart(nestedDirectoryPath, "nested.bms", "b").path;
+            string rootChartPath = CreateChart(packageDirectoryPath, "root.bms", "a").Path;
+            string nestedChartPath = CreateChart(nestedDirectoryPath, "nested.bms", "b").Path;
             string resourcePath = Path.Combine(nestedDirectoryPath, "sound.wav");
             File.WriteAllText(resourcePath, "keep until package deletion");
             var service = new BmsLibraryPackageInstallService();
@@ -409,14 +409,14 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         {
             string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
             File.WriteAllText(sourcePath, "#PLAYER 1\r\n");
-            var sourceFile = new TestableBmsFile
+            ChartFile sourceFile = ChartTestValues.Empty() with
             {
-                path = sourcePath
+                Path = sourcePath
             };
-            sourceFile.SetHash(new string('a', 32));
+            sourceFile = sourceFile with { Md5 = new string('a', 32) };
             var service = new BmsLibraryLibraryFileOperationsService();
             var snapshot = LibraryFileOperationTargetSnapshot.FromChart(
-                ChartFileProjection.FromBmsFile(sourceFile),
+                (sourceFile),
                 captureSourceFileExistence: true);
             LegacyInvalidExtensionRenamePlan plan = service.BuildInvalidExtensionRenamePlan(
                 [snapshot],
@@ -459,14 +459,14 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 Assert.Inconclusive("The test environment does not permit file symbolic links: " + exception.Message);
                 return;
             }
-            var sourceFile = new TestableBmsFile
+            ChartFile sourceFile = ChartTestValues.Empty() with
             {
-                path = sourcePath
+                Path = sourcePath
             };
-            sourceFile.SetHash(new string('a', 32));
+            sourceFile = sourceFile with { Md5 = new string('a', 32) };
             var service = new BmsLibraryLibraryFileOperationsService();
             var snapshot = LibraryFileOperationTargetSnapshot.FromChart(
-                ChartFileProjection.FromBmsFile(sourceFile),
+                (sourceFile),
                 captureSourceFileExistence: true);
             LegacyInvalidExtensionRenamePlan plan = service.BuildInvalidExtensionRenamePlan(
                 [snapshot],
@@ -490,15 +490,15 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         });
     }
 
-    private static TestableBmsFile CreateChart(string directoryPath, string fileName, string hashSeed)
+    private static ChartFile CreateChart(string directoryPath, string fileName, string hashSeed)
     {
         string filePath = Path.Combine(directoryPath, fileName);
         File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE " + fileName + "\r\n");
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = filePath
+            Path = filePath
         };
-        file.SetHash(hashSeed.PadRight(32, hashSeed[0]));
+        file = file with { Md5 = hashSeed.PadRight(32, hashSeed[0]) };
         return file;
     }
 
@@ -521,13 +521,6 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        internal void SetHash(string value)
-        {
-            hash = value;
-        }
-    }
 
     private sealed class RecordingDeleteFileMutationService : IFileMutationService
     {

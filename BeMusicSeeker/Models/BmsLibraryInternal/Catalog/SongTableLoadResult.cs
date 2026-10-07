@@ -7,11 +7,9 @@ internal sealed class SongTableLoadResult
 {
     public List<string> Pragmas { get; } = [];
 
-    public List<BMSFile> LoadedFiles { get; } = [];
+    public List<ChartFile> LoadedFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> LoadedBmsonSongs { get; } = [];
-
-    public List<BMSFile> UpdatedSongs { get; } = [];
+    public List<ChartFile> LoadedBmsonSongs { get; } = [];
 
     public List<string> DeletedSongPaths { get; } = [];
 

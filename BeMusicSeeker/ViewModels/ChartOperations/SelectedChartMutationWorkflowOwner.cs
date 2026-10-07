@@ -60,14 +60,15 @@ internal interface IPendingDeleteConfirmationDialogPort
 
 internal interface ISelectedChartMutationStore
 {
-    IReadOnlyList<string> GetLibraryWholeFolderDeleteConfirmationPaths(
+    /// <summary>最初の確認前に、モデルの現在値・安全属性・確認候補を固定します。</summary>
+    LibraryChartRemovalPreflight PrepareLibraryChartRemoval(
         BMSLibrary library,
         IReadOnlyList<LibraryChartRef> charts);
 
-    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
+    /// <summary>確認前の同じ固定対象を実行し、観測した削除事実を終端へ返します。</summary>
     LibraryChartRemovalOutcome RemoveLibraryCharts(
         BMSLibrary library,
-        IReadOnlyList<LibraryChartRef> charts,
+        LibraryChartRemovalPreflight prepared,
         IReadOnlyList<string> approvedWholeFolderDeletePaths);
 
     void RemovePendingCharts(
@@ -75,6 +76,10 @@ internal interface ISelectedChartMutationStore
         IReadOnlyList<ChartFile> charts,
         bool sendToRecycleBin,
         bool deleteContainingPackageFoldersWhenNoBms);
+
+    /// <summary>最初の確認前に、通常拡張子変更の現在対象を固定します。</summary>
+    LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(
+        BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension);
 
     /// <summary>選択した所持譜面の拡張子変更を一つのセッションで実行し、確定結果を返します。</summary>
     LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
@@ -93,7 +98,7 @@ internal interface ISelectedChartMutationStore
 
     void SetBMSFilesEncoding(
         BMSLibrary library,
-        IReadOnlyList<BMSFile> bmsFiles,
+        IReadOnlyList<ChartFile> charts,
         string encoding);
 }
 
@@ -232,20 +237,20 @@ internal sealed class SelectedChartEncodingRequest
         IEnumerable<ChartOperationTarget> targets,
         string encoding)
     {
-        BmsFiles = (targets ?? [])
+        Charts = (targets ?? [])
             .Where(target => target?.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix) == true
                 && ChartFileKindResolver.IsBmsChartFile(target.Chart))
-            .Select(target => target.Chart.GetBmsStorageOwner())
+            .Select(target => target.Chart)
             .Where(ChartFileKindResolver.IsBmsChartFile)
             .ToArray();
         Encoding = encoding ?? string.Empty;
     }
 
-    internal IReadOnlyList<BMSFile> BmsFiles { get; }
+    internal IReadOnlyList<ChartFile> Charts { get; }
 
     internal string Encoding { get; }
 
-    internal bool HasTargets => BmsFiles.Count > 0;
+    internal bool HasTargets => Charts.Count > 0;
 }
 
 internal sealed class SelectedChartMutationWorkflowOwner
@@ -278,6 +283,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
     internal event EventHandler<SelectedChartMutationWorkflowChangedEventArgs> WorkflowChanged;
 
+    /// <summary>UIで選択を固定し、共通受付を保持して背景で準備した同じ削除要求を確認後に実行します。</summary>
     internal async Task<SelectedChartMutationResult> DeleteAsync(SelectedChartDeleteRequest request)
     {
         if (request == null)
@@ -303,6 +309,25 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 return SelectedChartMutationResult.Completed;
             }
 
+            List<LibraryChartRef> libraryCharts = resolution.Route == ChartDeleteRoute.Library
+                ? [.. resolution.Targets
+                    .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary))
+                    .Select(target => target.ToLibraryChartRef())
+                    .Where(chart => chart != null)]
+                : [];
+            List<ChartFile> pendingCharts = resolution.Route == ChartDeleteRoute.Pending
+                ? [.. resolution.Targets
+                    .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
+                    .Select(target => target.Chart)
+                    .Where(chart => chart != null)]
+                : [];
+            LibraryChartRemovalPreflight prepared = null;
+            if (resolution.Route == ChartDeleteRoute.Library)
+            {
+                BMSLibrary library = RequireLibrary();
+                LibraryChartRef[] copiedCharts = libraryCharts.ToArray();
+                prepared = await Task.Run(() => store.PrepareLibraryChartRemoval(library, copiedCharts));
+            }
             bool deleteContainingPackageFoldersWhenNoBms = false;
             if (resolution.Route == ChartDeleteRoute.Pending)
             {
@@ -329,25 +354,10 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 return SelectedChartMutationResult.Completed;
             }
 
-            List<LibraryChartRef> libraryCharts = resolution.Route == ChartDeleteRoute.Library
-                ? [.. resolution.Targets
-                    .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary))
-                    .Select(target => target.ToLibraryChartRef())
-                    .Where(chart => chart != null)]
-                : [];
-            List<ChartFile> pendingCharts = resolution.Route == ChartDeleteRoute.Pending
-                ? [.. resolution.Targets
-                    .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-                    .Select(target => target.Chart)
-                    .Where(chart => chart != null)]
-                : [];
             List<string> approvedWholeFolderDeletePaths = [];
             if (libraryCharts.Count > 0)
             {
-                BMSLibrary library = RequireLibrary();
-                IReadOnlyList<string> candidatePaths;
-                candidatePaths = store.GetLibraryWholeFolderDeleteConfirmationPaths(library, libraryCharts) ?? [];
-                foreach (string folderPath in candidatePaths)
+                foreach (string folderPath in prepared.WholeFolderCandidatePaths)
                 {
                     bool approved = await ConfirmMessageAsync(
                         string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folderPath),
@@ -381,7 +391,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
                     removalOutcome = store.RemoveLibraryCharts(
                         library,
-                        libraryCharts,
+                        prepared,
                         approvedFolderPaths);
                 },
                 acquiredOperationGate: operationGate)).ConfigureAwait(false);
@@ -406,6 +416,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
     }
 
+    /// <summary>要求のnullを同期検査し、通常譜面の全形式を背景で準備してから非同期確認と実行へ進みます。</summary>
     internal Task<SelectedChartMutationResult> RenameInvalidExtensionsAsync(
         SelectedInvalidExtensionRenameRequest request)
     {
@@ -413,6 +424,13 @@ internal sealed class SelectedChartMutationWorkflowOwner
         {
             throw new ArgumentNullException(nameof(request));
         }
+        return RenameInvalidExtensionsCoreAsync(request);
+    }
+
+    /// <summary>UIで固定した入力を共通受付の内側で準備し、捕捉I/Oを背景処理で待ってから確認します。</summary>
+    private async Task<SelectedChartMutationResult> RenameInvalidExtensionsCoreAsync(
+        SelectedInvalidExtensionRenameRequest request)
+    {
         try
         {
             List<ChartOperationTarget> targets = [.. request.Targets
@@ -420,48 +438,56 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 .Where(target => ChartFileKindResolver.IsBmsChartFile(target.Chart))];
             if (targets.Count == 0)
             {
-                return Task.FromResult(SelectedChartMutationResult.Completed);
+                return SelectedChartMutationResult.Completed;
             }
             if (targets.Any(target =>
                 target.IsPending != request.IsPendingSelected
                 || (target.SourceScope == ChartOperationSourceScope.PendingPackage)
                 != request.IsPendingSelected))
             {
-                return Task.FromResult(SelectedChartMutationResult.Failed(
+                return SelectedChartMutationResult.Failed(
                     new InvalidOperationException(
-                        "Selected chart rename targets do not match the current operation section.")));
+                        "Selected chart rename targets do not match the current operation section."));
             }
 
             List<ChartFile> charts = [.. targets.Select(target => target.Chart)];
             if (!TryEnterOperation(request.IsPendingSelected, out IDisposable operationGate))
             {
-                return Task.FromResult(SelectedChartMutationResult.Failed(
-                    new InvalidOperationException("A chart-file operation is already active.")));
+                return SelectedChartMutationResult.Failed(
+                    new InvalidOperationException("A chart-file operation is already active."));
             }
             bool operationGateTransferred = false;
             try
             {
-                if (!ConfirmMessage(
-                    BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid,
-                    "Invalid chart extension rename confirmation"))
-                {
-                    operationGate.Dispose();
-                    return Task.FromResult(SelectedChartMutationResult.Completed);
-                }
-
                 IReadOnlyList<ChartFile> bCharts = [.. charts.Where(chart =>
                 (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
                 IReadOnlyList<ChartFile> pCharts = [.. charts.Where(chart =>
                 (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
-                var libraryRenameBatches = new List<LibraryFileExtensionRenameBatch>(2);
-                if (bCharts.Count > 0)
+                IReadOnlyList<LibraryFileExtensionRenameBatch> libraryRenameBatches = [];
+                if (!request.IsPendingSelected)
                 {
-                    libraryRenameBatches.Add(new LibraryFileExtensionRenameBatch(bCharts, ".bmx"));
+                    BMSLibrary library = RequireLibrary();
+                    libraryRenameBatches = await Task.Run(() =>
+                    {
+                        var batches = new List<LibraryFileExtensionRenameBatch>(2);
+                        if (bCharts.Count > 0)
+                        {
+                            batches.Add(store.PrepareLibraryFileExtensionRenameBatch(library, bCharts, ".bmx"));
+                        }
+                        if (pCharts.Count > 0)
+                        {
+                            batches.Add(store.PrepareLibraryFileExtensionRenameBatch(library, pCharts, ".pmx"));
+                        }
+                        return batches.ToArray();
+                    });
                 }
-                if (pCharts.Count > 0)
+                if (!await ConfirmMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid,
+                    "Invalid chart extension rename confirmation"))
                 {
-                    libraryRenameBatches.Add(new LibraryFileExtensionRenameBatch(pCharts, ".pmx"));
+                    return SelectedChartMutationResult.Completed;
                 }
+
                 Task<SelectedChartMutationResult> task;
                 if (!request.IsPendingSelected)
                 {
@@ -492,8 +518,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 }
                 operationGateTransferred = true;
                 return !request.IsPendingSelected
-                    ? ReportInvalidExtensionRenameAsync(task)
-                    : task;
+                    ? await ReportInvalidExtensionRenameAsync(task)
+                    : await task;
             }
             finally
             {
@@ -505,7 +531,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
         catch (Exception ex)
         {
-            return Task.FromResult(SelectedChartMutationResult.Failed(ex));
+            return SelectedChartMutationResult.Failed(ex);
         }
     }
 
@@ -595,7 +621,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         bool publishMutationApplied = false;
         try
         {
-            store.SetBMSFilesEncoding(RequireLibrary(), request.BmsFiles, request.Encoding);
+            store.SetBMSFilesEncoding(RequireLibrary(), request.Charts, request.Encoding);
             publishMutationApplied = true;
             result = SelectedChartMutationResult.Completed;
         }
@@ -780,34 +806,6 @@ internal sealed class SelectedChartMutationWorkflowOwner
         };
     }
 
-    private bool ConfirmMessage(
-        string message,
-        string routeName,
-        MessageBoxButton button = MessageBoxButton.OKCancel,
-        MessageBoxResult defaultResult = MessageBoxResult.Cancel)
-    {
-        UiDialogResult result = dialogs.ConfirmAsync(new UiConfirmationRequest(
-            message,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            button,
-            MessageBoxImage.Question,
-            defaultResult))
-            .GetAwaiter()
-            .GetResult();
-        if (result == null)
-        {
-            throw new InvalidOperationException(routeName + " returned no result.");
-        }
-        return result.Status switch
-        {
-            UiDialogStatus.Accepted => true,
-            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.IsPositive,
-            _ => throw result.Exception ?? new InvalidOperationException(
-                routeName + " could not be displayed (" + result.Status + ").")
-        };
-    }
-
     private BMSLibrary RequireLibrary()
     {
         return libraryProvider()
@@ -833,21 +831,22 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
 internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutationStore
 {
-    public IReadOnlyList<string> GetLibraryWholeFolderDeleteConfirmationPaths(
+    /// <summary>モデルで確認前の固定削除要求を捕捉します。</summary>
+    public LibraryChartRemovalPreflight PrepareLibraryChartRemoval(
         BMSLibrary library,
         IReadOnlyList<LibraryChartRef> charts)
     {
-        return library.GetLibraryWholeFolderDeleteConfirmationPaths(charts);
+        return library.PrepareLibraryChartRemoval(charts);
     }
 
-    /// <summary>Preserves the model deletion outcome for terminal reporting.</summary>
+    /// <summary>確認前に固定した要求を再確定せずモデルへ渡し、終端へ削除事実を返します。</summary>
     public LibraryChartRemovalOutcome RemoveLibraryCharts(
         BMSLibrary library,
-        IReadOnlyList<LibraryChartRef> charts,
+        LibraryChartRemovalPreflight prepared,
         IReadOnlyList<string> approvedWholeFolderDeletePaths)
     {
         return library.RemoveLibraryCharts(
-            charts,
+            prepared,
             approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
     }
 
@@ -867,6 +866,11 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
     {
         library.RenamePendingBmsFormatChartFileExtensions(charts, newExtension);
     }
+
+    /// <summary>モデルで確認前の固定拡張子変更要求を捕捉します。</summary>
+    public LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(
+        BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
+        => library.PrepareLibraryFileExtensionRenameBatch(charts, newExtension);
 
     /// <summary>拡張子の種類が異なる譜面も一つの変更セッションで扱います。</summary>
     public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
@@ -890,9 +894,9 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
 
     public void SetBMSFilesEncoding(
         BMSLibrary library,
-        IReadOnlyList<BMSFile> bmsFiles,
+        IReadOnlyList<ChartFile> charts,
         string encoding)
     {
-        library.SetBMSFilesEncoding(bmsFiles, encoding);
+        library.SetBMSFilesEncoding(charts, encoding);
     }
 }

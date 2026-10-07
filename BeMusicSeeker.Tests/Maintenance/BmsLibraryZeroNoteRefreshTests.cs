@@ -6,7 +6,6 @@ using System.Reflection;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -24,13 +23,13 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         await WithTemporarySongDb(songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            var file = new TestableBmsFile
+            ChartFile file = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
-                path = "C:\\charts\\normal.bms"
+                Path = "C:\\charts\\normal.bms"
             };
-            file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
-            file.SetNotes(1200);
-            library.BMSFiles = [file];
+            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch)] };
+            file = ChartFileProjection.WithChartInfo(file, new BeMusicSeeker.Models.ChartDetails { md5 = file.Md5, sha256 = file.Sha256, notes = 1200 });
+            library.BmsCharts = [file];
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs e)
@@ -46,7 +45,8 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.AreEqual(1, refreshNotificationChanged);
-            Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+            Assert.IsFalse(library.BmsCharts.Single().Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
+            Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
             return Task.CompletedTask;
         });
     }
@@ -60,14 +60,14 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            var file = new TestableBmsFile
+            ChartFile file = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
-                path = chartPath
+                Path = chartPath
             };
-            file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
-            file.SetNotes(0);
-            library.BMSFiles = [file];
-            await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
+            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch)] };
+            file = ChartFileProjection.WithChartInfo(file, new BeMusicSeeker.Models.ChartDetails { md5 = file.Md5, sha256 = file.Sha256, notes = 0 });
+            library.BmsCharts = [file];
+            await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.Md5, notes: 0));
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs e)
             {
@@ -80,9 +80,9 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             library.RecheckZeroNoteWarnings();
 
             Assert.AreEqual(0, refreshNotificationChanged);
-            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
-            Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-            Assert.AreEqual("[1] ゼロノート不整合", file.Warnings.BuildDigestText());
+            Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
+            Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+            Assert.AreEqual("[1] ゼロノート不整合", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
         });
     }
 
@@ -95,19 +95,22 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            var file = new TestableBmsFile
+            ChartFile file = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
-                path = chartPath
+                Path = chartPath
             };
-            file.SetNotes(0);
-            library.BMSFiles = [file];
-            await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
+            file = ChartFileProjection.WithChartInfo(file, new BeMusicSeeker.Models.ChartDetails { md5 = file.Md5, sha256 = file.Sha256, notes = 0 });
+            library.BmsCharts = [file];
+            await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.Md5, notes: 0));
 
             library.RecheckZeroNoteWarnings();
 
-            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
-            Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-            Assert.AreEqual("[1] ゼロノート不整合", file.Warnings.BuildDigestText());
+            ChartFile current = library.BmsCharts.Single();
+            Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
+            Assert.AreSame(file.Token, current.Token);
+            Assert.IsTrue(current.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
+            Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(current.Warnings));
+            Assert.AreEqual("[1] ゼロノート不整合", ChartWarningCollection.BuildDigestText(current.Warnings, current.InstallDestination));
         });
     }
 
@@ -118,37 +121,36 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         await WithTemporarySongDb(async songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            var zeroNoteFile = new TestableBmsFile
+            ChartFile zeroNoteFile = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
-                path = "C:\\charts\\zero.bms"
+                Path = "C:\\charts\\zero.bms"
             };
-            zeroNoteFile.SetSha256(new string('a', 64));
-            zeroNoteFile.SetNotes(0);
-            var normalFile = new TestableBmsFile
+            zeroNoteFile = zeroNoteFile with { Sha256 = new string('a', 64) };
+            zeroNoteFile = ChartFileProjection.WithChartInfo(zeroNoteFile, new BeMusicSeeker.Models.ChartDetails { md5 = zeroNoteFile.Md5, sha256 = zeroNoteFile.Sha256, notes = 0 });
+            ChartFile normalFile = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
-                path = "C:\\charts\\normal.bms"
+                Path = "C:\\charts\\normal.bms"
             };
-            normalFile.SetSha256(new string('b', 64));
-            normalFile.SetNotes(1000);
-            library.BMSFiles = [zeroNoteFile, normalFile];
-            library.BmsonSongs =
+            normalFile = normalFile with { Md5 = new string('b', 32), Sha256 = new string('b', 64) };
+            normalFile = ChartFileProjection.WithChartInfo(normalFile, new BeMusicSeeker.Models.ChartDetails { md5 = normalFile.Md5, sha256 = normalFile.Sha256, notes = 1000 });
+            library.BmsCharts = [zeroNoteFile, normalFile];
+            library.BmsonCharts =
             [
-                new LR2SongDBExtended.bmson_song
-                {
-                    path = "C:\\charts\\zero.bmson",
-                    md5 = Guid.NewGuid().ToString("N")
+                ChartTestValues.Empty(ChartFileKind.Bmson) with {
+                    Path = "C:\\charts\\zero.bmson",
+                    Md5 = Guid.NewGuid().ToString("N")
                 }
             ];
             await SeedChartInfoIndexAsync(
                 songDbPath,
                 library,
-                CreateChartInfo(zeroNoteFile.hash, notes: 0, sha256: zeroNoteFile.sha256),
-                CreateChartInfo(normalFile.hash, notes: 1000, sha256: normalFile.sha256));
+                CreateChartInfo(zeroNoteFile.Md5, notes: 0, sha256: zeroNoteFile.Sha256),
+                CreateChartInfo(normalFile.Md5, notes: 1000, sha256: normalFile.Sha256));
 
             List<ChartFile> result = [.. library.ChartFilesZeroNote];
 
             Assert.AreEqual(1, result.Count);
-            Assert.AreSame(zeroNoteFile, result.Single().GetBmsStorageOwner());
+            Assert.AreSame(zeroNoteFile.Token, result.Single().Token);
         });
     }
 
@@ -171,28 +173,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         }
     }
 
-    private sealed class TestableBmsFile : BMSFile
+
+    private static BeMusicSeeker.Models.ChartDetails CreateChartInfo(string md5, int notes, string? sha256 = null)
     {
-        public TestableBmsFile()
-        {
-            hash = Guid.NewGuid().ToString("N");
-            sha256 = new string('a', 64);
-        }
-
-        internal void SetNotes(int? value)
-        {
-            karinotes = value;
-        }
-
-        internal void SetSha256(string value)
-        {
-            sha256 = value;
-        }
-    }
-
-    private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes, string? sha256 = null)
-    {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             md5 = md5,
             sha256 = sha256 ?? new string('a', 64),
@@ -201,7 +185,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         };
     }
 
-    private static async Task SeedChartInfoIndexAsync(string songDbPath, BMSLibrary library, params LR2SongDBExtended.chart_info[] chartInfos)
+    private static async Task SeedChartInfoIndexAsync(string songDbPath, BMSLibrary library, params BeMusicSeeker.Models.ChartDetails[] chartInfos)
     {
         new BmsLibraryDbGateway(songDbPath).UpsertChartInfos(chartInfos);
         await AwaitChartInfoHydrationAsync(

@@ -4,22 +4,7 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2SongDbSyncScanSurfaceSnapshot(
-    int generation,
-    IReadOnlyList<string> rootDirectories,
-    IReadOnlyList<string> normalFolderDirectoryPaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> normalFolderDirectoryEntries,
-    IReadOnlyList<string> folderInfoFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
-    IReadOnlyList<string> textFileDirectories,
-    IReadOnlyList<string> lr2FolderDiscoveryDirectories,
-    IReadOnlyList<string> lr2FolderFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
-    bool lr2FolderFileDiscoveryComplete,
-    int ownedCollectionVersion,
-    int bmsRowsVersion,
-    int bmsonRowsVersion)
+internal sealed class Lr2SongDbSyncScanSurfaceSnapshot(int generation, IReadOnlyList<string> rootDirectories, IReadOnlyList<string> normalFolderDirectoryPaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries, IReadOnlyDictionary<string, RootFileEnumerationEntry> normalFolderDirectoryEntries, IReadOnlyList<string> folderInfoFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries, IReadOnlyList<string> textFileDirectories, IReadOnlyList<string> lr2FolderDiscoveryDirectories, IReadOnlyList<string> lr2FolderFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries, bool lr2FolderFileDiscoveryComplete, IReadOnlyDictionary<string, OwnedChartToken> pathMembershipIndex)
 {
     public int Generation { get; } = generation;
 
@@ -49,9 +34,8 @@ internal sealed class Lr2SongDbSyncScanSurfaceSnapshot(
 
     public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
-    public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
+    /// <summary>走査時の所持項目とDB exact pathの共有索引です。再利用判定はroot照合だけで全件走査しません。</summary>
+    internal IReadOnlyDictionary<string, OwnedChartToken> PathMembershipIndex { get; } = pathMembershipIndex;
 
-    public int BmsRowsVersion { get; } = bmsRowsVersion;
 
-    public int BmsonRowsVersion { get; } = bmsonRowsVersion;
 }

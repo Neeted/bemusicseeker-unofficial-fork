@@ -34,12 +34,12 @@ internal sealed class Lr2BuiltinCustomFolderSettings
 
     public static Lr2BuiltinCustomFolderSettings Create(
         LR2Config config,
-        IEnumerable<BMSFile> songRows,
+        IEnumerable<ChartFile> songRows,
         DateTime nowUtc)
     {
         int customFolderMask = Math.Max(0, config?.GetCustomFolderMask() ?? 0);
         int titleFlashHours = Math.Max(0, config?.GetTitleFlashHours() ?? 24);
-        bool includeNewSongFolder = HasRecentSongAddDates((songRows ?? []).Select(song => song?.adddate), titleFlashHours, nowUtc);
+        bool includeNewSongFolder = HasRecentSongAddDates((songRows ?? []).Select(song => song?.AddDate), titleFlashHours, nowUtc);
         return new Lr2BuiltinCustomFolderSettings(customFolderMask, titleFlashHours, includeNewSongFolder);
     }
 

@@ -7,14 +7,13 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// chart_info テーブルへ保存する譜面メタデータを生成します。
-/// 既存の LR2 song 行生成とは責務が異なるため、BMSFile/BmsonSongParser とは独立した解析器にしています。
+/// 共通の不変詳細情報と解析失敗を生成します。保存行への変換はDB境界だけで行います。
+/// 基本譜面情報とは解析の責務が異なるため、BmsChartFileParser/BmsonChartFileParser から独立させています。
 /// </summary>
 internal static class ChartInfoParser
 {
@@ -54,7 +53,7 @@ internal static class ChartInfoParser
     /// <param name="sha256">既に分かっている SHA-256。null の場合はファイルから計算します。</param>
     /// <param name="encodingName">低レベル検証用の BMS decode override。通常の chart_info backfill では null にし、beatoraja 互換の既定 decode を使います。bmson では使用しません。</param>
     /// <returns>保存可能な chart_info 行。</returns>
-    public static LR2SongDBExtended.chart_info Parse(string filePath, string md5 = null, string sha256 = null, string encodingName = null)
+    public static BeMusicSeeker.Models.ChartDetails Parse(string filePath, string md5 = null, string sha256 = null, string encodingName = null)
     {
         if (string.IsNullOrWhiteSpace(filePath))
         {
@@ -74,7 +73,7 @@ internal static class ChartInfoParser
     /// <param name="sha256">既に分かっている SHA-256。null の場合は bytes から計算します。</param>
     /// <param name="encodingName">低レベル検証用の BMS decode override。通常の chart_info backfill では null にし、beatoraja 互換の既定 decode を使います。bmson では使用しません。</param>
     /// <returns>保存可能な chart_info 行。</returns>
-    public static LR2SongDBExtended.chart_info ParseBytes(byte[] bytes, string fileNameOrExtension, string md5 = null, string sha256 = null, string encodingName = null)
+    public static BeMusicSeeker.Models.ChartDetails ParseBytes(byte[] bytes, string fileNameOrExtension, string md5 = null, string sha256 = null, string encodingName = null)
     {
         return ParseBytesDetailed(bytes, fileNameOrExtension, md5, sha256, encodingName).Row;
     }
@@ -201,7 +200,7 @@ internal static class ChartInfoParser
         return new ChartInfoParseResult(BuildRow(model, chartString, timeoutGuard), readOnlyDiagnostics, chartString);
     }
 
-    private static LR2SongDBExtended.chart_info BuildRow(ChartModel model, string chartString, ParseTimeoutGuard timeoutGuard)
+    private static BeMusicSeeker.Models.ChartDetails BuildRow(ChartModel model, string chartString, ParseTimeoutGuard timeoutGuard)
     {
         timeoutGuard.ThrowIfTimedOut("build_row");
         int length = model.GetLastTimeMilliseconds();
@@ -210,7 +209,7 @@ internal static class ChartInfoParser
             throw new BmsRecoverableParseException("BMS timeline length is too large.");
         }
         var statistics = ChartStatistics.Calculate(model, timeoutGuard);
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = model.Sha256,
             md5 = model.Md5,
@@ -1319,9 +1318,9 @@ internal static class ChartInfoParser
         }
     }
 
-    internal sealed class ChartInfoParseResult(LR2SongDBExtended.chart_info row, IReadOnlyList<ChartInfoParser.ChartInfoParseDiagnostic> diagnostics, string chartString)
+    internal sealed class ChartInfoParseResult(BeMusicSeeker.Models.ChartDetails row, IReadOnlyList<ChartInfoParser.ChartInfoParseDiagnostic> diagnostics, string chartString)
     {
-        public LR2SongDBExtended.chart_info Row { get; } = row;
+        public BeMusicSeeker.Models.ChartDetails Row { get; } = row;
 
         public IReadOnlyList<ChartInfoParseDiagnostic> Diagnostics { get; } = diagnostics ?? [];
 

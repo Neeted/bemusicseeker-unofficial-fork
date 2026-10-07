@@ -7,29 +7,29 @@ namespace BeMusicSeeker.Tests;
 
 internal static class ChartPackageTestExtensions
 {
-    internal static ChartPackage CreatePackage(params BMSFile[] chartFiles)
+    internal static ChartPackage CreatePackage(params ChartFile[] chartFiles)
     {
-        return CreatePackage((IEnumerable<BMSFile>)chartFiles);
+        return CreatePackage((IEnumerable<ChartFile>)chartFiles);
     }
 
-    internal static ChartPackage CreatePackage(IEnumerable<BMSFile> chartFiles)
+    internal static ChartPackage CreatePackage(IEnumerable<ChartFile> chartFiles)
     {
         return ChartPackage.FromChartEntries((chartFiles ?? []).Select(CreateEntry));
     }
 
-    internal static PackageChartEntry CreateEntry(BMSFile chartFile)
+    internal static PackageChartEntry CreateEntry(ChartFile chartFile)
     {
-        return PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(chartFile));
+        return PackageChartEntry.FromChart((chartFile));
     }
 
     internal static PackageChartEntry CreateEntryWithInstallDestination(
-        BMSFile chartFile,
+        ChartFile chartFile,
         string installDestination,
         string title = "",
         string artist = "",
         IReadOnlyList<string>? suggestions = null)
     {
-        ChartFile chart = ChartFileProjection.FromBmsFile(chartFile, includeWarningSnapshot: true);
+        ChartFile chart = (chartFile);
         return PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(
             chart,
             installDestination,
@@ -49,15 +49,15 @@ internal static class ChartPackageTestExtensions
         return ChartPackage.FromChartEntries(entries);
     }
 
-    internal static List<BMSFile> GetBmsOwnersForTest(this ChartPackage package)
+    internal static List<ChartFile> GetBmsChartsForTest(this ChartPackage package)
     {
         return [.. (package?.ChartEntries ?? [])
-            .Select(entry => entry?.GetBmsOwnerForTest())
-            .OfType<BMSFile>()];
+            .Select(entry => entry?.GetBmsChartForTest())
+            .OfType<ChartFile>()];
     }
 
-    internal static BMSFile GetBmsOwnerForTest(this PackageChartEntry entry)
+    internal static ChartFile GetBmsChartForTest(this PackageChartEntry entry)
     {
-        return entry?.Chart?.GetBmsStorageOwner()!;
+        return entry?.Chart?.Kind == ChartFileKind.Bms ? entry.Chart : null!;
     }
 }

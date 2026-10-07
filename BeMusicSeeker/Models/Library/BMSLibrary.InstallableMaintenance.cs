@@ -23,13 +23,13 @@ public partial class BMSLibrary
 
     private sealed class InstallableMaintenanceSnapshot
     {
-        internal InstallableMaintenanceSnapshot(List<BMSFile> files, int snapshotCount)
+        internal InstallableMaintenanceSnapshot(List<ChartFile> files, int snapshotCount)
         {
             Files = files;
             SnapshotCount = snapshotCount;
         }
 
-        internal List<BMSFile> Files { get; }
+        internal List<ChartFile> Files { get; }
 
         internal int SnapshotCount { get; }
     }
@@ -184,8 +184,8 @@ public partial class BMSLibrary
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<BMSFile> filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-            int snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count;
+            List<ChartFile> filesSnapshot = [.. (BmsCharts ?? []).Where(file => file != null)];
+            int snapshotCount = CreateOwnedChartCollectionViewUnsafe().Count;
             return new InstallableMaintenanceSnapshot(filesSnapshot, snapshotCount);
         }
     }

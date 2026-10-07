@@ -767,7 +767,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
 
                 TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
-                library.BMSFiles = [];
+                library.BmsCharts = [];
                 TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
                 var noPlayEntry = new TestablePlaylistEntry(
                     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -944,7 +944,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
 
                 TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
-                library.BMSFiles = [];
+                library.BmsCharts = [];
                 TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
                 var firstFolderNoPlay = new TestablePlaylistEntry(
                     "11111111111111111111111111111111",
@@ -1583,8 +1583,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             BMSLibrary library = new TestBmsLibrary(songDbPath);
             const string bmsMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string bmsonSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            var bmsFile = BMSFile.FromSongTableRawValues(CreateSongTableRow(bmsMd5, @"C:\Installed\bms-chart.bms"));
-            var bmsonIdentity = BMSFile.FromSongTableRawValues(CreateSongTableRow(null, @"C:\Installed\bmson-chart.bmson"));
+            ChartFile bmsFile = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(bmsMd5, @"C:\Installed\bms-chart.bms")));
+            ChartFile bmsonIdentity = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(null, @"C:\Installed\bmson-chart.bmson")));
             BMSTable table = new() { name = "Installed references", symbol = "P" };
             table.entries.Add(new BMSTableEntry(bmsFile));
             var bmsonTableEntry = new BMSTableEntry(bmsonIdentity);
@@ -1592,12 +1592,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             table.entries.Add(bmsonTableEntry);
             playlist.BMSTables.Add(table);
 
-            LR2SongDBExtended.bmson_song bmsonSong = new()
+            ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = @"C:\Installed\bmson-chart.bmson",
-                sha256 = bmsonSha256,
-                title = "Bmson chart",
-                artist = "Artist"
+                Path = @"C:\Installed\bmson-chart.bmson",
+                Sha256 = bmsonSha256,
+                RawTitle = "Bmson chart",
+                RawArtist = "Artist"
             };
             ChartPackage package = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
@@ -1605,7 +1605,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     @"C:\Installed",
                     "Bms chart",
                     "Artist"),
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong)));
+                PackageChartEntry.FromChart((bmsonSong)));
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,

@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -145,12 +144,12 @@ internal static class ChartInfoDisplayFormatter
         return string.Join(" ", names.Where(item => !string.IsNullOrEmpty(item)));
     }
 
-    internal static int? GetScratchNotes(LR2SongDBExtended.chart_info chartInfo)
+    internal static int? GetScratchNotes(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         return chartInfo == null ? (int?)null : chartInfo.s + chartInfo.ls;
     }
 
-    internal static double? GetTotalPerNote(LR2SongDBExtended.chart_info chartInfo)
+    internal static double? GetTotalPerNote(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         if (chartInfo == null || !chartInfo.total.HasValue || chartInfo.notes <= 0)
         {

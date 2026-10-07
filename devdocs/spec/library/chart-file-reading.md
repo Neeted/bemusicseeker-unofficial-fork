@@ -21,10 +21,12 @@
 | 読取り | `ChartFileContentReader.ReadBuffer(path)` | バイト列とファイル情報だけを読む |
 | ハッシュ生成 | `ChartFileContentReader.CreateSnapshot(buffer)` | 同じバイト列からMD5・SHA-256を計算する |
 | 小規模な互換入口 | `ReadSnapshot(path)` | 上記の二段階を続けて行う |
-| BMSの軽量解析 | `BMSFile.CreateBMSFileFromSnapshot` | 一覧用の基本情報とリソース参照を生成する |
-| BMSONの軽量解析 | `BmsonSongParser.ParseSnapshot` | 保存行の基本情報とリソース参照を生成する |
+| BMSの軽量解析 | `BmsChartFileParser.ParseSnapshot` | 共通基本値とリソース参照を直接生成する |
+| BMSONの軽量解析 | `BmsonChartFileParser.ParseSnapshot` | 共通基本値とリソース参照を直接生成する |
 | 詳細解析 | `ChartInfoParser.ParseBytesDetailed` | 譜面情報、診断、時間超過、解析失敗を生成する |
 | 文字コードによる再読解 | `ReloadBMSMetadataWithEncodingDetection` | 同じバイト列から表示用の基本情報を読み直す |
+
+基本解析の戻り値は `ChartFile` です。保存行を経由せず、同じ捕捉入力のbytes/hash/timeを使用します。生title/subtitle/artist/subartistを表示合成から復元せず、bmsonの元chart_nameはファイル入力からだけ得ます。保存行への変換はDB境界だけに置きます。
 
 パスだけを持つ既存処理と保留の生成では、パスを受ける互換APIを使えます。新しい大量処理で同じ譜面をハッシュ・軽量解析・詳細解析のために別々に読みません。長パスI/Oは専用の境界を通し、保存するパスに拡張長プレフィックスを含めません。
 
@@ -34,7 +36,7 @@
 
 初期化、全体の再初期化、軽量差分更新で追加・更新したファイルは、読取り、ハッシュ生成、軽量解析、保守情報・譜面情報の準備、DB確定、メモリ公開の順に扱います。
 
-読取りは `ChartFileReadPipelinePolicy` に従い、対象が複数でCPUが十分なら最大2並列とします。件数上限のある待ち行列で入力を制御し、ハッシュ計算は解析側で行います。個別の回復可能なI/O失敗は `FileScanFailures` と診断へ集約し、譜面ごとに初期化ダイアログを出しません。詳細解析の失敗だけでは、軽量解析で得た保存行の登録を止めません。
+読取りは `ChartFileReadPipelinePolicy` に従い、対象が複数でCPUが十分なら最大2並列とします。件数上限のある待ち行列で入力を制御し、ハッシュ計算は解析側で行います。個別の回復可能なI/O失敗は `FileScanFailures` と診断へ集約し、譜面ごとに初期化ダイアログを出しません。詳細解析の失敗だけでは、軽量解析で得た共通基本値の登録を止めません。
 
 軽量解析と後処理は別の並列段階です。後処理は一譜面分の変更不能な結果と保存用データを返し、共有の結果、現在のモデル、確定用状態を直接変更しません。一つの集約処理が入力順に件数、移動ハッシュ、モデル更新、譜面情報の公開、DBへの投入をまとめます。
 
@@ -53,7 +55,7 @@
 | 画面のファイル差分進捗 | 後処理がDBへ渡せる一譜面分のデータを作った件数。DB確定済み件数ではない |
 | DB書込み | 保存先への確定を終えた件数 |
 
-BMS追加とBMSON追加・更新を同じ進捗の対象に含めます。`song`、`bmson_song`、ハッシュ対応、情報・失敗、作成できた保守行を同じ確定単位へ渡し、成功後だけ保存主体、索引、警告を公開します。
+BMS追加とBMSON追加・更新を同じ進捗の対象に含めます。`song`、`bmson_song`、ハッシュ対応、情報・失敗、作成できた保守行を同じ確定単位へ渡し、成功後だけ共通現在値、索引、警告を公開します。
 
 完全に現在の既存情報を、ファイル差分の成果物へ全件保持しません。`file_diff_inline` の索引差分は新規・更新した情報だけであり、全体の情報索引は `chart_info_hydration` が更新します。ハッシュ不足などの修正対象が既存情報を再利用する場合は、その対象に必要な保存用適用結果を残します。
 
@@ -71,14 +73,14 @@ flowchart TB
     CommitQueue --> Batch["DB確定単位へまとめる"]
     Batch --> WriteQueue["上限付き待ち行列：確定単位"]
     WriteQueue --> Writer["単一DB書込み：確定単位ごとに接続・保存"]
-    Writer --> Apply["後続反映：確定済み差分を保存主体・索引へ反映"]
+    Writer --> Apply["後続反映：確定済み差分を共通現在値・索引へ反映"]
     Apply --> Publish["通知・警告を公開"]
     WriteQueue -. "満杯なら待つ" .-> Batch
     CommitQueue -. "満杯なら待つ" .-> Aggregate
     ResultQueue -. "満杯なら待つ" .-> Post
 ```
 
-DB書込みの完了だけをファイル差分全体の公開完了とは扱いません。確定済みの差分を後続の反映境界で保存主体・索引へ適用し、必要な通知・警告を公開します。後処理は現在のモデルを直接更新しません。詳細解析だけの失敗は基本行の登録を妨げず、失敗情報を保存候補に含めます。バイト列は解析後、リソース参照は保守行への集約後、保存用データは確定後に解放します。導入の一操作一セッションと、この差分走査のDB確定単位は別契約です。
+DB書込みの完了だけをファイル差分全体の公開完了とは扱いません。確定済みの差分を後続の反映境界で共通現在値・索引へ適用し、必要な通知・警告を公開します。後処理は現在のモデルを直接更新しません。詳細解析だけの失敗は基本行の登録を妨げず、失敗情報を保存候補に含めます。バイト列は解析後、リソース参照は保守行への集約後、保存用データは確定後に解放します。導入の一操作一セッションと、この差分走査のDB確定単位は別契約です。
 
 ### パス差分と利用者の保存値
 
@@ -92,7 +94,7 @@ DB書込みの完了だけをファイル差分全体の公開完了とは扱い
 
 ### リソース参照と文字コード
 
-軽量解析で得る両形式の不変な `Resources` は、同じ処理中の保守とLR2互換性評価まで共有します。抽出時に確定した `LookupKey` を音声・画像・動画別の索引へ照合し、元記述はLR2評価へ渡します。初期化・差分処理は既存の公開・確定境界までに両形式の結果を解放し、全件常駐や直後の再読取りを生みません。DB由来で未取得の既存譜面は、保守の既存入口で明示取得します。通常保守と強制再走査でも、各譜面の評価結果へ集約した後は保存主体の参照を解放し、保存成功後の状態へ戻しません。保存失敗の復元は処理開始前の状態だけを対象とし、その処理で新たに取得した参照を残しません。パッケージは評価に必要な期間だけ同じ結果を共有し、元バイト列を長期保持しません。参照の契約は[共通譜面](chart-model.md#譜面情報とリソース保守)に従います。
+軽量解析で得る両形式の不変な `Resources` は、同じ処理中の保守とLR2互換性評価まで共有します。抽出時に確定した `LookupKey` を音声・画像・動画別の索引へ照合し、元記述はLR2評価へ渡します。初期化・差分処理は既存の公開・確定境界までに両形式の結果を解放し、全件常駐や直後の再読取りを生みません。DB由来で未取得の既存譜面は、保守の既存入口で明示取得します。通常保守と強制再走査でも、各譜面の評価結果へ集約した後は適用する共通現在値のリソース参照を解放し、保存成功後の状態へ戻しません。捕捉済みの入力値とパッケージが共有する結果は変更しません。保存失敗では共通現在値を適用せず、その処理で新たに取得した短命な参照を残しません。パッケージは評価に必要な期間だけ同じ結果を共有し、元バイト列を長期保持しません。参照の契約は[共通譜面](chart-model.md#譜面情報とリソース保守)に従います。
 
 リソース索引にディレクトリがある場合は、その集合へ直接照合します。索引がない場合だけ共有の存在確認キャッシュを補助的に使います。同じディレクトリ・同じ要求集合で共有できるのは存在件数です。パス、ハッシュ、文字コード、定義数、LR2互換性、警告の無視状態、保守行全体を共有しません。画像でもstagefile・backbmp・bannerの役割は区別します。
 
@@ -134,7 +136,7 @@ LR2の `song_rows` も同じスナップショットと `Lr2SongRowEnricher.Crea
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 読取りの分担・上限・ハッシュ生成 | [`ChartFileContentReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartFileContentReader.cs)、[`ChartFileReadPipelinePolicy`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartFileReadPipelinePolicy.cs) | [`ChartFileReadPipelinePolicyTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartFileReadPipelinePolicyTests.cs) |
-| 明示取得、保守・互換性評価後の短命な参照解放 | [`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs)、[`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) は取得済み結果の再利用、時刻変更・強制更新・解析失敗の非保存と、評価後の保存主体の解放・Package側の必要期間共有を確認する。`UpdateMaintenanceInfo_BmsonDurableFailureRestoresOnlyOriginalResources` は通常・強制の保存失敗で処理開始前の状態だけを復元する保証を確認する。`ApplyFileScanDiff_AddsBmsPersistsInlineMaintenanceAndClearsResourceRefs` と `ApplyFileScanDiff_TracksBmsonAddsDeletesAndUpdatesDatabase` は保存後の両形式の解放を確認する。保存・解放までの同じバイト列と結果の共有、即座の再読取りがないことは静的に確認する。 |
+| 明示取得、保守・互換性評価後の短命な参照解放 | [`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs)、[`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) は取得済み結果の再利用、時刻変更・強制更新・解析失敗の非保存と、評価後の共通現在値の参照解放・Package側の必要期間共有を確認する。`UpdateMaintenanceInfo_BmsonDurableFailureRestoresOnlyOriginalResources` は通常・強制の保存失敗で処理開始前の捕捉値を保ち、新たな結果を適用しない保証を確認する。`ApplyFileScanDiff_AddsBmsPersistsInlineMaintenanceAndClearsResourceRefs` と `ApplyFileScanDiff_TracksBmsonAddsDeletesAndUpdatesDatabase` は保存後の両形式の解放を確認する。保存・解放までの同じバイト列と結果の共有、即座の再読取りがないことは静的に確認する。 |
 | 差分の順序、保存、進捗、個別失敗、保守と情報の同時生成 | [`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryInitializationInlineChartInfoTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInlineChartInfoTests.cs) |
 | 詳細情報の再利用、公開順序、補完時の限定更新 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs) | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) |
 | 導入先からの解析と失敗再利用 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs)、[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) |

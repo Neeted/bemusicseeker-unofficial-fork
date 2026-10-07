@@ -131,19 +131,20 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsFalse(initializationWriterHeldAtNotification);
         Assert.IsTrue(mutationAdmissionAvailable);
         Assert.IsTrue(Volatile.Read(ref subscriberFailureObserved) != 0);
-        Assert.IsTrue(library.BMSFiles.Any(file =>
-            string.Equals(file?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(library.BmsCharts.Any(file =>
+            string.Equals(file?.Path, chartPath, StringComparison.OrdinalIgnoreCase)));
 
         var synchronizationOwner =
             (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Lr2SongDbSyncInput scanInput = synchronizationOwner.CreateLr2SongDbSyncInput();
         Assert.IsTrue(scanInput.ScanSurfaceGeneration > 0);
-        Assert.AreEqual(library.OwnedChartCollectionVersion, scanInput.OwnedChartCollectionVersion);
+        Assert.AreEqual(library.OwnedCollectionVersion, scanInput.OwnedCollectionVersion);
         Assert.IsNotNull(synchronizationOwner.CommittedPathReceipt);
-        Assert.AreEqual(scanInput.BmsRowsVersion, synchronizationOwner.CommittedPathReceipt.BmsRowsVersion);
+        Assert.IsTrue(synchronizationOwner.CommittedPathReceipt.MatchesTargets(
+            synchronizationOwner.CommittedPathReceipt.CommittedCharts.Select(chart => library.BmsCharts.Single(current => current.Token == chart.Token)).ToArray()));
 
         using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-        Assert.IsTrue(verify.Table<BMSFile>().Any(row =>
+        Assert.IsTrue(verify.Table<LR2SongDB.song>().Any(row =>
             string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -193,7 +194,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         {
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
 
-            Assert.AreEqual(0, library.BmsonSongs.Count);
+            Assert.AreEqual(0, library.BmsonCharts.Count);
             int dialogCountBeforeMutation = dialogService.Calls.Count;
             library.RenameBMSFilesExtensions([], ".invalid");
             Assert.AreEqual(dialogCountBeforeMutation, dialogService.Calls.Count);
@@ -272,17 +273,17 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(Path.Combine(keepDirectoryPath, "keep.bms"), "#PLAYER 1\r\n#TITLE Keep\r\n");
             File.WriteAllText(Path.Combine(newDirectoryPath, "added.bms"), "#PLAYER 1\r\n#TITLE Added\r\n");
 
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = Path.Combine(keepDirectoryPath, "keep.bms")
+                Path = Path.Combine(keepDirectoryPath, "keep.bms")
             };
-            keepFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            keepFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(keepFile.path));
-            var deletedFile = new TestableBmsFile
+            keepFile = keepFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            keepFile = keepFile with { Date = ToUnixSeconds(File.GetLastWriteTimeUtc(keepFile.Path)) };
+            ChartFile deletedFile = ChartTestValues.Empty() with
             {
-                path = Path.Combine(lr2RootPath, "Deleted", "deleted.bms")
+                Path = Path.Combine(lr2RootPath, "Deleted", "deleted.bms")
             };
-            deletedFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            deletedFile = deletedFile with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
@@ -291,7 +292,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             int executeScanCount = 0;
             int catalogProjectionAppliedCount = 0;
             List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+                (keepFile),
                 staleDirectoryPath,
                 string.Empty,
                 string.Empty,
@@ -312,7 +313,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     ManagedMaterializeMs = 7L,
                     BridgeRawBufferBytes = 4096UL,
                     Result = CreateScanResult(
-                        [keepFile.path, Path.Combine(newDirectoryPath, "added.bms")],
+                        [keepFile.Path, Path.Combine(newDirectoryPath, "added.bms")],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { keepDirectoryPath, Array.Empty<string>() },
@@ -334,7 +335,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(result.HasDbDiff);
             Assert.AreEqual(1, result.FileDiffParserDegree);
             Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
-            CollectionAssert.Contains(result.DeletedPaths, deletedFile.path);
+            CollectionAssert.Contains(result.DeletedPaths, deletedFile.Path);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(2, result.NextFiles.Count);
             Assert.AreEqual(234L, result.NativeBridgeMs);
@@ -344,20 +345,20 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
             Assert.AreEqual(1, catalogProjectionAppliedCount);
             ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
-            Assert.AreSame(keepFile, installDestinationChange.GetBmsStorageOwner());
+            Assert.AreSame(keepFile.Token, installDestinationChange.Token);
             Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
-            List<BMSFile> dbFiles = [.. songDb.Table<BMSFile>()];
+            var dbFiles = songDb.Table<LR2SongDB.song>().ToList();
             Assert.AreEqual(1, dbFiles.Count);
             Assert.AreEqual(Path.Combine(newDirectoryPath, "added.bms"), dbFiles[0].path);
             List<LR2SongDBExtended.chart_digest_map> digestRows = [.. songDb.Table<LR2SongDBExtended.chart_digest_map>()];
             Assert.AreEqual(1, digestRows.Count);
             Assert.AreEqual(dbFiles[0].hash, digestRows[0].md5);
-            Assert.AreEqual(result.AddedFiles[0].sha256, digestRows[0].sha256);
+            Assert.AreEqual(result.AddedFiles[0].Sha256, digestRows[0].sha256);
         });
     }
 
@@ -418,16 +419,16 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
             File.WriteAllText(addedPath, "#PLAYER 1\r\n#TITLE Added\r\n");
 
-            var existingFile = new TestableBmsFile
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = existingPath
+                Path = existingPath
             };
-            existingFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            existingFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath));
+            existingFile = existingFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            existingFile = existingFile with { Date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath)) };
             ExecuteSongDbFixtureTransaction(songDbPath, songDbConnection =>
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             bool scanCompleted = false;
@@ -485,16 +486,16 @@ public sealed class BmsLibraryInitializationFileScanTests
             Directory.CreateDirectory(existingDirectoryPath);
             File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
 
-            var existingFile = new TestableBmsFile
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = existingPath
+                Path = existingPath
             };
-            existingFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            existingFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath));
+            existingFile = existingFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            existingFile = existingFile with { Date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath)) };
             ExecuteSongDbFixtureTransaction(songDbPath, songDbConnection =>
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             bool scanCompleted = false;
@@ -550,16 +551,16 @@ public sealed class BmsLibraryInitializationFileScanTests
             Directory.CreateDirectory(existingDirectoryPath);
             File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
 
-            var existingFile = new TestableBmsFile
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = existingPath
+                Path = existingPath
             };
-            existingFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            existingFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath));
+            existingFile = existingFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            existingFile = existingFile with { Date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath)) };
             ExecuteSongDbFixtureTransaction(songDbPath, songDbConnection =>
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             bool fileDiffStarted = false;
@@ -790,11 +791,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.AreEqual(0, result.FileScanFailures.Count);
             Assert.AreEqual(1, result.AddedFiles.Count);
-            Assert.AreEqual(bmsPath, result.AddedFiles[0].path);
-            Assert.IsTrue(result.AddedFiles[0].Warnings.Contains(ChartWarningKind.Lr2PathTooLong));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(BMSFile.DetectEncodingOfBMSFile(bmsPath)));
-            BMSFile.ReloadBMSFileWithEncoding(result.AddedFiles[0], "shift_jis");
-            Assert.AreEqual("Long Path", result.AddedFiles[0].title);
+            Assert.AreEqual(bmsPath, result.AddedFiles[0].Path);
+            Assert.IsTrue(result.AddedFiles[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathTooLong));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(bmsPath).Bytes).EncodingName));
+            result.AddedFiles[0] = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(result.AddedFiles[0].Path), result.AddedFiles[0], "shift_jis");
+            Assert.AreEqual("Long Path", result.AddedFiles[0].RawTitle);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
@@ -844,8 +845,8 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.AreEqual(0, result.FileScanFailures.Count);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
-            Assert.AreEqual(bmsonPath, result.AddedBmsonSongs[0].path);
-            Assert.AreEqual("Long Bmson", result.AddedBmsonSongs[0].title);
+            Assert.AreEqual(bmsonPath, result.AddedBmsonSongs[0].Path);
+            Assert.AreEqual("Long Bmson", result.AddedBmsonSongs[0].RawTitle);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = ?;", bmsonPath));
@@ -913,16 +914,16 @@ public sealed class BmsLibraryInitializationFileScanTests
             Directory.CreateDirectory(Path.GetDirectoryName(keepBmsonPath)!);
             File.WriteAllText(keepBmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
 
-            LR2SongDBExtended.bmson_song keepSong = BmsonSongParser.Parse(keepBmsonPath);
+            ChartFile keepSong = ChartTestValues.ReadBmson(keepBmsonPath);
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(keepSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keepSong), typeof(LR2SongDBExtended.bmson_song));
             });
 
             List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsonSong(keepSong, includeWarningSnapshot: false),
+                (keepSong),
                 staleDirectoryPath,
                 string.Empty,
                 string.Empty,
@@ -955,7 +956,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             ProjectCatalogState(result, [], [keepSong], cleanupCharts);
 
             ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
-            Assert.AreSame(keepSong, installDestinationChange.GetBmsonStorageOwner());
+            Assert.AreSame(keepSong.Token, installDestinationChange.Token);
             Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
         });
     }
@@ -1443,16 +1444,16 @@ public sealed class BmsLibraryInitializationFileScanTests
             ProjectCatalogState(result, []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
-            BMSFile added = result.AddedFiles[0];
-            Assert.IsFalse(string.IsNullOrWhiteSpace(added.folder));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(added.parent));
-            Assert.IsTrue(added.parent.Length <= 8);
-            Assert.IsFalse(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
-            Assert.AreEqual(0, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(file.parent)));
+            ChartFile added = result.AddedFiles[0];
+            Assert.IsFalse(string.IsNullOrWhiteSpace(added.Folder));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(added).parent));
+            Assert.IsTrue(ChartSongStorageMapping.ToBmsRow(added).parent.Length <= 8);
+            Assert.IsFalse(added.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+            Assert.AreEqual(0, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(file).parent)));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(added.folder, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
-            Assert.AreEqual(added.parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(bmsPath)), verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(ChartSongStorageMapping.ToBmsRow(added).parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
         });
     }
 
@@ -1495,12 +1496,12 @@ public sealed class BmsLibraryInitializationFileScanTests
             ProjectCatalogState(result, []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
-            BMSFile added = result.AddedFiles[0];
-            Assert.IsTrue(string.IsNullOrWhiteSpace(added.folder));
-            Assert.IsTrue(string.IsNullOrWhiteSpace(added.parent));
-            Assert.IsTrue(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
-            StringAssert.Contains(added.Warnings.BuildTooltipText(), "Shift_JIS");
-            Assert.AreEqual(1, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(file.parent)));
+            ChartFile added = result.AddedFiles[0];
+            Assert.AreEqual(Path.GetFileName(Path.GetDirectoryName(bmsPath)), added.Folder);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(added).parent));
+            Assert.IsTrue(added.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+            StringAssert.Contains(ChartWarningCollection.BuildTooltipText(added.Warnings), "Shift_JIS");
+            Assert.AreEqual(1, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(file).parent)));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
@@ -1540,22 +1541,22 @@ public sealed class BmsLibraryInitializationFileScanTests
     public void SongTableFileCheckResult_ReleasePostApplyTransientBuffers_ClearsTransientListsOnly()
     {
         var result = new SongTableFileCheckResult();
-        var added = new BMSFile();
-        var addedBmson = new LR2SongDBExtended.bmson_song();
-        var next = new BMSFile();
-        var nextBmson = new LR2SongDBExtended.bmson_song();
+        ChartFile added = ChartTestValues.Empty();
+        ChartFile addedBmson = ChartTestValues.Empty();
+        ChartFile next = ChartTestValues.Empty();
+        ChartFile nextBmson = ChartTestValues.Empty();
         result.Pragmas.Add("pragma");
         result.AddedFiles.Add(added);
         result.AddedBmsonSongs.Add(addedBmson);
-        result.InlineChartInfoRows.Add(new LR2SongDBExtended.chart_info());
-        result.InlineChartInfoAppliedRows.Add(new LR2SongDBExtended.chart_info());
-        result.InlineChartInfoParseFailureRows.Add(new LR2SongDBExtended.chart_info_parse_failure());
+        result.InlineChartInfoRows.Add(new BeMusicSeeker.Models.ChartDetails());
+        result.InlineChartInfoAppliedRows.Add(new BeMusicSeeker.Models.ChartDetails());
+        result.InlineChartInfoParseFailureRows.Add(new BeMusicSeeker.Models.ChartParseFailure());
         result.InlineChartInfoParseFailureDeleteMd5s.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         result.FileScanFailures.Add(new ChartFileScanFailure("failed.bms", "bms", "read", "IOException", "failed"));
         result.DeletedPaths.Add("deleted.bms");
         result.DeletedBmsonPaths.Add("deleted.bmson");
         result.ClearedInstallDestinationCharts.Add(
-            ChartFileProjection.FromBmsFile(new BMSFile { path = "cleared.bms" }));
+            ((ChartTestValues.Empty() with { Path = "cleared.bms" })));
         result.NextFiles.Add(next);
         result.NextBmsonSongs.Add(nextBmson);
         result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
@@ -1653,11 +1654,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             Directory.CreateDirectory(chartDirectoryPath);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Keep\r\n");
 
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = chartPath
+                Path = chartPath
             };
-            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
+            keepFile = keepFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)).Md5 };
 
             uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\sound");
             uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash("bg");
@@ -1779,11 +1780,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             Directory.CreateDirectory(chartDirectoryPath);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Keep\r\n");
 
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = chartPath
+                Path = chartPath
             };
-            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
+            keepFile = keepFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)).Md5 };
 
             uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\sound");
             uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("movie");
@@ -1845,23 +1846,23 @@ public sealed class BmsLibraryInitializationFileScanTests
             Directory.CreateDirectory(Path.GetDirectoryName(deletedChartPath)!);
             File.WriteAllText(deletedChartPath, "#PLAYER 1\r\n#TITLE Deleted\r\n");
 
-            var deletedFile = new TestableBmsFile
+            ChartFile deletedFile = ChartTestValues.Empty() with
             {
-                path = deletedChartPath
+                Path = deletedChartPath
             };
-            var source = BMSFile.CreateBMSFileFromFile(deletedChartPath);
-            deletedFile.SetHash(source.hash);
-            deletedFile.SetSha256(source.sha256);
+            ChartFile source = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(deletedChartPath));
+            deletedFile = deletedFile with { Md5 = source.Md5 };
+            deletedFile = deletedFile with { Sha256 = source.Sha256 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(deletedFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(deletedFile), typeof(LR2SongDB.song));
                 songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
                 {
-                    md5 = deletedFile.hash,
-                    sha256 = deletedFile.sha256
+                    md5 = deletedFile.Md5,
+                    sha256 = deletedFile.Sha256
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             });
 
@@ -1882,7 +1883,7 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + deletedFile.hash + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + deletedFile.Md5 + "';"));
         });
     }
 
@@ -1899,31 +1900,31 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(keepChartPath, "#PLAYER 1\r\n#TITLE Same\r\n");
             File.Copy(keepChartPath, deletedChartPath, overwrite: true);
 
-            var sourceKeep = BMSFile.CreateBMSFileFromFile(keepChartPath);
-            var sourceDeleted = BMSFile.CreateBMSFileFromFile(deletedChartPath);
-            var keepFile = new TestableBmsFile
+            ChartFile sourceKeep = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(keepChartPath));
+            ChartFile sourceDeleted = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(deletedChartPath));
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = keepChartPath
+                Path = keepChartPath
             };
-            keepFile.SetHash(sourceKeep.hash);
-            keepFile.SetSha256(sourceKeep.sha256);
-            var deletedFile = new TestableBmsFile
+            keepFile = keepFile with { Md5 = sourceKeep.Md5 };
+            keepFile = keepFile with { Sha256 = sourceKeep.Sha256 };
+            ChartFile deletedFile = ChartTestValues.Empty() with
             {
-                path = deletedChartPath
+                Path = deletedChartPath
             };
-            deletedFile.SetHash(sourceDeleted.hash);
-            deletedFile.SetSha256(sourceDeleted.sha256);
+            deletedFile = deletedFile with { Md5 = sourceDeleted.Md5 };
+            deletedFile = deletedFile with { Sha256 = sourceDeleted.Sha256 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(deletedFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(deletedFile), typeof(LR2SongDB.song));
                 songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
                 {
-                    md5 = keepFile.hash,
-                    sha256 = keepFile.sha256
+                    md5 = keepFile.Md5,
+                    sha256 = keepFile.Sha256
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             });
 
@@ -1949,7 +1950,7 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + keepFile.hash + "';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + keepFile.Md5 + "';"));
         });
     }
 
@@ -1965,17 +1966,17 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(chartAPath, "#PLAYER 1\r\n#TITLE A\r\n");
             File.WriteAllText(chartBPath, "#PLAYER 1\r\n#TITLE B\r\n");
 
-            var chartA = new TestableBmsFile
+            ChartFile chartA = ChartTestValues.Empty() with
             {
-                path = chartAPath
+                Path = chartAPath
             };
-            chartA.SetHash(BMSFile.CreateBMSFileFromFile(chartAPath).hash);
-            var chartB = new TestableBmsFile
+            chartA = chartA with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartAPath)).Md5 };
+            ChartFile chartB = ChartTestValues.Empty() with
             {
-                path = chartBPath
+                Path = chartBPath
             };
-            chartB.SetHash(BMSFile.CreateBMSFileFromFile(chartBPath).hash);
-            chartB.SetSha256(new string('c', 64));
+            chartB = chartB with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartBPath)).Md5 };
+            chartB = chartB with { Sha256 = new string('c', 64) };
 
             var service = new BmsLibraryInitializationService();
             List<(int Total, int Processed, string Path)> progress = [];
@@ -1987,15 +1988,17 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.FailedCount);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(chartA.sha256));
-            Assert.AreEqual(new string('c', 64), chartB.sha256);
+            Assert.IsNull(chartA.Sha256);
+            chartA = result.ChangedCharts.Single();
+            Assert.IsFalse(string.IsNullOrWhiteSpace(chartA.Sha256));
+            Assert.AreEqual(new string('c', 64), chartB.Sha256);
             Assert.IsTrue(progress.Any((item) => item.Total == 1 && item.Processed == 1));
 
             using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDBExtended.chart_digest_map> rows = [.. songDb.Table<LR2SongDBExtended.chart_digest_map>()];
             Assert.AreEqual(1, rows.Count);
-            Assert.AreEqual(chartA.hash, rows[0].md5);
-            Assert.AreEqual(chartA.sha256, rows[0].sha256);
+            Assert.AreEqual(chartA.Md5, rows[0].md5);
+            Assert.AreEqual(chartA.Sha256, rows[0].sha256);
         });
     }
 
@@ -2013,22 +2016,22 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(keepBmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
             File.WriteAllText(addedBmsonPath, CreateBmsonJson("Added", "", "", "Artist", "Genre", 7, "beat-7k"));
 
-            LR2SongDBExtended.bmson_song keepSong = BmsonSongParser.Parse(keepBmsonPath);
-            var deletedSong = new LR2SongDBExtended.bmson_song
+            ChartFile keepSong = ChartTestValues.ReadBmson(keepBmsonPath);
+            ChartFile deletedSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = deletedBmsonPath,
-                folder = Path.GetDirectoryName(deletedBmsonPath),
-                title = "Deleted",
-                md5 = new string('a', 32),
-                sha256 = new string('b', 64),
-                updated_at = DateTime.UtcNow.AddDays(-1)
+                Path = deletedBmsonPath,
+                Folder = Path.GetDirectoryName(deletedBmsonPath),
+                RawTitle = "Deleted",
+                Md5 = new string('a', 32),
+                Sha256 = new string('b', 64),
+                LastWriteTimeUtc = DateTime.UtcNow.AddDays(-1)
             };
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(keepSong, typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(deletedSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keepSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(deletedSong), typeof(LR2SongDBExtended.bmson_song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2064,20 +2067,20 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsNull(result.AddedBmsonSongs[0].Resources);
             Assert.AreEqual(1, result.InlineMaintenanceBmsonCount);
             Assert.AreEqual(1, result.InlineMaintenanceSuccessCount);
-            Assert.IsTrue(result.AddedBmsonSongs[0].MaintenanceInfo.IsInformationChecked());
+            Assert.IsTrue(result.AddedBmsonSongs[0].ResourceHealthMaintenanceSnapshot.IsInformationChecked);
             Assert.AreEqual(2, result.NextBmsonSongs.Count);
-            Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.Path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.NextBmsonSongs.Any(song => string.Equals(song.Path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            List<LR2SongDBExtended.bmson_song> rows = [.. verify.Table<LR2SongDBExtended.bmson_song>()];
+            var rows = verify.Table<LR2SongDBExtended.bmson_song>().ToList();
             Assert.AreEqual(2, rows.Count);
             Assert.IsTrue(rows.Any(song => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(rows.Any(song => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsFalse(rows.Any(song => string.Equals(song.path, deletedBmsonPath, StringComparison.OrdinalIgnoreCase)));
-            BMSFileMaintenanceInfo savedHealth = verify.Table<BMSFileMaintenanceInfo>().Single(info => info.path == addedBmsonPath);
-            Assert.AreEqual(result.AddedBmsonSongs[0].md5, savedHealth.hash);
-            Assert.IsTrue(savedHealth.IsInformationChecked());
+            LR2SongDBExtended.maintenance savedHealth = verify.Table<LR2SongDBExtended.maintenance>().Single(info => info.path == addedBmsonPath);
+            Assert.AreEqual(result.AddedBmsonSongs[0].Md5, savedHealth.hash);
+            Assert.IsTrue(MaintenanceStorageMapping.ToCommon(savedHealth).IsInformationChecked);
         });
     }
 
@@ -2093,22 +2096,23 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            var existingFile = new TestableBmsFile
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(oldTimestamp),
-                adddate = 12345,
-                tag = "keep"
+                Path = bmsPath,
+                Date = ToUnixSeconds(oldTimestamp),
+                AddDate = 12345,
+                Tag = "keep"
             };
-            existingFile.SetHash(BMSFile.CreateBMSFileFromFile(bmsPath).hash);
-            existingFile.SetFavorite(1);
+            existingFile = existingFile with { Token = new OwnedChartToken() };
+            existingFile = existingFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath)).Md5 };
+            existingFile = existingFile with { Favorite = 1 };
             File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2136,10 +2140,10 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.BmsDateOnlyUpdateCount);
             Assert.AreEqual(0, result.AddedFiles.Count);
             Assert.AreEqual(1, result.NextFiles.Count);
-            Assert.AreSame(existingFile, result.NextFiles[0]);
-            Assert.AreEqual(ToUnixSeconds(newTimestamp), existingFile.date);
-            Assert.AreEqual(12345, existingFile.adddate);
-            Assert.AreEqual("keep", existingFile.tag);
+            Assert.AreNotSame(existingFile, result.NextFiles[0]);
+            Assert.AreEqual(ToUnixSeconds(newTimestamp), result.NextFiles[0].Date);
+            Assert.AreEqual(12345, existingFile.AddDate);
+            Assert.AreEqual("keep", existingFile.Tag);
             Assert.IsTrue(result.HasDbDiff);
             Assert.IsFalse(result.CommittedLr2SongDbSyncBmsPaths.Any(path =>
                 string.Equals(path, bmsPath, StringComparison.OrdinalIgnoreCase)));
@@ -2165,25 +2169,25 @@ public sealed class BmsLibraryInitializationFileScanTests
             DateTime oldTimestamp = new(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             DateTime newTimestamp = new(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var existingFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(oldTimestamp),
-                adddate = 654321,
-                tag = "preserve-date-only-user-data"
+                Path = bmsPath,
+                Date = ToUnixSeconds(oldTimestamp),
+                AddDate = 654321,
+                Tag = "preserve-date-only-user-data"
             };
-            existingFile.SetHash(parsed.hash);
-            existingFile.SetFavorite(6);
-            existingFile.title = "Stale Generated Title";
-            existingFile.artist = "Stale Generated Artist";
+            existingFile = existingFile with { Md5 = parsed.Md5 };
+            existingFile = existingFile with { Favorite = 6 };
+            existingFile = existingFile with { RawTitle = "Stale Generated Title" };
+            existingFile = existingFile with { RawArtist = "Stale Generated Artist" };
             File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             SongTableFileCheckResult fileDiffResult = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1).ApplyFileScanDiff(
@@ -2259,22 +2263,22 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            var existingFile = new TestableBmsFile
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(oldTimestamp),
-                adddate = 12345,
-                tag = "keep"
+                Path = bmsPath,
+                Date = ToUnixSeconds(oldTimestamp),
+                AddDate = 12345,
+                Tag = "keep"
             };
-            existingFile.SetHash(BMSFile.CreateBMSFileFromFile(bmsPath).hash);
-            existingFile.SetFavorite(1);
+            existingFile = existingFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath)).Md5 };
+            existingFile = existingFile with { Favorite = 1 };
             File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2305,9 +2309,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.AddedFiles.Count);
             Assert.AreEqual(1, result.NextFiles.Count);
             Assert.AreSame(existingFile, result.NextFiles[0]);
-            Assert.AreEqual(ToUnixSeconds(oldTimestamp), existingFile.date);
-            Assert.AreEqual(12345, existingFile.adddate);
-            Assert.AreEqual("keep", existingFile.tag);
+            Assert.AreEqual(ToUnixSeconds(oldTimestamp), existingFile.Date);
+            Assert.AreEqual(12345, existingFile.AddDate);
+            Assert.AreEqual("keep", existingFile.Tag);
             Assert.IsFalse(result.HasDbDiff);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -2331,24 +2335,24 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var existingFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(oldTimestamp),
-                adddate = 12345,
-                tag = "keep"
+                Path = bmsPath,
+                Date = ToUnixSeconds(oldTimestamp),
+                AddDate = 12345,
+                Tag = "keep"
             };
-            existingFile.SetHash(parsed.hash);
-            existingFile.SetFavorite(1);
-            existingFile.SetTextGroupFlagForTest(0);
+            existingFile = existingFile with { Md5 = parsed.Md5 };
+            existingFile = existingFile with { Favorite = 1 };
+            existingFile = existingFile with { Txt = 0 };
             File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2382,10 +2386,10 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.BmsTextOnlyUpdateCount);
             Assert.AreEqual(0, result.AddedFiles.Count);
             Assert.AreSame(existingFile, result.NextFiles.Single());
-            Assert.AreEqual(ToUnixSeconds(oldTimestamp), existingFile.date);
-            Assert.AreEqual(0, existingFile.txt);
-            Assert.AreEqual(12345, existingFile.adddate);
-            Assert.AreEqual("keep", existingFile.tag);
+            Assert.AreEqual(ToUnixSeconds(oldTimestamp), existingFile.Date);
+            Assert.AreEqual(0, existingFile.Txt);
+            Assert.AreEqual(12345, existingFile.AddDate);
+            Assert.AreEqual("keep", existingFile.Tag);
             Assert.IsFalse(result.HasDbDiff);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -2409,16 +2413,16 @@ public sealed class BmsLibraryInitializationFileScanTests
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
-            var oldParsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var existingFile = new TestableBmsFile
+            ChartFile oldParsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(oldTimestamp),
-                adddate = 23456,
-                tag = "preserve"
+                Path = bmsPath,
+                Date = ToUnixSeconds(oldTimestamp),
+                AddDate = 23456,
+                Tag = "preserve"
             };
-            existingFile.SetHash(oldParsed.hash);
-            existingFile.SetFavorite(1);
+            existingFile = existingFile with { Md5 = oldParsed.Md5 };
+            existingFile = existingFile with { Favorite = 1 };
 
             File.WriteAllText(bmsPath, CreateValidBmsText("New"), Encoding.ASCII);
             File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
@@ -2427,7 +2431,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2455,11 +2459,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(1, result.NextFiles.Count);
-            Assert.AreEqual("New", result.NextFiles[0].title);
-            Assert.AreEqual(ToUnixSeconds(newTimestamp), result.NextFiles[0].date);
-            Assert.AreEqual(23456, result.NextFiles[0].adddate);
-            Assert.AreEqual("preserve", result.NextFiles[0].tag);
-            Assert.AreNotEqual(oldParsed.hash, result.NextFiles[0].hash);
+            Assert.AreEqual("New", result.NextFiles[0].RawTitle);
+            Assert.AreEqual(ToUnixSeconds(newTimestamp), result.NextFiles[0].Date);
+            Assert.AreEqual(23456, result.NextFiles[0].AddDate);
+            Assert.AreEqual("preserve", result.NextFiles[0].Tag);
+            Assert.AreNotEqual(oldParsed.Md5, result.NextFiles[0].Md5);
             Assert.IsTrue(result.HasDbDiff);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -2506,38 +2510,26 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
             var timestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath, timestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(newPath);
-            var existingFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(newPath));
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = oldPath,
-                date = ToUnixSeconds(timestamp.AddDays(-1)),
-                adddate = 34567,
-                tag = "moved-tag"
+                Path = oldPath,
+                Date = ToUnixSeconds(timestamp.AddDays(-1)),
+                AddDate = 34567,
+                Tag = "moved-tag"
             };
-            existingFile.SetHash(parsed.hash);
-            existingFile.SetFavorite(3);
-            existingFile.SetTextGroupFlagForTest(0);
+            existingFile = existingFile with { Md5 = parsed.Md5 };
+            existingFile = existingFile with { Favorite = 3 };
+            existingFile = existingFile with { Txt = 0 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-                {
-                    path = oldPath,
-                    hash = parsed.hash,
-                    encoding = "shift_jis",
-                    wav_files_defined = 1,
-                    wav_files_existing = 1
-                }, typeof(LR2SongDBExtended.maintenance));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-                {
-                    path = staleMaintenancePath,
-                    hash = parsed.hash,
-                    encoding = "shift_jis"
-                }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = oldPath, hash = parsed.Md5, encoding = "shift_jis", wav_files_defined = 1, wav_files_existing = 1 }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = staleMaintenancePath, hash = parsed.Md5, encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
             });
 
             var options = new BmsLibraryOptionsSnapshot
@@ -2577,31 +2569,31 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, first.AddedFiles.Count);
             Assert.IsTrue(first.HasDbDiff);
             CollectionAssert.Contains(first.DeletedPaths, oldPath);
-            Assert.AreEqual(oldPath, existingFile.path);
-            Assert.AreEqual(ToUnixSeconds(timestamp.AddDays(-1)), existingFile.date);
-            Assert.AreEqual(0, existingFile.txt);
-            Assert.AreEqual(34567, existingFile.adddate);
-            Assert.AreEqual("moved-tag", existingFile.tag);
+            Assert.AreEqual(oldPath, existingFile.Path);
+            Assert.AreEqual(ToUnixSeconds(timestamp.AddDays(-1)), existingFile.Date);
+            Assert.AreEqual(0, existingFile.Txt);
+            Assert.AreEqual(34567, existingFile.AddDate);
+            Assert.AreEqual("moved-tag", existingFile.Tag);
 
-            BMSFile moved = first.NextFiles.Single();
-            Assert.AreEqual(newPath, moved.path);
-            Assert.AreEqual(parsed.hash, moved.hash);
-            Assert.AreEqual("Moved Same Md5", moved.title);
-            Assert.AreEqual(ToUnixSeconds(timestamp), moved.date);
-            BMSFileMaintenanceInfo movedMaintenance = moved.TryGetMaintenanceInfoWithoutCreating();
+            ChartFile moved = first.NextFiles.Single();
+            Assert.AreEqual(newPath, moved.Path);
+            Assert.AreEqual(parsed.Md5, moved.Md5);
+            Assert.AreEqual("Moved Same Md5", moved.RawTitle);
+            Assert.AreEqual(ToUnixSeconds(timestamp), moved.Date);
+            ResourceHealthMaintenanceSnapshot movedMaintenance = moved.ResourceHealthMaintenanceSnapshot;
             Assert.IsNotNull(movedMaintenance);
-            Assert.AreEqual(1, movedMaintenance.wav_files_defined);
-            Assert.AreEqual(0, movedMaintenance.wav_files_existing);
-            Assert.AreEqual(1, moved.txt);
+            Assert.AreEqual(1, movedMaintenance.WavFilesDefined);
+            Assert.AreEqual(0, movedMaintenance.WavFilesExisting);
+            Assert.AreEqual(1, moved.Txt);
             Assert.AreEqual(
-                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(newPath)),
-                moved.folder);
+                Path.GetFileName(Path.GetDirectoryName(newPath)),
+                moved.Folder);
             Assert.AreEqual(
                 Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath),
-                moved.parent);
-            Assert.AreEqual(3, moved.favorite);
-            Assert.AreEqual(34567, moved.adddate);
-            Assert.AreEqual("moved-tag", moved.tag);
+                ChartSongStorageMapping.ToBmsRow(moved).parent);
+            Assert.AreEqual(3, moved.Favorite);
+            Assert.AreEqual(34567, moved.AddDate);
+            Assert.AreEqual("moved-tag", moved.Tag);
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
@@ -2609,7 +2601,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 LR2SongDB.song row = verify.Find<LR2SongDB.song>(newPath);
                 Assert.IsNotNull(row);
                 Assert.AreEqual(newPath, row.path);
-                Assert.AreEqual(parsed.hash, row.hash);
+                Assert.AreEqual(parsed.Md5, row.hash);
                 Assert.AreEqual("Moved Same Md5", row.title);
                 Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
                 Assert.AreEqual(
@@ -2625,7 +2617,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", oldPath));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", newPath));
-                Assert.AreEqual(parsed.hash, verify.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", newPath));
+                Assert.AreEqual(parsed.Md5, verify.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", newPath));
                 LR2SongDBExtended.maintenance currentMaintenance = verify.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == newPath);
                 Assert.AreEqual(1, currentMaintenance.wav_files_defined);
                 Assert.AreEqual(0, currentMaintenance.wav_files_existing);
@@ -2647,17 +2639,17 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, second.BmsMovedHashRelinkCount);
             Assert.AreEqual(0, second.BmsMovedHashRelinkAmbiguousCount);
             Assert.IsFalse(second.HasDbDiff);
-            BMSFile reapplied = second.NextFiles.Single();
-            Assert.AreEqual(newPath, reapplied.path);
-            Assert.AreEqual(ToUnixSeconds(timestamp), reapplied.date);
-            BMSFileMaintenanceInfo reappliedMaintenance = reapplied.TryGetMaintenanceInfoWithoutCreating();
+            ChartFile reapplied = second.NextFiles.Single();
+            Assert.AreEqual(newPath, reapplied.Path);
+            Assert.AreEqual(ToUnixSeconds(timestamp), reapplied.Date);
+            ResourceHealthMaintenanceSnapshot reappliedMaintenance = reapplied.ResourceHealthMaintenanceSnapshot;
             Assert.IsNotNull(reappliedMaintenance);
-            Assert.AreEqual(1, reappliedMaintenance.wav_files_defined);
-            Assert.AreEqual(0, reappliedMaintenance.wav_files_existing);
-            Assert.AreEqual(1, reapplied.txt);
-            Assert.AreEqual(3, reapplied.favorite);
-            Assert.AreEqual(34567, reapplied.adddate);
-            Assert.AreEqual("moved-tag", reapplied.tag);
+            Assert.AreEqual(1, reappliedMaintenance.WavFilesDefined);
+            Assert.AreEqual(0, reappliedMaintenance.WavFilesExisting);
+            Assert.AreEqual(1, reapplied.Txt);
+            Assert.AreEqual(3, reapplied.Favorite);
+            Assert.AreEqual(34567, reapplied.AddDate);
+            Assert.AreEqual("moved-tag", reapplied.Tag);
 
             using LR2SongDBExtended verifyAfterReapply = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verifyAfterReapply.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
@@ -2692,35 +2684,34 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(currentPath, bmsText, Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 3, 1, 30, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(currentPath, timestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(currentPath);
-            var staleSource = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(currentPath));
+            ChartFile staleSource = ChartTestValues.Empty() with
             {
-                path = oldPath,
-                date = ToUnixSeconds(timestamp.AddDays(-1)),
-                adddate = 34567,
-                tag = "stale-source"
+                Path = oldPath,
+                Date = ToUnixSeconds(timestamp.AddDays(-1)),
+                AddDate = 34567,
+                Tag = "stale-source"
             };
-            staleSource.SetHash(parsed.hash);
-            staleSource.SetFavorite(3);
-            var currentDestination = new TestableBmsFile
+            staleSource = staleSource with { Md5 = parsed.Md5 };
+            staleSource = staleSource with { Favorite = 3 };
+            ChartFile currentDestination = ChartTestValues.Empty() with
             {
-                path = currentPath,
-                date = ToUnixSeconds(timestamp),
-                adddate = 76543,
-                tag = "current-destination",
-                txt = 1,
-                folder = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(currentPath)),
-                parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath)
+                Path = currentPath,
+                Date = ToUnixSeconds(timestamp),
+                AddDate = 76543,
+                Tag = "current-destination",
+                Txt = 1,
+                Folder = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(currentPath))
             };
-            currentDestination.SetHash(parsed.hash);
-            currentDestination.SetFavorite(9);
+            currentDestination = currentDestination with { Md5 = parsed.Md5 };
+            currentDestination = currentDestination with { Favorite = 9 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(staleSource, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(currentDestination, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(staleSource), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(currentDestination, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath)), typeof(LR2SongDB.song));
             });
 
             var options = new BmsLibraryOptionsSnapshot
@@ -2758,12 +2749,12 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(first.HasDbDiff);
             CollectionAssert.Contains(first.DeletedPaths, oldPath);
             Assert.AreEqual(1, first.NextFiles.Count);
-            BMSFile firstDestination = first.NextFiles.Single();
-            Assert.AreEqual(currentPath, firstDestination.path);
-            Assert.AreEqual(parsed.hash, firstDestination.hash);
-            Assert.AreEqual(9, firstDestination.favorite);
-            Assert.AreEqual(76543, firstDestination.adddate);
-            Assert.AreEqual("current-destination", firstDestination.tag);
+            ChartFile firstDestination = first.NextFiles.Single();
+            Assert.AreEqual(currentPath, firstDestination.Path);
+            Assert.AreEqual(parsed.Md5, firstDestination.Md5);
+            Assert.AreEqual(9, firstDestination.Favorite);
+            Assert.AreEqual(76543, firstDestination.AddDate);
+            Assert.AreEqual("current-destination", firstDestination.Tag);
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
@@ -2771,7 +2762,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", currentPath));
                 LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
                 Assert.AreEqual(currentPath, row.path);
-                Assert.AreEqual(parsed.hash, row.hash);
+                Assert.AreEqual(parsed.Md5, row.hash);
                 Assert.AreEqual(9, row.favorite);
                 Assert.AreEqual(76543, row.adddate);
                 Assert.AreEqual("current-destination", row.tag);
@@ -2802,32 +2793,32 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(newPath, bmsText, Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 3, 2, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath, timestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(newPath);
-            var existingFile1 = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(newPath));
+            ChartFile existingFile1 = ChartTestValues.Empty() with
             {
-                path = oldPath1,
-                date = ToUnixSeconds(timestamp.AddDays(-1)),
-                adddate = 34567,
-                tag = "source-a"
+                Path = oldPath1,
+                Date = ToUnixSeconds(timestamp.AddDays(-1)),
+                AddDate = 34567,
+                Tag = "source-a"
             };
-            existingFile1.SetHash(parsed.hash);
-            existingFile1.SetFavorite(3);
-            var existingFile2 = new TestableBmsFile
+            existingFile1 = existingFile1 with { Md5 = parsed.Md5 };
+            existingFile1 = existingFile1 with { Favorite = 3 };
+            ChartFile existingFile2 = ChartTestValues.Empty() with
             {
-                path = oldPath2,
-                date = ToUnixSeconds(timestamp.AddDays(-1)),
-                adddate = 45678,
-                tag = "source-b"
+                Path = oldPath2,
+                Date = ToUnixSeconds(timestamp.AddDays(-1)),
+                AddDate = 45678,
+                Tag = "source-b"
             };
-            existingFile2.SetHash(parsed.hash);
-            existingFile2.SetFavorite(4);
+            existingFile2 = existingFile2 with { Md5 = parsed.Md5 };
+            existingFile2 = existingFile2 with { Favorite = 4 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile1, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(existingFile2, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile1), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile2), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2855,13 +2846,13 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(2, result.BmsDeletedTargetCount);
             Assert.AreEqual(0, result.BmsMovedHashRelinkCount);
             Assert.AreEqual(1, result.BmsMovedHashRelinkAmbiguousCount);
-            BMSFile moved = result.NextFiles.Single();
-            Assert.AreEqual(newPath, moved.path);
-            Assert.IsNull(moved.favorite);
-            Assert.AreNotEqual(34567, moved.adddate);
-            Assert.AreNotEqual(45678, moved.adddate);
-            Assert.AreNotEqual("source-a", moved.tag);
-            Assert.AreNotEqual("source-b", moved.tag);
+            ChartFile moved = result.NextFiles.Single();
+            Assert.AreEqual(newPath, moved.Path);
+            Assert.IsNull(moved.Favorite);
+            Assert.AreNotEqual(34567, moved.AddDate);
+            Assert.AreNotEqual(45678, moved.AddDate);
+            Assert.AreNotEqual("source-a", moved.Tag);
+            Assert.AreNotEqual("source-b", moved.Tag);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
@@ -2901,22 +2892,22 @@ public sealed class BmsLibraryInitializationFileScanTests
             var timestamp = new DateTime(2026, 5, 3, 3, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath1, timestamp);
             File.SetLastWriteTimeUtc(newPath2, timestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(newPath1);
-            var existingFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(newPath1));
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = oldPath,
-                date = ToUnixSeconds(timestamp.AddDays(-1)),
-                adddate = 34567,
-                tag = "moved-tag"
+                Path = oldPath,
+                Date = ToUnixSeconds(timestamp.AddDays(-1)),
+                AddDate = 34567,
+                Tag = "moved-tag"
             };
-            existingFile.SetHash(parsed.hash);
-            existingFile.SetFavorite(3);
+            existingFile = existingFile with { Md5 = parsed.Md5 };
+            existingFile = existingFile with { Favorite = 3 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -2948,12 +2939,12 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(2, result.NextFiles.Count);
             CollectionAssert.AreEquivalent(
                 new[] { newPath1, newPath2 },
-                result.NextFiles.Select(file => file.path).ToList());
-            foreach (BMSFile moved in result.NextFiles)
+                result.NextFiles.Select(file => file.Path).ToList());
+            foreach (ChartFile moved in result.NextFiles)
             {
-                Assert.IsNull(moved.favorite);
-                Assert.AreNotEqual(34567, moved.adddate);
-                Assert.AreNotEqual("moved-tag", moved.tag);
+                Assert.IsNull(moved.Favorite);
+                Assert.AreNotEqual(34567, moved.AddDate);
+                Assert.AreNotEqual("moved-tag", moved.Tag);
             }
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -3017,8 +3008,8 @@ public sealed class BmsLibraryInitializationFileScanTests
                 null);
 
             Assert.AreEqual(2, result.AddedFiles.Count);
-            Assert.AreEqual(1, result.AddedFiles.Single(file => file.path == directBmsPath).txt);
-            Assert.AreEqual(0, result.AddedFiles.Single(file => file.path == nestedBmsPath).txt);
+            Assert.AreEqual(1, result.AddedFiles.Single(file => file.Path == directBmsPath).Txt);
+            Assert.AreEqual(0, result.AddedFiles.Single(file => file.Path == nestedBmsPath).Txt);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", directBmsPath));
@@ -3038,22 +3029,23 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Text Only"), Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 4, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var existingFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(timestamp),
-                adddate = 45678,
-                tag = "text-tag"
+                Path = bmsPath,
+                Date = ToUnixSeconds(timestamp),
+                AddDate = 45678,
+                Tag = "text-tag"
             };
-            existingFile.SetHash(parsed.hash);
-            existingFile.SetFavorite(4);
-            existingFile.SetTextGroupFlagForTest(0);
+            existingFile = existingFile with { Token = new OwnedChartToken() };
+            existingFile = existingFile with { Md5 = parsed.Md5 };
+            existingFile = existingFile with { Favorite = 4 };
+            existingFile = existingFile with { Txt = 0 };
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -3084,10 +3076,10 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
             Assert.AreEqual(1, result.BmsTextOnlyUpdateCount);
             Assert.AreEqual(0, result.AddedFiles.Count);
-            Assert.AreSame(existingFile, result.NextFiles.Single());
-            Assert.AreEqual(1, existingFile.txt);
-            Assert.AreEqual(45678, existingFile.adddate);
-            Assert.AreEqual("text-tag", existingFile.tag);
+            Assert.AreNotSame(existingFile, result.NextFiles.Single());
+            Assert.AreEqual(1, result.NextFiles.Single().Txt);
+            Assert.AreEqual(45678, existingFile.AddDate);
+            Assert.AreEqual("text-tag", existingFile.Tag);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
@@ -3111,18 +3103,18 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Text Disabled"), Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 4, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
-            var existingFile = new TestableBmsFile
+            ChartFile existingFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(timestamp)
+                Path = bmsPath,
+                Date = ToUnixSeconds(timestamp)
             };
-            existingFile.SetHash(BMSFile.CreateBMSFileFromFile(bmsPath).hash);
-            existingFile.SetTextGroupFlagForTest(1);
+            existingFile = existingFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath)).Md5 };
+            existingFile = existingFile with { Txt = 1 };
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -3147,7 +3139,7 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(0, result.BmsTextOnlyUpdateCount);
-            Assert.AreEqual(1, existingFile.txt);
+            Assert.AreEqual(1, existingFile.Txt);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", bmsPath));
         });
@@ -3164,7 +3156,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsonPath, CreateBmsonJson("Old", "", "", "Artist", "Genre", 5, "beat-5k"));
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, oldTimestamp);
-            LR2SongDBExtended.bmson_song existingSong = BmsonSongParser.Parse(bmsonPath);
+            ChartFile existingSong = ChartTestValues.ReadBmson(bmsonPath);
 
             File.WriteAllText(bmsonPath, CreateBmsonJson("New", "", "", "Artist", "Genre", 7, "beat-7k"));
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
@@ -3174,11 +3166,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(existingSong), typeof(LR2SongDBExtended.bmson_song));
             });
 
             List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsonSong(existingSong, includeWarningSnapshot: false),
+                (existingSong),
                 Path.Combine(lr2RootPath, "Stale"),
                 string.Empty,
                 string.Empty,
@@ -3206,13 +3198,13 @@ public sealed class BmsLibraryInitializationFileScanTests
             ProjectCatalogState(result, [], [existingSong], cleanupCharts);
 
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
-            Assert.AreEqual("New", result.AddedBmsonSongs[0].title);
-            Assert.AreEqual(newTimestamp, result.AddedBmsonSongs[0].updated_at);
+            Assert.AreEqual("New", result.AddedBmsonSongs[0].RawTitle);
+            Assert.AreEqual(newTimestamp, result.AddedBmsonSongs[0].LastWriteTimeUtc);
             Assert.IsNull(result.AddedBmsonSongs[0].Resources);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
-            Assert.AreEqual("New", result.NextBmsonSongs[0].title);
+            Assert.AreEqual("New", result.NextBmsonSongs[0].RawTitle);
             ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
-            Assert.AreSame(existingSong, installDestinationChange.GetBmsonStorageOwner());
+            Assert.AreSame(existingSong.Token, installDestinationChange.Token);
             Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -3235,22 +3227,17 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsonPath, CreateBmsonJson("Case", "", "", "Artist", "Genre", 5, "beat-5k"));
             var timestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, timestamp);
-            LR2SongDBExtended.bmson_song existingSong = BmsonSongParser.Parse(bmsonPath);
-            existingSong.path = oldCasePath;
-            existingSong.folder = Path.GetDirectoryName(oldCasePath);
+            ChartFile existingSong = ChartTestValues.ReadBmson(bmsonPath);
+            existingSong = existingSong with { Path = oldCasePath };
+            existingSong = existingSong with { Folder = Path.GetDirectoryName(oldCasePath) };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(existingSong, typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-                {
-                    path = staleMaintenancePath,
-                    hash = existingSong.md5,
-                    encoding = "utf-8"
-                }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(existingSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = staleMaintenancePath, hash = existingSong.Md5, encoding = "utf-8" }, typeof(LR2SongDBExtended.maintenance));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -3278,10 +3265,10 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.IsTrue(result.HasDbDiff);
-            Assert.AreEqual(oldCasePath, existingSong.path);
-            Assert.AreEqual(Path.GetDirectoryName(oldCasePath), existingSong.folder);
-            Assert.AreEqual(bmsonPath, result.AddedBmsonSongs.Single().path);
-            Assert.AreEqual(Path.GetDirectoryName(bmsonPath), result.AddedBmsonSongs.Single().folder);
+            Assert.AreEqual(oldCasePath, existingSong.Path);
+            Assert.AreEqual(Path.GetDirectoryName(oldCasePath), existingSong.Folder);
+            Assert.AreEqual(bmsonPath, result.AddedBmsonSongs.Single().Path);
+            Assert.AreEqual(Path.GetFileName(Path.GetDirectoryName(bmsonPath)), result.AddedBmsonSongs.Single().Folder);
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", oldCasePath));
@@ -3304,23 +3291,18 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsonPath, CreateBmsonJson("Case Mtime", "", "", "Artist", "Genre", 5, "beat-5k"));
             var timestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, timestamp);
-            LR2SongDBExtended.bmson_song existingSong = BmsonSongParser.Parse(bmsonPath);
-            existingSong.path = oldCasePath;
-            existingSong.folder = Path.GetDirectoryName(oldCasePath);
-            existingSong.updated_at = timestamp.AddDays(-1);
+            ChartFile existingSong = ChartTestValues.ReadBmson(bmsonPath);
+            existingSong = existingSong with { Path = oldCasePath };
+            existingSong = existingSong with { Folder = Path.GetDirectoryName(oldCasePath) };
+            existingSong = existingSong with { LastWriteTimeUtc = timestamp.AddDays(-1) };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(existingSong, typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-                {
-                    path = oldCasePath,
-                    hash = existingSong.md5,
-                    encoding = "utf-8"
-                }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(existingSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = oldCasePath, hash = existingSong.Md5, encoding = "utf-8" }, typeof(LR2SongDBExtended.maintenance));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -3351,7 +3333,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, first.BmsonUpsertTargetCount);
             Assert.AreEqual(1, first.AddedBmsonSongs.Count);
             Assert.IsTrue(first.HasDbDiff);
-            Assert.AreEqual(bmsonPath, first.AddedBmsonSongs.Single().path);
+            Assert.AreEqual(bmsonPath, first.AddedBmsonSongs.Single().Path);
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
@@ -3388,18 +3370,18 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Keep"));
             var scanTimestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, scanTimestamp.AddDays(1));
-            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var currentFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = ToUnixSeconds(scanTimestamp)
+                Path = bmsPath,
+                Date = ToUnixSeconds(scanTimestamp)
             };
-            currentFile.SetHash(parsed.hash);
+            currentFile = currentFile with { Md5 = parsed.Md5 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
-                songDb.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
             });
 
             ChartScanResult scanResult = CreateScanResult(
@@ -3443,20 +3425,20 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
             var timestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, timestamp);
-            var currentSong = new LR2SongDBExtended.bmson_song
+            ChartFile currentSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = bmsonPath,
-                folder = Path.GetDirectoryName(bmsonPath),
-                title = "Keep",
-                md5 = new string('a', 32),
-                sha256 = new string('b', 64),
-                updated_at = timestamp
+                Path = bmsonPath,
+                Folder = Path.GetDirectoryName(bmsonPath),
+                RawTitle = "Keep",
+                Md5 = new string('a', 32),
+                Sha256 = new string('b', 64),
+                LastWriteTimeUtc = timestamp
             };
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(currentSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(currentSong), typeof(LR2SongDBExtended.bmson_song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -3499,20 +3481,20 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
             var scanTimestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, scanTimestamp.AddDays(1));
-            var currentSong = new LR2SongDBExtended.bmson_song
+            ChartFile currentSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = bmsonPath,
-                folder = Path.GetDirectoryName(bmsonPath),
-                title = "Keep",
-                md5 = new string('a', 32),
-                sha256 = new string('b', 64),
-                updated_at = scanTimestamp
+                Path = bmsonPath,
+                Folder = Path.GetDirectoryName(bmsonPath),
+                RawTitle = "Keep",
+                Md5 = new string('a', 32),
+                Sha256 = new string('b', 64),
+                LastWriteTimeUtc = scanTimestamp
             };
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(currentSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(currentSong), typeof(LR2SongDBExtended.bmson_song));
             });
 
             ChartScanResult scanResult = CreateScanResult(
@@ -3557,8 +3539,8 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsonPath, CreateBmsonJson("Old", "", "", "Artist", "Genre", 5, "beat-5k"));
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, oldTimestamp);
-            LR2SongDBExtended.bmson_song existingSong = BmsonSongParser.Parse(bmsonPath);
-            existingSong.Resources = null;
+            ChartFile existingSong = ChartTestValues.ReadBmson(bmsonPath);
+            existingSong = existingSong with { Resources = null };
 
             File.WriteAllText(bmsonPath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
@@ -3568,7 +3550,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(existingSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(existingSong), typeof(LR2SongDBExtended.bmson_song));
             });
 
             var service = new BmsLibraryInitializationService();
@@ -3596,7 +3578,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
-            Assert.AreEqual("Old", result.NextBmsonSongs[0].title);
+            Assert.AreEqual("Old", result.NextBmsonSongs[0].RawTitle);
             Assert.IsNull(result.NextBmsonSongs[0].Resources);
         });
     }
@@ -3616,17 +3598,17 @@ public sealed class BmsLibraryInitializationFileScanTests
             File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Keep\r\n");
             File.WriteAllText(bmsonPath, CreateBmsonJson("Title", "Sub", "Chart", "Artist", "Genre", 12, "beat-7k"));
 
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = bmsPath
+                Path = bmsPath
             };
-            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(bmsPath).hash);
+            keepFile = keepFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath)).Md5 };
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
             });
 
             var service = new BmsLibraryInitializationService();

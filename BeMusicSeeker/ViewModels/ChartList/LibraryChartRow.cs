@@ -9,8 +9,7 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// 通常一覧に表示する所持譜面 row です。
-/// BMS / bmson の storage model はそのままに、表示境界だけを共通化します。
+/// 通常一覧の共通現在値を表示します。保存行の通知を購読せず、項目または各投影所有者の通知を受けます。
 /// </summary>
 internal sealed class LibraryChartRow : NotificationObject
 {
@@ -18,15 +17,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private readonly Func<ChartFile> chartProvider;
 
-    private readonly bool hasSourceChartProjection;
-
-    private ChartFile sourceTransientBaseline;
-
     private readonly bool hideResourceHealthDigestWhenInstallDestinationSet;
-
-    private BMSFile BmsFile { get; }
-
-    private LR2SongDBExtended.bmson_song BmsonSong { get; set; }
 
     internal PackageChartEntry PackageEntry { get; }
 
@@ -36,25 +27,30 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
-    private Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
+    private Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider;
 
     private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
+    private Func<ChartFile, ChartScoreSnapshot> scoreProjectionProvider;
+    private Func<int> scoreProjectionVersionProvider;
+    private int cachedScoreProjectionVersion;
 
     private ChartFile cachedChart;
 
     private bool cachedChartValid;
 
-    internal bool IsBmson => BmsonSong != null && BmsFile == null;
+    internal bool IsBmson => sourceChart.Kind == ChartFileKind.Bmson;
 
-    internal bool IsBms => BmsFile != null;
+    internal bool IsBms => sourceChart.Kind == ChartFileKind.Bms;
 
     internal ChartFile Chart
     {
         get
         {
-            if (!cachedChartValid)
+            int version = scoreProjectionVersionProvider?.Invoke() ?? 0;
+            if (!cachedChartValid || cachedScoreProjectionVersion != version)
             {
                 cachedChart = CreateChartFile();
+                cachedScoreProjectionVersion = version;
                 cachedChartValid = true;
             }
             return cachedChart;
@@ -64,115 +60,42 @@ internal sealed class LibraryChartRow : NotificationObject
     /// <summary>再生一時状態をChartへ保存せず、status読取り時だけ参照するdelegateを接続します。</summary>
     internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
 
+    /// <summary>共通基本値と既存所有者の表示投影を合成します。</summary>
     internal ChartFile CreateChartFile()
     {
-        ChartFile providedChart = chartProvider?.Invoke();
-        if (providedChart != null)
+        ChartFile current = chartProvider?.Invoke() ?? sourceChart;
+        ChartFileTransientState transientState = GetChartTransientState(current, includeWarningSnapshot: true);
+        if (transientState?.HasState == true)
         {
-            return ApplyChartInfoProjection(providedChart);
+            current = ChartFileProjection.WithTransientState(current, transientState);
         }
-        if (hasSourceChartProjection)
-        {
-            if (HasStorageOwner())
-            {
-                return CreateStorageOwnerBackedChart();
-            }
-            return sourceChart;
-        }
-        if (HasStorageOwner())
-        {
-            return CreateStorageOwnerBackedChart();
-        }
-        return sourceChart;
+        current = ApplyChartInfoProjection(current);
+        ChartScoreSnapshot score = scoreProjectionProvider?.Invoke(current);
+        return score == null ? current : ChartFileProjection.WithScore(current, score);
     }
 
-    private bool HasStorageOwner()
+    /// <summary>スコアの既存所有者から読取り値と表示版を取得します。</summary>
+    internal void SetScoreProjectionProvider(Func<ChartFile, ChartScoreSnapshot> provider, Func<int> versionProvider)
     {
-        return BmsFile != null || GetBmsonSong() != null;
-    }
-
-    private ChartFile CreateStorageOwnerBackedChart()
-    {
-        ChartFile storageOwnerSource = CreateCurrentStorageOwnerSource();
-        ChartFile identityChart = ChartFileProjection.FromStorageOwner(
-            storageOwnerSource,
-            ChartFileLevelParsing.CurrentCultureThenInvariant,
-            includeWarningSnapshot: false,
-            includeScoreSnapshot: !hasSourceChartProjection);
-        ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot: true);
-        ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
-            storageOwnerSource,
-            transientState,
-            ChartFileLevelParsing.CurrentCultureThenInvariant,
-            includeWarningSnapshot: true,
-            includeScoreSnapshot: !hasSourceChartProjection);
-        if (hasSourceChartProjection)
-        {
-            currentChart = ChartFileProjection.WithScore(currentChart, sourceChart.Score);
-        }
-        currentChart = sourceTransientBaseline != null
-            ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
-            : currentChart;
-        currentChart = ApplyChartInfoProjection(currentChart);
-        return HasWarningProjection(transientState)
-            ? ChartFileProjection.WithTransientState(currentChart, transientState)
-            : currentChart;
+        scoreProjectionProvider = provider;
+        scoreProjectionVersionProvider = versionProvider;
+        InvalidateChartCache();
     }
 
     private LibraryChartRow(
         ChartFile sourceChart,
-        bool hasSourceChartProjection = false,
         Func<ChartFile> chartProvider = null,
         PackageChartEntry packageEntry = null,
         bool hideResourceHealthDigestWhenInstallDestinationSet = true)
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
-        this.hasSourceChartProjection = hasSourceChartProjection;
         this.hideResourceHealthDigestWhenInstallDestinationSet = hideResourceHealthDigestWhenInstallDestinationSet;
-        BmsFile = sourceChart.GetBmsStorageOwner();
-        BmsonSong = sourceChart.GetBmsonStorageOwner();
-        sourceTransientBaseline = CreateSourceTransientBaseline();
         this.chartProvider = chartProvider;
         PackageEntry = packageEntry;
-        if (BmsFile is INotifyPropertyChanged propertyChangedSource)
-        {
-            PropertyChangedEventManager.AddHandler(propertyChangedSource, OnSourcePropertyChanged, string.Empty);
-        }
         if (packageEntry is INotifyPropertyChanged propertyChangedPackageEntry)
         {
             PropertyChangedEventManager.AddHandler(propertyChangedPackageEntry, OnPackageEntryPropertyChanged, string.Empty);
         }
-    }
-
-    internal static LibraryChartRow FromBmsFile(BMSFile file)
-    {
-        return FromBmsFile(file, null);
-    }
-
-    internal static LibraryChartRow FromBmsFile(BMSFile file, PackageChartEntry packageEntry)
-    {
-        if (file == null)
-        {
-            return null;
-        }
-        return new LibraryChartRow(
-            ChartFileProjection.FromBmsFile(
-                file,
-                ChartFileLevelParsing.CurrentCultureThenInvariant,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false,
-                includeScoreSnapshot: true),
-            packageEntry: packageEntry);
-    }
-
-    internal static LibraryChartRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
-    {
-        return song == null
-            ? null
-            : new LibraryChartRow(ChartFileProjection.FromBmsonSong(
-                song,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false));
     }
 
     internal static LibraryChartRow FromChartFile(ChartFile chart, bool hideResourceHealthDigestWhenInstallDestinationSet = true)
@@ -183,7 +106,6 @@ internal sealed class LibraryChartRow : NotificationObject
         }
         return new LibraryChartRow(
             chart,
-            hasSourceChartProjection: true,
             hideResourceHealthDigestWhenInstallDestinationSet: hideResourceHealthDigestWhenInstallDestinationSet);
     }
 
@@ -196,7 +118,6 @@ internal sealed class LibraryChartRow : NotificationObject
         }
         return new LibraryChartRow(
             chart,
-            hasSourceChartProjection: true,
             chartProvider: () => entry.Chart,
             packageEntry: entry);
     }
@@ -211,7 +132,6 @@ internal sealed class LibraryChartRow : NotificationObject
     {
         return sourceRow == null ? null : new LibraryChartRow(
             sourceRow.Chart,
-            hasSourceChartProjection: true,
             chartProvider: () => sourceRow.Chart,
             packageEntry: sourceRow.PackageEntry,
             hideResourceHealthDigestWhenInstallDestinationSet: sourceRow.HideResourceHealthDigestWhenInstallDestinationSet);
@@ -224,19 +144,7 @@ internal sealed class LibraryChartRow : NotificationObject
             return;
         }
         sourceChart = chart;
-        sourceTransientBaseline = CreateSourceTransientBaseline();
         InvalidateChartCache();
-    }
-
-    internal void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
-    {
-        if (song == null)
-        {
-            return;
-        }
-        BmsonSong = song;
-        InvalidateChartCache();
-        RaisePropertyChanged(string.Empty);
     }
 
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
@@ -262,28 +170,13 @@ internal sealed class LibraryChartRow : NotificationObject
         chartTransientStateProvider = provider;
     }
 
-    internal void SetChartInfoProjectionProvider(Func<ChartFile, LR2SongDBExtended.chart_info> provider)
+    internal void SetChartInfoProjectionProvider(Func<ChartFile, BeMusicSeeker.Models.ChartDetails> provider)
     {
         if (!ReferenceEquals(chartInfoProjectionProvider, provider))
         {
             InvalidateChartCache();
         }
         chartInfoProjectionProvider = provider;
-    }
-
-    internal BMSFile GetBmsStorageOwner()
-    {
-        return BmsFile;
-    }
-
-    internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
-    {
-        return BmsonSong;
-    }
-
-    internal bool ReferencesBmsonStorageOwner(LR2SongDBExtended.bmson_song song)
-    {
-        return ReferenceEquals(BmsonSong, song);
     }
 
     internal void RaisePlaylistReferenceDisplayChanged()
@@ -350,9 +243,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string sha256 => Chart?.Sha256 ?? string.Empty;
 
-    public string Folder => BmsFile?.Folder ?? (BmsonSong != null ? BmsonSongParser.ComposeDisplayFolder(BmsonSong) : Chart?.Folder ?? string.Empty);
+    public string Folder => Chart?.Folder ?? string.Empty;
 
-    public string path => BmsFile?.path ?? BmsonSong?.path ?? Chart?.Path ?? string.Empty;
+    public string path => Chart?.Path ?? string.Empty;
 
     public string instl_dst => Chart?.InstallDestination ?? string.Empty;
 
@@ -426,7 +319,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string memo => string.Empty;
 
-    internal LR2SongDBExtended.chart_info ChartInfo => Chart?.ChartInfo;
+    internal BeMusicSeeker.Models.ChartDetails ChartInfo => Chart?.ChartInfo;
 
     private ChartInfoDisplaySnapshot ChartInfoDisplay => Chart?.ChartInfoDisplay ?? ChartInfoDisplaySnapshot.Empty;
 
@@ -501,32 +394,6 @@ internal sealed class LibraryChartRow : NotificationObject
     public double? ChartEndDensitySortKey => ChartInfoDisplay.ChartEndDensitySortKey;
 
     public int? ChartSoflanCount => ChartInfoDisplay.ChartSoflanCount;
-
-    private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        InvalidateChartCache();
-        RaisePropertyChanged(e.PropertyName);
-        LibraryChartRowSourceNotificationGroups groups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(e.PropertyName);
-        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.WarningPresentation))
-        {
-            RaiseWarningPresentationPropertiesChanged();
-        }
-        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.ScoreDisplay))
-        {
-            RaiseScoreDisplayPropertiesChanged();
-        }
-        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.MaintenanceDisplay))
-        {
-            RaiseMaintenanceDisplayPropertiesChanged();
-        }
-    }
-
-    private static bool HasNotificationGroup(
-        LibraryChartRowSourceNotificationGroups groups,
-        LibraryChartRowSourceNotificationGroups group)
-    {
-        return (groups & group) != 0;
-    }
 
     private void OnPackageEntryPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
@@ -621,11 +488,6 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(encoding));
     }
 
-    private LR2SongDBExtended.bmson_song GetBmsonSong()
-    {
-        return BmsonSong;
-    }
-
     private ResourceHealthWarningProjection GetResourceHealthProjection()
     {
         return resourceHealthProjectionProvider == null
@@ -670,7 +532,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private ChartFile ApplyChartInfoProjection(ChartFile chart)
     {
-        LR2SongDBExtended.chart_info resolved = chartInfoProjectionProvider?.Invoke(chart);
+        BeMusicSeeker.Models.ChartDetails resolved = chartInfoProjectionProvider?.Invoke(chart);
         if (chart == null || resolved == null || ReferenceEquals(resolved, chart.ChartInfo))
         {
             return chart;
@@ -683,33 +545,5 @@ internal sealed class LibraryChartRow : NotificationObject
         return state?.HasWarningProjection == true || state?.HasInstallEstimationWarningProjection == true;
     }
 
-
-    private ChartFile CreateSourceTransientBaseline()
-    {
-        if (!hasSourceChartProjection || sourceChart == null)
-        {
-            return null;
-        }
-
-        return ChartFileProjection.FromStorageOwner(
-            CreateCurrentStorageOwnerSource(),
-            ChartFileLevelParsing.CurrentCultureThenInvariant);
-    }
-
-    private ChartFile CreateCurrentStorageOwnerSource()
-    {
-        if (BmsonSong != null && !ReferenceEquals(BmsonSong, sourceChart?.GetBmsonStorageOwner()))
-        {
-            // 保存モデルの差し替えは基本情報の参照先だけを更新し、取得状態は元の投影から引き継ぎます。
-            return ChartFileProjection.WithResources(
-                ChartFileProjection.FromBmsonStorageOwnerIdentity(BmsonSong),
-                sourceChart?.Resources);
-        }
-        if (sourceChart != null)
-        {
-            return sourceChart;
-        }
-        return BmsonSong == null ? null : ChartFileProjection.FromBmsonStorageOwnerIdentity(BmsonSong);
-    }
 
 }

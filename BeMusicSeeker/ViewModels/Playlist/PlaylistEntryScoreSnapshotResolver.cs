@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -10,7 +9,7 @@ internal static class PlaylistEntryScoreSnapshotResolver
     internal static BMSScore Resolve(
         BMSTableEntry entry,
         ChartFile resolvedChart,
-        LR2SongDBExtended.chart_info entryChartInfo,
+        BeMusicSeeker.Models.ChartDetails entryChartInfo,
         BMSLibrary.ScoreSnapshot scoreSnapshot,
         IReadOnlyDictionary<string, BMSScore> scoresByHash,
         IReadOnlyDictionary<string, BMSScore> scoresBySha256)

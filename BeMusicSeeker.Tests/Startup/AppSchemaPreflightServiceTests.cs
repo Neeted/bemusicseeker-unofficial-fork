@@ -208,8 +208,8 @@ public sealed class AppSchemaPreflightServiceTests
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
-                var file = BMSFile.CreateBMSFileFromFile(chartPath);
-                db.InsertOrReplace(file, typeof(LR2SongDB.song));
+                ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 db.CreateTable<LR2SongDBExtended.chart_digest_map>();
             }
 
@@ -287,10 +287,10 @@ public sealed class AppSchemaPreflightServiceTests
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
-                var file = BMSFile.CreateBMSFileFromFile(chartPath);
-                md5 = file.hash;
-                sha256 = file.sha256;
-                db.InsertOrReplace(file, typeof(LR2SongDB.song));
+                ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+                md5 = file.Md5;
+                sha256 = file.Sha256;
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, sha256 TEXT NULL, last_seen_path TEXT NULL, updated_at TEXT NULL);");
                 db.Execute("INSERT INTO chart_digest_map(md5, sha256, last_seen_path, updated_at) VALUES ('" + md5 + "', '" + sha256 + "', '" + chartPath.Replace("'", "''") + "', 'legacy');");
             }
@@ -440,24 +440,24 @@ public sealed class AppSchemaPreflightServiceTests
                     md5 = "0e5751c026e543b2e8ab2eb06099daa1",
                     sha256 = new string('b', 64)
                 }, typeof(LR2SongDBExtended.chart_digest_map));
-                db.InsertOrReplace(new LR2SongDBExtended.bmson_song
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
                 {
-                    path = "song-path",
-                    folder = "folder",
-                    title = "title",
-                    subtitle = "subtitle",
-                    artist = "artist",
-                    genre = "genre",
-                    level = 12,
-                    mode_hint = "beat-7k",
-                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('c', 64),
-                    banner = "banner.png",
-                    backbmp = "back.png",
-                    stagefile = "stage.png",
-                    preview_music = "preview.ogg",
-                    updated_at = DateTime.UtcNow
-                }, typeof(LR2SongDBExtended.bmson_song));
+                    Path = "song-path",
+                    Folder = "folder",
+                    RawTitle = "title",
+                    Subtitle = "subtitle",
+                    RawArtist = "artist",
+                    Genre = "genre",
+                    Level = 12,
+                    ModeHint = "beat-7k",
+                    Md5 = "0e5751c026e543b2e8ab2eb06099daa1",
+                    Sha256 = new string('c', 64),
+                    Banner = "banner.png",
+                    Backbmp = "back.png",
+                    Stagefile = "stage.png",
+                    PreviewMusic = "preview.ogg",
+                    LastWriteTimeUtc = DateTime.UtcNow
+                }), typeof(LR2SongDBExtended.bmson_song));
                 db.Execute("DROP INDEX IF EXISTS bmson_song_idx_md5;");
                 db.Execute("DROP INDEX IF EXISTS bmson_song_idx_sha256;");
                 db.Execute("DROP INDEX IF EXISTS bmson_song_idx_folder;");
@@ -644,19 +644,12 @@ public sealed class AppSchemaPreflightServiceTests
             {
                 db.Execute("CREATE TABLE maintenance (hash TEXT NULL, path TEXT PRIMARY KEY, encoding TEXT NULL, is_files_warning_ignored INTEGER NOT NULL DEFAULT 0);");
             }
-            var info = new BMSFileMaintenanceInfo
-            {
-                path = @"D:\BMS\chart.bms",
-                hash = "0123456789abcdef0123456789abcdef",
-                lr2_warning_flags = 5,
-                lr2_resource_max_relative_cp932_bytes = 12,
-                lr2_resource_has_parent_traversal = true
-            };
+            var info = new LR2SongDBExtended.maintenance { path = @"D:\BMS\chart.bms", hash = "0123456789abcdef0123456789abcdef", lr2_warning_flags = 5, lr2_resource_max_relative_cp932_bytes = 12, lr2_resource_has_parent_traversal = true };
 
-            new BmsLibraryDbGateway(tempDbPath).UpsertMaintenanceInfos([info]);
+            new BmsLibraryDbGateway(tempDbPath).UpsertMaintenanceInfos([MaintenanceStorageMapping.ToCommon(info)]);
 
             using var verify = new LR2SongDBExtended(tempDbPath);
-            BMSFileMaintenanceInfo row = verify.Table<BMSFileMaintenanceInfo>().Single(item => item.path == info.path);
+            LR2SongDBExtended.maintenance row = verify.Table<LR2SongDBExtended.maintenance>().Single(item => item.path == info.path);
             Assert.AreEqual(5, row.lr2_warning_flags);
             Assert.AreEqual(12, row.lr2_resource_max_relative_cp932_bytes);
             Assert.AreEqual(true, row.lr2_resource_has_parent_traversal);
@@ -674,30 +667,8 @@ public sealed class AppSchemaPreflightServiceTests
         try
         {
             var chunk = new FileScanDiffCommitChunk();
-            chunk.AddMaintenanceInfoRow(new BMSFileMaintenanceInfo
-            {
-                path = @"D:\BMS\Pack\Song\Chart.bms",
-                hash = "11111111111111111111111111111111",
-                encoding = "shift_jis",
-                wav_files_defined = 1,
-                wav_files_existing = 0,
-                is_stagefile_defined = true,
-                is_stagefile_existing = false,
-                is_files_warning_ignored = false
-            }, countMutation: true);
-            chunk.AddMaintenanceInfoRow(new BMSFileMaintenanceInfo
-            {
-                path = @"D:\BMS\Pack\Song\chart.bms",
-                hash = "22222222222222222222222222222222",
-                encoding = "utf-8",
-                wav_files_defined = 2,
-                wav_files_existing = 2,
-                is_stagefile_defined = true,
-                is_stagefile_existing = true,
-                is_files_warning_ignored = true,
-                lr2_warning_flags = 4,
-                lr2_resource_max_relative_cp932_bytes = 120
-            }, countMutation: true);
+            chunk.AddMaintenanceInfoRow(MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = @"D:\BMS\Pack\Song\Chart.bms", hash = "11111111111111111111111111111111", encoding = "shift_jis", wav_files_defined = 1, wav_files_existing = 0, is_stagefile_defined = true, is_stagefile_existing = false, is_files_warning_ignored = false }), countMutation: true);
+            chunk.AddMaintenanceInfoRow(MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = @"D:\BMS\Pack\Song\chart.bms", hash = "22222222222222222222222222222222", encoding = "utf-8", wav_files_defined = 2, wav_files_existing = 2, is_stagefile_defined = true, is_stagefile_existing = true, is_files_warning_ignored = true, lr2_warning_flags = 4, lr2_resource_max_relative_cp932_bytes = 120 }), countMutation: true);
 
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
@@ -705,9 +676,9 @@ public sealed class AppSchemaPreflightServiceTests
             }
 
             using var verify = new LR2SongDBExtended(tempDbPath);
-            List<BMSFileMaintenanceInfo> rows = [.. verify.Table<BMSFileMaintenanceInfo>().OrderBy(row => row.path, StringComparer.Ordinal)];
+            List<LR2SongDBExtended.maintenance> rows = [.. verify.Table<LR2SongDBExtended.maintenance>().OrderBy(row => row.path, StringComparer.Ordinal)];
             Assert.AreEqual(2, rows.Count);
-            BMSFileMaintenanceInfo upperCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\Chart.bms");
+            LR2SongDBExtended.maintenance upperCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\Chart.bms");
             Assert.AreEqual("11111111111111111111111111111111", upperCaseRow.hash);
             Assert.AreEqual("shift_jis", upperCaseRow.encoding);
             Assert.AreEqual(1, upperCaseRow.wav_files_defined);
@@ -716,7 +687,7 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.AreEqual(false, upperCaseRow.is_stagefile_existing);
             Assert.IsFalse(upperCaseRow.is_files_warning_ignored);
 
-            BMSFileMaintenanceInfo lowerCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\chart.bms");
+            LR2SongDBExtended.maintenance lowerCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\chart.bms");
             Assert.AreEqual("22222222222222222222222222222222", lowerCaseRow.hash);
             Assert.AreEqual("utf-8", lowerCaseRow.encoding);
             Assert.AreEqual(2, lowerCaseRow.wav_files_defined);

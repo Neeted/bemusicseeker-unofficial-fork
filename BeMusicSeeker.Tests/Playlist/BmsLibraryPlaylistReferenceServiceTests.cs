@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -19,7 +18,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         BMSTable table = CreateTable(
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
-        List<BMSFile> files =
+        List<ChartFile> files =
         [
             CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
@@ -41,7 +40,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable table = CreateTable(CreateEntry(null, new string('a', 64)));
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
+        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
@@ -58,7 +57,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string sha256 = new string('a', 64);
         BMSTable table = CreateTable(CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sha256));
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sha256);
+        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sha256);
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
@@ -77,7 +76,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         md5Table.name = "MD5";
         BMSTable shaTable = CreateTable(CreateEntry(null, new string('b', 64)));
         shaTable.name = "SHA";
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
+        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys([md5Table, shaTable]);
         int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
@@ -92,12 +91,12 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        var chart = LibraryChartRef.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var chart = LibraryChartRef.FromChartFile((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Library\chart.bmson",
-            md5 = md5,
-            sha256 = new string('a', 64)
-        });
+            Path = @"C:\Library\chart.bmson",
+            Md5 = md5,
+            Sha256 = new string('a', 64)
+        }));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromLibraryChartRef(chart)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats stats);
@@ -105,7 +104,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
         Assert.AreEqual(1, stats.Chunks);
-        Assert.IsNull(chart.GetBmsStorageOwner());
+        Assert.AreEqual(ChartFileKind.Bmson, chart.Kind);
     }
 
     [TestMethod]
@@ -114,11 +113,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var entry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Pending\chart.bmson",
-            md5 = md5,
-            sha256 = new string('a', 64)
+            Path = @"C:\Pending\chart.bmson",
+            Md5 = md5,
+            Sha256 = new string('a', 64)
         }));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
@@ -127,17 +126,17 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
         Assert.AreEqual(1, stats.Chunks);
-        Assert.IsNull(entry.GetBmsOwnerForTest());
+        Assert.IsNull(entry.GetBmsChartForTest());
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryMatchesBmsStorageOwnerWithoutMutation()
+    public void ApplyReferenceMap_PackageEntryMatchesBmsCurrentChartWithoutMutation()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        TestableBmsFile file = CreateFile(md5);
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        ChartFile file = CreateFile(md5);
+        var entry = PackageChartEntry.FromChart((file));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
@@ -147,25 +146,25 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryBmsonDoesNotMutateBmsStorageOwner()
+    public void ApplyReferenceMap_PackageEntryBmsonDoesNotMutateBmsCurrentChart()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Pending\chart.bmson",
-            md5 = md5,
-            sha256 = new string('a', 64)
+            Path = @"C:\Pending\chart.bmson",
+            Md5 = md5,
+            Sha256 = new string('a', 64)
         };
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+        var entry = PackageChartEntry.FromChart((song));
 
         PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
         int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
-        Assert.IsNull(entry.GetBmsOwnerForTest());
+        Assert.IsNull(entry.GetBmsChartForTest());
     }
 
     [TestMethod]
@@ -195,11 +194,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         table.name = "Identity";
         var index = PlaylistReferenceIndex.FromSnapshots(
             [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
-        ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        ChartFile chart = (ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Library\chart.bmson",
-            md5 = md5,
-            sha256 = sha256
+            Path = @"C:\Library\chart.bmson",
+            Md5 = md5,
+            Sha256 = sha256
         });
         var chartRef = LibraryChartRef.FromChartFile(chart);
 
@@ -248,7 +247,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
         var receipt = new CatalogMutationReceipt(
             applied: true,
-            new StorageRowsVersionSnapshot(0, 0),
+            new OwnedChartCollectionVersionSnapshot(0),
             folderDbMs: 0,
             bmsPathDbMs: 0,
             bmsonPathDbMs: 0,
@@ -331,28 +330,28 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             string includedHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             string bmsonHash = "cccccccccccccccccccccccccccccccc";
             string otherHash = "dddddddddddddddddddddddddddddddd";
-            TestableBmsFile source = CreateLibraryFile(sourceHash, Path.Combine(libraryDirectoryPath, "source.bms"));
-            TestableBmsFile included = CreateLibraryFile(includedHash, Path.Combine(libraryDirectoryPath, "included.bms"));
-            TestableBmsFile otherDirectory = CreateLibraryFile(otherHash, Path.Combine(otherDirectoryPath, "other.bms"));
-            var bmson = new LR2SongDBExtended.bmson_song
+            ChartFile source = CreateLibraryFile(sourceHash, Path.Combine(libraryDirectoryPath, "source.bms"));
+            ChartFile included = CreateLibraryFile(includedHash, Path.Combine(libraryDirectoryPath, "included.bms"));
+            ChartFile otherDirectory = CreateLibraryFile(otherHash, Path.Combine(otherDirectoryPath, "other.bms"));
+            ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = Path.Combine(libraryDirectoryPath, "chart.bmson"),
-                md5 = bmsonHash,
-                sha256 = new string('c', 64)
+                Path = Path.Combine(libraryDirectoryPath, "chart.bmson"),
+                Md5 = bmsonHash,
+                Sha256 = new string('c', 64)
             };
-            var md5lessBmson = new LR2SongDBExtended.bmson_song
+            ChartFile md5lessBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = Path.Combine(libraryDirectoryPath, "md5less.bmson"),
-                md5 = null,
-                sha256 = new string('e', 64)
+                Path = Path.Combine(libraryDirectoryPath, "md5less.bmson"),
+                Md5 = null,
+                Sha256 = new string('e', 64)
             };
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [source, included, otherDirectory],
-                BmsonSongs = [bmson, md5lessBmson]
+                BmsCharts = [source, included, otherDirectory],
+                BmsonCharts = [bmson, md5lessBmson]
             };
 
-            List<string> orgMd5s = library.GetPlaylistOrgMd5sForChart(ChartFileProjection.FromBmsFile(source));
+            List<string> orgMd5s = library.GetPlaylistOrgMd5sForChart((source));
 
             CollectionAssert.AreEqual(new[] { sourceHash, includedHash, bmsonHash }, orgMd5s);
         }
@@ -403,36 +402,36 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return entry;
     }
 
-    private static TestableBmsFile CreateFile(string hash, string? sha256 = null)
+    private static ChartFile CreateFile(string hash, string? sha256 = null)
     {
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = "C:\\Dummy\\" + Guid.NewGuid().ToString("N") + ".bms"
+            Path = "C:\\Dummy\\" + Guid.NewGuid().ToString("N") + ".bms"
         };
-        file.SetHash(hash);
+        file = file with { Md5 = hash };
         if (sha256 != null)
         {
-            file.SetSha256(sha256);
+            file = file with { Sha256 = sha256 };
         }
         return file;
     }
 
-    private static TestableBmsFile CreateLibraryFile(string hash, string path, params string[] wavFiles)
+    private static ChartFile CreateLibraryFile(string hash, string path, params string[] wavFiles)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, string.Empty);
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = path,
+            Path = path,
             Resources = TestChartResources.Create(wavFiles)
         };
-        file.SetHash(hash);
+        file = file with { Md5 = hash };
         return file;
     }
 
-    private static List<PlaylistReferenceChartSnapshot> ToChartSnapshots(IEnumerable<BMSFile> files)
+    private static List<PlaylistReferenceChartSnapshot> ToChartSnapshots(IEnumerable<ChartFile> files)
     {
-        return [.. files.Select(LibraryChartRef.FromBmsFile)
+        return [.. files.Select(chart => LibraryChartRef.FromChartFile((chart)))
             .Select(PlaylistReferenceChartSnapshot.FromLibraryChartRef)
             .Where(chart => chart != null)];
     }
@@ -450,16 +449,4 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            ApplySha256(value);
-        }
-    }
 }

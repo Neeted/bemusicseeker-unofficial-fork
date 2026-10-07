@@ -21,13 +21,19 @@ internal interface ILr2SynchronizationDataPort
 
     EverythingNative EverythingNative { get; }
 
-    int OwnedChartCollectionVersion { get; }
+    int OwnedCollectionVersion { get; }
 
-    IReadOnlyList<BMSFile> CaptureBmsFilesSnapshot();
+    IReadOnlyList<ChartFile> CaptureBmsFilesSnapshot();
 
     Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot();
 
-    StorageRowsVersionSnapshot CaptureStorageRowsVersionSnapshot();
+    /// <summary>surface再利用に必要な既存所属・exact path索引を共有して捕捉します。</summary>
+    IReadOnlyDictionary<string, OwnedChartToken> CapturePathMembershipIndex();
+
+    /// <summary>指定項目だけを既存の所持排他内で解決し、不変の現在値を返します。</summary>
+    IReadOnlyList<ChartFile> CaptureCurrentCharts(IEnumerable<LibraryChartRef> targets);
+
+    OwnedChartCollectionVersionSnapshot CaptureOwnedChartCollectionVersionSnapshot();
 
     ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot();
 
@@ -175,22 +181,22 @@ internal interface ILr2SynchronizationProjectionPort
 {
     void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason);
 
-    Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex();
+    Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex();
 
-    Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot();
+    Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot();
 
     HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason);
 
-    void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows);
+    void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows);
 
     int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+        IReadOnlyList<ResourceHealthMaintenanceSnapshot> maintenanceInfos,
         string reason,
-        IReadOnlyDictionary<string, BMSFile> bmsByPath,
+        IReadOnlyDictionary<string, ChartFile> bmsByPath,
         bool logSummary,
         bool dispatchPresentation);
 
-    void DispatchWarningPresentationChanged(string reason);
+    void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null);
 }
 
 /// <summary>
@@ -206,15 +212,15 @@ internal interface ILr2ChartInfoCapability
 
     void EnsureHydratedForLr2(string reason);
 
-    Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2ResolverSnapshot();
+    Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2ResolverSnapshot();
 
-    Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentParseFailureMap(
+    Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentParseFailureMap(
         BmsLibraryDbGateway dbGateway,
         TimeSpan parseTimeout);
 
-    void UpsertIndex(IReadOnlyList<LR2SongDBExtended.chart_info> rows);
+    void UpsertIndex(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows);
 
-    void PublishWarningPresentationChanged(string reason);
+    void PublishWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null);
 }
 
 internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
@@ -235,19 +241,19 @@ internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
     public void EnsureHydratedForLr2(string reason) =>
         GetOwner().EnsureHydratedForLr2(reason);
 
-    public Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2ResolverSnapshot() =>
+    public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2ResolverSnapshot() =>
         GetOwner().CreateLr2ResolverSnapshot();
 
-    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentParseFailureMap(
+    public Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentParseFailureMap(
         BmsLibraryDbGateway dbGateway,
         TimeSpan parseTimeout) =>
         GetOwner().LoadCurrentParseFailureMap(dbGateway, parseTimeout);
 
-    public void UpsertIndex(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
+    public void UpsertIndex(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows) =>
         GetOwner().UpsertIndex(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
 
-    public void PublishWarningPresentationChanged(string reason) =>
-        GetOwner().PublishWarningPresentationChanged(reason);
+    public void PublishWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null) =>
+        GetOwner().PublishWarningPresentationChanged(reason, md5s: md5s);
 
     private CatalogChartInfoOwner GetOwner()
     {
@@ -528,16 +534,37 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public EverythingNative EverythingNative => everythingNative;
 
-    public int OwnedChartCollectionVersion => catalogOwnedCollectionOwner.CollectionVersion;
+    public int OwnedCollectionVersion => catalogOwnedCollectionOwner.OwnedCollectionVersion;
 
-    public IReadOnlyList<BMSFile> CaptureBmsFilesSnapshot() =>
+    public IReadOnlyList<ChartFile> CaptureBmsFilesSnapshot() =>
         catalogMutationOwner.CaptureLr2SynchronizationBmsFilesSnapshot();
 
     public Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot() =>
         catalogMutationOwner.CaptureLr2SynchronizationInputRowSnapshot();
 
-    public StorageRowsVersionSnapshot CaptureStorageRowsVersionSnapshot() =>
-        catalogMutationOwner.CaptureLr2SynchronizationStorageRowsVersionSnapshot();
+    /// <inheritdoc/>
+    public IReadOnlyDictionary<string, OwnedChartToken> CapturePathMembershipIndex()
+    {
+        lock (catalogOwnedCollectionOwner.Gate)
+        {
+            return catalogOwnedCollectionOwner.Collection.CapturePathMembershipIndex();
+        }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<ChartFile> CaptureCurrentCharts(IEnumerable<LibraryChartRef> targets)
+    {
+        using (catalogOwnedCollectionOwner.WriteGate.GetReaderGuard())
+        {
+            lock (catalogOwnedCollectionOwner.Gate)
+            {
+                return [.. targets.Select(target => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(target))];
+            }
+        }
+    }
+
+    public OwnedChartCollectionVersionSnapshot CaptureOwnedChartCollectionVersionSnapshot() =>
+        catalogMutationOwner.CaptureLr2SynchronizationOwnedChartCollectionVersionSnapshot();
 
     public ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot() =>
         chartInfoCapability.CaptureOwnerVersionSnapshot();
@@ -610,13 +637,13 @@ internal sealed class Lr2SynchronizationRuntimePort : ILr2SynchronizationRuntime
 
 internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProjectionPort
 {
-    private readonly CatalogStorageRowsOwner storageRowsOwner;
+    private readonly CatalogOwnedCollectionOwner storageRowsOwner;
     private readonly ILr2ChartInfoCapability chartInfoCapability;
     private readonly BmsLibraryDbGateway dbGateway;
     private readonly Action<string> log;
 
     internal Lr2SynchronizationProjectionPort(
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         ILr2ChartInfoCapability chartInfoCapability,
         BmsLibraryDbGateway dbGateway,
         Action<string> log)
@@ -630,16 +657,16 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
     public void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
         chartInfoCapability.EnsureHydratedForLr2(reason);
 
-    public Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex()
+    public Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex()
     {
-        CatalogStorageRowsSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
+        CatalogChartCollectionSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
         return (snapshot.BmsRows ?? [])
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-            .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
+            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path))
+            .GroupBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
     }
 
-    public Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
+    public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
         chartInfoCapability.CreateLr2ResolverSnapshot();
 
     public HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason)
@@ -647,7 +674,7 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures =
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> failures =
                 chartInfoCapability.LoadCurrentParseFailureMap(dbGateway, chartInfoCapability.CurrentParseTimeout);
             stopwatch.Stop();
             var result = new HashSet<string>(
@@ -670,18 +697,18 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
         }
     }
 
-    public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
+    public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows) =>
         chartInfoCapability.UpsertIndex(rows);
 
     public int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+        IReadOnlyList<ResourceHealthMaintenanceSnapshot> maintenanceInfos,
         string reason,
-        IReadOnlyDictionary<string, BMSFile> bmsByPath,
+        IReadOnlyDictionary<string, ChartFile> bmsByPath,
         bool logSummary,
         bool dispatchPresentation)
     {
-        List<BMSFileMaintenanceInfo> infoList = [.. (maintenanceInfos ?? [])
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
+        List<ResourceHealthMaintenanceSnapshot> infoList = [.. (maintenanceInfos ?? [])
+            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.Path))];
         if (infoList.Count == 0)
         {
             if (logSummary)
@@ -696,32 +723,40 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
         int applied = 0;
         using (storageRowsOwner.WriteGate.GetWriterGuard())
         {
-            CatalogStorageRowsSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
+            CatalogChartCollectionSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
             bmsByPath ??= (snapshot.BmsRows ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path))
+                .GroupBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            foreach (BMSFileMaintenanceInfo sourceInfo in infoList)
+            foreach (ResourceHealthMaintenanceSnapshot sourceInfo in infoList)
             {
-                if (!bmsByPath.TryGetValue(sourceInfo.path, out BMSFile file)
+                if (!bmsByPath.TryGetValue(sourceInfo.Path, out ChartFile file)
                     || file == null
-                    || (!string.IsNullOrWhiteSpace(sourceInfo.hash)
-                        && !string.Equals(sourceInfo.hash, file.hash, StringComparison.OrdinalIgnoreCase)))
+                    || (!string.IsNullOrWhiteSpace(sourceInfo.Hash)
+                        && !string.Equals(sourceInfo.Hash, file.Md5, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
 
-                BMSFileMaintenanceInfo targetInfo = file.TryGetMaintenanceInfoWithoutCreating();
-                if (targetInfo == null || !file.HasMaintenanceInfoHash(file.hash))
+                ResourceHealthMaintenanceSnapshot targetInfo = file.ResourceHealthMaintenanceSnapshot;
+                targetInfo ??= new ResourceHealthMaintenanceSnapshot { Path = file.Path, Hash = file.Md5 };
+                ResourceHealthMaintenanceSnapshot next = targetInfo with
                 {
-                    targetInfo = new BMSFileMaintenanceInfo(file);
-                }
-                if (targetInfo.HasSameLr2CompatibilityFacts(sourceInfo))
+                    Lr2WarningFlags = sourceInfo.Lr2WarningFlags,
+                    Lr2ResourceMaxRelativeCp932Bytes = sourceInfo.Lr2ResourceMaxRelativeCp932Bytes,
+                    Lr2ResourceHasParentTraversal = sourceInfo.Lr2ResourceHasParentTraversal,
+                    Origin = MaintenanceInfoOrigin.Calculated
+                };
+                if (next == targetInfo)
                 {
                     continue;
                 }
-                targetInfo.ApplyLr2CompatibilityFactsFrom(sourceInfo);
-                file.SetMaintenanceInfo(targetInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Calculated);
+
+                lock (storageRowsOwner.Gate)
+                {
+                    storageRowsOwner.Collection.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(file, next));
+                }
+
                 applied++;
             }
         }
@@ -735,11 +770,12 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
         }
         if (dispatchPresentation && applied > 0)
         {
-            chartInfoCapability.PublishWarningPresentationChanged("lr2_song_db_sync_compatibility_projection");
+            chartInfoCapability.PublishWarningPresentationChanged("lr2_song_db_sync_compatibility_projection",
+                [.. infoList.Select(value => value.Hash).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase)]);
         }
         return applied;
     }
 
-    public void DispatchWarningPresentationChanged(string reason) =>
-        chartInfoCapability.PublishWarningPresentationChanged(reason);
+    public void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null) =>
+        chartInfoCapability.PublishWarningPresentationChanged(reason, md5s);
 }

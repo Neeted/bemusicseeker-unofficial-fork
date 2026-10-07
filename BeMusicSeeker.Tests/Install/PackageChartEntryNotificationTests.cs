@@ -1,5 +1,4 @@
 using System;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -11,7 +10,7 @@ public sealed class PackageChartEntryNotificationTests
     [TestMethod]
     public void DeferredPublicationReleaseEndsSuppressionBeforeUiPublication()
     {
-        PackageChartEntry entry = ChartPackageTestExtensions.CreateEntry(new BMSFile());
+        PackageChartEntry entry = ChartPackageTestExtensions.CreateEntry(ChartTestValues.Empty());
         int notificationCount = 0;
         entry.PropertyChanged += (_, e) =>
         {

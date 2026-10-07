@@ -19,6 +19,51 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowTreePresentationWpfTests
 {
     [TestMethod]
+    public void InstalledPackageCompiledHeaderPublishesTitleOnlyAfterOwnerRelease()
+    {
+        BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(new Settings(), (_, window) =>
+            {
+                var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                    packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
+                ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
+                {
+                    Token = new OwnedChartToken(),
+                    Title = "A header",
+                    RawTitle = "A header",
+                    Path = @"C:\Charts\header.bms",
+                    Md5 = new string('a', 32),
+                    Sha256 = new string('a', 64)
+                };
+                var entry = PackageChartEntry.FromChart(before);
+                var package = ChartPackage.FromChartEntries([entry]);
+                owner.ReplaceInstalledPackages([package]);
+                TreeViewItem installed = GetNamedElement<TreeViewItem>(window, "newlyInstalledTreeViewItem");
+                var item = new TreeViewItem { DataContext = package, Style = installed.ItemContainerStyle };
+                try
+                {
+                    Assert.AreEqual("A header", item.Header);
+                    Action publish = owner.PrepareCommittedChartApplication([before with { Title = "Z header", RawTitle = "Z header" }]);
+                    Assert.AreEqual("A header", item.Header);
+                    publish();
+                    TestUiDispatcherHost.Drain();
+                    Assert.AreEqual("Z header", item.Header);
+                    Assert.AreEqual(before.Path, entry.Chart.Path);
+                }
+                finally
+                {
+                    BindingOperations.ClearAllBindings(item);
+                    item.Style = null;
+                    item.DataContext = null;
+                    owner.ClearInstalledPackages();
+                }
+            });
+        });
+    }
+
+    [TestMethod]
     public void LibraryContextMenusRouteReloadAndReinitializeThroughTypedTerminal()
     {
         List<string> calls = [];

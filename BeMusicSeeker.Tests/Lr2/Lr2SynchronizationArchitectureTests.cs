@@ -209,28 +209,21 @@ public sealed class Lr2SynchronizationArchitectureTests
     [TestMethod]
     public void InputRowSnapshotIsExposedAsOneImmutableContract()
     {
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        BMSFile file = new()
+        var storageRowsOwner = new CatalogOwnedCollectionOwner();
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = "chart.bms"
+            Path = "chart.bms",
+            Md5 = new string('a', 32)
         };
-        CatalogStorageRowsSnapshot storageSnapshot = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([file], []);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([file], []),
-            storageSnapshot.BmsRowsVersion,
-            storageSnapshot.BmsonRowsVersion);
-        var mutationOwner = new CatalogMutationOwner(
-            storageRowsOwner,
-            ownedCollectionOwner,
-            null);
+        CatalogChartCollectionSnapshot storageSnapshot = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([file], []);
+        CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+        var mutationOwner = new CatalogMutationOwner(storageRowsOwner, null);
 
         Lr2SongDbSyncInputRowSnapshot snapshot = mutationOwner.CaptureLr2SynchronizationInputRowSnapshot();
         Assert.AreEqual(1, snapshot.SongRows.Count);
-        Assert.AreEqual(file.path, snapshot.ChartPaths.Single());
-        Assert.AreEqual(ownedCollectionOwner.CollectionVersion, snapshot.OwnedCollectionVersion);
-        Assert.AreEqual(storageSnapshot.BmsRowsVersion, snapshot.BmsRowsVersion);
-        Assert.AreEqual(storageSnapshot.BmsonRowsVersion, snapshot.BmsonRowsVersion);
+        Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
+        Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, snapshot.OwnedCollectionVersion);
+        Assert.AreEqual(storageSnapshot.OwnedCollectionVersion, snapshot.OwnedCollectionVersion);
     }
 
     [TestMethod]

@@ -21,7 +21,7 @@ using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using ModelBmsFile = BeMusicSeeker.Models.BMSFile;
+using ModelBmsFile = BeMusicSeeker.Models.ChartFile;
 
 namespace BeMusicSeeker.Tests;
 
@@ -88,7 +88,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
             Assert.IsTrue(request.HasTargets);
             CollectionAssert.AreEqual(new[] { first, second }, request.Targets.ToArray());
-            Assert.IsNull(first.Chart.GetBmsStorageOwner());
+            Assert.IsNull(first.Chart.Token);
             Assert.IsTrue(missingBms.HasCapability(ChartOperationCapabilities.ConvertToAudio));
             Assert.IsTrue(missingBmson.HasCapability(ChartOperationCapabilities.ConvertToAudio));
 
@@ -530,9 +530,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
             AudioSourceFatalException failure = Assert.ThrowsException<AudioSourceFatalException>(() => executor.Execute(
                 [
-                    ChartFileProjection.FromBmsFile(new ModelBmsFile { path = firstPath }),
-                    ChartFileProjection.FromBmsFile(new ModelBmsFile { path = secondPath }),
-                    ChartFileProjection.FromBmsFile(new ModelBmsFile { path = thirdPath })
+                    (ChartTestValues.Empty() with { Path = firstPath }),
+                    (ChartTestValues.Empty() with { Path = secondPath }),
+                    (ChartTestValues.Empty() with { Path = thirdPath })
                 ],
                 outputDirectory,
                 settings,
@@ -1040,7 +1040,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(root, executor.SaveDirectory);
             Assert.IsNotNull(executedCharts);
             CollectionAssert.AreEqual(new[] { first.Chart, second.Chart }, executedCharts.ToArray());
-            Assert.IsNull(executedCharts[0].GetBmsStorageOwner());
+            Assert.IsNull(executedCharts[0].Token);
             Assert.IsNotNull(executedSettings);
             Assert.AreEqual(EncoderType.MP3_LAME, executedSettings.Encoder);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, executedSettings.EncoderSampleRate);
@@ -1566,24 +1566,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     private static ChartFile CreateChart(string path)
     {
         bool bmson = string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase);
-        ModelBmsFile? file = bmson ? null : new ModelBmsFile { path = path };
-        return new ChartFile(
-            bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
-            path,
-            "hash-" + Path.GetFileNameWithoutExtension(path),
-            null,
-            "Title",
-            "Title",
-            "Artist",
-            "Genre",
-            "Folder",
-            string.Empty,
-            string.Empty,
-            null,
-            null,
-            null,
-            file,
-            null);
+        ModelBmsFile? file = bmson ? null : ChartTestValues.Empty() with { Path = path };
+        return new ChartFile(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms, path, "hash-" + Path.GetFileNameWithoutExtension(path), null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 
     private static string CreateRoot()

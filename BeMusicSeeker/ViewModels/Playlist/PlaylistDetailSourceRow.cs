@@ -24,13 +24,9 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly ChartFile resolvedChartSnapshot;
 
-    private readonly BMSFile resolvedBms;
-
-    private readonly LR2SongDBExtended.bmson_song resolvedBmson;
-
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
-    private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
+    private readonly Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider;
 
     private ChartScoreSnapshot effectiveScoreSnapshot;
 
@@ -38,8 +34,6 @@ internal sealed class PlaylistDetailSourceRow
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
     internal bool IsOwned => HasOwnedChart(Chart);
-
-    internal BMSFile BmsPlayerFile => resolvedBms;
 
     internal string Title { get; }
 
@@ -133,13 +127,12 @@ internal sealed class PlaylistDetailSourceRow
 
     internal ChartFile Chart { get; private set; }
 
-    internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
+    internal BeMusicSeeker.Models.ChartDetails EntryChartInfo { get; private set; }
 
-    internal LR2SongDBExtended.chart_info ChartInfo => ResolveChartInfoProjection();
+    internal BeMusicSeeker.Models.ChartDetails ChartInfo => ResolveChartInfoProjection();
 
-    internal bool HasEntryChartInfoDependency => resolvedBms == null
-        && resolvedChartSnapshot?.GetBmsStorageOwner() == null
-        && resolvedBmson == null;
+    internal bool HasEntryChartInfoDependency => resolvedChartSnapshot == null
+        || string.IsNullOrWhiteSpace(resolvedChartSnapshot.Path);
 
     private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
 
@@ -221,16 +214,14 @@ internal sealed class PlaylistDetailSourceRow
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore scoreSnapshot = null,
-        LR2SongDBExtended.chart_info entryChartInfo = null,
+        BeMusicSeeker.Models.ChartDetails entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider = null,
         LibraryChartRef resolvedChartRef = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
-        resolvedBms = resolvedChartRef?.GetBmsStorageOwner() ?? resolvedChart?.GetBmsStorageOwner();
-        resolvedBmson = resolvedChartRef?.GetBmsonStorageOwner() ?? resolvedChart?.GetBmsonStorageOwner();
         EntryChartInfo = entryChartInfo;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
@@ -290,7 +281,7 @@ internal sealed class PlaylistDetailSourceRow
         SearchText = BuildSearchText();
     }
 
-    private bool SetEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    private bool SetEntryChartInfo(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         if (!HasEntryChartInfoDependency || ReferenceEquals(EntryChartInfo, chartInfo))
         {
@@ -322,7 +313,7 @@ internal sealed class PlaylistDetailSourceRow
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
     }
 
-    internal PlaylistDetailSourceRow WithEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    internal PlaylistDetailSourceRow WithEntryChartInfo(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();
         copy.SetEntryChartInfo(chartInfo);
@@ -337,7 +328,7 @@ internal sealed class PlaylistDetailSourceRow
     /// <param name="scoreSnapshot">現在の score snapshot から解決した score。</param>
     /// <returns>更新後の source row。</returns>
     internal PlaylistDetailSourceRow WithEntryChartInfoAndScore(
-        LR2SongDBExtended.chart_info chartInfo,
+        BeMusicSeeker.Models.ChartDetails chartInfo,
         BMSScore scoreSnapshot)
     {
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();
@@ -385,33 +376,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFile CreateChartFile()
     {
-        BMSFile bmsOwner = resolvedBms ?? resolvedChartSnapshot?.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            ChartFile ownerSource = ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner);
-            ChartFile currentChart = resolvedChartSnapshot ?? ownerSource;
-            currentChart = ChartFileProjection.WithScore(currentChart, effectiveScoreSnapshot ?? currentChart.Score);
-            currentChart = ApplyChartInfoProjection(currentChart, ownerSource ?? currentChart);
-            return ChartFileProjection.WithTransientState(
-                currentChart,
-                GetChartTransientState(ownerSource ?? currentChart, includeWarningSnapshot: true));
-        }
-        if (resolvedBmson != null)
-        {
-            if (resolvedChartSnapshot != null)
-            {
-                ChartFile ownerSource = ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
-                ChartFile projectedChart = resolvedChartSnapshot;
-                projectedChart = ApplyChartInfoProjection(projectedChart, ownerSource);
-                return ChartFileProjection.WithTransientState(
-                    projectedChart,
-                    GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false), includeWarningSnapshot: true));
-            }
-            ChartFile identityChart = ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false, includeResourceReferences: false);
-            return ChartFileProjection.FromStorageOwnerWithTransientState(
-                identityChart,
-                GetChartTransientState(identityChart, includeWarningSnapshot: true));
-        }
+
         if (resolvedChartSnapshot != null)
         {
             ChartFile projectedChart = ApplyChartInfoProjection(resolvedChartSnapshot, resolvedChartSnapshot);
@@ -441,22 +406,8 @@ internal sealed class PlaylistDetailSourceRow
             : chart;
     }
 
-    private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
+    private BeMusicSeeker.Models.ChartDetails ResolveChartInfoProjection()
     {
-        BMSFile bmsOwner = resolvedBms ?? resolvedChartSnapshot?.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            ChartFile ownerSource = ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner) ?? resolvedChartSnapshot;
-            return ResolveChartInfoFromProvider(ownerSource)
-                ?? resolvedChartSnapshot?.ChartInfo
-                ?? EntryChartInfo;
-        }
-        if (resolvedBmson != null)
-        {
-            ChartFile ownerSource = resolvedChartSnapshot ?? ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
-            return ResolveChartInfoFromProvider(ownerSource)
-                ?? ownerSource?.ChartInfo;
-        }
         if (resolvedChartSnapshot != null)
         {
             return ResolveChartInfoFromProvider(resolvedChartSnapshot)
@@ -468,7 +419,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFile ApplyChartInfoProjection(ChartFile chart, ChartFile identitySource)
     {
-        LR2SongDBExtended.chart_info resolved = ResolveChartInfoFromProvider(identitySource ?? chart);
+        BeMusicSeeker.Models.ChartDetails resolved = ResolveChartInfoFromProvider(identitySource ?? chart);
         if (chart == null || resolved == null || ReferenceEquals(resolved, chart.ChartInfo))
         {
             return chart;
@@ -476,7 +427,7 @@ internal sealed class PlaylistDetailSourceRow
         return ChartFileProjection.WithChartInfo(chart, resolved);
     }
 
-    private LR2SongDBExtended.chart_info ResolveChartInfoFromProvider(ChartFile chart)
+    private BeMusicSeeker.Models.ChartDetails ResolveChartInfoFromProvider(ChartFile chart)
     {
         return chart == null ? null : chartInfoProjectionProvider?.Invoke(chart);
     }

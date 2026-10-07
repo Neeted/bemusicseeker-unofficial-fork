@@ -157,14 +157,14 @@ public sealed class PendingPackageWorkflowOwnerTests
         File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE Pending repair terminal\r\n");
         try
         {
-            var chartOwner = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            ChartFile chartOwner = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(chartOwner.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chartOwner), typeof(LR2SongDB.song));
                 string escapedDestinationPath = destinationChartPath.Replace("'", "''");
                 songDb.Execute(
                     "CREATE TRIGGER pending_repair_path_failure BEFORE INSERT ON song WHEN NEW.path = '"
@@ -180,7 +180,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 new ResilientFileMutationService(),
                 dialogs)
             {
-                BMSFiles = [chartOwner]
+                BmsCharts = [chartOwner]
             };
             var events = new List<string>();
             var store = new RecordingStore(events)
@@ -204,7 +204,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 dialogs,
                 chartFileOperations: gate);
             ChartFile repairChart = ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(chartOwner),
+                (chartOwner),
                 destinationDirectoryPath,
                 string.Empty,
                 string.Empty,
@@ -1269,7 +1269,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             string chartPath = Path.Combine(pendingPath, "chart.bms");
             File.WriteAllBytes(chartPath, sourceContents);
             File.WriteAllBytes(Path.Combine(pendingPath, "note.wav"), [1, 2, 3]);
-            ChartFile chart = ChartFileProjection.FromBmsFile(BMSFile.CreateBMSFileFromFile(chartPath));
+            ChartFile chart = (BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)));
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
             package.path = pendingPath;
             package.delete_parent = false;
@@ -1292,8 +1292,8 @@ public sealed class PendingPackageWorkflowOwnerTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = [package],
                 ChartPackagesInstalled = []
             };
@@ -1312,7 +1312,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             Assert.AreEqual(1, package.ChartEntries.Count);
             Assert.IsTrue(ChartFileKindResolver.IsBmsChartFile(pendingChart));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingChart.InstallDestination));
-            Assert.AreEqual(0, library.BMSFiles.Count);
+            Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             using (var beforeInstall = new LR2SongDBExtended(
                 songDbPath,
@@ -1335,7 +1335,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             Assert.IsTrue(ChartFileKindResolver.IsBmsChartFile(preservedChart));
             Assert.AreEqual(pendingChartPath, preservedChart.Path);
             Assert.IsTrue(string.IsNullOrWhiteSpace(preservedChart.InstallDestination));
-            Assert.AreEqual(0, library.BMSFiles.Count);
+            Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(chartPath));
             CollectionAssert.AreEqual(sourceContents, File.ReadAllBytes(chartPath));
@@ -2389,25 +2389,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         string path = @"C:\Charts\song.bms",
         string? installDestination = null)
     {
-        var bmsFile = new BMSFile { path = path };
-        return new ChartFile(
-            ChartFileKind.Bms,
-            path,
-            md5: "0123456789abcdef0123456789abcdef",
-            sha256: null,
-            title: "Title",
-            rawTitle: "Title",
-            artist: "Artist",
-            genre: "Genre",
-            folder: "Charts",
-            tag: null,
-            levelText: null,
-            level: null,
-            mode: null,
-            chartInfo: null,
-            bmsFile: bmsFile,
-            bmsonSong: null,
-            installDestination: installDestination);
+        ChartFile bmsFile = (ChartTestValues.Empty() with { Path = path });
+        return new ChartFile(ChartFileKind.Bms, path, md5: "0123456789abcdef0123456789abcdef", sha256: null, title: "Title", rawTitle: "Title", artist: "Artist", genre: "Genre", folder: "Charts", tag: null, levelText: null, level: null, mode: null, chartInfo: null, installDestination: installDestination);
     }
 
     private static ChartOperationTarget CreateTarget(

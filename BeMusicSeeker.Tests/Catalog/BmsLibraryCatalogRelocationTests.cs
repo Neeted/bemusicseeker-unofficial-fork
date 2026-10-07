@@ -37,14 +37,14 @@ public sealed class BmsLibraryCatalogRelocationTests
             File.WriteAllText(newBmsonPath, "{}");
             try
             {
-                var movedFile = new TestableBmsFile
+                ChartFile movedFile = ChartTestValues.Empty() with
                 {
-                    path = newChartPath
+                    Path = newChartPath
                 };
-                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                var installLinkedFile = new TestableBmsFile
+                movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                ChartFile installLinkedFile = ChartTestValues.Empty() with
                 {
-                    path = Path.Combine(tempRootPath, "pending_chart.bms")
+                    Path = Path.Combine(tempRootPath, "pending_chart.bms")
                 };
                 ChartPackage installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
                 installedPackage.path = oldDirectoryPath;
@@ -55,12 +55,12 @@ public sealed class BmsLibraryCatalogRelocationTests
                     songDb.CreateTable<LR2SongDB.folder>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
                     songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                    var oldRow = new TestableBmsFile
+                    ChartFile oldRow = ChartTestValues.Empty() with
                     {
-                        path = oldChartPath
+                        Path = oldChartPath
                     };
-                    oldRow.SetHash(movedFile.hash);
-                    songDb.InsertOrReplace(oldRow, typeof(LR2SongDB.song));
+                    oldRow = oldRow with { Md5 = movedFile.Md5, Txt = 0 };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(oldRow, "stale-parent"), typeof(LR2SongDB.song));
                     songDb.InsertOrReplace(new LR2SongDB.folder
                     {
                         path = oldDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
@@ -68,20 +68,22 @@ public sealed class BmsLibraryCatalogRelocationTests
                         parent = "stale-parent",
                         type = 1
                     }, typeof(LR2SongDB.folder));
-                    songDb.InsertOrReplace(new LR2SongDBExtended.bmson_song
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
                     {
-                        path = oldBmsonPath,
-                        folder = oldDirectoryPath
-                    }, typeof(LR2SongDBExtended.bmson_song));
+                        Token = new OwnedChartToken(),
+                        Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        Path = oldBmsonPath,
+                        Folder = oldDirectoryPath
+                    }), typeof(LR2SongDBExtended.bmson_song));
                 }
 
-                List<BMSFile> libraryFiles = [movedFile];
-                List<LR2SongDBExtended.bmson_song> bmsonSongs =
+                List<ChartFile> libraryFiles = [movedFile];
+                List<ChartFile> bmsonSongs =
                 [
-                    new LR2SongDBExtended.bmson_song
-                    {
-                        path = oldBmsonPath,
-                        folder = oldDirectoryPath
+                    ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken(),
+                        Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        Path = oldBmsonPath,
+                        Folder = oldDirectoryPath
                     }
                 ];
                 ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
@@ -97,13 +99,13 @@ public sealed class BmsLibraryCatalogRelocationTests
                 var pathChanges = new List<LibraryChartPathChange>();
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    Chart = (movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                 });
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsonSong(bmsonSongs[0]),
+                    Chart = (bmsonSongs[0]),
                     OldPath = oldBmsonPath,
                     NewPath = newBmsonPath
                 });
@@ -111,7 +113,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 installDestinationChanges.Add(new LibraryInstallDestinationChange
                 {
                     Chart = ChartFileProjection.WithPackageState(
-                        ChartFileProjection.FromBmsFile(installLinkedFile, includeWarningSnapshot: false),
+                        (installLinkedFile),
                         oldDirectoryPath,
                         "Old destination title",
                         "Old destination artist",
@@ -128,29 +130,48 @@ public sealed class BmsLibraryCatalogRelocationTests
 
                 LibraryCatalogMutationFacts catalogFacts = new([], pathChanges, folderPathChanges);
                 LibraryPackageReferenceFacts packageFacts = new(installDestinationChanges, packagePathChanges);
-                CatalogMutationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
+                CatalogMutationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out CatalogOwnedCollectionOwner currentOwner);
                 Assert.IsTrue(relocationReceipt.Applied);
                 Assert.AreEqual(2, relocationReceipt.PathFacts.Count);
-                ApplyCommittedMutation(applier, catalogFacts, packageFacts);
+                PackageChartEntry installedEntry = installedPackage.ChartEntries.Single();
+                var publishedProperties = new List<string?>();
+                System.ComponentModel.PropertyChangedEventHandler published = (_, args) => publishedProperties.Add(args.PropertyName);
+                installedPackage.PropertyChanged += published;
+                try
+                {
+                    BmsLibraryStateApplyResult packageResult = applier.ApplyPackageReferenceFacts(packageFacts);
+                    Assert.AreEqual(0, publishedProperties.Count, "適用中にはパスとheaderを公開しません。");
+                    Assert.AreEqual(0, callbacks.InstalledPackagesChangedCount, "純移転は所属集合を変更しません。");
+                    packageResult.PublishPackagePaths();
+                    CollectionAssert.AreEqual(new[] { nameof(ChartPackage.path), nameof(ChartPackage.DisplayTitle) }, publishedProperties);
+                }
+                finally
+                {
+                    installedPackage.PropertyChanged -= published;
+                }
+                Assert.AreSame(installedEntry, installedPackage.ChartEntries.Single());
+                Assert.AreEqual(newChartPath, installedEntry.Chart.Path);
 
-                Assert.AreEqual(newChartPath, movedFile.path);
-                Assert.AreEqual(1, movedFile.txt);
+                Assert.AreEqual(newChartPath, movedFile.Path);
+                Assert.IsNull(movedFile.Txt);
+                Assert.AreEqual(1, currentOwner.BmsRows.Single().Txt);
                 ChartFile appliedInstallDestinationChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
-                Assert.AreSame(installLinkedFile, appliedInstallDestinationChart.GetBmsStorageOwner());
+                Assert.AreSame(installLinkedFile.Token, appliedInstallDestinationChart.Token);
                 Assert.AreEqual(newDirectoryPath, appliedInstallDestinationChart.InstallDestination);
                 Assert.AreEqual("Old destination title", appliedInstallDestinationChart.InstallDestinationTitle);
                 Assert.AreEqual("Old destination artist", appliedInstallDestinationChart.InstallDestinationArtist);
                 CollectionAssert.AreEqual(new[] { Path.Combine(tempRootPath, "Candidate") }, appliedInstallDestinationChart.InstallDestinationSuggestions.ToArray());
                 Assert.AreEqual(newDirectoryPath, installedPackage.path);
-                Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
-                Assert.AreEqual(newBmsonPath, bmsonSongs[0].path);
+                Assert.AreEqual(0, callbacks.InstalledPackagesChangedCount);
+                Assert.AreEqual(oldBmsonPath, bmsonSongs[0].Path);
+                Assert.AreEqual(newBmsonPath, currentOwner.BmsonRows.Single().Path);
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 verifySongDb.CreateTable<LR2SongDB.song>();
                 verifySongDb.CreateTable<LR2SongDB.folder>();
                 verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(file => file.path == newChartPath));
+                Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == newChartPath));
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", newChartPath));
-                Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == oldChartPath));
+                Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldChartPath));
                 LR2SongDB.folder movedFolder = verifySongDb.Table<LR2SongDB.folder>().Single(folder => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
                 Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(newDirectoryPath)), movedFolder.parent);
                 Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == newBmsonPath));
@@ -188,38 +209,29 @@ public sealed class BmsLibraryCatalogRelocationTests
             File.WriteAllText(Path.Combine(newDirectoryPath, "readme.txt"), "text group");
             try
             {
-                var firstFile = new TestableBmsFile
+                ChartFile firstFile = ChartTestValues.Empty() with
                 {
-                    path = oldFirstPath
+                    Path = oldFirstPath
                 };
-                firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                firstFile.SetSha256("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                firstFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(firstFile)
+                firstFile = firstFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                firstFile = firstFile with { Sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                firstFile = ChartFileProjection.WithMaintenance(firstFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = firstFile.Path, hash = firstFile.Md5, wav_files_existing = 7, wav_files_defined = 9, lr2_warning_flags = 11 }));
+                ChartFile secondFile = ChartTestValues.Empty() with
                 {
-                    wav_files_existing = 7,
-                    wav_files_defined = 9,
-                    lr2_warning_flags = 11
-                }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
-                var secondFile = new TestableBmsFile
-                {
-                    path = oldSecondPath
+                    Path = oldSecondPath
                 };
-                secondFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-                secondFile.SetSha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-                secondFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(secondFile), suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Placeholder);
-                var bmsonSong = new LR2SongDBExtended.bmson_song
+                secondFile = secondFile with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+                secondFile = secondFile with { Sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+                secondFile = ChartFileProjection.WithMaintenance(secondFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = secondFile.Path, hash = secondFile.Md5 }, MaintenanceInfoOrigin.Placeholder));
+                ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
                 {
-                    path = oldBmsonPath,
-                    folder = oldDirectoryPath,
-                    title = "Bmson",
-                    md5 = "cccccccccccccccccccccccccccccccc",
-                    sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-                    MaintenanceInfo = new BMSFileMaintenanceInfo
-                    {
-                        path = oldBmsonPath,
-                        hash = "cccccccccccccccccccccccccccccccc",
-                        wav_files_existing = 3
-                    }
+                    Token = new OwnedChartToken(),
+                    Path = oldBmsonPath,
+                    Folder = oldDirectoryPath,
+                    RawTitle = "Bmson",
+                    Md5 = "cccccccccccccccccccccccccccccccc",
+                    Sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = oldBmsonPath, hash = "cccccccccccccccccccccccccccccccc", wav_files_existing = 3 })
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
@@ -228,12 +240,12 @@ public sealed class BmsLibraryCatalogRelocationTests
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
                     songDb.CreateTable<LR2SongDBExtended.bmson_song>();
                     songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-                    songDb.InsertOrReplace(firstFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                    songDb.InsertOrReplace(secondFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(firstFile), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(secondFile), typeof(LR2SongDB.song));
                     songDb.Execute("UPDATE song SET favorite = 1, adddate = 123, tag = 'favorite-tag' WHERE path = ?;", oldFirstPath);
-                    songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = oldFirstPath, hash = firstFile.hash, wav_files_existing = 1 }, typeof(LR2SongDBExtended.maintenance));
-                    songDb.InsertOrReplace(BMSFileMaintenanceInfo.CreateForBmson(oldBmsonPath, bmsonSong.md5), typeof(LR2SongDBExtended.maintenance));
-                    songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = oldFirstPath, hash = firstFile.Md5, wav_files_existing = 1 }, typeof(LR2SongDBExtended.maintenance));
+                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = oldBmsonPath, hash = bmsonSong.Md5, encoding = "utf-8" }, typeof(LR2SongDBExtended.maintenance));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(bmsonSong), typeof(LR2SongDBExtended.bmson_song));
                     songDb.InsertOrReplace(new LR2SongDB.folder
                     {
                         title = "OldFolder",
@@ -252,8 +264,8 @@ public sealed class BmsLibraryCatalogRelocationTests
                     }, typeof(LR2SongDB.folder));
                     songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
                     {
-                        md5 = firstFile.hash,
-                        sha256 = firstFile.sha256
+                        md5 = firstFile.Md5,
+                        sha256 = firstFile.Sha256
                     }, typeof(LR2SongDBExtended.chart_digest_map));
                 }
 
@@ -267,19 +279,19 @@ public sealed class BmsLibraryCatalogRelocationTests
                 var pathChanges = new List<LibraryChartPathChange>();
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(firstFile),
+                    Chart = (firstFile),
                     OldPath = oldFirstPath,
                     NewPath = newFirstPath
                 });
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(secondFile),
+                    Chart = (secondFile),
                     OldPath = oldSecondPath,
                     NewPath = newSecondPath
                 });
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
+                    Chart = (bmsonSong),
                     OldPath = oldBmsonPath,
                     NewPath = newBmsonPath
                 });
@@ -287,27 +299,30 @@ public sealed class BmsLibraryCatalogRelocationTests
                 CatalogMutationReceipt result = ApplyCatalogRelocation(
                     songDbPath,
                     new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges),
-                    callbacks);
+                    callbacks, out CatalogOwnedCollectionOwner currentOwner);
 
                 Assert.IsTrue(result.BmsPathDbMs >= 0);
                 Assert.IsTrue(result.BmsonPathDbMs >= 0);
                 Assert.AreEqual(3, result.PathFacts.Count);
-                Assert.AreEqual(newFirstPath, firstFile.path);
-                Assert.AreEqual(newSecondPath, secondFile.path);
-                Assert.AreEqual(newBmsonPath, bmsonSong.path);
+                Assert.AreEqual(oldFirstPath, firstFile.Path);
+                Assert.AreEqual(oldSecondPath, secondFile.Path);
+                Assert.AreEqual(oldBmsonPath, bmsonSong.Path);
+                Assert.IsTrue(currentOwner.BmsRows.Any(chart => chart.Path == newFirstPath));
+                Assert.IsTrue(currentOwner.BmsRows.Any(chart => chart.Path == newSecondPath));
+                Assert.AreEqual(newBmsonPath, currentOwner.BmsonRows.Single().Path);
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 verifySongDb.CreateTable<LR2SongDB.song>();
                 verifySongDb.CreateTable<LR2SongDB.folder>();
                 verifySongDb.CreateTable<LR2SongDBExtended.maintenance>();
                 verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
                 verifySongDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-                Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == oldFirstPath || file.path == oldSecondPath));
+                Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldFirstPath || file.path == oldSecondPath));
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", newFirstPath));
                 Assert.AreEqual(123, verifySongDb.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", newFirstPath));
                 Assert.AreEqual("favorite-tag", verifySongDb.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", newFirstPath));
                 Assert.AreEqual(7, verifySongDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", newFirstPath));
                 Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", newSecondPath));
-                Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", firstFile.hash, firstFile.sha256));
+                Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", firstFile.Md5, firstFile.Sha256));
                 Assert.AreEqual(newDirectoryPath, verifySongDb.ExecuteScalar<string>("SELECT folder FROM bmson_song WHERE path = ?;", newBmsonPath));
                 Assert.AreEqual(3, verifySongDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", newBmsonPath));
                 LR2SongDB.folder movedFolder = verifySongDb.Table<LR2SongDB.folder>().Single(folder => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
@@ -349,15 +364,15 @@ public sealed class BmsLibraryCatalogRelocationTests
             File.WriteAllText(newChartPath, "#PLAYER 1");
             try
             {
-                var movedFile = new TestableBmsFile
+                ChartFile movedFile = ChartTestValues.Empty() with
                 {
-                    path = oldChartPath
+                    Path = oldChartPath
                 };
-                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
-                    songDb.InsertOrReplace(movedFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedFile), typeof(LR2SongDB.song));
                     string escapedNewChartPath = newChartPath.Replace("'", "''");
                     songDb.Execute("CREATE TRIGGER fail_song_insert BEFORE INSERT ON song WHEN NEW.path = '" + escapedNewChartPath + "' BEGIN SELECT RAISE(ABORT, 'forced failure'); END;");
                 }
@@ -367,7 +382,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     [],
                     [new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    Chart = (movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                     }],
@@ -375,7 +390,7 @@ public sealed class BmsLibraryCatalogRelocationTests
 
                 Assert.ThrowsException<SQLite.SQLiteException>(() => ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks));
 
-                Assert.AreEqual(oldChartPath, movedFile.path);
+                Assert.AreEqual(oldChartPath, movedFile.Path);
                 Assert.AreEqual(1, callbacks.SongDbWriteFailureCount);
                 Assert.AreEqual("lr2_song_db_library_mutation_path_replace_failed", callbacks.LastSongDbWriteFailureStage);
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
@@ -410,23 +425,22 @@ public sealed class BmsLibraryCatalogRelocationTests
             File.WriteAllText(newChartPath, "#PLAYER 1");
             try
             {
-                var movedFile = new TestableBmsFile
+                ChartFile movedFile = ChartTestValues.Empty() with
                 {
-                    path = newChartPath
+                    Path = newChartPath
                 };
-                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    var oldRow = new TestableBmsFile
+                    ChartFile oldRow = ChartTestValues.Empty() with
                     {
-                        path = oldChartPath,
-                        folder = "stale-folder",
-                        parent = "stale-parent"
+                        Path = oldChartPath,
+                        Folder = "stale-folder"
                     };
-                    oldRow.SetHash(movedFile.hash);
-                    songDb.InsertOrReplace(oldRow, typeof(LR2SongDB.song));
+                    oldRow = oldRow with { Md5 = movedFile.Md5 };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(oldRow, "stale-parent"), typeof(LR2SongDB.song));
                 }
 
                 var callbacks = new TrackingCallbacks();
@@ -434,20 +448,20 @@ public sealed class BmsLibraryCatalogRelocationTests
                     [],
                     [new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    Chart = (movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                     }],
                     []);
 
-                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
+                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out CatalogOwnedCollectionOwner currentOwner);
 
-                Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.folder));
-                Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.parent));
-                Assert.IsTrue(movedFile.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.Folder));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(movedFile).parent));
+                Assert.IsTrue(currentOwner.BmsRows.Single().Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 verifySongDb.CreateTable<LR2SongDB.song>();
-                Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == oldChartPath));
+                Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldChartPath));
                 Assert.AreEqual(1L, verifySongDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", newChartPath));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", newChartPath)));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", newChartPath)));
@@ -477,21 +491,14 @@ public sealed class BmsLibraryCatalogRelocationTests
             File.WriteAllText(newChartPath, "#PLAYER 1");
             try
             {
-                var movedFile = new TestableBmsFile { path = newChartPath };
-                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                movedFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(movedFile)
-                {
-                    hash = movedFile.hash,
-                    path = oldChartPath,
-                    lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None,
-                    lr2_resource_max_relative_cp932_bytes = 240,
-                    lr2_resource_has_parent_traversal = false
-                }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
+                ChartFile movedFile = (ChartTestValues.Empty() with { Path = newChartPath });
+                movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                movedFile = ChartFileProjection.WithMaintenance(movedFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { hash = movedFile.Md5, path = oldChartPath, lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None, lr2_resource_max_relative_cp932_bytes = 240, lr2_resource_has_parent_traversal = false }));
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    BMSFile oldSongRow = movedFile.CreateSongRowPersistenceCopy();
+                    LR2SongDB.song oldSongRow = ChartSongStorageMapping.ToBmsRow(movedFile);
                     oldSongRow.path = oldChartPath;
                     songDb.InsertOrReplace(oldSongRow, typeof(LR2SongDB.song));
                 }
@@ -501,17 +508,17 @@ public sealed class BmsLibraryCatalogRelocationTests
                     [],
                     [new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    Chart = (movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                     }],
                     []);
 
-                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
+                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out CatalogOwnedCollectionOwner currentOwner);
 
-                int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
+                int flags = currentOwner.BmsRows.Single().ResourceHealthMaintenanceSnapshot.Lr2WarningFlags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
-                Assert.IsFalse(movedFile.maintenanceInfo.lr2_resource_has_parent_traversal.GetValueOrDefault());
+                Assert.IsFalse(movedFile.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal.GetValueOrDefault());
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 int persistedFlags = verifySongDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", newChartPath);
                 Assert.IsTrue((persistedFlags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
@@ -542,21 +549,14 @@ public sealed class BmsLibraryCatalogRelocationTests
             File.WriteAllText(newChartPath, "#PLAYER 1\r\n#WAV01 " + parentResourcePath + "\r\n");
             try
             {
-                var movedFile = new TestableBmsFile { path = newChartPath };
-                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                movedFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(movedFile)
-                {
-                    hash = movedFile.hash,
-                    path = oldChartPath,
-                    lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None,
-                    lr2_resource_max_relative_cp932_bytes = 1,
-                    lr2_resource_has_parent_traversal = true
-                }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
+                ChartFile movedFile = (ChartTestValues.Empty() with { Path = newChartPath });
+                movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                movedFile = ChartFileProjection.WithMaintenance(movedFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { hash = movedFile.Md5, path = oldChartPath, lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None, lr2_resource_max_relative_cp932_bytes = 1, lr2_resource_has_parent_traversal = true }));
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    BMSFile oldSongRow = movedFile.CreateSongRowPersistenceCopy();
+                    LR2SongDB.song oldSongRow = ChartSongStorageMapping.ToBmsRow(movedFile);
                     oldSongRow.path = oldChartPath;
                     songDb.InsertOrReplace(oldSongRow, typeof(LR2SongDB.song));
                 }
@@ -566,18 +566,18 @@ public sealed class BmsLibraryCatalogRelocationTests
                     [],
                     [new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    Chart = (movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                     }],
                     []);
 
-                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
+                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out CatalogOwnedCollectionOwner currentOwner);
 
-                int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
+                int flags = currentOwner.BmsRows.Single().ResourceHealthMaintenanceSnapshot.Lr2WarningFlags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
-                Assert.IsTrue(movedFile.maintenanceInfo.lr2_resource_has_parent_traversal.GetValueOrDefault());
-                Assert.IsTrue(movedFile.maintenanceInfo.lr2_resource_max_relative_cp932_bytes > 1);
+                Assert.IsTrue(movedFile.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal.GetValueOrDefault());
+                Assert.IsTrue(currentOwner.BmsRows.Single().ResourceHealthMaintenanceSnapshot.Lr2ResourceMaxRelativeCp932Bytes > 1);
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 int persistedFlags = verifySongDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", newChartPath);
                 Assert.IsTrue((persistedFlags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);

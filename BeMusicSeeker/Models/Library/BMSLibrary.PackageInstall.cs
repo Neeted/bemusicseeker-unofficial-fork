@@ -671,7 +671,6 @@ public partial class BMSLibrary
                 forceUpdate: true,
                 resourceHealthMutationReason: "install_package",
                 postLeaseNotificationObserver: postLeaseEffects.Add);
-            SetBMSScore(installedTargets.BmsFiles);
             BuildAndPersistInlineChartInfoForInstalledCharts(
                 "install_package_inline",
                 installedTargets.Charts,
@@ -733,7 +732,7 @@ public partial class BMSLibrary
             {
                 continue;
             }
-            ChartFile projected = ChartFileProjection.FromStorageOwner(
+            ChartFile projected = ChartFileProjection.CaptureBasicSnapshot(
                 chart,
                 includeWarningSnapshot: false,
                 includeScoreSnapshot: false);
@@ -1409,7 +1408,7 @@ public partial class BMSLibrary
         using (rwlockPendingInstallCharts.GetReaderGuard())
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            hasInitializedBmsFiles = BMSFiles != null;
+            hasInitializedBmsFiles = BmsCharts != null;
             pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
             installedPackageSnapshot = [.. ChartPackagesInstalled.Where(package => package != null)];
             installedChartHashSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
@@ -1882,9 +1881,6 @@ public partial class BMSLibrary
                     deferredFeedback,
                     out maintenancePublication);
                 maintenanceReceipt.ThrowIfFailed();
-                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
-                    deferredMaintenanceCharts);
-                SetBMSScore(installedTargets.BmsFiles);
                 List<ChartFile> targets =
                     BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts);
                 List<ChartFile> inlineTargets = BuildEstimatedInstallMaintenanceTargets(
@@ -2549,7 +2545,7 @@ public partial class BMSLibrary
                 // warning projection.  Keep that work detached from the live
                 // entries until the owner has accepted the replacement and
                 // the install rows have been durably updated.
-                ChartFile storageProjection = ChartFileProjection.FromStorageOwner(
+                ChartFile storageProjection = ChartFileProjection.CaptureBasicSnapshot(
                     sourceChart,
                     includeWarningSnapshot: true);
                 ChartFile packageProjection = storageProjection == null
@@ -2977,11 +2973,11 @@ public partial class BMSLibrary
                     }
                     if (failure.Outcome.FailedDuringDelete)
                     {
-                        diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+                        diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.Path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
                     }
                     else
                     {
-                        diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+                        diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.Path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
                     }
                 }
                 libraryMutationOwner.RemovePendingChartsFromPendingPackagesAndInstallRows(

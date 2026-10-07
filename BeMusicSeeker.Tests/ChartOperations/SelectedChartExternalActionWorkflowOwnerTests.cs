@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -86,12 +85,12 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Settings settings = new() { RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson };
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(settingsProvider: () => settings);
         string chartInfoSha256 = new string('c', 64);
-        var chartInfo = new LR2SongDBExtended.chart_info { sha256 = chartInfoSha256 };
-        var storageOwner = new TestableBmsFile();
-        storageOwner.Apply(@"C:\Songs\alpha.bms", new string('d', 32));
+        var chartInfo = new BeMusicSeeker.Models.ChartDetails { sha256 = chartInfoSha256 };
+        ChartFile storageOwner = ChartTestValues.Empty();
+        storageOwner = storageOwner with { Path = @"C:\Songs\alpha.bms", Md5 = new string('d', 32) };
         ChartFile chart = ChartFileProjection.FromBmsMetadata(
-            storageOwner.path,
-            storageOwner.hash,
+            storageOwner.Path,
+            storageOwner.Md5,
             null,
             "Title",
             "Artist",
@@ -101,12 +100,12 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
             null,
             null,
             chartInfo);
-        var entry = new TestablePlaylistEntry(storageOwner.hash);
+        var entry = new TestablePlaylistEntry(storageOwner.Md5);
         PlaylistDetailRow row = new PlaylistDetailSourceRow(
             entry,
             chart,
             entryChartInfo: chartInfo,
-            resolvedChartRef: LibraryChartRef.FromBmsFile(storageOwner))
+            resolvedChartRef: LibraryChartRef.FromChartFile((storageOwner)))
             .CreateViewRow();
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(
@@ -548,11 +547,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
 
     private static ChartFile CreateChart(string? path, ChartFileKind kind, string? md5 = "dddddddddddddddddddddddddddddddd")
     {
-        return new ChartFile(
-            kind, path, md5, new string('a', 64), "Title", "Title", "Artist", "Genre", "Folder",
-            string.Empty, string.Empty, null, null, null,
-            kind == ChartFileKind.Bms ? new BMSFile { path = path, hash = md5 } : null,
-            kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path, md5 = md5 } : null);
+        return new ChartFile(kind, path, md5, new string('a', 64), "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 
     private static ChartOperationTarget CreateTarget(
@@ -560,26 +555,10 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         ChartOperationCapabilities capabilities,
         string? md5 = null,
         string? sha256 = null,
-        LR2SongDBExtended.chart_info? chartInfo = null)
+        BeMusicSeeker.Models.ChartDetails? chartInfo = null)
     {
-        var file = new BMSFile { path = path };
-        var chart = new ChartFile(
-            ChartFileKind.Bms,
-            path,
-            md5,
-            sha256,
-            "Title",
-            "Title",
-            "Artist",
-            "Genre",
-            "Folder",
-            string.Empty,
-            string.Empty,
-            null,
-            null,
-            chartInfo,
-            file,
-            null);
+        ChartFile file = (ChartTestValues.Empty() with { Path = path });
+        var chart = new ChartFile(ChartFileKind.Bms, path, md5, sha256, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, chartInfo);
         return new ChartOperationTarget(
             chart,
             null,
@@ -590,14 +569,6 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
             capabilities);
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        internal void Apply(string filePath, string md5)
-        {
-            path = filePath;
-            hash = md5;
-        }
-    }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry
     {

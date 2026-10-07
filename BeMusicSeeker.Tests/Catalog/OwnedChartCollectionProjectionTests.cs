@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
@@ -18,30 +17,30 @@ public sealed class OwnedChartCollectionProjectionTests
     public void FromStorageRows_BuildsBmsAndBmsonOwnedChartSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var bmsonSong = new LR2SongDBExtended.bmson_song
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
-            md5 = "cccccccccccccccccccccccccccccccc",
-            sha256 = new string('d', 64),
-            title = "bmson title"
+            Token = new OwnedChartToken(),
+            Path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
+            Md5 = "cccccccccccccccccccccccccccccccc",
+            Sha256 = new string('d', 64),
+            RawTitle = "bmson title"
         };
 
-        List<ChartFile> snapshot = OwnedChartCollectionState
-            .FromStorageRows([bmsFile], [bmsonSong])
+        List<ChartFile> snapshot = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], [bmsonSong]))
             .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
 
         Assert.AreEqual(2, snapshot.Count);
         ChartFile bmsChart = snapshot.Single(chart => chart.Kind == ChartFileKind.Bms);
         ChartFile bmsonChart = snapshot.Single(chart => chart.Kind == ChartFileKind.Bmson);
-        Assert.AreEqual(bmsFile.path, bmsChart.Path);
-        Assert.AreEqual(bmsFile.hash, bmsChart.Md5);
-        Assert.AreEqual(bmsFile.sha256, bmsChart.Sha256);
-        Assert.AreSame(bmsFile, bmsChart.GetBmsStorageOwner());
-        Assert.AreEqual(bmsonSong.path, bmsonChart.Path);
-        Assert.AreEqual(bmsonSong.md5, bmsonChart.Md5);
-        Assert.AreEqual(bmsonSong.sha256, bmsonChart.Sha256);
-        Assert.AreSame(bmsonSong, bmsonChart.GetBmsonStorageOwner());
+        Assert.AreEqual(bmsFile.Path, bmsChart.Path);
+        Assert.AreEqual(bmsFile.Md5, bmsChart.Md5);
+        Assert.AreEqual(bmsFile.Sha256, bmsChart.Sha256);
+        Assert.AreSame(bmsFile.Token, bmsChart.Token);
+        Assert.AreEqual(bmsonSong.Path, bmsonChart.Path);
+        Assert.AreEqual(bmsonSong.Md5, bmsonChart.Md5);
+        Assert.AreEqual(bmsonSong.Sha256, bmsonChart.Sha256);
+        Assert.AreSame(bmsonSong.Token, bmsonChart.Token);
     }
 
     /// <summary>未所持identityと同じexact keyの重複だけを除外し、別caseの行は保持します。</summary>
@@ -49,28 +48,27 @@ public sealed class OwnedChartCollectionProjectionTests
     public void FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        TestableBmsFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
-        TestableBmsFile duplicateBms = CreateFile("22222222222222222222222222222222", pathfulBms.path, new string('2', 64));
-        LR2SongDBExtended.bmson_song pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
-        LR2SongDBExtended.bmson_song md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
-        LR2SongDBExtended.bmson_song duplicateBmson = CreateBmsonSong(pathfulBms.path.ToUpperInvariant(), "33333333333333333333333333333333");
+        ChartFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        ChartFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
+        ChartFile duplicateBms = CreateFile("22222222222222222222222222222222", pathfulBms.Path, new string('2', 64));
+        ChartFile pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        ChartFile pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        ChartFile md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
+        ChartFile duplicateBmson = CreateBmsonSong(pathfulBms.Path.ToUpperInvariant(), "33333333333333333333333333333333");
 
-        List<ChartFile> snapshot = OwnedChartCollectionState
-            .FromStorageRows([pathfulBms, pathlessBms, md5lessBms, duplicateBms], [pathfulBmson, pathlessBmson, md5lessBmson, duplicateBmson], out OwnedChartStorageRowFilterSummary filterSummary)
+        List<ChartFile> snapshot = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([pathfulBms, pathlessBms, md5lessBms, duplicateBms], [pathfulBmson, pathlessBmson, md5lessBmson, duplicateBmson]), out OwnedChartStorageRowFilterSummary filterSummary)
             .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
 
         Assert.AreEqual(3, snapshot.Count);
-        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathfulBms)));
-        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathfulBmson)));
-        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), duplicateBmson)));
-        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
-        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
-        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), md5lessBms)));
-        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), md5lessBmson)));
-        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), duplicateBms)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.Token, pathfulBms.Token)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.Token, pathfulBmson.Token)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.Token, duplicateBmson.Token)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, pathlessBms.Token)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, pathlessBmson.Token)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, md5lessBms.Token)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, md5lessBmson.Token)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, duplicateBms.Token)));
         Assert.AreEqual(1, filterSummary.PathlessBmsCount);
         Assert.AreEqual(1, filterSummary.PathlessBmsonCount);
         Assert.AreEqual(1, filterSummary.Md5lessBmsCount);
@@ -80,176 +78,148 @@ public sealed class OwnedChartCollectionProjectionTests
     }
 
     [TestMethod]
-    public void ChartFileProjection_FromStorageRowsRequirePathFiltersBmsAndBmsonRows()
+    public void ChartStorageTargetSet_FromChartsRejectsInvalidBmsAndBmsonIdentities()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        LR2SongDBExtended.bmson_song pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        ChartFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        ChartFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
+        ChartFile pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        ChartFile pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        ChartFile md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
-        List<ChartFile> requirePath = ChartFileProjection.FromStorageRows(
-            [pathfulBms, pathlessBms],
-            [pathfulBmson, pathlessBmson],
-            requirePath: true,
-            includeResourceReferences: false);
-        List<ChartFile> projectionOnly = ChartFileProjection.FromStorageRows(
-            [pathfulBms, pathlessBms],
-            [pathfulBmson, pathlessBmson],
-            requirePath: false,
-            includeResourceReferences: false);
+        var targets = ChartStorageTargetSet.FromCharts(ChartTestValues.Combine([pathfulBms], [pathfulBmson]));
 
-        Assert.AreEqual(2, requirePath.Count);
-        Assert.IsFalse(requirePath.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
-        Assert.IsFalse(requirePath.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
-        Assert.AreEqual(4, projectionOnly.Count);
-        Assert.IsTrue(projectionOnly.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
-        Assert.IsTrue(projectionOnly.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
-    }
-
-    [TestMethod]
-    public void ChartStorageTargetSet_FromRowsRejectsInvalidBmsAndBmsonRows()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        TestableBmsFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
-        LR2SongDBExtended.bmson_song pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
-        LR2SongDBExtended.bmson_song md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
-
-        var targets = ChartStorageTargetSet.FromRows(
-            [pathfulBms],
-            [pathfulBmson]);
-
-        CollectionAssert.AreEqual(new[] { pathfulBms }, targets.BmsFiles.ToArray());
-        CollectionAssert.AreEqual(new[] { pathfulBmson }, targets.BmsonSongs.ToArray());
+        CollectionAssert.AreEqual(new[] { pathfulBms.Path }, targets.BmsCharts.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(pathfulBms.Md5, targets.BmsCharts.Single().Md5);
+        CollectionAssert.AreEqual(new[] { pathfulBmson.Path }, targets.BmsonCharts.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(pathfulBmson.Md5, targets.BmsonCharts.Single().Md5);
         Assert.AreEqual(2, targets.Charts.Count);
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([pathlessBms], []));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([md5lessBms], []));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([], [pathlessBmson]));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([], [md5lessBmson]));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBms with { Path = null })]));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBms with { Md5 = null })]));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Path = null })]));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Md5 = null })]));
     }
 
     [TestMethod]
     public void CreateSnapshot_MatchesDirectStorageRowProjection()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        var bmsonSong = new LR2SongDBExtended.bmson_song
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
-            md5 = "cccccccccccccccccccccccccccccccc",
-            sha256 = new string('d', 64),
-            title = "bmson title"
+            Token = new OwnedChartToken(),
+            Path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
+            Md5 = "cccccccccccccccccccccccccccccccc",
+            Sha256 = new string('d', 64),
+            RawTitle = "bmson title"
         };
 
-        List<ChartFile> ownedSnapshot = OwnedChartCollectionState
-            .FromStorageRows([bmsFile], [bmsonSong])
+        List<ChartFile> ownedSnapshot = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], [bmsonSong]))
             .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
-        List<ChartFile> projectionSnapshot = ChartFileProjection.FromStorageRows(
-            [bmsFile],
-            [bmsonSong],
-            includeWarningSnapshot: false,
-            includeResourceReferences: true,
-            includeScoreSnapshot: false);
+        var projectionSnapshot = ChartTestValues.Combine([bmsFile], [bmsonSong]).ToList();
 
         AssertChartSnapshotParity(projectionSnapshot, ownedSnapshot);
     }
 
     [TestMethod]
-    public void CreateSnapshot_ReprojectsCurrentStorageOwnerValues()
+    public void CurrentApplicationKeepsCapturedValuesAndReprojectsCurrentIndexes()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"), new string('b', 64));
-        var state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"), new string('b', 64));
+        var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], []));
         string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
-        bmsFile.path = newPath;
-        bmsFile.SetHash("cccccccccccccccccccccccccccccccc");
-        bmsFile.SetSha256(new string('d', 64));
+        ChartFile capture = state.CreateSnapshot().Single();
+        state.ApplyPathChanges([new LibraryChartPathChange { Chart = capture, OldPath = capture.Path, NewPath = newPath }]);
+        bmsFile = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(capture)) with
+        { Md5 = "cccccccccccccccccccccccccccccccc", Sha256 = new string('d', 64) };
+        Assert.IsTrue(state.ApplyCurrentChartValue(bmsFile));
+        Assert.AreNotEqual(newPath, capture.Path);
+        Assert.AreNotEqual(bmsFile.Md5, capture.Md5);
 
         ChartFile snapshot = state.CreateSnapshot(
             includeWarningSnapshot: false,
             includeScoreSnapshot: false).Single();
 
         Assert.AreEqual(newPath, snapshot.Path);
-        Assert.AreEqual(bmsFile.hash, snapshot.Md5);
-        Assert.AreEqual(bmsFile.sha256, snapshot.Sha256);
-        Assert.AreSame(bmsFile, snapshot.GetBmsStorageOwner());
+        Assert.AreEqual(bmsFile.Md5, snapshot.Md5);
+        Assert.AreEqual(bmsFile.Sha256, snapshot.Sha256);
+        Assert.AreSame(bmsFile.Token, snapshot.Token);
     }
 
     [TestMethod]
-    public void CreateStorageOwnerView_ReturnsOwnersAndOwnerPathLookup()
+    public void CreateCollectionView_ReturnsCommonValuesAndExactPathLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
-        TestableBmsFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
-        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
-        var state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [bmsonSong, pathlessBmson]);
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        ChartFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
+        ChartFile pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
+        var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile, pathlessBms], [bmsonSong, pathlessBmson]));
 
-        OwnedChartStorageOwnerView view = state.CreateStorageOwnerView();
+        OwnedChartCollectionView view = state.CreateCollectionView();
 
         Assert.AreEqual(2, view.Count);
         Assert.AreEqual(2, view.OwnerPathCount);
-        Assert.AreSame(bmsFile, view.BmsFiles.Single());
-        CollectionAssert.AreEqual(new[] { bmsonSong }, view.BmsonSongs.ToArray());
-        Assert.IsTrue(view.ContainsOwnerPath(bmsFile.path));
-        Assert.IsTrue(view.ContainsOwnerPath(bmsonSong.path));
-        Assert.IsFalse(view.ContainsOwnerPath(pathlessBms.path));
-        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.path));
+        Assert.AreEqual(bmsFile.Path, view.BmsCharts.Single().Path);
+        Assert.IsNotNull(view.BmsCharts.Single().Token);
+        CollectionAssert.AreEqual(new[] { bmsonSong.Path }, view.BmsonCharts.Select(chart => chart.Path).ToArray());
+        Assert.IsTrue(view.ContainsOwnerPath(bmsFile.Path));
+        Assert.IsTrue(view.ContainsOwnerPath(bmsonSong.Path));
+        Assert.IsFalse(view.ContainsOwnerPath(pathlessBms.Path));
+        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.Path));
     }
 
     [TestMethod]
-    public void CreateNormalLibrarySourceStorageOwnerView_SortsBmsonRowsAndExcludesPathlessRows()
+    public void CreateNormalLibrarySourceChartView_SortsBmsonRowsAndExcludesPathlessRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        LR2SongDBExtended.bmson_song lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        LR2SongDBExtended.bmson_song earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
-        TestableBmsFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
-        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
-        var state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [lateBmson, pathlessBmson, earlyBmson]);
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        ChartFile lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        ChartFile earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
+        ChartFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
+        ChartFile pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
+        var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile, pathlessBms], [lateBmson, pathlessBmson, earlyBmson]));
 
-        OwnedChartStorageOwnerView view = state.CreateNormalLibrarySourceStorageOwnerView();
+        OwnedChartCollectionView view = state.CreateNormalLibrarySourceChartView();
 
         Assert.AreEqual(3, view.Count);
-        Assert.AreSame(bmsFile, view.BmsFiles.Single());
-        CollectionAssert.AreEqual(new[] { earlyBmson, lateBmson }, view.BmsonSongs.ToArray());
-        Assert.IsTrue(view.ContainsOwnerPath(lateBmson.path));
-        Assert.IsTrue(view.ContainsOwnerPath(earlyBmson.path));
-        Assert.IsFalse(view.ContainsOwnerPath(pathlessBms.path));
-        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.path));
+        Assert.AreEqual(bmsFile.Path, view.BmsCharts.Single().Path);
+        Assert.IsNotNull(view.BmsCharts.Single().Token);
+        CollectionAssert.AreEqual(new[] { earlyBmson.Path, lateBmson.Path }, view.BmsonCharts.Select(chart => chart.Path).ToArray());
+        Assert.IsTrue(view.ContainsOwnerPath(lateBmson.Path));
+        Assert.IsTrue(view.ContainsOwnerPath(earlyBmson.Path));
+        Assert.IsFalse(view.ContainsOwnerPath(pathlessBms.Path));
+        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.Path));
     }
 
     [TestMethod]
-    public void CreateFileScanRemovedStorageOwnerIdentityCharts_UsesOwnedCurrentOwners()
+    public void CreateFileScanRemovedCharts_UsesOwnedCurrentOwners()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-        TestableBmsFile deletedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "deleted.bms"));
-        TestableBmsFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty);
+        ChartFile keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+        ChartFile deletedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "deleted.bms"));
+        ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty);
         string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
-        LR2SongDBExtended.bmson_song oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
-        LR2SongDBExtended.bmson_song newBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        LR2SongDBExtended.bmson_song pathlessBmson = CreateBmsonSong(string.Empty, "ffffffffffffffffffffffffffffffff");
-        var state = OwnedChartCollectionState.FromStorageRows(
-            [keptBms, deletedBms, pathlessBms],
-            [oldBmson, pathlessBmson]);
+        ChartFile oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
+        ChartFile newBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        ChartFile pathlessBmson = CreateBmsonSong(string.Empty, "ffffffffffffffffffffffffffffffff");
+        var owner = new CatalogOwnedCollectionOwner();
+        owner.ReplaceCharts([keptBms, deletedBms, pathlessBms], [oldBmson, pathlessBmson]);
 
-        List<ChartFile> removedCharts = state.CreateFileScanRemovedStorageOwnerIdentityCharts(
-            [deletedBms.path],
+        owner.TryCaptureFileScanRemovedCharts(
+            [deletedBms.Path],
             [],
             [keptBms],
-            [newBmson]);
+            [newBmson], out List<ChartFile> removedCharts);
 
         Assert.AreEqual(2, removedCharts.Count);
-        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), deletedBms)));
-        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), oldBmson)));
-        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), keptBms)));
-        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
-        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), newBmson)));
-        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.Token, deletedBms.Token)));
+        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.Token, oldBmson.Token)));
+        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.Token, keptBms.Token)));
+        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.Token, pathlessBms.Token)));
+        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.Token, newBmson.Token)));
+        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.Token, pathlessBmson.Token)));
     }
 
 

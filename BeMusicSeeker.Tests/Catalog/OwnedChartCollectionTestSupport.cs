@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -23,9 +25,38 @@ internal static class OwnedChartCollectionTestSupport
             Assert.AreEqual(expected[i].Path, actual[i].Path);
             Assert.AreEqual(expected[i].Md5, actual[i].Md5);
             Assert.AreEqual(expected[i].Sha256, actual[i].Sha256);
-            Assert.AreSame(expected[i].GetBmsStorageOwner(), actual[i].GetBmsStorageOwner());
-            Assert.AreSame(expected[i].GetBmsonStorageOwner(), actual[i].GetBmsonStorageOwner());
+            Assert.AreSame(expected[i].Token, actual[i].Token);
         }
+    }
+
+    /// <summary>捕捉済み所持識別へ、試験が指定した基本値と移転を正式な適用入口から反映します。</summary>
+    internal static void ApplyCapturedCurrentValues(OwnedChartCollectionState state, params ChartFile[] values)
+    {
+        var moves = new List<LibraryChartPathChange>();
+        foreach (ChartFile value in values)
+        {
+            Assert.IsNotNull(value.Token);
+            ChartFile current = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
+            Assert.IsNotNull(current);
+            if (!string.Equals(current.Path, value.Path, StringComparison.Ordinal))
+            {
+                moves.Add(new LibraryChartPathChange { Chart = value, OldPath = current.Path, NewPath = value.Path });
+            }
+        }
+        state.ApplyPathChanges(moves);
+        foreach (ChartFile value in values)
+        {
+            Assert.IsTrue(state.ApplyCurrentChartValue(value));
+        }
+    }
+
+    /// <summary>正式current適用のfixture用に既存所持ownerを取得します。別の正本や逆引APIを追加しません。</summary>
+    internal static CatalogOwnedCollectionOwner GetOwnedCollectionOwner(BMSLibrary library)
+    {
+        FieldInfo field = typeof(BMSLibrary).GetField("catalogOwnedCollectionOwner", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Owned collection field was not found.");
+        return field.GetValue(library) as CatalogOwnedCollectionOwner
+            ?? throw new InvalidOperationException("Owned collection was not initialized.");
     }
 
     internal static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(BMSLibrary library)
@@ -75,13 +106,13 @@ internal static class OwnedChartCollectionTestSupport
             charts);
     }
 
-    internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
+    internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<ChartFile> files)
     {
-        int previousVersion = library.CatalogStorageRowsVersion.BmsRowsVersion;
+        int previousVersion = library.CatalogStorageRowsVersion.OwnedCollectionVersion;
         using var published = new ManualResetEventSlim(false);
         System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
         {
-            if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
+            if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
             {
                 published.Set();
             }
@@ -89,13 +120,13 @@ internal static class OwnedChartCollectionTestSupport
         library.PropertyChanged += handler;
         try
         {
-            BMSFile[] setupFiles = [.. files ?? []];
-            TestUiDispatcherHost.Invoke(() => library.BMSFiles = setupFiles);
-            if (library.CatalogStorageRowsVersion.BmsRowsVersion != previousVersion)
+            ChartFile[] setupFiles = [.. files ?? []];
+            TestUiDispatcherHost.Invoke(() => library.BmsCharts = setupFiles);
+            if (library.CatalogStorageRowsVersion.OwnedCollectionVersion != previousVersion)
             {
                 Assert.IsTrue(
                     published.Wait(TimeSpan.FromSeconds(5)),
-                    "BMSFiles setup publication did not complete before the test subscribed to mutation notifications.");
+                    "BmsCharts setup publication did not complete before the test subscribed to mutation notifications.");
             }
         }
         finally
@@ -104,13 +135,13 @@ internal static class OwnedChartCollectionTestSupport
         }
     }
 
-    internal static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    internal static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<ChartFile> songs)
     {
-        int previousVersion = library.CatalogStorageRowsVersion.BmsonRowsVersion;
+        int previousVersion = library.CatalogStorageRowsVersion.OwnedCollectionVersion;
         using var published = new ManualResetEventSlim(false);
         System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
         {
-            if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
+            if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
             {
                 published.Set();
             }
@@ -118,13 +149,13 @@ internal static class OwnedChartCollectionTestSupport
         library.PropertyChanged += handler;
         try
         {
-            LR2SongDBExtended.bmson_song[] setupSongs = [.. songs ?? []];
-            TestUiDispatcherHost.Invoke(() => library.BmsonSongs = setupSongs);
-            if (library.CatalogStorageRowsVersion.BmsonRowsVersion != previousVersion)
+            ChartFile[] setupSongs = [.. songs ?? []];
+            TestUiDispatcherHost.Invoke(() => library.BmsonCharts = setupSongs);
+            if (library.CatalogStorageRowsVersion.OwnedCollectionVersion != previousVersion)
             {
                 Assert.IsTrue(
                     published.Wait(TimeSpan.FromSeconds(5)),
-                    "BmsonSongs setup publication did not complete before the test subscribed to mutation notifications.");
+                    "BmsonCharts setup publication did not complete before the test subscribed to mutation notifications.");
             }
         }
         finally
@@ -192,48 +223,50 @@ internal static class OwnedChartCollectionTestSupport
         }
     }
 
-    internal static TestableBmsFile CreateFile(string? hash, string? path, string? sha256 = null)
+    /// <summary>非同期の確認接続試験にも、同じ独立した最小DBと後片付けを提供します。</summary>
+    internal static async Task WithTemporarySongDbAsync(Func<string, Task> testAction)
     {
-        var file = new TestableBmsFile
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        try
         {
-            path = path
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+            await testAction(songDbPath).ConfigureAwait(false);
+        }
+        finally
+        {
+            Directory.Delete(tempRootPath, recursive: true);
+        }
+    }
+
+    internal static ChartFile CreateFile(string? hash, string? path, string? sha256 = null)
+    {
+        ChartFile file = ChartTestValues.Empty() with
+        {
+            Path = path
         };
-        file.SetHash(hash);
-        file.SetSha256(sha256);
-        return file;
+        file = file with { Md5 = hash };
+        file = file with { Sha256 = sha256 };
+        return file with { Token = file.Token ?? new OwnedChartToken() };
     }
 
-    internal static LR2SongDBExtended.bmson_song CreateBmsonSong(string? path, string? md5)
+    internal static ChartFile CreateBmsonSong(string? path, string? md5)
     {
-        return new LR2SongDBExtended.bmson_song
+        return ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = path,
-            md5 = md5
+            Token = new OwnedChartToken(),
+            Path = path,
+            Md5 = md5
         };
     }
 
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string? value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string? value)
-        {
-            sha256 = value;
-        }
-
-        public void SetTitle(string? value)
-        {
-            Title = value;
-        }
-
-        public void SetArtist(string? value)
-        {
-            Artist = value;
-        }
-    }
 
     internal sealed class TestFileMutationService : IFileMutationService
     {
@@ -244,6 +277,10 @@ internal static class OwnedChartCollectionTestSupport
         internal List<string> DirectoryDeletePaths { get; } = [];
         /// <summary>Requested recycle policies, without accessing the machine's recycle bin.</summary>
         internal List<RecycleOption> DirectoryRecycleOptions { get; } = [];
+        /// <summary>実行されたファイル移転要求の件数です。</summary>
+        internal int FileMoveCalls { get; private set; }
+        /// <summary>固定した物理元パスを実際の移転入口で観測します。</summary>
+        internal List<string> FileMoveSourcePaths { get; } = [];
         internal int FileDeleteCalls { get; private set; }
         internal int DirectoryDeleteCalls { get; private set; }
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
@@ -256,6 +293,8 @@ internal static class OwnedChartCollectionTestSupport
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            FileMoveCalls++;
+            FileMoveSourcePaths.Add(sourcePath);
             string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {

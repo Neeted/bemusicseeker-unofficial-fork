@@ -40,8 +40,8 @@ internal sealed class FileScanParseCommitOwner
     internal void ApplyFileDiff(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        IEnumerable<ChartFile> currentFiles,
+        IEnumerable<ChartFile> currentBmsonSongs,
         ChartScanResult mergedScanResult,
         bool bmsFileScanSucceeded,
         SongTableFileCheckResult result,
@@ -50,32 +50,32 @@ internal sealed class FileScanParseCommitOwner
         Action<int, int, string> reportParseProgress,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted,
+        Action<IReadOnlyList<BeMusicSeeker.Models.ChartDetails>> inlineChartInfoRowsCommitted,
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration,
         Action<SongTableFileCheckResult> catalogProjectionApplied)
     {
         var stopwatchDiff = Stopwatch.StartNew();
         var stopwatchCurrentIndex = Stopwatch.StartNew();
-        var currentBmsByPath = new Dictionary<string, BMSFile>(StringComparer.Ordinal);
-        foreach (BMSFile file in currentFiles ?? [])
+        var currentBmsByPath = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
+        foreach (ChartFile file in currentFiles ?? [])
         {
             if (file == null)
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(file.path) && !currentBmsByPath.ContainsKey(file.path))
+            if (!string.IsNullOrWhiteSpace(file.Path) && !currentBmsByPath.ContainsKey(file.Path))
             {
-                currentBmsByPath[file.path] = file;
+                currentBmsByPath[file.Path] = file;
             }
         }
-        var currentBmsonByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.Ordinal);
-        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? [])
+        var currentBmsonByPath = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
+        foreach (ChartFile song in currentBmsonSongs ?? [])
         {
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
+            if (song == null || string.IsNullOrWhiteSpace(song.Path))
             {
                 continue;
             }
-            currentBmsonByPath[song.path] = song;
+            currentBmsonByPath[song.Path] = song;
         }
         stopwatchCurrentIndex.Stop();
         result.DiffCurrentIndexMs = stopwatchCurrentIndex.ElapsedMilliseconds;
@@ -126,11 +126,11 @@ internal sealed class FileScanParseCommitOwner
             && bmsFileScanSucceeded;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath =
             mergedScanResult.ChartFileEntriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
-        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5 = BuildQueueByMd5(
+        Dictionary<string, Queue<ChartFile>> movedBmsSourcesByMd5 = BuildQueueByMd5(
             result.DeletedPaths
-                .Select(path => currentBmsByPath.TryGetValue(path, out BMSFile file) ? file : null)
+                .Select(path => currentBmsByPath.TryGetValue(path, out ChartFile file) ? file : null)
                 .Where(file => file != null),
-            file => file.hash);
+            file => file.Md5);
         IReadOnlyDictionary<string, Lr2SongUserColumns> movedBmsUserColumnsByDeletedPath =
             dbGateway?.CreateSongUserColumnSnapshot(result.DeletedPaths)
             ?? new Dictionary<string, Lr2SongUserColumns>(StringComparer.Ordinal);
@@ -158,7 +158,7 @@ internal sealed class FileScanParseCommitOwner
         var stopwatchBmsonTargets = Stopwatch.StartNew();
         foreach (string path in scannedBmsonPaths)
         {
-            if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
+            if (!currentBmsonByPath.TryGetValue(path, out ChartFile existing))
             {
                 addedOrUpdatedBmsonPaths.Add(path);
                 continue;
@@ -169,7 +169,7 @@ internal sealed class FileScanParseCommitOwner
                 chartFileEntriesByPath,
                 result,
                 isBmson: true);
-            if (lastWriteTimeUtc != DateTime.MinValue && existing.updated_at != lastWriteTimeUtc)
+            if (lastWriteTimeUtc != DateTime.MinValue && existing.LastWriteTimeUtc != lastWriteTimeUtc)
             {
                 addedOrUpdatedBmsonPaths.Add(path);
             }
@@ -198,10 +198,10 @@ internal sealed class FileScanParseCommitOwner
         result.DbCommitChunkSize = ResolveFileDiffCommitChunkSize();
         var inlineMaintenanceLookupContext = new ResourceHealthLookupContext(
             result.NextDirectoryResourceLookupCache);
-        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures =
+        Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentChartInfoParseFailures =
             parseTargetCount > 0 && dbGateway != null
                 ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
-                : new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+                : new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase);
         using var commitContext = new FileDiffStreamingCommitContext(
             dbGateway,
             options,
@@ -236,6 +236,7 @@ internal sealed class FileScanParseCommitOwner
         result.InlineMaintenanceSharedResourceCacheEntries = inlineMaintenanceLookupContext.SharedResourceCacheEntryCount;
         result.InlineMaintenanceResourceSetCacheEntries = inlineMaintenanceLookupContext.ResourceHealthSetCacheEntryCount;
         result.AddedFiles.AddRange(pipelineResult.AddedFiles);
+        result.UpdatedCharts.AddRange(pipelineResult.UpdatedCharts);
         foreach (string path in pipelineResult.NewlyInsertedBmsPaths)
         {
             result.NewlyInsertedBmsPaths.Add(path);
@@ -282,7 +283,7 @@ internal sealed class FileScanParseCommitOwner
         IReadOnlyList<FileDiffParseTarget> bmsTargets,
         IReadOnlyList<string> bmsonPaths,
         BmsLibraryDbGateway dbGateway,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentChartInfoParseFailures,
         SongTableFileCheckResult result,
         int parseTargetCount,
         ref int parseProcessedCount,
@@ -292,7 +293,7 @@ internal sealed class FileScanParseCommitOwner
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         ResourceHealthLookupContext inlineMaintenanceLookupContext,
-        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5,
+        Dictionary<string, Queue<ChartFile>> movedBmsSourcesByMd5,
         IReadOnlyDictionary<string, Lr2SongUserColumns> movedBmsUserColumnsByDeletedPath,
         FileDiffStreamingCommitContext commitContext)
     {
@@ -328,11 +329,11 @@ internal sealed class FileScanParseCommitOwner
         int commitQueueCapacity = streamCommitChunks
             ? Math.Max(1, Math.Min(4, parserDegree))
             : 0;
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256 =
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> currentChartInfoRowsBySha256 =
             LoadFileDiffCurrentChartInfoRows(dbGateway, parseTargets.Count, chartInfoBatchSize, logInstallPerformance);
         if (currentChartInfoRowsBySha256 == null && parseTargets.Count > 1)
         {
-            currentChartInfoRowsBySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            currentChartInfoRowsBySha256 = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
             logInstallPerformance?.Invoke("file_diff_chart_info_snapshot"
                 + " status=suppressed"
                 + " reason=multi_post_parse_without_snapshot"
@@ -696,7 +697,7 @@ internal sealed class FileScanParseCommitOwner
         return pipelineResult;
     }
 
-    private static IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> LoadFileDiffCurrentChartInfoRows(
+    private static IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> LoadFileDiffCurrentChartInfoRows(
         BmsLibraryDbGateway dbGateway,
         int parseTargetCount,
         int inlineChartInfoBatchSize,
@@ -708,7 +709,7 @@ internal sealed class FileScanParseCommitOwner
         }
 
         var stopwatch = Stopwatch.StartNew();
-        Dictionary<string, LR2SongDBExtended.chart_info> rows = dbGateway.TryLoadCurrentChartInfoMapReadOnly();
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> rows = dbGateway.TryLoadCurrentChartInfoMapReadOnly();
         stopwatch.Stop();
         if (rows == null)
         {
@@ -746,7 +747,7 @@ internal sealed class FileScanParseCommitOwner
 
     internal static FileDiffParseTarget CreateBmsFileDiffTarget(
         string path,
-        IReadOnlyDictionary<string, BMSFile> currentBmsByPath,
+        IReadOnlyDictionary<string, ChartFile> currentBmsByPath,
         ISet<string> textFileDirectories,
         bool textGroupSurfaceAvailable,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath,
@@ -757,7 +758,7 @@ internal sealed class FileScanParseCommitOwner
         {
             return null;
         }
-        if (currentBmsByPath == null || !currentBmsByPath.TryGetValue(path, out BMSFile existing))
+        if (currentBmsByPath == null || !currentBmsByPath.TryGetValue(path, out ChartFile existing))
         {
             int? scannedTextFlag = textGroupSurfaceAvailable
                 ? ResolveTextGroupFlag(path, textFileDirectories)
@@ -782,10 +783,10 @@ internal sealed class FileScanParseCommitOwner
             return null;
         }
         int currentDate = Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc);
-        int targetTextFlag = existingTextFlag ?? existing.txt.GetValueOrDefault();
+        int targetTextFlag = existingTextFlag ?? existing.Txt.GetValueOrDefault();
         bool textChanged = existingTextFlag.HasValue
-            && existing.txt.GetValueOrDefault() != existingTextFlag.Value;
-        if (existing.date == currentDate && !textChanged)
+            && existing.Txt.GetValueOrDefault() != existingTextFlag.Value;
+        if (existing.Date == currentDate && !textChanged)
         {
             return null;
         }
@@ -870,14 +871,18 @@ internal sealed class FileScanParseCommitOwner
             try
             {
                 var stopwatch = Stopwatch.StartNew();
-                BMSFile file = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
-                    snapshot,
-                    candidate.TextFlag,
-                    candidate.ExistingBmsFile,
-                    folderParentHashCache);
+                BmsEncodingDetectionResult detection = BmsEncodingDetector.Detect(snapshot.Bytes);
+                ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot, detection) with
+                {
+                    Date = Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc),
+                    Txt = candidate.TextFlag,
+                    Favorite = candidate.ExistingBmsFile?.Favorite,
+                    AddDate = candidate.ExistingBmsFile?.AddDate,
+                    Tag = candidate.ExistingBmsFile?.Tag
+                };
                 stopwatch.Stop();
                 Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
-                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile));
+                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile, detection));
             }
             catch (Exception ex) when (IsRecoverableChartFileIoException(ex))
             {
@@ -892,7 +897,7 @@ internal sealed class FileScanParseCommitOwner
         try
         {
             var stopwatch = Stopwatch.StartNew();
-            LR2SongDBExtended.bmson_song song = BmsonSongParser.ParseSnapshot(snapshot);
+            ChartFile song = BmsonChartFileParser.ParseSnapshot(snapshot);
             stopwatch.Stop();
             Interlocked.Add(ref bmsonParseTicks, stopwatch.ElapsedTicks);
             return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateSuccess(candidate.Path, snapshot, song));
@@ -930,14 +935,14 @@ internal sealed class FileScanParseCommitOwner
         int sequence,
         FileDiffParsedCandidate parsedCandidate,
         BmsLibraryDbGateway dbGateway,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentChartInfoParseFailures,
         int chartInfoParserDegree,
         int inlineChartInfoBatchSize,
         int inlineMaintenanceDegree,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         ResourceHealthLookupContext inlineMaintenanceLookupContext,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> currentChartInfoRowsBySha256,
         Action<string> reportPostParsePreparedProgress)
     {
         var postResult = new FileDiffPostParseResult(sequence);
@@ -987,10 +992,10 @@ internal sealed class FileScanParseCommitOwner
             chartInfoStopwatch.Stop();
             metrics.ChartInfoTicks = chartInfoStopwatch.ElapsedTicks;
 
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info>> chartInfoByMd5 = BuildQueueByMd5(postResult.ChartInfoResult.ChartInfoRows, row => row?.md5);
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info>> appliedChartInfoByMd5 = BuildQueueByMd5(postResult.ChartInfoResult.AppliedRows, row => row?.md5);
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info_parse_failure>> failureByMd5 = BuildQueueByMd5(postResult.ChartInfoResult.ParseFailureRows, row => row?.md5);
-            Dictionary<string, LR2SongDBExtended.chart_info> appliedChartInfoByPath = BuildAppliedChartInfoByPath(fullBmsBatch, postResult.ChartInfoResult.AppliedRows);
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> chartInfoByMd5 = BuildQueueByMd5(postResult.ChartInfoResult.ChartInfoRows, row => row?.md5);
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> appliedChartInfoByMd5 = BuildQueueByMd5(postResult.ChartInfoResult.AppliedRows, row => row?.md5);
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartParseFailure>> failureByMd5 = BuildQueueByMd5(postResult.ChartInfoResult.ParseFailureRows, row => row?.md5);
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> appliedChartInfoByPath = BuildAppliedChartInfoByPath(fullBmsBatch, postResult.ChartInfoResult.AppliedRows);
             var failureDeletes = new HashSet<string>(postResult.ChartInfoResult.ParseFailureDeleteMd5s, StringComparer.OrdinalIgnoreCase);
             FileScanDiffCommitChunk commitChunk = postResult.CommitChunk;
             var maintenanceStopwatch = Stopwatch.StartNew();
@@ -1028,12 +1033,11 @@ internal sealed class FileScanParseCommitOwner
                 {
                     if (IsBmsDateOnlyCandidate(candidate))
                     {
-                        int date = candidate.File.date.GetValueOrDefault();
-                        int textFlag = candidate.File.txt.GetValueOrDefault();
-                        bool dateChanged = candidate.ExistingFile.date != date;
-                        bool textChanged = candidate.ExistingFile.txt.GetValueOrDefault() != textFlag;
-                        candidate.ExistingFile.date = date;
-                        candidate.ExistingFile.SetTextGroupFlag(textFlag);
+                        int date = candidate.File.Date.GetValueOrDefault();
+                        int textFlag = candidate.File.Txt.GetValueOrDefault();
+                        bool dateChanged = candidate.ExistingFile.Date != date;
+                        bool textChanged = candidate.ExistingFile.Txt.GetValueOrDefault() != textFlag;
+                        postResult.UpdatedCharts.Add(candidate.ExistingFile with { Date = date, Txt = textChanged ? textFlag : candidate.ExistingFile.Txt });
                         if (dateChanged)
                         {
                             postResult.BmsDateOnlyUpdateCount++;
@@ -1044,7 +1048,7 @@ internal sealed class FileScanParseCommitOwner
                         }
                         if (dateChanged || textChanged)
                         {
-                            commitChunk.AddUpdatedBmsMetadata(candidate.File.path, date, textChanged ? textFlag : null);
+                            commitChunk.AddUpdatedBmsMetadata(candidate.File.Path, date, textChanged ? textFlag : null);
                         }
                         reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
@@ -1061,18 +1065,29 @@ internal sealed class FileScanParseCommitOwner
                         postResult.TrackBmsRelinkDestinationCandidate(candidate);
                         if (bmsMaintenanceResults != null && i < bmsMaintenanceResults.Length && bmsMaintenanceResults[i]?.Succeeded == true)
                         {
-                            commitChunk.AddMaintenanceInfoRow(candidate.File.maintenanceInfo);
-                            commitChunk.AddLr2SongDbSyncEligibleBmsPath(candidate.File.path);
+                            commitChunk.AddMaintenanceInfoRow(candidate.File.ResourceHealthMaintenanceSnapshot);
+                            commitChunk.AddLr2SongDbSyncEligibleBmsPath(candidate.File.Path);
                         }
-                        Lr2SongRowEnricher.EnrichFromChartInfo(candidate.File, ResolveAppliedChartInfo(candidate, appliedChartInfoByPath));
+                        // 新規scanの保存基本modeは捕捉本文の解析値を保ち、詳細投影の既存9列だけを補います。
+                        ChartDetails details = ResolveAppliedChartInfo(candidate, appliedChartInfoByPath);
+                        if (details != null)
+                        {
+                            candidate.File = ChartFileProjection.WithChartInfo(candidate.File, details) with
+                            {
+                                Level = details.level,
+                                LevelText = details.level?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                                Difficulty = Lr2ChartInfoSongProjection.NormalizeDifficulty(details.difficulty)
+                            };
+                        }
+
                         postResult.SuccessfullyReplacedBmsPaths.Add(candidate.Path);
                         postResult.AddedFiles.Add(candidate.File);
-                        if (candidate.ExistingFile == null && !string.IsNullOrWhiteSpace(candidate.File.path))
+                        if (candidate.ExistingFile == null && !string.IsNullOrWhiteSpace(candidate.File.Path))
                         {
-                            postResult.NewlyInsertedBmsPaths.Add(candidate.File.path);
+                            postResult.NewlyInsertedBmsPaths.Add(candidate.File.Path);
                         }
                         commitChunk.AddAddedBmsFile(candidate.File);
-                        AttachInlineChartInfoRows(commitChunk, candidate.File.hash, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
+                        AttachInlineChartInfoRows(commitChunk, candidate.File.Md5, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
                         reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                     else
@@ -1094,12 +1109,12 @@ internal sealed class FileScanParseCommitOwner
                     {
                         if (bmsonMaintenanceResults != null && i < bmsonMaintenanceResults.Length && bmsonMaintenanceResults[i]?.Succeeded == true)
                         {
-                            commitChunk.AddMaintenanceInfoRow(candidate.Song.MaintenanceInfo);
+                            commitChunk.AddMaintenanceInfoRow(candidate.Song.ResourceHealthMaintenanceSnapshot);
                         }
                         postResult.SuccessfullyParsedBmsonPaths.Add(candidate.Path);
                         postResult.ParsedBmsonSongs.Add(candidate.Song);
                         commitChunk.AddUpsertBmsonSong(candidate.Song);
-                        AttachInlineChartInfoRows(commitChunk, candidate.Song.md5, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
+                        AttachInlineChartInfoRows(commitChunk, candidate.Song.Md5, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
                         reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                     else
@@ -1223,6 +1238,7 @@ internal sealed class FileScanParseCommitOwner
         pipelineResult.BmsDateOnlyUpdateCount += postResult.BmsDateOnlyUpdateCount;
         pipelineResult.BmsTextOnlyUpdateCount += postResult.BmsTextOnlyUpdateCount;
         pipelineResult.AddedFiles.AddRange(postResult.AddedFiles);
+        pipelineResult.UpdatedCharts.AddRange(postResult.UpdatedCharts);
         foreach (string path in postResult.NewlyInsertedBmsPaths)
         {
             pipelineResult.NewlyInsertedBmsPaths.Add(path);
@@ -1244,13 +1260,13 @@ internal sealed class FileScanParseCommitOwner
     {
         return candidate?.File != null
             && candidate.ExistingFile != null
-            && candidate.File.date.HasValue
-            && string.Equals(candidate.File.hash, candidate.ExistingFile.hash, StringComparison.OrdinalIgnoreCase);
+            && candidate.File.Date.HasValue
+            && string.Equals(candidate.File.Md5, candidate.ExistingFile.Md5, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void PrepareMovedBmsUserColumnRestores(
         FileDiffParsePipelineResult pipelineResult,
-        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5,
+        Dictionary<string, Queue<ChartFile>> movedBmsSourcesByMd5,
         IReadOnlyDictionary<string, Lr2SongUserColumns> movedBmsUserColumnsByDeletedPath,
         Action<string> logInstallPerformanceWarn)
     {
@@ -1260,10 +1276,12 @@ internal sealed class FileScanParseCommitOwner
         }
 
         var destinationsByMd5 = pipelineResult.BmsRelinkDestinationCandidates
-            .Where(candidate => candidate?.File != null && !string.IsNullOrWhiteSpace(candidate.File.hash))
-            .GroupBy(candidate => candidate.File.hash, StringComparer.OrdinalIgnoreCase)
+            .Where(candidate => candidate?.File != null && !string.IsNullOrWhiteSpace(candidate.File.Md5))
+            .GroupBy(candidate => candidate.File.Md5, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, Queue<BMSFile>> sourceEntry in movedBmsSourcesByMd5)
+        var destinationIndexes = pipelineResult.AddedFiles.Select((chart, index) => (chart.Path, index))
+            .ToDictionary(value => value.Path, value => value.index, StringComparer.Ordinal);
+        foreach (KeyValuePair<string, Queue<ChartFile>> sourceEntry in movedBmsSourcesByMd5)
         {
             string md5 = sourceEntry.Key;
             if (string.IsNullOrWhiteSpace(md5)
@@ -1277,20 +1295,28 @@ internal sealed class FileScanParseCommitOwner
             int sourceCount = sourceEntry.Value?.Count ?? 0;
             if (sourceCount == 1 && destinations.Count == 1)
             {
-                BMSFile source = sourceEntry.Value.Peek();
+                ChartFile source = sourceEntry.Value.Peek();
                 BmsRelinkDestinationCandidate destination = destinations[0];
                 if (source == null
-                    || string.IsNullOrWhiteSpace(source.path)
+                    || string.IsNullOrWhiteSpace(source.Path)
                     || destination?.File == null
-                    || string.IsNullOrWhiteSpace(destination.File.path)
+                    || string.IsNullOrWhiteSpace(destination.File.Path)
                     || movedBmsUserColumnsByDeletedPath == null
-                    || !movedBmsUserColumnsByDeletedPath.TryGetValue(source.path, out Lr2SongUserColumns userColumns)
+                    || !movedBmsUserColumnsByDeletedPath.TryGetValue(source.Path, out Lr2SongUserColumns userColumns)
                     || userColumns == null)
                 {
                     continue;
                 }
-                BmsLibraryDbGateway.ApplySongUserColumns(destination.File, userColumns);
-                pipelineResult.BmsMovedHashRelinkUserColumnRestores[destination.File.path] = userColumns;
+                int destinationIndex = destinationIndexes.GetValueOrDefault(destination.File.Path, -1);
+                ChartFile current = destinationIndex >= 0 ? pipelineResult.AddedFiles[destinationIndex] : destination.File;
+                ChartFile restored = current with { Favorite = userColumns.favorite, AddDate = userColumns.adddate, Tag = userColumns.tag };
+                if (destinationIndex >= 0)
+                {
+                    pipelineResult.AddedFiles[destinationIndex] = restored;
+                }
+
+                destination.File = restored;
+                pipelineResult.BmsMovedHashRelinkUserColumnRestores[destination.File.Path] = userColumns;
                 pipelineResult.BmsMovedHashRelinkCount++;
                 continue;
             }
@@ -1316,10 +1342,14 @@ internal sealed class FileScanParseCommitOwner
         Parallel.For(0, candidates.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, degree) }, delegate (int index)
         {
             InlineBmsParseCandidate candidate = candidates[index];
-            BMSFile file = candidate?.File;
+            ChartFile file = candidate?.File;
             if (file != null)
             {
-                results[index] = BuildInlineBmsMaintenance(file, candidate.Snapshot, CreateInlineResourceLookupScope(lookupContext));
+                results[index] = BuildInlineBmsMaintenance(file, candidate.Snapshot, CreateInlineResourceLookupScope(lookupContext), candidate.Detection);
+                if (results[index].CurrentChart != null)
+                {
+                    candidate.File = results[index].CurrentChart;
+                }
             }
         });
         LogInlineMaintenanceWarnings(results, logInstallPerformanceWarn);
@@ -1339,10 +1369,14 @@ internal sealed class FileScanParseCommitOwner
         var results = new InlineMaintenanceItemResult[candidates.Count];
         Parallel.For(0, candidates.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, degree) }, delegate (int index)
         {
-            LR2SongDBExtended.bmson_song song = candidates[index]?.Song;
+            ChartFile song = candidates[index]?.Song;
             if (song != null)
             {
-                results[index] = BuildInlineBmsonMaintenance(song, CreateInlineResourceLookupScope(lookupContext));
+                results[index] = BuildInlineBmsonMaintenance(song, candidates[index].Snapshot, CreateInlineResourceLookupScope(lookupContext));
+                if (results[index].CurrentChart != null)
+                {
+                    candidates[index].Song = results[index].CurrentChart;
+                }
             }
         });
         LogInlineMaintenanceWarnings(results, logInstallPerformanceWarn);
@@ -1355,9 +1389,10 @@ internal sealed class FileScanParseCommitOwner
     }
 
     private static InlineMaintenanceItemResult BuildInlineBmsMaintenance(
-        BMSFile file,
+        ChartFile file,
         ChartFileSnapshot snapshot,
-        ResourceHealthLookupContext lookupContext)
+        ResourceHealthLookupContext lookupContext,
+        BmsEncodingDetectionResult detectedEncoding)
     {
         if (file == null)
         {
@@ -1374,15 +1409,16 @@ internal sealed class FileScanParseCommitOwner
         int encodingReloadCount = 0;
         bool completed = false;
         string warning = null;
-        BMSFile.BmsEncodingDetectionResult detectionResult = null;
+        BmsEncodingDetectionResult detectionResult = null;
+        ChartFile currentValue = null;
         try
         {
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult maintenanceResult =
-                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(
+                BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(
                     file,
                     snapshot,
                     lookupContext,
-                    componentReferencesAlreadyApplied: true);
+                    detectedEncoding: detectedEncoding);
             healthMs = TicksToMilliseconds(maintenanceResult.HealthElapsedTicks);
             encodingMs = TicksToMilliseconds(maintenanceResult.EncodingElapsedTicks);
             encodingReloadMs = TicksToMilliseconds(maintenanceResult.EncodingReloadElapsedTicks);
@@ -1392,18 +1428,19 @@ internal sealed class FileScanParseCommitOwner
             resourceIndexHitCount = maintenanceResult.ResourceIndexHitCount;
             resourceHealthSetCacheHitCount = maintenanceResult.ResourceHealthSetCacheHitCount;
             fileExistsFallbackCount = maintenanceResult.FileExistsFallbackCount;
-            completed = file.maintenanceInfo?.IsInformationChecked() == true;
+            currentValue = maintenanceResult.CurrentChart;
+            completed = maintenanceResult.MaintenanceInfo?.IsInformationChecked == true;
         }
         catch (Exception ex) when (IsInlineMaintenanceRecoverable(ex))
         {
-            warning = "inline_maintenance_failed kind=bms path=" + QuoteLogValue(file.path)
+            warning = "inline_maintenance_failed kind=bms path=" + QuoteLogValue(file.Path)
                 + " exception=" + ex.GetType().Name
                 + " message=" + QuoteLogValue(ex.Message);
         }
         finally
         {
             stopwatch.Stop();
-            file.ClearResourceReferenceCollections();
+
         }
         return new InlineMaintenanceItemResult(
             kind: FileDiffChartKind.Bms,
@@ -1420,11 +1457,13 @@ internal sealed class FileScanParseCommitOwner
             resourceIndexHitCount: resourceIndexHitCount,
             resourceHealthSetCacheHitCount: resourceHealthSetCacheHitCount,
             fileExistsFallbackCount: fileExistsFallbackCount,
-            warningMessage: warning);
+            warningMessage: warning,
+            currentChart: currentValue);
     }
 
     private static InlineMaintenanceItemResult BuildInlineBmsonMaintenance(
-        LR2SongDBExtended.bmson_song song,
+        ChartFile song,
+        ChartFileSnapshot snapshot,
         ResourceHealthLookupContext lookupContext)
     {
         if (song == null)
@@ -1439,11 +1478,13 @@ internal sealed class FileScanParseCommitOwner
         long fileExistsFallbackCount = 0L;
         bool completed = false;
         string warning = null;
+        ChartFile currentValue = null;
         try
         {
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult maintenanceResult =
-                BmsLibraryMaintenanceService.EvaluateBmsonMaintenanceForInline(song, lookupContext);
-            completed = maintenanceResult.MaintenanceInfo?.IsInformationChecked() == true;
+                BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(song, snapshot, lookupContext);
+            currentValue = maintenanceResult.CurrentChart;
+            completed = maintenanceResult.MaintenanceInfo?.IsInformationChecked == true;
             healthMs = TicksToMilliseconds(maintenanceResult.HealthElapsedTicks);
             cacheHitCount = maintenanceResult.CacheHitCount;
             resourceIndexHitCount = maintenanceResult.ResourceIndexHitCount;
@@ -1452,14 +1493,14 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex) when (IsInlineMaintenanceRecoverable(ex))
         {
-            warning = "inline_maintenance_failed kind=bmson path=" + QuoteLogValue(song.path)
+            warning = "inline_maintenance_failed kind=bmson path=" + QuoteLogValue(song.Path)
                 + " exception=" + ex.GetType().Name
                 + " message=" + QuoteLogValue(ex.Message);
         }
         finally
         {
             stopwatch.Stop();
-            song.Resources = null;
+
         }
         return new InlineMaintenanceItemResult(
             kind: FileDiffChartKind.Bmson,
@@ -1476,7 +1517,8 @@ internal sealed class FileScanParseCommitOwner
             resourceIndexHitCount: resourceIndexHitCount,
             resourceHealthSetCacheHitCount: resourceHealthSetCacheHitCount,
             fileExistsFallbackCount: fileExistsFallbackCount,
-            warningMessage: warning);
+            warningMessage: warning,
+            currentChart: currentValue);
     }
 
     private static void ApplyInlineMaintenanceResults(SongTableFileCheckResult result, IEnumerable<InlineMaintenanceItemResult> itemResults)
@@ -1809,7 +1851,7 @@ internal sealed class FileScanParseCommitOwner
 
         private readonly Action<string> logInstallPerformanceWarn;
 
-        private readonly Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted;
+        private readonly Action<IReadOnlyList<BeMusicSeeker.Models.ChartDetails>> inlineChartInfoRowsCommitted;
 
         private readonly int chunkSize;
 
@@ -1841,7 +1883,7 @@ internal sealed class FileScanParseCommitOwner
             SongTableFileCheckResult result,
             Action<string> logInstallPerformance,
             Action<string> logInstallPerformanceWarn,
-            Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted)
+            Action<IReadOnlyList<BeMusicSeeker.Models.ChartDetails>> inlineChartInfoRowsCommitted)
         {
             this.dbGateway = dbGateway;
             this.options = options;
@@ -1880,13 +1922,13 @@ internal sealed class FileScanParseCommitOwner
                 return;
             }
 
-            Dictionary<string, Queue<BMSFileMaintenanceInfo>> maintenanceByPath =
-                FileScanParseCommitOwner.BuildQueueByMd5(chunk.MaintenanceInfoRows, row => row?.path);
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info>> chartInfoByMd5 =
+            Dictionary<string, Queue<ResourceHealthMaintenanceSnapshot>> maintenanceByPath =
+                FileScanParseCommitOwner.BuildQueueByMd5(chunk.MaintenanceInfoRows, row => row?.Path);
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> chartInfoByMd5 =
                 FileScanParseCommitOwner.BuildQueueByMd5(chunk.ChartInfoRows, row => row?.md5);
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info>> appliedChartInfoByMd5 =
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> appliedChartInfoByMd5 =
                 FileScanParseCommitOwner.BuildQueueByMd5(chunk.AppliedChartInfoRows, row => row?.md5);
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info_parse_failure>> failureByMd5 =
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartParseFailure>> failureByMd5 =
                 FileScanParseCommitOwner.BuildQueueByMd5(chunk.ParseFailureRows, row => row?.md5);
             var failureDeleteMd5s = new HashSet<string>(chunk.ParseFailureDeleteMd5s, StringComparer.OrdinalIgnoreCase);
 
@@ -1895,17 +1937,17 @@ internal sealed class FileScanParseCommitOwner
                 pendingChunk.AddDeletedBmsPath(path);
                 FlushIfNeeded();
             }
-            foreach (BMSFile file in chunk.AddedBmsFiles)
+            foreach (ChartFile file in chunk.AddedBmsFiles)
             {
                 pendingChunk.AddAddedBmsFile(file);
-                if (chunk.Lr2SongDbSyncEligibleBmsPaths.Contains(file?.path, StringComparer.OrdinalIgnoreCase))
+                if (chunk.Lr2SongDbSyncEligibleBmsPaths.Contains(file?.Path, StringComparer.OrdinalIgnoreCase))
                 {
-                    pendingChunk.AddLr2SongDbSyncEligibleBmsPath(file.path);
+                    pendingChunk.AddLr2SongDbSyncEligibleBmsPath(file.Path);
                 }
-                AddMatchingMaintenanceInfoRows(maintenanceByPath, file?.path);
+                AddMatchingMaintenanceInfoRows(maintenanceByPath, file?.Path);
                 FileScanParseCommitOwner.AttachInlineChartInfoRows(
                     pendingChunk,
-                    file?.hash,
+                    file?.Md5,
                     chartInfoByMd5,
                     appliedChartInfoByMd5,
                     failureByMd5,
@@ -1929,13 +1971,13 @@ internal sealed class FileScanParseCommitOwner
                 pendingChunk.AddDeletedBmsonPath(path);
                 FlushIfNeeded();
             }
-            foreach (LR2SongDBExtended.bmson_song song in chunk.UpsertBmsonSongs)
+            foreach (ChartFile song in chunk.UpsertBmsonSongs)
             {
                 pendingChunk.AddUpsertBmsonSong(song);
-                AddMatchingMaintenanceInfoRows(maintenanceByPath, song?.path);
+                AddMatchingMaintenanceInfoRows(maintenanceByPath, song?.Path);
                 FileScanParseCommitOwner.AttachInlineChartInfoRows(
                     pendingChunk,
-                    song?.md5,
+                    song?.Md5,
                     chartInfoByMd5,
                     appliedChartInfoByMd5,
                     failureByMd5,
@@ -2196,12 +2238,12 @@ internal sealed class FileScanParseCommitOwner
         }
 
         private void AddMatchingMaintenanceInfoRows(
-            Dictionary<string, Queue<BMSFileMaintenanceInfo>> maintenanceByPath,
+            Dictionary<string, Queue<ResourceHealthMaintenanceSnapshot>> maintenanceByPath,
             string path)
         {
             if (string.IsNullOrWhiteSpace(path)
                 || maintenanceByPath == null
-                || !maintenanceByPath.TryGetValue(path, out Queue<BMSFileMaintenanceInfo> rows))
+                || !maintenanceByPath.TryGetValue(path, out Queue<ResourceHealthMaintenanceSnapshot> rows))
             {
                 return;
             }
@@ -2212,13 +2254,13 @@ internal sealed class FileScanParseCommitOwner
             maintenanceByPath.Remove(path);
         }
 
-        private void AddRemainingMaintenanceInfoRows(Dictionary<string, Queue<BMSFileMaintenanceInfo>> maintenanceByPath)
+        private void AddRemainingMaintenanceInfoRows(Dictionary<string, Queue<ResourceHealthMaintenanceSnapshot>> maintenanceByPath)
         {
             if (maintenanceByPath == null || maintenanceByPath.Count == 0)
             {
                 return;
             }
-            foreach (Queue<BMSFileMaintenanceInfo> rows in maintenanceByPath.Values)
+            foreach (Queue<ResourceHealthMaintenanceSnapshot> rows in maintenanceByPath.Values)
             {
                 while (rows.Count > 0)
                 {
@@ -2229,12 +2271,12 @@ internal sealed class FileScanParseCommitOwner
         }
 
         private void AddRemainingChartInfoRows(
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info>> chartInfoByMd5,
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info>> appliedChartInfoByMd5,
-            Dictionary<string, Queue<LR2SongDBExtended.chart_info_parse_failure>> failureByMd5,
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> chartInfoByMd5,
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> appliedChartInfoByMd5,
+            Dictionary<string, Queue<BeMusicSeeker.Models.ChartParseFailure>> failureByMd5,
             HashSet<string> failureDeleteMd5s)
         {
-            foreach (Queue<LR2SongDBExtended.chart_info> rows in chartInfoByMd5.Values)
+            foreach (Queue<BeMusicSeeker.Models.ChartDetails> rows in chartInfoByMd5.Values)
             {
                 while (rows.Count > 0)
                 {
@@ -2242,14 +2284,14 @@ internal sealed class FileScanParseCommitOwner
                     FlushIfNeeded();
                 }
             }
-            foreach (Queue<LR2SongDBExtended.chart_info> rows in appliedChartInfoByMd5.Values)
+            foreach (Queue<BeMusicSeeker.Models.ChartDetails> rows in appliedChartInfoByMd5.Values)
             {
                 while (rows.Count > 0)
                 {
                     pendingChunk.AddAppliedChartInfoRow(rows.Dequeue());
                 }
             }
-            foreach (Queue<LR2SongDBExtended.chart_info_parse_failure> rows in failureByMd5.Values)
+            foreach (Queue<BeMusicSeeker.Models.ChartParseFailure> rows in failureByMd5.Values)
             {
                 while (rows.Count > 0)
                 {
@@ -2406,16 +2448,16 @@ internal sealed class FileScanParseCommitOwner
     private static void AttachInlineChartInfoRows(
         FileScanDiffCommitChunk chunk,
         string md5,
-        Dictionary<string, Queue<LR2SongDBExtended.chart_info>> chartInfoByMd5,
-        Dictionary<string, Queue<LR2SongDBExtended.chart_info>> appliedChartInfoByMd5,
-        Dictionary<string, Queue<LR2SongDBExtended.chart_info_parse_failure>> failureByMd5,
+        Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> chartInfoByMd5,
+        Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> appliedChartInfoByMd5,
+        Dictionary<string, Queue<BeMusicSeeker.Models.ChartParseFailure>> failureByMd5,
         HashSet<string> failureDeleteMd5s)
     {
         if (chunk == null || string.IsNullOrWhiteSpace(md5))
         {
             return;
         }
-        if (chartInfoByMd5.TryGetValue(md5, out Queue<LR2SongDBExtended.chart_info> chartInfoRows))
+        if (chartInfoByMd5.TryGetValue(md5, out Queue<BeMusicSeeker.Models.ChartDetails> chartInfoRows))
         {
             while (chartInfoRows.Count > 0)
             {
@@ -2423,7 +2465,7 @@ internal sealed class FileScanParseCommitOwner
             }
             chartInfoByMd5.Remove(md5);
         }
-        if (appliedChartInfoByMd5.TryGetValue(md5, out Queue<LR2SongDBExtended.chart_info> appliedRows))
+        if (appliedChartInfoByMd5.TryGetValue(md5, out Queue<BeMusicSeeker.Models.ChartDetails> appliedRows))
         {
             while (appliedRows.Count > 0)
             {
@@ -2431,7 +2473,7 @@ internal sealed class FileScanParseCommitOwner
             }
             appliedChartInfoByMd5.Remove(md5);
         }
-        if (failureByMd5.TryGetValue(md5, out Queue<LR2SongDBExtended.chart_info_parse_failure> failureRows))
+        if (failureByMd5.TryGetValue(md5, out Queue<BeMusicSeeker.Models.ChartParseFailure> failureRows))
         {
             while (failureRows.Count > 0)
             {
@@ -2445,12 +2487,12 @@ internal sealed class FileScanParseCommitOwner
         }
     }
 
-    private static Dictionary<string, LR2SongDBExtended.chart_info> BuildAppliedChartInfoByPath(
+    private static Dictionary<string, BeMusicSeeker.Models.ChartDetails> BuildAppliedChartInfoByPath(
         IEnumerable<InlineBmsParseCandidate> candidates,
-        IEnumerable<LR2SongDBExtended.chart_info> appliedRows)
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> appliedRows)
     {
-        var rowsBySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.chart_info row in appliedRows ?? [])
+        var rowsBySha256 = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
+        foreach (BeMusicSeeker.Models.ChartDetails row in appliedRows ?? [])
         {
             if (row == null || string.IsNullOrWhiteSpace(row.sha256))
             {
@@ -2460,17 +2502,17 @@ internal sealed class FileScanParseCommitOwner
         }
         if (rowsBySha256.Count == 0)
         {
-            return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
         foreach (InlineBmsParseCandidate candidate in candidates ?? [])
         {
-            if (candidate?.File == null || string.IsNullOrWhiteSpace(candidate.Path) || string.IsNullOrWhiteSpace(candidate.File.sha256))
+            if (candidate?.File == null || string.IsNullOrWhiteSpace(candidate.Path) || string.IsNullOrWhiteSpace(candidate.File.Sha256))
             {
                 continue;
             }
-            if (rowsBySha256.TryGetValue(candidate.File.sha256, out LR2SongDBExtended.chart_info row))
+            if (rowsBySha256.TryGetValue(candidate.File.Sha256, out BeMusicSeeker.Models.ChartDetails row))
             {
                 result[candidate.Path] = row;
             }
@@ -2478,14 +2520,14 @@ internal sealed class FileScanParseCommitOwner
         return result;
     }
 
-    private static LR2SongDBExtended.chart_info ResolveAppliedChartInfo(
+    private static BeMusicSeeker.Models.ChartDetails ResolveAppliedChartInfo(
         InlineBmsParseCandidate candidate,
-        Dictionary<string, LR2SongDBExtended.chart_info> appliedChartInfoByPath)
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> appliedChartInfoByPath)
     {
         if (candidate == null
             || string.IsNullOrWhiteSpace(candidate.Path)
             || appliedChartInfoByPath == null
-            || !appliedChartInfoByPath.TryGetValue(candidate.Path, out LR2SongDBExtended.chart_info row))
+            || !appliedChartInfoByPath.TryGetValue(candidate.Path, out BeMusicSeeker.Models.ChartDetails row))
         {
             return null;
         }
@@ -2495,13 +2537,13 @@ internal sealed class FileScanParseCommitOwner
     private static void AddRemainingInlineRows(
         List<FileScanDiffCommitChunk> chunks,
         ref FileScanDiffCommitChunk current,
-        Dictionary<string, Queue<LR2SongDBExtended.chart_info>> chartInfoByMd5,
-        Dictionary<string, Queue<LR2SongDBExtended.chart_info>> appliedChartInfoByMd5,
-        Dictionary<string, Queue<LR2SongDBExtended.chart_info_parse_failure>> failureByMd5,
+        Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> chartInfoByMd5,
+        Dictionary<string, Queue<BeMusicSeeker.Models.ChartDetails>> appliedChartInfoByMd5,
+        Dictionary<string, Queue<BeMusicSeeker.Models.ChartParseFailure>> failureByMd5,
         HashSet<string> failureDeleteMd5s,
         int chunkSize)
     {
-        foreach (Queue<LR2SongDBExtended.chart_info> queue in chartInfoByMd5.Values)
+        foreach (Queue<BeMusicSeeker.Models.ChartDetails> queue in chartInfoByMd5.Values)
         {
             while (queue.Count > 0)
             {
@@ -2513,7 +2555,7 @@ internal sealed class FileScanParseCommitOwner
                 }
             }
         }
-        foreach (Queue<LR2SongDBExtended.chart_info> queue in appliedChartInfoByMd5.Values)
+        foreach (Queue<BeMusicSeeker.Models.ChartDetails> queue in appliedChartInfoByMd5.Values)
         {
             while (queue.Count > 0)
             {
@@ -2525,7 +2567,7 @@ internal sealed class FileScanParseCommitOwner
                 }
             }
         }
-        foreach (Queue<LR2SongDBExtended.chart_info_parse_failure> queue in failureByMd5.Values)
+        foreach (Queue<BeMusicSeeker.Models.ChartParseFailure> queue in failureByMd5.Values)
         {
             while (queue.Count > 0)
             {
@@ -2551,10 +2593,10 @@ internal sealed class FileScanParseCommitOwner
     private ChartInfoInlineBuildResult BuildInlineBmsChartInfo(
         IReadOnlyList<InlineBmsParseCandidate> candidates,
         BmsLibraryDbGateway dbGateway,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
         int chartInfoParserDegree,
         int inlineChartInfoBatchSize,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> currentChartInfoRowsBySha256,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn)
     {
@@ -2570,7 +2612,7 @@ internal sealed class FileScanParseCommitOwner
         var inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, chartInfoParserDegree, inlineChartInfoBatchSize, currentChartInfoRowsBySha256);
         return inlineBuildService.BuildForSnapshots(
             dbGateway,
-            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromBmsFile(candidate.File, candidate.Snapshot)),
+            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromChart(candidate.File, candidate.Snapshot)),
             currentFailures,
             logInstallPerformance,
             logInstallPerformanceWarn);
@@ -2579,10 +2621,10 @@ internal sealed class FileScanParseCommitOwner
     private ChartInfoInlineBuildResult BuildInlineBmsonChartInfo(
         IReadOnlyList<InlineBmsonParseCandidate> candidates,
         BmsLibraryDbGateway dbGateway,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
         int chartInfoParserDegree,
         int inlineChartInfoBatchSize,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> currentChartInfoRowsBySha256,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn)
     {
@@ -2598,7 +2640,7 @@ internal sealed class FileScanParseCommitOwner
         var inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, chartInfoParserDegree, inlineChartInfoBatchSize, currentChartInfoRowsBySha256);
         return inlineBuildService.BuildForSnapshots(
             dbGateway,
-            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromBmsonSong(candidate.Song, candidate.Snapshot)),
+            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromChart(candidate.Song, candidate.Snapshot)),
             currentFailures,
             logInstallPerformance,
             logInstallPerformanceWarn);
@@ -2688,20 +2730,20 @@ internal sealed class FileScanParseCommitOwner
         Bmson
     }
 
-    internal sealed class FileDiffParseTarget(FileScanParseCommitOwner.FileDiffChartKind kind, string path, BMSFile existingBmsFile = null, int textFlag = 0)
+    internal sealed class FileDiffParseTarget(FileScanParseCommitOwner.FileDiffChartKind kind, string path, ChartFile existingBmsFile = null, int textFlag = 0)
     {
         public FileDiffChartKind Kind { get; } = kind;
 
         public string Path { get; } = path ?? string.Empty;
 
-        public BMSFile ExistingBmsFile { get; } = existingBmsFile;
+        public ChartFile ExistingBmsFile { get; } = existingBmsFile;
 
         public int TextFlag { get; } = textFlag == 0 ? 0 : 1;
     }
 
     private sealed class FileDiffReadCandidate
     {
-        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, BMSFile existingBmsFile, int textFlag, Exception exception)
+        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, ChartFile existingBmsFile, int textFlag, Exception exception)
         {
             Kind = kind;
             Path = path ?? string.Empty;
@@ -2717,18 +2759,18 @@ internal sealed class FileScanParseCommitOwner
 
         public ChartFileReadBuffer Buffer { get; }
 
-        public BMSFile ExistingBmsFile { get; }
+        public ChartFile ExistingBmsFile { get; }
 
         public int TextFlag { get; }
 
         public Exception Exception { get; }
 
-        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, BMSFile existingBmsFile, int textFlag)
+        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, ChartFile existingBmsFile, int textFlag)
         {
             return new FileDiffReadCandidate(kind, path, buffer, existingBmsFile, textFlag, null);
         }
 
-        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, BMSFile existingBmsFile, int textFlag, Exception exception)
+        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, ChartFile existingBmsFile, int textFlag, Exception exception)
         {
             return new FileDiffReadCandidate(kind, path, null, existingBmsFile, textFlag, exception);
         }
@@ -2782,7 +2824,9 @@ internal sealed class FileScanParseCommitOwner
 
         public List<InlineBmsonParseCandidate> BmsonParseFailures { get; } = [];
 
-        public List<BMSFile> AddedFiles { get; } = [];
+        public List<ChartFile> UpdatedCharts { get; } = [];
+
+        public List<ChartFile> AddedFiles { get; } = [];
 
         public HashSet<string> NewlyInsertedBmsPaths { get; } = new HashSet<string>(StringComparer.Ordinal);
 
@@ -2794,7 +2838,7 @@ internal sealed class FileScanParseCommitOwner
 
         public List<BmsRelinkDestinationCandidate> BmsRelinkDestinationCandidates { get; } = [];
 
-        public List<LR2SongDBExtended.bmson_song> ParsedBmsonSongs { get; } = [];
+        public List<ChartFile> ParsedBmsonSongs { get; } = [];
 
         public HashSet<string> SuccessfullyParsedBmsonPaths { get; } = new HashSet<string>(StringComparer.Ordinal);
 
@@ -2842,7 +2886,9 @@ internal sealed class FileScanParseCommitOwner
 
     private sealed class FileDiffParsePipelineResult
     {
-        public List<BMSFile> AddedFiles { get; } = [];
+        public List<ChartFile> UpdatedCharts { get; } = [];
+
+        public List<ChartFile> AddedFiles { get; } = [];
 
         public HashSet<string> NewlyInsertedBmsPaths { get; } = new HashSet<string>(StringComparer.Ordinal);
 
@@ -2861,7 +2907,7 @@ internal sealed class FileScanParseCommitOwner
         public Dictionary<string, Lr2SongUserColumns> BmsMovedHashRelinkUserColumnRestores { get; } =
             new Dictionary<string, Lr2SongUserColumns>(StringComparer.Ordinal);
 
-        public List<LR2SongDBExtended.bmson_song> ParsedBmsonSongs { get; } = [];
+        public List<ChartFile> ParsedBmsonSongs { get; } = [];
 
         public HashSet<string> SuccessfullyParsedBmsonPaths { get; } = new HashSet<string>(StringComparer.Ordinal);
 
@@ -2884,9 +2930,9 @@ internal sealed class FileScanParseCommitOwner
         }
     }
 
-    private sealed class BmsRelinkDestinationCandidate(BMSFile file)
+    private sealed class BmsRelinkDestinationCandidate(ChartFile file)
     {
-        public BMSFile File { get; } = file;
+        public ChartFile File { get; set; } = file;
     }
 
     private sealed class InlineMaintenanceItemResult
@@ -2918,13 +2964,15 @@ internal sealed class FileScanParseCommitOwner
             long encodingMs,
             long encodingReloadMs,
             int encodingReloadCount,
-            BMSFile.BmsEncodingDetectionResult encodingDetectionResult,
+            BmsEncodingDetectionResult encodingDetectionResult,
             long cacheHitCount,
             long resourceIndexHitCount,
             long resourceHealthSetCacheHitCount,
             long fileExistsFallbackCount,
-            string warningMessage)
+            string warningMessage,
+            ChartFile currentChart = null)
         {
+            CurrentChart = currentChart;
             Kind = kind;
             TargetCount = Math.Max(0, targetCount);
             SuccessCount = Math.Max(0, successCount);
@@ -2936,7 +2984,7 @@ internal sealed class FileScanParseCommitOwner
             EncodingReloadCount = Math.Max(0, encodingReloadCount);
             EncodingDetectCount = encodingDetectionResult == null ? 0 : 1;
             EncodingFastAsciiCount = encodingDetectionResult?.FastAscii == true ? 1 : 0;
-            SetEncodingOutcomeCounts(encodingDetectionResult?.Outcome ?? BMSFile.EncodingDetectionOutcome.Other, EncodingDetectCount);
+            SetEncodingOutcomeCounts(encodingDetectionResult?.Outcome ?? BmsEncodingDetectionOutcome.Other, EncodingDetectCount);
             CacheHitCount = Math.Max(0L, cacheHitCount);
             ResourceIndexHitCount = Math.Max(0L, resourceIndexHitCount);
             ResourceHealthSetCacheHitCount = Math.Max(0L, resourceHealthSetCacheHitCount);
@@ -2945,7 +2993,7 @@ internal sealed class FileScanParseCommitOwner
             Succeeded = SuccessCount > 0;
         }
 
-        private void SetEncodingOutcomeCounts(BMSFile.EncodingDetectionOutcome outcome, int count)
+        private void SetEncodingOutcomeCounts(BmsEncodingDetectionOutcome outcome, int count)
         {
             if (count <= 0)
             {
@@ -2953,22 +3001,22 @@ internal sealed class FileScanParseCommitOwner
             }
             switch (outcome)
             {
-                case BMSFile.EncodingDetectionOutcome.ShiftJis:
+                case BmsEncodingDetectionOutcome.ShiftJis:
                     EncodingShiftJisCount = count;
                     break;
-                case BMSFile.EncodingDetectionOutcome.ShiftJisQuestion:
+                case BmsEncodingDetectionOutcome.ShiftJisQuestion:
                     EncodingShiftJisQuestionCount = count;
                     break;
-                case BMSFile.EncodingDetectionOutcome.Korean:
+                case BmsEncodingDetectionOutcome.Korean:
                     EncodingKoreanCount = count;
                     break;
-                case BMSFile.EncodingDetectionOutcome.KoreanQuestion:
+                case BmsEncodingDetectionOutcome.KoreanQuestion:
                     EncodingKoreanQuestionCount = count;
                     break;
-                case BMSFile.EncodingDetectionOutcome.Utf8:
+                case BmsEncodingDetectionOutcome.Utf8:
                     EncodingUtf8Count = count;
                     break;
-                case BMSFile.EncodingDetectionOutcome.Unknown:
+                case BmsEncodingDetectionOutcome.Unknown:
                     EncodingUnknownCount = count;
                     break;
                 default:
@@ -2976,6 +3024,8 @@ internal sealed class FileScanParseCommitOwner
                     break;
             }
         }
+
+        public ChartFile CurrentChart { get; }
 
         public FileDiffChartKind Kind { get; }
 
@@ -3028,11 +3078,12 @@ internal sealed class FileScanParseCommitOwner
 
     private sealed class InlineBmsParseCandidate
     {
-        private InlineBmsParseCandidate(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile, Exception exception, string failureStage)
+        private InlineBmsParseCandidate(string path, ChartFileSnapshot snapshot, ChartFile file, ChartFile existingFile, Exception exception, string failureStage, BmsEncodingDetectionResult detection = null)
         {
             Path = path ?? string.Empty;
             Snapshot = snapshot;
             File = file;
+            Detection = detection;
             ExistingFile = existingFile;
             Exception = exception;
             FailureStage = failureStage ?? string.Empty;
@@ -3042,20 +3093,22 @@ internal sealed class FileScanParseCommitOwner
 
         public ChartFileSnapshot Snapshot { get; }
 
-        public BMSFile File { get; }
+        public ChartFile File { get; set; }
 
-        public BMSFile ExistingFile { get; }
+        public BmsEncodingDetectionResult Detection { get; }
+
+        public ChartFile ExistingFile { get; }
 
         public Exception Exception { get; }
 
         public string FailureStage { get; }
 
-        public static InlineBmsParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile)
+        public static InlineBmsParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, ChartFile file, ChartFile existingFile, BmsEncodingDetectionResult detection)
         {
-            return new InlineBmsParseCandidate(path, snapshot, file, existingFile, null, string.Empty);
+            return new InlineBmsParseCandidate(path, snapshot, file, existingFile, null, string.Empty, detection);
         }
 
-        public static InlineBmsParseCandidate CreateFailure(string path, BMSFile existingFile, Exception exception, string failureStage)
+        public static InlineBmsParseCandidate CreateFailure(string path, ChartFile existingFile, Exception exception, string failureStage)
         {
             return new InlineBmsParseCandidate(path, null, null, existingFile, exception, failureStage);
         }
@@ -3063,7 +3116,7 @@ internal sealed class FileScanParseCommitOwner
 
     private sealed class InlineBmsonParseCandidate
     {
-        private InlineBmsonParseCandidate(string path, ChartFileSnapshot snapshot, LR2SongDBExtended.bmson_song song, Exception exception, string failureStage)
+        private InlineBmsonParseCandidate(string path, ChartFileSnapshot snapshot, ChartFile song, Exception exception, string failureStage)
         {
             Path = path ?? string.Empty;
             Snapshot = snapshot;
@@ -3076,13 +3129,13 @@ internal sealed class FileScanParseCommitOwner
 
         public ChartFileSnapshot Snapshot { get; }
 
-        public LR2SongDBExtended.bmson_song Song { get; }
+        public ChartFile Song { get; set; }
 
         public Exception Exception { get; }
 
         public string FailureStage { get; }
 
-        public static InlineBmsonParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, LR2SongDBExtended.bmson_song song)
+        public static InlineBmsonParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, ChartFile song)
         {
             return new InlineBmsonParseCandidate(path, snapshot, song, null, string.Empty);
         }

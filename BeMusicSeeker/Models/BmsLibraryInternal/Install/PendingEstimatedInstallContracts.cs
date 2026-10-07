@@ -182,14 +182,11 @@ internal sealed class EstimatedInstallBatchApplyContext
 {
     public List<ChartFile> AddedCharts { get; } = [];
 
-    public List<BMSFile> AddedBmsFiles { get; } = [];
-
     public HashSet<string> AffectedDirectories { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public void AddInstalledTargets(ChartStorageTargetSet addedTargets, string destinationDirectory)
     {
         AddedCharts.AddRange((addedTargets?.Charts ?? []).Where(chart => chart != null));
-        AddedBmsFiles.AddRange(addedTargets?.BmsFiles ?? []);
         AddAffectedDirectory(destinationDirectory);
         foreach (ChartFile addedChart in addedTargets?.Charts ?? [])
         {

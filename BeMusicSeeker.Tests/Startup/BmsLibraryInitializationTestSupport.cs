@@ -148,8 +148,8 @@ internal static class BmsLibraryInitializationTestSupport
 
     internal static void ProjectCatalogState(
         SongTableFileCheckResult result,
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs = null!,
+        IEnumerable<ChartFile> currentFiles,
+        IEnumerable<ChartFile> currentBmsonSongs = null!,
         IEnumerable<ChartFile> currentInstallDestinationCharts = null!)
     {
         LibraryFileScanPipelineOwner.ApplyCatalogProjection(
@@ -237,9 +237,9 @@ internal static class BmsLibraryInitializationTestSupport
             currentBmsonSongs: []);
     }
 
-    internal static LR2SongDBExtended.chart_info CreateMinimalChartInfoRow(string sha256, string md5)
+    internal static BeMusicSeeker.Models.ChartDetails CreateMinimalChartInfoRow(string sha256, string md5)
     {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = sha256,
             md5 = md5,
@@ -273,9 +273,9 @@ internal static class BmsLibraryInitializationTestSupport
         };
     }
 
-    internal static LR2SongDBExtended.chart_info_parse_failure CreateChartInfoParseFailureRow(string md5, string sha256, string path)
+    internal static BeMusicSeeker.Models.ChartParseFailure CreateChartInfoParseFailureRow(string md5, string sha256, string path)
     {
-        return new LR2SongDBExtended.chart_info_parse_failure
+        return new BeMusicSeeker.Models.ChartParseFailure
         {
             md5 = md5,
             sha256 = sha256,
@@ -390,28 +390,6 @@ internal static class BmsLibraryInitializationTestSupport
         return string.IsNullOrWhiteSpace(directory);
     }
 
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            ApplySha256(value);
-        }
-
-        public void SetFavorite(int? value)
-        {
-            favorite = value;
-        }
-
-        public void SetTextGroupFlagForTest(int value)
-        {
-            SetTextGroupFlag(value);
-        }
-    }
 
     internal sealed class TestFileMutationService : IFileMutationService
     {

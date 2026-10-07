@@ -71,14 +71,14 @@ internal static class Lr2SongDbSyncTestSupport
     /// <summary>
     /// Creates a test song row whose digests match the supplied immutable chart snapshot.
     /// </summary>
-    internal static TestableBmsFile CreateSyncTestFile(string path, ChartFileSnapshot snapshot)
+    internal static ChartFile CreateSyncTestFile(string path, ChartFileSnapshot snapshot)
     {
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = path
+            Path = path
         };
-        file.SetHash(snapshot.Md5);
-        file.ApplySha256(snapshot.Sha256);
+        file = file with { Md5 = snapshot.Md5 };
+        file = file with { Sha256 = snapshot.Sha256 };
         return file;
     }
 
@@ -163,9 +163,9 @@ internal static class Lr2SongDbSyncTestSupport
     /// <summary>
     /// Creates a chart-info row using the current parser contract unless a version is supplied explicitly.
     /// </summary>
-    internal static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int level, int? parserVersion = null)
+    internal static BeMusicSeeker.Models.ChartDetails CreateChartInfo(string sha256, string md5, int level, int? parserVersion = null)
     {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = sha256,
             md5 = md5,
@@ -205,48 +205,5 @@ internal static class Lr2SongDbSyncTestSupport
     /// <summary>
     /// Exposes controlled mutation points needed to arrange inherited LR2 song-row fields in tests.
     /// </summary>
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        /// <summary>
-        /// Sets the inherited MD5 hash field for test arrangement.
-        /// </summary>
-        internal void SetHash(string value)
-        {
-            hash = value;
-        }
 
-        /// <summary>
-        /// Sets the inherited favorite value for test arrangement.
-        /// </summary>
-        internal void SetFavorite(int? value)
-        {
-            favorite = value;
-        }
-
-        /// <summary>
-        /// Sets the inherited title for test arrangement.
-        /// </summary>
-        internal void SetTitleForTest(string value)
-        {
-            title = value;
-        }
-
-        /// <summary>
-        /// Sets the inherited artist for test arrangement.
-        /// </summary>
-        internal void SetArtistForTest(string value)
-        {
-            artist = value;
-        }
-
-        /// <summary>
-        /// Sets the inherited hash and favorite fields and returns the same test row.
-        /// </summary>
-        internal TestableBmsFile WithHashAndFavorite(string hashValue, int? favoriteValue)
-        {
-            SetHash(hashValue);
-            SetFavorite(favoriteValue);
-            return this;
-        }
-    }
 }

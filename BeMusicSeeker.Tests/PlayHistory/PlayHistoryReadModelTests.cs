@@ -998,7 +998,12 @@ public sealed class PlayHistoryReadModelTests
             }
 
             string songDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db");
-            File.WriteAllBytes(songDbPath, []);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+            }
             var library = new TestBmsLibrary(songDbPath);
             var playlist = new TestBmsPlaylist(songDbPath);
             var owner = new PlayHistoryWorkflowOwner();
@@ -1027,7 +1032,8 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(1, first.Read.RowCount);
             Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.Completed, first.PeriodIndex.Status);
             Assert.AreEqual(1, first.PeriodIndex.DayCount);
-            Assert.AreEqual(PlayHistoryProjectionStageStatus.Completed, first.Projection.Status);
+            Assert.AreEqual(PlayHistoryProjectionStageStatus.Completed, first.Projection.Status,
+                string.Join("\n", first.Presentation.State.Diagnostics.Select(diagnostic => diagnostic.Message)));
             Assert.AreEqual(1, first.Projection.RawCount);
             Assert.AreEqual(1, first.Projection.ProjectedCount);
             Assert.AreEqual(1, first.Presentation.SortedRows.Count);
@@ -2109,12 +2115,12 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(ChartFile.Title), ListSortDirection.Ascending);
         MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task;
-        Assert.AreEqual(nameof(BMSFile.Title), regularReceipt.ColumnName);
+        Assert.AreEqual(nameof(ChartFile.Title), regularReceipt.ColumnName);
 
         ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
-        Assert.AreEqual(nameof(BMSFile.Title), regularSort.ColumnsName);
+        Assert.AreEqual(nameof(ChartFile.Title), regularSort.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, regularSort.Direction);
         Assert.IsNull(viewModel.PlayHistory.CaptureSortParameters(out _));
         Assert.AreEqual(regularSort.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
@@ -2135,7 +2141,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
         ChartListSortParameters playHistorySort = viewModel.PlayHistory.CaptureSortParameters(out _);
-        Assert.AreEqual(nameof(BMSFile.Title), regularOwner.CaptureSortParameters().ColumnsName);
+        Assert.AreEqual(nameof(ChartFile.Title), regularOwner.CaptureSortParameters().ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, regularOwner.CaptureSortParameters().Direction);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistorySort.ColumnsName);
         Assert.AreEqual(ListSortDirection.Descending, playHistorySort.Direction);
@@ -2183,17 +2189,17 @@ public sealed class PlayHistoryReadModelTests
                 playHistorySort.ColumnsName,
                 playHistorySort.Direction),
             MainChartListSortTarget.Regular);
-        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(ChartFile.Title), ListSortDirection.Ascending);
         viewModel.MainChartList.SetSortPresentation(
             new MainChartListSortPresentation(
                 playHistorySort.ColumnsName,
                 playHistorySort.Direction),
             MainChartListSortTarget.PlayHistory);
         MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task;
-        Assert.AreEqual(nameof(BMSFile.Title), regularReceipt.ColumnName);
+        Assert.AreEqual(nameof(ChartFile.Title), regularReceipt.ColumnName);
 
         ChartListSortParameters regularSort = regularOwner.CaptureSortParameters();
-        Assert.AreEqual(nameof(BMSFile.Title), regularSort.ColumnsName);
+        Assert.AreEqual(nameof(ChartFile.Title), regularSort.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, regularSort.Direction);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistorySort.ColumnsName);
         Assert.AreEqual(playHistorySort.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
@@ -2211,9 +2217,9 @@ public sealed class PlayHistoryReadModelTests
         viewModel.PlayHistory.SortChanged += (_, request) => playHistoryRequests.Add(request);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
-        viewModel.MainChartList.RequestSort(nameof(BMSFile.Artist), ListSortDirection.Descending);
-        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(ChartFile.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(ChartFile.Artist), ListSortDirection.Descending);
+        viewModel.MainChartList.RequestSort(nameof(ChartFile.Title), ListSortDirection.Ascending);
 
         Assert.AreEqual(3, regularRequests.Count);
         Assert.IsTrue(regularRequests[0].OwnerRevision < regularRequests[1].OwnerRevision);
@@ -2243,7 +2249,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(owner.TryBeginRequest(out RegularChartListRequestLease lease));
 
         owner.QueueSort(new MainChartListSortRequestedEventArgs(
-            nameof(BMSFile.Title),
+            nameof(ChartFile.Title),
             ListSortDirection.Ascending,
             MainChartListSortTarget.Regular));
 
@@ -2354,7 +2360,7 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.ThrowsException<InvalidOperationException>(() => regularOwner.QueueSort(
             new MainChartListSortRequestedEventArgs(
-                nameof(BMSFile.Title),
+                nameof(ChartFile.Title),
                 ListSortDirection.Ascending,
                 MainChartListSortTarget.Regular)));
         regularRefreshed.Wait();
@@ -2920,7 +2926,7 @@ public sealed class PlayHistoryReadModelTests
 
     private static PlayHistoryProjectionIndex CreateProjectionIndex()
     {
-        var file = BMSFile.FromSongTableRawValues(
+        ChartFile file = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
         [
             HashA,
             "Resolved Title",
@@ -2951,9 +2957,9 @@ public sealed class PlayHistoryReadModelTests
             "",
             "",
             ""
-        ]);
-        file.ApplySnapshotDigest(HashA, ShaA);
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        ]));
+        file = file with { Md5 = HashA, Sha256 = ShaA };
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
         var table = new BMSTable
         {
             name = "Satellite",

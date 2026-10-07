@@ -18,6 +18,151 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPackageLifecycleTests
 {
+    /// <summary>局所確定値の反映、複数所属、旧購読の解除と未具体化列の非I/Oを同じownerで確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PackageLifecycleOwner_CommittedCurrentChartsStayLocalAndReleaseRetiredEntries(bool bmson)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            int membershipNotifications = 0;
+            var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []), () => membershipNotifications++, _ => { });
+            ChartFile before = ChartTestValues.Empty(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms) with
+            {
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\before",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Sha256 = new string('a', 64),
+                RawTitle = "before",
+                Title = "before",
+                Level = 1,
+                Mode = 7
+            };
+            var first = PackageChartEntry.FromChart(before);
+            var second = PackageChartEntry.FromChart(before);
+            first.SetInstallDestinationPathOnly("C:\\Destination");
+            first.SetSearchingStatus(true);
+            var unrelated = PackageChartEntry.FromChart(before with { Token = new OwnedChartToken() });
+            var pending = PackageChartEntry.FromChart(before with { Token = null });
+            var firstPackage = ChartPackage.FromChartEntries([first]);
+            var secondPackage = ChartPackage.FromChartEntries([first, second]);
+            var background = ChartPackage.FromChartEntries([unrelated]);
+            string lazyDirectory = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "lazy");
+            Directory.CreateDirectory(lazyDirectory);
+            File.WriteAllText(Path.Combine(lazyDirectory, "chart.bms"), "#TITLE lazy\n#BPM 120\n");
+            var lazy = new ChartPackage { path = lazyDirectory };
+            var oldCollection = new ObservableCollection<ChartPackage>([firstPackage, secondPackage, background, lazy]);
+            owner.SetInstalledPackages(oldCollection);
+            owner.ReplacePendingPackages([ChartPackage.FromChartEntries([pending])]);
+            int notifications = 0;
+            membershipNotifications = 0;
+            System.ComponentModel.PropertyChangedEventHandler firstChanged = (_, _) =>
+            {
+                notifications++;
+                var work = Task.Run(() => owner.SetInstalledPackages(owner.InstalledPackages));
+                work.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            };
+            System.ComponentModel.PropertyChangedEventHandler secondChanged = (_, _) => notifications++;
+            var packageNames = new List<string?>();
+            System.ComponentModel.PropertyChangedEventHandler packageChanged = (_, args) => packageNames.Add(args.PropertyName);
+            first.PropertyChanged += firstChanged;
+            second.PropertyChanged += secondChanged;
+            firstPackage.PropertyChanged += packageChanged;
+            try
+            {
+                ChartFile changed = before with
+                {
+                    Path = "C:\\Library\\after",
+                    Md5 = new string('b', 32),
+                    Sha256 = new string('b', 64),
+                    RawTitle = "after",
+                    Title = "after",
+                    Level = 13,
+                    Difficulty = 4,
+                    Mode = 14
+                };
+                var facts = new List<InstalledChartCurrentChange>();
+                Action publish = owner.PrepareCommittedChartApplication([changed], facts);
+                Assert.AreEqual(0, packageNames.Count);
+                Assert.AreEqual(2, facts.Count);
+                Assert.AreSame(before.Token, facts[0].Before.Token);
+                Assert.AreEqual(before.Path, facts[0].Before.Path);
+                Assert.AreEqual(before.Title, facts[0].Before.Title);
+                Assert.AreSame(changed, facts[0].Current);
+                Assert.IsTrue(facts.Single(fact => fact.Entry == first).Packages.Contains(firstPackage));
+                Assert.AreEqual(2, owner.LastCommittedChartEntryVisitCount);
+                Assert.AreEqual(0, notifications);
+                foreach (PackageChartEntry entry in new[] { first, second })
+                {
+                    Assert.AreEqual(changed.Path, entry.Chart.Path);
+                    Assert.AreEqual(changed.Md5, entry.Chart.Md5);
+                    Assert.AreEqual(changed.Sha256, entry.Chart.Sha256);
+                    Assert.AreEqual(13, entry.Chart.Level);
+                    Assert.AreEqual(14, entry.Chart.Mode);
+                    Assert.AreSame(before.Token, entry.Chart.Token);
+                }
+                Assert.AreEqual("C:\\Destination", first.Chart.InstallDestination);
+                Assert.IsTrue(first.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+                Assert.AreSame(first, firstPackage.ChartEntries.Single());
+                Assert.AreSame(second, secondPackage.ChartEntries[1]);
+                Assert.AreEqual("C:\\Library\\before", before.Path);
+                Assert.AreEqual("before", before.RawTitle);
+                Assert.AreEqual(before.Path, unrelated.Chart.Path);
+                Assert.AreEqual(before.Path, pending.Chart.Path);
+                Assert.AreEqual(0, lazy.CaptureMaterializedChartEntries().Count);
+                publish();
+                Assert.AreEqual(2, notifications);
+                Assert.AreEqual("after", firstPackage.DisplayTitle);
+                Assert.IsTrue(packageNames.All(name => name == nameof(ChartPackage.DisplayTitle)));
+                var paths = new LibraryPackageReferenceFacts(installedPackagePathChanges:
+                    [new LibraryInstalledPackagePathChange { Package = firstPackage, NewPath = @"C:\After" }]);
+                packageNames.Clear();
+                BmsLibraryStateApplyResult pathResult = owner.ApplyPackageReferenceFacts(paths);
+                Assert.AreEqual(0, packageNames.Count);
+                pathResult.PublishPackagePaths();
+                CollectionAssert.AreEqual(new[] { nameof(ChartPackage.path), nameof(ChartPackage.DisplayTitle) }, packageNames);
+                Assert.AreEqual(0, membershipNotifications);
+                packageNames.Clear();
+                owner.PrepareCommittedChartApplication([changed with { Title = "title-only", RawTitle = "title-only" }])();
+                Assert.AreEqual("title-only", firstPackage.DisplayTitle);
+                Assert.IsTrue(packageNames.All(name => name == nameof(ChartPackage.DisplayTitle)));
+                firstPackage.PropertyChanged -= packageChanged;
+                notifications = 2;
+                owner.SetInstalledPackages(new ObservableCollection<ChartPackage>(oldCollection));
+                owner.RemoveInstalledPackages([firstPackage]);
+                Action secondPublication = owner.PrepareCommittedChartApplication([changed with { RawTitle = "second" }]);
+                Assert.AreEqual(2, owner.LastCommittedChartEntryVisitCount, "同entryの別所属を一所属離脱で退役させません。");
+                secondPublication();
+                Assert.AreEqual(4, notifications);
+                Action retiredPublication = owner.PrepareCommittedChartApplication([changed with { RawTitle = "retiring" }]);
+                owner.ClearInstalledPackages();
+                retiredPublication();
+                Assert.AreEqual(4, notifications, "最後の所属を離脱したentryへ遅延通知しません。");
+                oldCollection.Add(firstPackage);
+                owner.PrepareCommittedChartApplication([changed with { RawTitle = "detached" }])();
+                Assert.AreEqual(0, owner.LastCommittedChartEntryVisitCount);
+                Assert.AreEqual("retiring", first.Chart.RawTitle);
+                owner.ReplaceInstalledPackages([firstPackage]);
+                owner.PrepareCommittedChartApplication([changed with { RawTitle = "rejoined" }])();
+                Assert.AreEqual(1, owner.LastCommittedChartEntryVisitCount);
+                Assert.AreEqual("rejoined", first.Chart.RawTitle);
+                Assert.AreEqual("retiring", second.Chart.RawTitle);
+                Assert.AreEqual(0, lazy.CaptureMaterializedChartEntries().Count);
+            }
+            finally
+            {
+                owner.ClearInstalledPackages();
+                owner.ReplacePendingPackages([]);
+                first.PropertyChanged -= firstChanged;
+                second.PropertyChanged -= secondChanged;
+                firstPackage.PropertyChanged -= packageChanged;
+            }
+        });
+    }
+
     [TestMethod]
     public void InstallableMaintenance_RealAcceptanceAndReusedWorkerPublishEachFeatureRequestOrigin()
     {
@@ -404,8 +549,8 @@ public sealed class BmsLibraryPackageLifecycleTests
                 songDb.InsertOrReplace(removedPackage, typeof(LR2SongDBExtended.install));
             }
 
-            List<BMSFile> libraryFiles = [];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            List<ChartFile> libraryFiles = [];
+            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([removedPackage, remainingPackage]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
@@ -507,13 +652,13 @@ public sealed class BmsLibraryPackageLifecycleTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            TestableBmsFile keepFile = new()
+            ChartFile keepFile = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = "C:\\Pending\\Package\\keep.bms"
+                Path = "C:\\Pending\\Package\\keep.bms"
             };
-            TestableBmsFile removedFile = new()
+            ChartFile removedFile = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = "C:\\Pending\\Package\\removed.bms"
+                Path = "C:\\Pending\\Package\\removed.bms"
             };
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([keepFile, removedFile]);
             package.path = "C:\\Pending\\Package";

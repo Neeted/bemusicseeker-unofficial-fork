@@ -16,7 +16,6 @@ using System.Windows.Media;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -242,7 +241,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ChartOperationTargetSelectionResolver_FiltersRowsByCapability()
     {
-        var row = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
+        var row = LibraryChartRow.FromChartFile(CreateContextMenuBmsFile());
 
         List<ChartOperationTarget> openFileTargets = ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
             [row, new object()],
@@ -1306,7 +1305,7 @@ public sealed class MainWindowContextMenuResourceTests
     private static PlayHistoryRow CreateResolvedPlayHistoryRow(string hash = "cccccccccccccccccccccccccccccccc")
     {
         string sha256 = new string('d', 64);
-        var file = BMSFile.FromSongTableRawValues(
+        ChartFile file = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
         [
             hash,
             "Resolved Play History",
@@ -1337,9 +1336,9 @@ public sealed class MainWindowContextMenuResourceTests
             "",
             "",
             ""
-        ]);
-        file.ApplySnapshotDigest(hash, sha256);
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        ]));
+        file = file with { Md5 = hash, Sha256 = sha256 };
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
         var projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
@@ -1367,9 +1366,9 @@ public sealed class MainWindowContextMenuResourceTests
         return projected.Rows.Single();
     }
 
-    private static BMSFile CreateContextMenuBmsFile()
+    private static ChartFile CreateContextMenuBmsFile()
     {
-        var file = BMSFile.FromSongTableRawValues(
+        ChartFile file = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
         [
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "Context Menu BMS",
@@ -1400,10 +1399,8 @@ public sealed class MainWindowContextMenuResourceTests
             "",
             "",
             ""
-        ]);
-        file.ApplySnapshotDigest(
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        ]));
+        file = file with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
         return file;
     }
 
@@ -1424,24 +1421,8 @@ public sealed class MainWindowContextMenuResourceTests
     private static ChartOperationTarget CreateContextMenuTarget(ChartFileKind kind, ChartOperationCapabilities capabilities)
     {
         string path = kind == ChartFileKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
-        BMSFile bmsFile = kind == ChartFileKind.Bms ? new BMSFile { path = path } : null!;
-        var chart = new ChartFile(
-            kind,
-            path,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            new string('b', 64),
-            "Title",
-            "Title",
-            "Artist",
-            string.Empty,
-            "Charts",
-            string.Empty,
-            "7",
-            7,
-            1,
-            null,
-            bmsFile,
-            kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
+        ChartFile bmsFile = kind == ChartFileKind.Bms ? (ChartTestValues.Empty() with { Path = path }) : null!;
+        var chart = new ChartFile(kind, path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64), "Title", "Title", "Artist", string.Empty, "Charts", string.Empty, "7", 7, 1, null);
         return new ChartOperationTarget(
             chart,
             null,

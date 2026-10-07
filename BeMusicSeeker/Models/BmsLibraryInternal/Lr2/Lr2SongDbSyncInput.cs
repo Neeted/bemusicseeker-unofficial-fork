@@ -4,30 +4,7 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2SongDbSyncInput(
-    IReadOnlyList<string> rootDirectories,
-    IReadOnlyList<string> chartPaths,
-    IReadOnlyList<string> normalFolderDirectoryPaths,
-    IReadOnlyList<string> folderInfoFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
-    IReadOnlyList<string> lr2FolderDiscoveryDirectories,
-    IReadOnlyList<string> lr2FolderPruneDirectories,
-    string lr2RootPath,
-    string lr2NormalCustomFolderOutputBaseDir,
-    IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs,
-    string lr2RootCustomFolderOutputBaseDir,
-    IReadOnlyList<string> lr2BuiltinFolderSourceDirectories,
-    Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings,
-    IReadOnlyList<string> lr2FolderFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
-    bool lr2FolderFileDiscoveryComplete,
-    IReadOnlyList<BMSFile> songRows,
-    IReadOnlyList<string> textFileDirectories,
-    int scanSurfaceGeneration,
-    int ownedChartCollectionVersion,
-    int bmsRowsVersion,
-    int bmsonRowsVersion)
+internal sealed class Lr2SongDbSyncInput(IReadOnlyList<string> rootDirectories, IReadOnlyList<string> chartPaths, IReadOnlyList<string> normalFolderDirectoryPaths, IReadOnlyList<string> folderInfoFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries, IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries, IReadOnlyList<string> lr2FolderDiscoveryDirectories, IReadOnlyList<string> lr2FolderPruneDirectories, string lr2RootPath, string lr2NormalCustomFolderOutputBaseDir, IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs, string lr2RootCustomFolderOutputBaseDir, IReadOnlyList<string> lr2BuiltinFolderSourceDirectories, Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings, IReadOnlyList<string> lr2FolderFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries, bool lr2FolderFileDiscoveryComplete, IReadOnlyList<ChartFile> songRows, IReadOnlyList<string> textFileDirectories, int scanSurfaceGeneration, int ownedCollectionVersion)
 {
     public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
@@ -67,15 +44,13 @@ internal sealed class Lr2SongDbSyncInput(
 
     public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
-    public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
+    public IReadOnlyList<ChartFile> SongRows { get; } = songRows ?? [];
 
     public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
 
     public int ScanSurfaceGeneration { get; } = scanSurfaceGeneration;
 
-    public int OwnedChartCollectionVersion { get; } = ownedChartCollectionVersion;
+    public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
 
-    public int BmsRowsVersion { get; } = bmsRowsVersion;
 
-    public int BmsonRowsVersion { get; } = bmsonRowsVersion;
 }

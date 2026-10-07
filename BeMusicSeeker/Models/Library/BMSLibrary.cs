@@ -36,133 +36,69 @@ internal enum LibraryChartRefreshEffects
     InstallDestinationOverlayChanged = 8
 }
 
+/// <summary>共通現在値の変更と削除識別を、表示の局所更新へ渡す不変通知です。</summary>
 internal sealed class NormalLibraryRefreshNotification
 {
-    internal static NormalLibraryRefreshNotification Empty { get; } = new(
-        0,
-        0,
-        LibraryChartRefreshEffects.None,
-        [],
-        notifiesStorageRows: false,
-        resetsPriorNotifications: false);
-
-    internal NormalLibraryRefreshNotification(
-        int version,
-        int ownedCollectionVersion,
-        LibraryChartRefreshEffects effects,
-        IReadOnlyList<ChartFile> installDestinationChangedCharts,
-        bool notifiesStorageRows,
-        bool resetsPriorNotifications,
-        bool notifiesBmsFiles = false,
-        bool notifiesBmsonSongs = false,
-        IReadOnlyList<BMSFile> removedBmsFiles = null,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> removedBmsonSongs = null,
-        bool storageRowsRemoveDeltaComplete = false)
+    internal static NormalLibraryRefreshNotification Empty { get; } = new(0, 0, LibraryChartRefreshEffects.None, [], false);
+    internal NormalLibraryRefreshNotification(int version, int ownedCollectionVersion, LibraryChartRefreshEffects effects,
+        IReadOnlyList<ChartFile> installDestinationChangedCharts, bool resetsPriorNotifications,
+        IReadOnlyList<ChartFile> changedCharts = null, IReadOnlyList<OwnedChartToken> deletedTokens = null,
+        IReadOnlyList<string> changedDetailMd5s = null, IReadOnlyList<string> changedDetailSha256s = null,
+        IReadOnlyList<InstalledChartCurrentChange> installedChartChanges = null)
     {
-        Version = version;
-        OwnedCollectionVersion = ownedCollectionVersion;
-        Effects = effects;
+        Version = version; OwnedCollectionVersion = ownedCollectionVersion; Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
-        bool hasSpecificStorageRowNotification = notifiesBmsFiles || notifiesBmsonSongs;
-        NotifiesBmsFiles = notifiesBmsFiles || (notifiesStorageRows && !hasSpecificStorageRowNotification);
-        NotifiesBmsonSongs = notifiesBmsonSongs || (notifiesStorageRows && !hasSpecificStorageRowNotification);
-        NotifiesStorageRows = notifiesStorageRows || NotifiesBmsFiles || NotifiesBmsonSongs;
         ResetsPriorNotifications = resetsPriorNotifications;
-        RemovedBmsFiles = removedBmsFiles ?? [];
-        RemovedBmsonSongs = removedBmsonSongs ?? [];
-        StorageRowsRemoveDeltaComplete = storageRowsRemoveDeltaComplete && NotifiesStorageRows;
+        ChangedCharts = changedCharts ?? []; DeletedTokens = deletedTokens ?? [];
+        ChangedDetailMd5s = changedDetailMd5s ?? []; ChangedDetailSha256s = changedDetailSha256s ?? [];
+        InstalledChartChanges = installedChartChanges == null ? [] : [.. installedChartChanges];
     }
-
     internal int Version { get; }
-
     internal int OwnedCollectionVersion { get; }
-
     internal LibraryChartRefreshEffects Effects { get; }
-
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
-
-    internal bool NotifiesStorageRows { get; }
-
-    internal bool NotifiesBmsFiles { get; }
-
-    internal bool NotifiesBmsonSongs { get; }
-
     internal bool ResetsPriorNotifications { get; }
-
-    internal IReadOnlyList<BMSFile> RemovedBmsFiles { get; }
-
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonSongs { get; }
-
-    internal bool StorageRowsRemoveDeltaComplete { get; }
+    internal IReadOnlyList<ChartFile> ChangedCharts { get; }
+    internal IReadOnlyList<OwnedChartToken> DeletedTokens { get; }
+    /// <summary>同tokenの先行変更を消さず、所属と旧新基本値を通知寿命内に保持します。</summary>
+    internal IReadOnlyList<InstalledChartCurrentChange> InstalledChartChanges { get; }
+    /// <summary>詳細索引の更新により表示を更新するキーです。</summary>
+    internal IReadOnlyList<string> ChangedDetailMd5s { get; }
+    internal IReadOnlyList<string> ChangedDetailSha256s { get; }
 }
 
+/// <summary>共通現在値の変更と削除識別を、表示の局所更新へ渡す不変通知です。</summary>
 internal sealed class NormalLibraryRefreshNotificationBatch
 {
-    internal static NormalLibraryRefreshNotificationBatch Empty { get; } = new(
-        0,
-        0,
-        LibraryChartRefreshEffects.None,
-        [],
-        notifiesStorageRows: false,
-        resetsPriorNotifications: false);
-
-    internal NormalLibraryRefreshNotificationBatch(
-        int latestVersion,
-        int ownedCollectionVersion,
-        LibraryChartRefreshEffects effects,
-        IReadOnlyList<ChartFile> installDestinationChangedCharts,
-        bool notifiesStorageRows,
-        bool resetsPriorNotifications,
-        bool notifiesBmsFiles = false,
-        bool notifiesBmsonSongs = false,
-        IReadOnlyList<BMSFile> removedBmsFiles = null,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> removedBmsonSongs = null,
-        bool storageRowsRemoveDeltaComplete = false)
+    internal static NormalLibraryRefreshNotificationBatch Empty { get; } = new(0, 0, LibraryChartRefreshEffects.None, [], false);
+    internal NormalLibraryRefreshNotificationBatch(int latestVersion, int ownedCollectionVersion, LibraryChartRefreshEffects effects,
+        IReadOnlyList<ChartFile> installDestinationChangedCharts, bool resetsPriorNotifications,
+        IReadOnlyList<ChartFile> changedCharts = null, IReadOnlyList<OwnedChartToken> deletedTokens = null,
+        IReadOnlyList<string> changedDetailMd5s = null, IReadOnlyList<string> changedDetailSha256s = null,
+        IReadOnlyList<InstalledChartCurrentChange> installedChartChanges = null)
     {
-        LatestVersion = latestVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
-        Effects = effects;
+        LatestVersion = latestVersion; OwnedCollectionVersion = ownedCollectionVersion; Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
-        bool hasSpecificStorageRowNotification = notifiesBmsFiles || notifiesBmsonSongs;
-        NotifiesBmsFiles = notifiesBmsFiles || (notifiesStorageRows && !hasSpecificStorageRowNotification);
-        NotifiesBmsonSongs = notifiesBmsonSongs || (notifiesStorageRows && !hasSpecificStorageRowNotification);
-        NotifiesStorageRows = notifiesStorageRows || NotifiesBmsFiles || NotifiesBmsonSongs;
         ResetsPriorNotifications = resetsPriorNotifications;
-        RemovedBmsFiles = removedBmsFiles ?? [];
-        RemovedBmsonSongs = removedBmsonSongs ?? [];
-        StorageRowsRemoveDeltaComplete = storageRowsRemoveDeltaComplete && NotifiesStorageRows;
+        ChangedCharts = changedCharts ?? []; DeletedTokens = deletedTokens ?? [];
+        ChangedDetailMd5s = changedDetailMd5s ?? []; ChangedDetailSha256s = changedDetailSha256s ?? [];
+        InstalledChartChanges = installedChartChanges == null ? [] : [.. installedChartChanges];
     }
-
     internal int LatestVersion { get; }
-
     internal int OwnedCollectionVersion { get; }
-
     internal LibraryChartRefreshEffects Effects { get; }
-
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
-
-    internal bool NotifiesStorageRows { get; }
-
-    internal bool NotifiesBmsFiles { get; }
-
-    internal bool NotifiesBmsonSongs { get; }
-
     internal bool ResetsPriorNotifications { get; }
-
-    internal IReadOnlyList<BMSFile> RemovedBmsFiles { get; }
-
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonSongs { get; }
-
-    internal bool StorageRowsRemoveDeltaComplete { get; }
-
-    internal bool HasRefreshNotification => ResetsPriorNotifications
-        || Effects != LibraryChartRefreshEffects.None
-        || InstallDestinationChangedCharts.Count > 0;
-
-    internal bool HasEffect(LibraryChartRefreshEffects effect)
-    {
-        return (Effects & effect) != 0;
-    }
+    internal IReadOnlyList<ChartFile> ChangedCharts { get; }
+    internal IReadOnlyList<OwnedChartToken> DeletedTokens { get; }
+    /// <summary>同tokenの先行変更を消さず、所属と旧新基本値を通知寿命内に保持します。</summary>
+    internal IReadOnlyList<InstalledChartCurrentChange> InstalledChartChanges { get; }
+    /// <summary>詳細索引の更新により表示を更新するキーです。</summary>
+    internal IReadOnlyList<string> ChangedDetailMd5s { get; }
+    internal IReadOnlyList<string> ChangedDetailSha256s { get; }
+    internal bool HasRefreshNotification => ResetsPriorNotifications || Effects != LibraryChartRefreshEffects.None
+        || InstallDestinationChangedCharts.Count > 0 || ChangedCharts.Count > 0 || DeletedTokens.Count > 0;
+    internal bool HasEffect(LibraryChartRefreshEffects effect) => (Effects & effect) != 0;
 }
 
 /// <summary>
@@ -329,28 +265,6 @@ public partial class BMSLibrary : ObservableObject
         public long RebuildMs { get; set; }
 
         public List<string> ParentFolders { get; set; }
-    }
-
-    /// <summary>
-    /// playlist score probe 用の score 反映メトリクスです。
-    /// </summary>
-    internal struct BmsScoreApplyMetrics
-    {
-        internal int TargetCount;
-
-        internal long WaitInitializedMinMs;
-
-        internal long WaitBmsFilesReadMs;
-
-        internal long WaitScoresWriteMs;
-
-        internal long WaitScoreSnapshotReadMs;
-
-        internal long ApplyKnownScoresMs;
-
-        internal int MatchedScoreCount;
-
-        internal long TotalMs;
     }
 
     /// <summary>
@@ -589,6 +503,7 @@ public partial class BMSLibrary : ObservableObject
         Interlocked.Exchange(ref shutdownRequested, 1);
         GetLr2SynchronizationRuntimeState().RequestShutdown();
         irScoreShutdownCancellation.Cancel();
+        DetachScoreSubscriptions();
         lr2SynchronizationOwner.DiscardLr2SongDbSyncCommittedPathReceipt("shutdown_requested");
         string shutdownReason = "shutdown:" + (reason ?? "unknown");
         try
@@ -777,7 +692,7 @@ public partial class BMSLibrary : ObservableObject
 
     private int duplicateChartGroupsInvalidationVersion;
 
-    private HashSet<BMSFile> duplicateWarningBmsOwners = [];
+    private HashSet<OwnedChartToken> duplicateWarningTokens = [];
 
     private bool duplicateWarningFullClearPending = true;
 
@@ -812,7 +727,6 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly ReaderWriterLockSlimWrapper rwlockBMSScores = new();
 
-    private readonly CatalogStorageRowsOwner catalogStorageRowsOwner = new();
 
     private readonly CatalogMutationOwner catalogMutationOwner;
 
@@ -821,11 +735,10 @@ public partial class BMSLibrary : ObservableObject
     private readonly CatalogChartInfoOwner catalogChartInfoOwner;
     private readonly CatalogWriteFailureSubscription catalogWriteFailureSubscription;
 
-    private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogStorageRowsOwner.WriteGate;
+    private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogOwnedCollectionOwner.WriteGate;
 
     private readonly ReaderWriterLockSlimWrapper rwlockSongDBInstall = new();
 
-    private object lockStorageRowsVersion => catalogStorageRowsOwner.VersionGate;
 
     private object lockChartInfoBackfill => catalogChartInfoOwner.BackfillGate;
 
@@ -861,13 +774,13 @@ public partial class BMSLibrary : ObservableObject
 
     private object lockChartInfoLazyDisplayIndexLoad => catalogChartInfoOwner.LazyDisplayIndexGate;
 
-    private Dictionary<string, LR2SongDBExtended.chart_info> chartInfoIndexBySha256
+    private Dictionary<string, BeMusicSeeker.Models.ChartDetails> chartInfoIndexBySha256
     {
         get => catalogChartInfoOwner.IndexBySha256;
         set => catalogChartInfoOwner.IndexBySha256 = value;
     }
 
-    private Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> chartInfoIndexByMd5
+    private Dictionary<string, SortedDictionary<string, BeMusicSeeker.Models.ChartDetails>> chartInfoIndexByMd5
     {
         get => catalogChartInfoOwner.IndexByMd5;
         set => catalogChartInfoOwner.IndexByMd5 = value;
@@ -974,13 +887,11 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly PropertyChangedSubscription listenerForRwlockBMSFiles;
 
-    private IReadOnlyList<BMSFile> _BMSFiles => catalogStorageRowsOwner.BmsRows;
+    private IReadOnlyList<ChartFile> _BMSFiles => catalogOwnedCollectionOwner.BmsRows;
 
-    private IReadOnlyList<LR2SongDBExtended.bmson_song> _BmsonSongs => catalogStorageRowsOwner.BmsonRows;
+    private IReadOnlyList<ChartFile> _BmsonSongs => catalogOwnedCollectionOwner.BmsonRows;
 
-    private int bmsStorageRowsVersion => catalogStorageRowsOwner.BmsRowsVersion;
 
-    private int bmsonStorageRowsVersion => catalogStorageRowsOwner.BmsonRowsVersion;
 
     private readonly NormalLibraryRefreshPublisher normalLibraryRefreshPublisher = new();
 
@@ -1201,9 +1112,7 @@ public partial class BMSLibrary : ObservableObject
 
     private static readonly Uri rankingDataUrl = new("http://www.ribbit.xyz/bms/services/lr2ircache/ranking/");
 
-    private const int deferredScoreHydrationChunkSize = 4096;
 
-    private const int deferredScoreHydrationChunkSlowLogThresholdMs = 500;
 
     private static readonly Regex customTrimStartRegex1 = new("^(\\d+(S|D)P|midi|bms|music)[.:・\\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -1227,13 +1136,13 @@ public partial class BMSLibrary : ObservableObject
     /// ライブラリが管理する全 BMS ファイルの一覧です。
     /// セッターでは関連する snapshot / index / cache を自動的にリセットします。
     /// </summary>
-    public IReadOnlyList<BMSFile> BMSFiles
+    internal IReadOnlyList<ChartFile> BmsCharts
     {
         get
         {
-            return catalogStorageRowsOwner.GetBmsRowsReadOnly();
+            return catalogOwnedCollectionOwner.BmsRows;
         }
-        internal set
+        set
         {
             using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
                 "catalog_storage_rows",
@@ -1244,7 +1153,7 @@ public partial class BMSLibrary : ObservableObject
             }
             ApplyCatalogStorageRows(
                 value,
-                BmsonSongs,
+                BmsonCharts,
                 replaceBmsRows: true,
                 replaceBmsonRows: false,
                 notifyBmsRows: true,
@@ -1258,8 +1167,8 @@ public partial class BMSLibrary : ObservableObject
     /// this facade composes cache, resource-health, and per-kind notification ordering.
     /// </summary>
     private void ApplyCatalogStorageRows(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        IEnumerable<ChartFile> bmsFiles,
+        IEnumerable<ChartFile> bmsonSongs,
         bool replaceBmsRows,
         bool replaceBmsonRows,
         bool notifyBmsRows,
@@ -1276,8 +1185,8 @@ public partial class BMSLibrary : ObservableObject
             postLeaseNotificationObserver);
     }
 
-    internal IEnumerable<ChartFile> ChartFilesUnregistered => CreateBmsChartSubsetSnapshot(
-        BMSFiles.Where(file => file?.HasWarningCategory(ChartWarningCategory.Lr2Compatibility) == true));
+    internal IEnumerable<ChartFile> ChartFilesUnregistered =>
+        BmsCharts.Where(file => file?.Warnings?.Any(warning => warning.Category == ChartWarningCategory.Lr2Compatibility) == true);
 
     internal int NormalLibraryRefreshNotificationVersion => normalLibraryRefreshPublisher.Version;
 
@@ -1286,19 +1195,19 @@ public partial class BMSLibrary : ObservableObject
         return normalLibraryRefreshPublisher.GetNotificationsAfter(handledVersion);
     }
 
-    internal int OwnedChartCollectionVersion => catalogOwnedCollectionOwner.CollectionVersion;
+    internal int OwnedCollectionVersion => catalogOwnedCollectionOwner.OwnedCollectionVersion;
 
-    internal StorageRowsVersionSnapshot CatalogStorageRowsVersion => catalogStorageRowsOwner.CaptureVersionSnapshot();
+    internal OwnedChartCollectionVersionSnapshot CatalogStorageRowsVersion => catalogOwnedCollectionOwner.CaptureVersionSnapshot();
 
     internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
 
-    public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs
+    internal IReadOnlyList<ChartFile> BmsonCharts
     {
         get
         {
-            return catalogStorageRowsOwner.GetBmsonRowsReadOnly();
+            return catalogOwnedCollectionOwner.BmsonRows;
         }
-        internal set
+        set
         {
             using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
                 "catalog_storage_rows",
@@ -1308,7 +1217,7 @@ public partial class BMSLibrary : ObservableObject
                 throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
             }
             ApplyCatalogStorageRows(
-                BMSFiles,
+                BmsCharts,
                 value,
                 replaceBmsRows: false,
                 replaceBmsonRows: true,
@@ -1363,15 +1272,13 @@ public partial class BMSLibrary : ObservableObject
 
     private void MarkDuplicateWarningFullClearPending()
     {
-        duplicateWarningBmsOwners = [];
+        duplicateWarningTokens = [];
         duplicateWarningFullClearPending = true;
     }
 
-    internal IEnumerable<ChartFile> ChartFilesGarbled => CreateBmsChartSubsetSnapshot(
-        GetGarbledBmsStorageRows(BMSFiles, isInFixedList: false));
+    internal IEnumerable<ChartFile> ChartFilesGarbled => GetGarbledChartFiles(isInFixedList: false);
 
-    internal IEnumerable<ChartFile> ChartFilesGarbledFixed => CreateBmsChartSubsetSnapshot(
-        GetGarbledBmsStorageRows(BMSFiles, isInFixedList: true));
+    internal IEnumerable<ChartFile> ChartFilesGarbledFixed => GetGarbledChartFiles(isInFixedList: true);
 
     internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
         CreateOwnedBmsChartFilesUnsafe(),
@@ -1386,7 +1293,7 @@ public partial class BMSLibrary : ObservableObject
     public IReadOnlyCollection<ChartPackage> ChartPackagesPending
     {
         get => packageLifecycleOwner.PendingPackagesView;
-        internal set
+        set
         {
             if (value == null)
             {
@@ -1487,7 +1394,7 @@ public partial class BMSLibrary : ObservableObject
 
     private List<string> CreateOwnedChartPathSnapshotUnsafe()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreatePathSnapshot();
@@ -1606,6 +1513,7 @@ public partial class BMSLibrary : ObservableObject
         {
             if (_BMSScores != value)
             {
+                DetachScoreSubscriptions();
                 _BMSScores = value;
                 RaisePropertyChanged("BMSScores");
             }
@@ -2804,7 +2712,6 @@ public partial class BMSLibrary : ObservableObject
             LogInstallPerformance);
         Lr2ChartInfoCapability lr2ChartInfoCapability = new(catalogChartInfoOwner);
         catalogMutationOwner = new(
-            catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
             dbGateway);
         Lr2ConfigSnapshotProvider lr2ConfigSnapshotProvider = new(lr2config);
@@ -2824,7 +2731,7 @@ public partial class BMSLibrary : ObservableObject
             lr2SynchronizationRuntimeState,
             scopedOperationDialogService);
         Lr2SynchronizationProjectionPort lr2SynchronizationProjectionPort = new(
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             lr2ChartInfoCapability,
             dbGateway,
             LogInstallPerformance);
@@ -2842,7 +2749,7 @@ public partial class BMSLibrary : ObservableObject
             maintenanceService,
             LogInstallPerformance,
             () => libraryMutationOwner.GetCurrentResourceHealthIndexVersion());
-        installDestinationStateOwner = new(catalogStorageRowsOwner, CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe);
+        installDestinationStateOwner = new(catalogOwnedCollectionOwner, CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe);
         directoryPreflightService = new LibraryDirectoryPreflightService();
         catalogMaintenanceOwner = new(
             initializationService,
@@ -2850,8 +2757,9 @@ public partial class BMSLibrary : ObservableObject
             catalogMutationOwner,
             dbGateway,
             resourceHealthOwner,
+            catalogOwnedCollectionOwner,
             () => CurrentOptionsSnapshot,
-            CreateOwnedChartStorageOwnerViewUnsafe,
+            CreateOwnedChartCollectionViewUnsafe,
             CreateFullOwnedResourceMaintenanceTargetSet,
             catalogMutationOwner.EnterStorageRowsWriteGuard,
             libraryResourceIndexOwner,
@@ -2893,7 +2801,6 @@ public partial class BMSLibrary : ObservableObject
             scopedOperationDialogService,
             lr2SynchronizationOwner,
             catalogOwnedCollectionOwner,
-            catalogStorageRowsOwner,
             catalogMutationOwner,
             catalogMaintenanceOwner,
             resourceHealthOwner,
@@ -2907,9 +2814,8 @@ public partial class BMSLibrary : ObservableObject
             MarkDuplicateWarningFullClearPending,
             InvalidateBMSParentFolderListCache,
             NotifyBMSParentFolderListCacheChanged,
-            () => RaisePropertyChanged(() => OwnedChartCollectionVersion),
+            () => RaisePropertyChanged(() => OwnedCollectionVersion),
             () => RaisePropertyChanged(() => NormalLibraryRefreshNotificationVersion),
-            NotifyStorageRowsChanged,
             InvalidateInstallEstimationMetadataProfileCache,
             CreateFullOwnedResourceMaintenanceTargetSet,
             LogStartupMemoryCheckpoint,
@@ -2929,7 +2835,7 @@ public partial class BMSLibrary : ObservableObject
             recursiveDirectoryTreeFileMutationOptions);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             dbGateway,
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             this.dialogService,
             () => everythingScanLoggingEnabled,
             ReportLibraryInitializationProgress,
@@ -2958,7 +2864,6 @@ public partial class BMSLibrary : ObservableObject
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
             catalogMutationOwner,
-            catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
             LogInstallPerformanceWarn,
             HandleCatalogChartInfoOwnerEvent,
@@ -3024,28 +2929,6 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// storage rows replacement の確定後に、facade が公開する行コレクション通知を発行します。
     /// </summary>
-    private void NotifyStorageRowsChanged(bool notifiesBmsRows, bool notifiesBmsonRows)
-    {
-        if (notifiesBmsRows)
-        {
-            Task.Run(delegate
-            {
-                RaisePropertyChanged("BMSFiles");
-            }).ObserveFault("BMSFiles");
-        }
-        if (notifiesBmsonRows)
-        {
-            Task.Run(delegate
-            {
-                RaisePropertyChanged("BmsonSongs");
-            }).ObserveFault("BmsonSongs");
-        }
-        if (notifiesBmsRows || notifiesBmsonRows)
-        {
-            RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
-        }
-    }
-
     private void TryInvokePostLeaseNotification(Action notification, string diagnostic)
     {
         if (notification == null)
@@ -3194,18 +3077,15 @@ public partial class BMSLibrary : ObservableObject
                 List<BMSScore> beatorajaScores = [];
                 if (snapshot.ScoresBySha256 != null && snapshot.ScoresBySha256.Count > 0)
                 {
-                    List<BMSFile> bmsFilesSnapshot;
-                    using (rwlockBMSFiles.GetReaderGuard())
+                    List<ChartFile> charts = CreateOwnedChartInfoFullBackfillTargetSnapshot();
+                    foreach (ChartFile chart in charts)
                     {
-                        bmsFilesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-                    }
-                    foreach (BMSFile file in bmsFilesSnapshot)
-                    {
-                        if (!string.IsNullOrWhiteSpace(file.hash)
-                            && !string.IsNullOrWhiteSpace(file.sha256)
-                            && snapshot.ScoresBySha256.TryGetValue(file.sha256, out BMSScore beatorajaScore))
+                        if (chart.Kind == ChartFileKind.Bms
+                            && !string.IsNullOrWhiteSpace(chart.Md5)
+                            && !string.IsNullOrWhiteSpace(chart.Sha256)
+                            && snapshot.ScoresBySha256.TryGetValue(chart.Sha256, out BMSScore beatorajaScore))
                         {
-                            beatorajaScores.Add(BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, file.hash));
+                            beatorajaScores.Add(BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, chart.Md5));
                         }
                     }
                 }
@@ -3511,7 +3391,7 @@ public partial class BMSLibrary : ObservableObject
             ResourceIndexSnapshot = resourceSnapshot,
             CurrentnessStamp = new PendingInstallEstimateCurrentnessStamp(
                 resourceSnapshot.Generation,
-                catalogOwnedCollectionOwner.CollectionVersion,
+                catalogOwnedCollectionOwner.OwnedCollectionVersion,
                 installedSnapshot.Generation,
                 libraryMutationOwner.OwnedDigestMutationGeneration),
             OptionsSnapshot = CurrentOptionsSnapshot
@@ -3522,7 +3402,7 @@ public partial class BMSLibrary : ObservableObject
         PendingInstallEstimateCurrentnessStamp stamp)
     {
         return libraryResourceIndexOwner.CaptureSnapshot().Generation == stamp.ResourceIndexGeneration
-            && catalogOwnedCollectionOwner.CollectionVersion == stamp.OwnedCollectionVersion
+            && catalogOwnedCollectionOwner.OwnedCollectionVersion == stamp.OwnedCollectionVersion
             && catalogOwnedCollectionOwner.IsInstalledChartLookupGenerationCurrent(
                 stamp.InstalledLookupGeneration)
             && libraryMutationOwner.OwnedDigestMutationGeneration == stamp.DigestMutationGeneration
@@ -4852,8 +4732,10 @@ public partial class BMSLibrary : ObservableObject
         }
         stopwatch.Stop();
         int version;
+        ScoreSnapshot previous;
         lock (lockScoreSnapshot)
         {
+            previous = scoreSnapshot;
             version = ++scoreSnapshotVersion;
             scoreSnapshot = new ScoreSnapshot
             {
@@ -4869,9 +4751,13 @@ public partial class BMSLibrary : ObservableObject
                 SourceGeneration = sourceGenerationSnapshot
             };
         }
+        ReplaceScoreSubscriptions(scoreSnapshot);
         ScoreSnapshotReady = sourceSnapshot != ActiveScoreSource.None
             && loadStatusSnapshot == ScoreTableLoadStatus.Loaded;
         ScoreSnapshotVersion = version;
+        ScoreSnapshotChanged?.Invoke(new ScoreSnapshotChange(version,
+            [.. scoresByHash.Keys.Concat((IEnumerable<string>)previous?.ScoresByHash.Keys ?? []).Distinct(StringComparer.OrdinalIgnoreCase)],
+            [.. beatorajaScoresSnapshot.Keys.Concat((IEnumerable<string>)previous?.ScoresBySha256.Keys ?? []).Distinct(StringComparer.OrdinalIgnoreCase)]));
         LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " source=" + sourceSnapshot + " count=" + scoresSnapshot.Count + " beatorajaCount=" + beatorajaScoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
     }
 
@@ -4925,31 +4811,6 @@ public partial class BMSLibrary : ObservableObject
             score = lr2Score;
         }
         return ChartScoreSnapshot.FromBmsScore(score, path);
-    }
-
-    private int ApplyCurrentScoreSnapshotToFiles(IEnumerable<BMSFile> bmsFiles)
-    {
-        ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
-        return ApplyScoreSnapshotToFilesReplacingExisting(bmsFiles, snapshot);
-    }
-
-    private int ApplyScoreSnapshotToFilesReplacingExisting(IEnumerable<BMSFile> bmsFiles, ScoreSnapshot snapshot)
-    {
-        List<BMSFile> targetFiles = [.. (bmsFiles ?? []).Where(file => file != null)];
-        foreach (BMSFile file in targetFiles)
-        {
-            file.bmsScore = null;
-        }
-        if (snapshot == null || targetFiles.Count == 0)
-        {
-            return 0;
-        }
-        return snapshot.ActiveScoreSource switch
-        {
-            ActiveScoreSource.Lr2 => irService.ApplyKnownScoresToFilesAndCount(targetFiles, snapshot.ScoresByHash, null),
-            ActiveScoreSource.Beatoraja => irService.ApplyKnownScoresToFilesAndCount(targetFiles, null, snapshot.ScoresBySha256),
-            _ => 0,
-        };
     }
 
     private void ReportLibraryInitializationProgress(
@@ -5540,8 +5401,8 @@ public partial class BMSLibrary : ObservableObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             installableLookupCacheSnapshot = libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
-            catalogRowCount = BMSFiles?.Count ?? 0;
-            bmsonRowCount = BmsonSongs?.Count ?? 0;
+            catalogRowCount = BmsCharts?.Count ?? 0;
+            bmsonRowCount = BmsonCharts?.Count ?? 0;
             resourceIndexDirectoryCount = installableLookupCacheSnapshot?.Count ?? 0;
         }
         using (rwlockPendingInstallCharts.GetReaderGuard())
@@ -5896,13 +5757,6 @@ public partial class BMSLibrary : ObservableObject
                 scoreSourceGeneration++;
             }
             RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
-            if (scoreOnlyLoad || activeScoreSource == ActiveScoreSource.None)
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    ApplyCurrentScoreSnapshotToFiles(BMSFiles);
-                }
-            }
             lr2IdAfterScoreLoad = LR2ID;
             stopwatchScoreTblLoad.Stop();
             scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
@@ -5935,7 +5789,7 @@ public partial class BMSLibrary : ObservableObject
             try
             {
                 var stopwatchSetMode = Stopwatch.StartNew();
-                setModeAndCommitToDB(BMSFiles);
+                setModeAndCommitToDB(BmsCharts, postLeaseEffectObserver: postLeaseEffectObserver);
                 stopwatchSetMode.Stop();
                 setModeMs = stopwatchSetMode.ElapsedMilliseconds;
                 var stopwatchSetHealth = Stopwatch.StartNew();
@@ -6600,7 +6454,7 @@ public partial class BMSLibrary : ObservableObject
         Lr2NormalFolderCatalogMutationReceipt receipt,
         int expectedVersion = 0)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         Lr2NormalFolderBmsQueryScope queryScope =
             Lr2NormalFolderSyncScopeBuilder.CreateCatalogMutationBmsQueryScope(rootDirectories, receipt);
         return CaptureLr2NormalFolderCurrentBmsFactsUnsafe(queryScope, expectedVersion);
@@ -6612,7 +6466,7 @@ public partial class BMSLibrary : ObservableObject
     {
         lock (lockOwnedChartCollection)
         {
-            int ownedCollectionVersion = OwnedChartCollectionVersion;
+            int ownedCollectionVersion = OwnedCollectionVersion;
             if (expectedVersion > 0 && ownedCollectionVersion != expectedVersion)
             {
                 return null;
@@ -6644,7 +6498,7 @@ public partial class BMSLibrary : ObservableObject
                     index.GetBmsChartPathsUnderRealPath(directory)));
             }
 
-            if (OwnedChartCollectionVersion != ownedCollectionVersion)
+            if (OwnedCollectionVersion != ownedCollectionVersion)
             {
                 return null;
             }
@@ -6750,14 +6604,14 @@ public partial class BMSLibrary : ObservableObject
 
 
 
-    internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return catalogChartInfoOwner.ResolveChartInfo(sha256, md5);
     }
 
 
 
-    private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
+    private static bool IsCurrentChartInfoRow(BeMusicSeeker.Models.ChartDetails row)
     {
         return row != null && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
     }
@@ -6803,7 +6657,7 @@ public partial class BMSLibrary : ObservableObject
                     }
                     string[] missing = model.Entries.Where(entry => !entry.IsCourse && !hashes.ContainsKey(entry.Md5))
                         .Select(entry => entry.Md5).ToArray();
-                    foreach ((string md5, LR2SongDBExtended.chart_info info) in LoadChartInfosByMd5(missing))
+                    foreach ((string md5, BeMusicSeeker.Models.ChartDetails info) in LoadChartInfosByMd5(missing))
                     {
                         if (!string.IsNullOrWhiteSpace(info.sha256))
                         {
@@ -6867,7 +6721,7 @@ public partial class BMSLibrary : ObservableObject
                 md5 = resolvedChart.Md5;
                 sha256 = resolvedChart.Sha256;
             }
-            LR2SongDBExtended.chart_info chartInfo = ResolveChartInfoForRequest(library, request);
+            BeMusicSeeker.Models.ChartDetails chartInfo = ResolveChartInfoForRequest(library, request);
             if (chartInfo != null)
             {
                 if (string.IsNullOrWhiteSpace(md5) && TryGetChartInfoMd5(chartInfo, out string chartInfoMd5))
@@ -6884,7 +6738,7 @@ public partial class BMSLibrary : ObservableObject
                 : Tuple.Create(md5, sha256);
         }
 
-        private static LR2SongDBExtended.chart_info ResolveChartInfoForRequest(BMSLibrary library, BmtSongHashResolveRequest request)
+        private static BeMusicSeeker.Models.ChartDetails ResolveChartInfoForRequest(BMSLibrary library, BmtSongHashResolveRequest request)
         {
             if (library == null || request == null)
             {
@@ -6910,13 +6764,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private LR2SongDBExtended.chart_info ResolveChartInfoForChart(ChartFile chart)
+    private BeMusicSeeker.Models.ChartDetails ResolveChartInfoForChart(ChartFile chart)
     {
         return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
 
-    private static bool TryGetChartInfoSha256(LR2SongDBExtended.chart_info row, out string sha256)
+    private static bool TryGetChartInfoSha256(BeMusicSeeker.Models.ChartDetails row, out string sha256)
     {
         sha256 = row?.sha256;
         if (string.IsNullOrWhiteSpace(sha256))
@@ -6928,7 +6782,7 @@ public partial class BMSLibrary : ObservableObject
         return true;
     }
 
-    private static bool TryGetChartInfoMd5(LR2SongDBExtended.chart_info row, out string md5)
+    private static bool TryGetChartInfoMd5(BeMusicSeeker.Models.ChartDetails row, out string md5)
     {
         md5 = row?.md5;
         if (string.IsNullOrWhiteSpace(md5))
@@ -6940,22 +6794,22 @@ public partial class BMSLibrary : ObservableObject
         return true;
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfoMapSnapshot()
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfoMapSnapshot()
     {
         return catalogChartInfoOwner.LoadChartInfoMap(dbGateway);
     }
 
-    private Dictionary<string, LR2SongDBExtended.chart_info> CreateHydratedChartInfoIndexSha256Snapshot()
+    private Dictionary<string, BeMusicSeeker.Models.ChartDetails> CreateHydratedChartInfoIndexSha256Snapshot()
     {
         return catalogChartInfoOwner.CreateSha256Snapshot();
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(IEnumerable<string> sha256s)
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfosBySha256(IEnumerable<string> sha256s)
     {
         return catalogChartInfoOwner.LoadChartInfosBySha256(dbGateway, sha256s);
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosByMd5(IEnumerable<string> md5s)
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfosByMd5(IEnumerable<string> md5s)
     {
         return catalogChartInfoOwner.LoadChartInfosByMd5(dbGateway, md5s);
     }
@@ -7035,7 +6889,7 @@ public partial class BMSLibrary : ObservableObject
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            return (BMSFiles?.Count ?? 0) + (BmsonSongs?.Count ?? 0);
+            return (BmsCharts?.Count ?? 0) + (BmsonCharts?.Count ?? 0);
         }
     }
 
@@ -7519,38 +7373,16 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 現在の score snapshot を使って全 BMSFiles の bmsScore を chunk 単位で反映します。
+    /// スコア索引の準備を完了します。表示時に現在のハッシュで解決するため、譜面ごとの付着は不要です。
     /// </summary>
     /// <param name="requestVersion">処理対象の要求版数。</param>
     private void RunDeferredScoreHydration(int requestVersion)
     {
-        ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
-        if (snapshot == null)
+        if (IsDeferredScoreHydrationRequestSuperseded(requestVersion))
         {
-            return;
+            throw new OperationCanceledException();
         }
-        List<BMSFile> bmsFilesSnapshot;
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            bmsFilesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-        }
-        for (int offset = 0; offset < bmsFilesSnapshot.Count; offset += deferredScoreHydrationChunkSize)
-        {
-            if (IsDeferredScoreHydrationRequestSuperseded(requestVersion))
-            {
-                throw new OperationCanceledException();
-            }
-            int count = Math.Min(deferredScoreHydrationChunkSize, bmsFilesSnapshot.Count - offset);
-            List<BMSFile> chunk = bmsFilesSnapshot.GetRange(offset, count);
-            var chunkStopwatch = Stopwatch.StartNew();
-            int matchedScoreCount = ApplyScoreSnapshotToFilesReplacingExisting(chunk, snapshot);
-            chunkStopwatch.Stop();
-            if (chunkStopwatch.ElapsedMilliseconds >= deferredScoreHydrationChunkSlowLogThresholdMs)
-            {
-                LogInstallPerformance("score_hydration_chunk version=" + requestVersion + " offset=" + offset + " count=" + count + " total=" + bmsFilesSnapshot.Count + " matchedScoreCount=" + matchedScoreCount + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds + " thresholdMs=" + deferredScoreHydrationChunkSlowLogThresholdMs);
-            }
-            Thread.Yield();
-        }
+        GetScoreSnapshotForLookup(allowOnDemandBuild: true);
     }
 
     /// <summary>
@@ -7824,7 +7656,6 @@ public partial class BMSLibrary : ObservableObject
     internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot(CancellationToken cancellationToken)
     {
         return catalogOwnedCollectionOwner.GetHashIndexSnapshot(
-            catalogStorageRowsOwner,
             cancellationToken,
             out _,
             out _);
@@ -7864,7 +7695,6 @@ public partial class BMSLibrary : ObservableObject
     {
         var stopwatch = Stopwatch.StartNew();
         OwnedChartHashIndexVersionedSnapshot snapshot = catalogOwnedCollectionOwner.GetHashIndexSnapshot(
-            catalogStorageRowsOwner,
             CancellationToken.None,
             out bool cacheHit,
             out int staleRetryCount);
@@ -7879,8 +7709,8 @@ public partial class BMSLibrary : ObservableObject
             SnapshotVersion = snapshot?.Version ?? 0,
             InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
             OwnedCollectionVersion = snapshot?.OwnedCollectionVersion ?? 0,
-            BmsRowsVersion = snapshot?.BmsRowsVersion ?? 0,
-            BmsonRowsVersion = snapshot?.BmsonRowsVersion ?? 0,
+
+
             StaleRetryCount = staleRetryCount
         };
         LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
@@ -7892,8 +7722,6 @@ public partial class BMSLibrary : ObservableObject
             + " snapshotVersion=" + result.SnapshotVersion
             + " invalidationVersion=" + result.InvalidationVersion
             + " ownedCollectionVersion=" + result.OwnedCollectionVersion
-            + " bmsRowsVersion=" + result.BmsRowsVersion
-            + " bmsonRowsVersion=" + result.BmsonRowsVersion
             + " staleRetries=" + result.StaleRetryCount);
         return result;
     }
@@ -7914,7 +7742,7 @@ public partial class BMSLibrary : ObservableObject
         out int staleRetryCount)
     {
         return catalogOwnedCollectionOwner.GetPlaylistLibraryResolveIndexSnapshot(
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             cancellationToken,
             out cacheHit,
             out staleRetryCount);
@@ -7965,7 +7793,7 @@ public partial class BMSLibrary : ObservableObject
         cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyDictionary<string, string> sha256ByMd5 = dbGateway.LoadChartDigestMapByMd5(md5s);
         cancellationToken.ThrowIfCancellationRequested();
-        Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver = CreatePlayHistoryChartInfoResolver(
+        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver = CreatePlayHistoryChartInfoResolver(
             md5s,
             sha256s,
             sha256ByMd5,
@@ -7979,7 +7807,7 @@ public partial class BMSLibrary : ObservableObject
             chartInfoResolver);
     }
 
-    private Func<string, string, LR2SongDBExtended.chart_info> CreatePlayHistoryChartInfoResolver(
+    private Func<string, string, BeMusicSeeker.Models.ChartDetails> CreatePlayHistoryChartInfoResolver(
         IReadOnlyList<string> md5s,
         IReadOnlyList<string> sourceSha256s,
         IReadOnlyDictionary<string, string> sha256ByMd5,
@@ -8001,18 +7829,18 @@ public partial class BMSLibrary : ObservableObject
             }
         }
         cancellationToken.ThrowIfCancellationRequested();
-        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256 = LoadChartInfosBySha256(sha256s);
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> chartInfoBySha256 = LoadChartInfosBySha256(sha256s);
         cancellationToken.ThrowIfCancellationRequested();
-        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5 = LoadChartInfosByMd5(md5s);
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> chartInfoByMd5 = LoadChartInfosByMd5(md5s);
         return (sha256, md5) =>
         {
             if (!string.IsNullOrWhiteSpace(sha256)
-                && chartInfoBySha256.TryGetValue(sha256.Trim(), out LR2SongDBExtended.chart_info bySha256))
+                && chartInfoBySha256.TryGetValue(sha256.Trim(), out BeMusicSeeker.Models.ChartDetails bySha256))
             {
                 return bySha256;
             }
             if (!string.IsNullOrWhiteSpace(md5)
-                && chartInfoByMd5.TryGetValue(md5.Trim(), out LR2SongDBExtended.chart_info byMd5))
+                && chartInfoByMd5.TryGetValue(md5.Trim(), out BeMusicSeeker.Models.ChartDetails byMd5))
             {
                 return byMd5;
             }
@@ -8028,7 +7856,7 @@ public partial class BMSLibrary : ObservableObject
             long buildElapsedMs,
             int invalidationVersion,
             int ownedCollectionVersion) state =
-            catalogOwnedCollectionOwner.GetPlaylistLibraryResolveIndexRuntimeState(catalogStorageRowsOwner);
+            catalogOwnedCollectionOwner.GetPlaylistLibraryResolveIndexRuntimeState(catalogOwnedCollectionOwner);
         return new PlaylistLibraryResolveIndexRuntimeState
         {
             IsCached = state.isCached,
@@ -8041,7 +7869,7 @@ public partial class BMSLibrary : ObservableObject
 
     private List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshot()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateSnapshot(
@@ -8070,7 +7898,7 @@ public partial class BMSLibrary : ObservableObject
 
     private ILibraryChartCanonicalLookup CreateOwnedCanonicalChartLookupUnsafe()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateCanonicalChartLookupSnapshot();
@@ -8079,7 +7907,7 @@ public partial class BMSLibrary : ObservableObject
 
     private List<LibraryChartRef> CreateOwnedRealPathChartRefsUnsafe(string directoryPath)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsUnderRealPath(directoryPath);
@@ -8099,12 +7927,12 @@ public partial class BMSLibrary : ObservableObject
         int ownedVersion;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
+
             lock (lockOwnedChartCollection)
             {
                 status = catalogOwnedCollectionOwner.Collection.IsLibraryChartRefIndexSnapshotInitialized ? "cached" : "built";
                 snapshot = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefIndexSnapshot();
-                ownedVersion = OwnedChartCollectionVersion;
+                ownedVersion = OwnedCollectionVersion;
             }
         }
         stopwatch.Stop();
@@ -8212,7 +8040,7 @@ public partial class BMSLibrary : ObservableObject
 
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
+
             lock (lockOwnedChartCollection)
             {
                 return catalogOwnedCollectionOwner.Collection.CountLibraryChartRefsUnderRealPath(directoryPath) > 0;
@@ -8222,7 +8050,7 @@ public partial class BMSLibrary : ObservableObject
 
     private List<string> CreateOwnedRealPathChartDirectoriesUnsafe(string directoryPath)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateChartDirectoriesUnderRealPath(directoryPath);
@@ -8241,11 +8069,6 @@ public partial class BMSLibrary : ObservableObject
     {
         lock (lockOwnedChartCollection)
         {
-            if (!catalogOwnedCollectionOwner.IsInitialized)
-            {
-                chartRefs = null;
-                return false;
-            }
             chartRefs = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForCanonicalPaths(paths);
             return true;
         }
@@ -8258,7 +8081,7 @@ public partial class BMSLibrary : ObservableObject
         bool includeWarningSnapshot,
         bool includeResourceReferences)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateSnapshotForDirectChildDirectories(
@@ -8273,7 +8096,7 @@ public partial class BMSLibrary : ObservableObject
         ISet<string> md5Hashes,
         bool includeWarningSnapshot)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateSnapshotForMd5Hashes(
@@ -8288,7 +8111,7 @@ public partial class BMSLibrary : ObservableObject
         bool includeWarningSnapshot,
         bool includeResourceReferences)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateSnapshotForPaths(
@@ -8299,50 +8122,51 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private List<ChartFile> CreateOwnedBmsChartFilesUnsafe()
+    /// <summary>既存の読取り排他内でBMS現在値を捕捉し、再検査に必要な場合だけ現在の警告も含めます。</summary>
+    private List<ChartFile> CreateOwnedBmsChartFilesUnsafe(bool includeWarningSnapshot = false)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateBmsSnapshot(
-                includeWarningSnapshot: false,
+                includeWarningSnapshot: includeWarningSnapshot,
                 includeScoreSnapshot: false);
         }
     }
 
     private OwnedDuplicateChartRowSnapshot CreateOwnedDuplicateChartRowSnapshotUnsafe()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot();
         }
     }
 
-    private OwnedChartStorageOwnerView CreateOwnedChartStorageOwnerViewUnsafe()
+    private OwnedChartCollectionView CreateOwnedChartCollectionViewUnsafe()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
-            return catalogOwnedCollectionOwner.Collection.CreateStorageOwnerView();
+            return catalogOwnedCollectionOwner.Collection.CreateCollectionView();
         }
     }
 
-    internal OwnedChartStorageOwnerView CreateNormalLibrarySourceStorageOwnerView()
+    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView()
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
+
             lock (lockOwnedChartCollection)
             {
-                return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceStorageOwnerView();
+                return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceChartView();
             }
         }
     }
 
     private HashSet<string> CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.CreateInstallDestinationRuntimeStateKeySnapshot();
@@ -8353,7 +8177,7 @@ public partial class BMSLibrary : ObservableObject
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
+
             lock (lockOwnedChartCollection)
             {
                 return catalogOwnedCollectionOwner.Collection.CreateChartRuntimeStatePrimaryKeySnapshot();
@@ -8361,57 +8185,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void EnsureOwnedChartCollectionBuiltUnsafe()
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe(CancellationToken.None);
-    }
 
-    private void EnsureOwnedChartCollectionBuiltUnsafe(CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            StorageRowsVersionSnapshot versions = catalogStorageRowsOwner.CaptureVersionSnapshot();
-            if (catalogOwnedCollectionOwner.IsCurrent(
-                versions.BmsRowsVersion,
-                versions.BmsonRowsVersion))
-            {
-                return;
-            }
-
-            CatalogStorageRowsSnapshot storageRows = catalogStorageRowsOwner.CaptureSnapshot();
-            var rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
-                storageRows.BmsRows,
-                storageRows.BmsonRows,
-                cancellationToken,
-                out OwnedChartStorageRowFilterSummary filterSummary);
-            cancellationToken.ThrowIfCancellationRequested();
-            libraryMutationOwner.LogOwnedChartCollectionSkippedRows("build", filterSummary);
-            lock (lockStorageRowsVersion)
-            {
-                if (storageRows.BmsRowsVersion != bmsStorageRowsVersion
-                    || storageRows.BmsonRowsVersion != bmsonStorageRowsVersion)
-                {
-                    continue;
-                }
-                if (catalogOwnedCollectionOwner.IsCurrent(
-                    storageRows.BmsRowsVersion,
-                    storageRows.BmsonRowsVersion))
-                {
-                    return;
-                }
-                catalogOwnedCollectionOwner.ApplyBuiltCollection(
-                    rebuiltCollection,
-                    storageRows.BmsRowsVersion,
-                    storageRows.BmsonRowsVersion);
-                return;
-            }
-        }
-    }
-    /// <summary>
-    /// resource warning 表示変更を facade の UI 通知へ橋渡しします。
-    /// </summary>
-    /// <param name="reason">通知理由。</param>
     private void DispatchWarningPresentationChanged(string reason)
     {
         libraryMutationOwner.DispatchWarningPresentationChanged(reason);
@@ -8426,13 +8200,13 @@ public partial class BMSLibrary : ObservableObject
         switch (ownerEvent.Kind)
         {
             case CatalogChartInfoOwnerEventKind.WarningPresentationChanged:
-                DispatchWarningPresentationChanged(ownerEvent.Reason);
+                libraryMutationOwner.DispatchWarningPresentationChanged(ownerEvent.Reason, ownerEvent.ChangedMd5s, ownerEvent.ChangedSha256s, ownerEvent.ChangedCharts);
                 break;
             case CatalogChartInfoOwnerEventKind.StartupMemoryCheckpoint:
                 LogStartupMemoryCheckpoint(ownerEvent.CheckpointStage, ownerEvent.CheckpointStatus);
                 break;
             case CatalogChartInfoOwnerEventKind.IndexChanged:
-                DispatchWarningPresentationChanged(ownerEvent.Reason);
+                libraryMutationOwner.DispatchWarningPresentationChanged(ownerEvent.Reason, ownerEvent.ChangedMd5s, ownerEvent.ChangedSha256s, ownerEvent.ChangedCharts, basicValuesChanged: ownerEvent.ChangedCharts.Count > 0);
                 break;
         }
     }
@@ -8444,7 +8218,7 @@ public partial class BMSLibrary : ObservableObject
         Action<string> logOverride = null)
     {
         return catalogOwnedCollectionOwner.EnsureInstalledPrimaryHashLookupBuilt(
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             out buildMs,
             out bmsCount,
             out bmsonCount,
@@ -8472,7 +8246,7 @@ public partial class BMSLibrary : ObservableObject
         CreateInstalledChartLookupVersionedSnapshotUnderCurrentnessGateUnsafe()
     {
         return catalogOwnedCollectionOwner.CreateInstalledChartLookupVersionedSnapshot(
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             LogInstallPerformance);
     }
 
@@ -8489,7 +8263,7 @@ public partial class BMSLibrary : ObservableObject
     {
         return catalogOwnedCollectionOwner.ContainsInstalledChart(
             chart,
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             LogInstallPerformance);
     }
 
@@ -8510,7 +8284,7 @@ public partial class BMSLibrary : ObservableObject
     private IReadOnlyCollection<string> CreateInstalledChartKnownDirectorySnapshotUnsafe()
     {
         return catalogOwnedCollectionOwner.CreateInstalledChartKnownDirectorySnapshot(
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             LogInstallPerformance);
     }
 
@@ -8523,7 +8297,7 @@ public partial class BMSLibrary : ObservableObject
     {
         return catalogOwnedCollectionOwner.GetDistinctInstalledDirectoriesByPrimaryHash(
             lookupHash,
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             LogInstallPerformance);
     }
 
@@ -8534,7 +8308,7 @@ public partial class BMSLibrary : ObservableObject
         return catalogOwnedCollectionOwner.GetInstalledDirectChildPathsByPrimaryHashes(
             primaryHashes,
             destinationDirectory,
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             LogInstallPerformance);
     }
 
@@ -8573,106 +8347,11 @@ public partial class BMSLibrary : ObservableObject
     {
         return catalogOwnedCollectionOwner.CreateInstalledChartKeySnapshotExcludingCharts(
             excluded,
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             reason,
             operationId,
             logOverride ?? LogInstallPerformance);
     }
-
-    /// <summary>
-    /// 指定された BMS ファイル群に対して、LR2 score.db からスコア情報を取得・反映します。
-    /// </summary>
-    public void SetBMSScore(IEnumerable<BMSFile> bmsFiles)
-    {
-        SetBMSScoreInternal(bmsFiles, collectMetrics: false);
-    }
-
-    /// <summary>
-    /// 指定された BMS ファイル群に対して、LR2 score.db の score 反映メトリクスを取得します。
-    /// </summary>
-    /// <param name="bmsFiles">score 反映対象。</param>
-    /// <returns>score 反映時の待機・適用メトリクス。</returns>
-    internal BmsScoreApplyMetrics SetBMSScoreWithMetrics(IReadOnlyCollection<BMSFile> bmsFiles)
-    {
-        return SetBMSScoreInternal(bmsFiles, collectMetrics: true);
-    }
-
-    /// <summary>
-    /// score 反映と必要に応じたメトリクス収集を行います。
-    /// </summary>
-    /// <param name="bmsFiles">score 反映対象。</param>
-    /// <param name="collectMetrics">メトリクスを収集するかどうか。</param>
-    /// <returns>score 反映時のメトリクス。</returns>
-    private BmsScoreApplyMetrics SetBMSScoreInternal(IEnumerable<BMSFile> bmsFiles, bool collectMetrics)
-    {
-        BmsScoreApplyMetrics metrics = default;
-        if (bmsFiles == null)
-        {
-            return metrics;
-        }
-        IEnumerable<BMSFile> effectiveFiles = bmsFiles;
-        if (collectMetrics)
-        {
-            if (bmsFiles is IReadOnlyCollection<BMSFile> readOnlyCollection)
-            {
-                metrics.TargetCount = readOnlyCollection.Count;
-            }
-            else if (bmsFiles is ICollection<BMSFile> collection)
-            {
-                metrics.TargetCount = collection.Count;
-            }
-            else
-            {
-                List<BMSFile> normalizedFiles = [.. bmsFiles.Where(file => file != null)];
-                effectiveFiles = normalizedFiles;
-                metrics.TargetCount = normalizedFiles.Count;
-            }
-        }
-        Stopwatch totalStopwatch = collectMetrics ? Stopwatch.StartNew() : null;
-        Stopwatch stageStopwatch = collectMetrics ? Stopwatch.StartNew() : null;
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            if (collectMetrics)
-            {
-                metrics.WaitInitializedMinMs = stageStopwatch.ElapsedMilliseconds;
-                stageStopwatch.Restart();
-            }
-            if (collectMetrics)
-            {
-                metrics.WaitBmsFilesReadMs = stageStopwatch.ElapsedMilliseconds;
-                stageStopwatch.Restart();
-            }
-            ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
-            if (collectMetrics)
-            {
-                metrics.WaitScoreSnapshotReadMs = stageStopwatch.ElapsedMilliseconds;
-                metrics.WaitScoresWriteMs = 0L;
-            }
-            if (snapshot == null)
-            {
-                if (collectMetrics)
-                {
-                    metrics.TotalMs = totalStopwatch.ElapsedMilliseconds;
-                }
-                return metrics;
-            }
-            if (collectMetrics)
-            {
-                stageStopwatch.Restart();
-                metrics.MatchedScoreCount = ApplyScoreSnapshotToFilesReplacingExisting(effectiveFiles, snapshot);
-                metrics.ApplyKnownScoresMs = stageStopwatch.ElapsedMilliseconds;
-                metrics.TotalMs = totalStopwatch.ElapsedMilliseconds;
-            }
-            else
-            {
-                ApplyScoreSnapshotToFilesReplacingExisting(effectiveFiles, snapshot);
-            }
-        }
-        return metrics;
-    }
-
-
-
 
     private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics()
     {
@@ -8714,37 +8393,25 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
-        List<BMSFile> filesSnapshot;
+        PlaylistLibraryResolveIndexSnapshot ownedIndex = GetPlaylistLibraryResolveIndexSnapshot(
+            CancellationToken.None, out _, out _);
         List<BMSScore> mergedScores;
         var priorUnsentByScore = new Dictionary<BMSScore, bool>();
-        var priorScoreByFile = new Dictionary<BMSFile, BMSScore>();
         using (rwlockBMSScores.GetWriterGuard())
         {
             EnsureCurrentRankingDownloadContext(context);
-            using (rwlockBMSFiles.GetReaderGuard())
+            foreach (BMSScore score in BMSScores ?? [])
             {
-                filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-                foreach (BMSScore score in BMSScores ?? [])
+                if (score != null)
                 {
-                    if (score != null)
-                    {
-                        priorUnsentByScore[score] = score.IsLr2IrScoreUnsent;
-                    }
+                    priorUnsentByScore[score] = score.IsLr2IrScoreUnsent;
                 }
-                foreach (BMSFile file in filesSnapshot)
-                {
-                    priorScoreByFile[file] = file.bmsScore;
-                }
-                using (BMSScore.SuppressPropertyChangedScope())
-                using (BMSFile.SuppressPropertyChangedScope())
-                {
-                    mergedScores = irService.UpdateBmsScores(
-                        scoreTable,
-                        BMSScores,
-                        filesSnapshot,
-                        detectUnsentScores);
-                    BMSScores = mergedScores;
-                }
+            }
+            using (BMSScore.SuppressPropertyChangedScope())
+            {
+                mergedScores = irService.UpdateBmsScores(
+                    scoreTable, BMSScores, ownedIndex.ContainsBmsMd5, detectUnsentScores);
+                BMSScores = mergedScores;
             }
         }
         List<BMSScore> changedUnsentScores =
@@ -8754,18 +8421,8 @@ public partial class BMSLibrary : ObservableObject
                 && priorUnsentByScore.TryGetValue(score, out bool priorUnsent)
                 && priorUnsent != score.IsLr2IrScoreUnsent)
         ];
-        List<BMSFile> changedScoreAttachments =
-        [
-            .. filesSnapshot.Where(file =>
-                priorScoreByFile.TryGetValue(file, out BMSScore priorScore)
-                && !ReferenceEquals(priorScore, file.bmsScore))
-        ];
         uiScheduler.Invoke(() =>
         {
-            foreach (BMSFile file in changedScoreAttachments)
-            {
-                file.PublishScoreAttachmentChanged();
-            }
             foreach (BMSScore score in changedUnsentScores)
             {
                 score.PublishLr2IrScoreUnsentChanged();
@@ -8776,25 +8433,22 @@ public partial class BMSLibrary : ObservableObject
 
     private void ClearScoreUnsentStatus()
     {
+        List<BMSScore> changed = [];
         using (rwlockBMSScores.GetWriterGuard())
+        using (BMSScore.SuppressPropertyChangedScope())
         {
-            foreach (BMSScore score in BMSScores ?? Enumerable.Empty<BMSScore>())
+            foreach (BMSScore score in BMSScores ?? [])
             {
-                if (score != null)
+                if (score?.IsLr2IrScoreUnsent == true)
                 {
                     score.IsLr2IrScoreUnsent = false;
+                    changed.Add(score);
                 }
             }
         }
-        using (rwlockBMSFiles.GetReaderGuard())
+        foreach (BMSScore score in changed)
         {
-            foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
-            {
-                if (file?.bmsScore != null)
-                {
-                    file.bmsScore.IsLr2IrScoreUnsent = false;
-                }
-            }
+            score.PublishLr2IrScoreUnsentChanged();
         }
     }
 
@@ -8819,19 +8473,16 @@ public partial class BMSLibrary : ObservableObject
             using (rwlockBMSScores.GetWriterGuard())
             {
                 EnsureCurrentRankingDownloadContext(context);
-                using (rwlockBMSFiles.GetReaderGuard())
+
+                using (BMSScore.SuppressPropertyChangedScope())
                 {
-                    using (BMSScore.SuppressPropertyChangedScope())
-                    using (BMSFile.SuppressPropertyChangedScope())
-                    {
-                        result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(
-                            preparedPlan,
-                            context.ScoreDbPath,
-                            BMSScores,
-                            BMSFiles,
-                            options.EstimateOfflineScoreRanking);
-                    }
+                    result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(
+                        preparedPlan,
+                        context.ScoreDbPath,
+                        BMSScores,
+                        options.EstimateOfflineScoreRanking);
                 }
+
             }
         }
         stopwatch.Stop();
@@ -8921,22 +8572,19 @@ public partial class BMSLibrary : ObservableObject
                 using (rwlockBMSScores.GetWriterGuard())
                 {
                     EnsureCurrentRankingDownloadContext(context);
-                    using (rwlockBMSFiles.GetReaderGuard())
+
+                    irService.PromoteDownloadedRankingCache(
+                        applyPlan,
+                        irCacheDirPath);
+                    using (BMSScore.SuppressPropertyChangedScope())
                     {
-                        irService.PromoteDownloadedRankingCache(
+                        applyResult = irService.ApplyPreparedDownloadedRankingCache(
                             applyPlan,
-                            irCacheDirPath);
-                        using (BMSScore.SuppressPropertyChangedScope())
-                        using (BMSFile.SuppressPropertyChangedScope())
-                        {
-                            applyResult = irService.ApplyPreparedDownloadedRankingCache(
-                                applyPlan,
-                                dbGateway,
-                                BMSScores,
-                                BMSFiles,
-                                options.EstimateOfflineScoreRanking);
-                        }
+                            dbGateway,
+                            BMSScores,
+                            options.EstimateOfflineScoreRanking);
                     }
+
                 }
             }
             uiScheduler.Invoke(() =>
@@ -9019,14 +8667,8 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private static List<ChartFile> CreateBmsChartSubsetSnapshot(IEnumerable<BMSFile> bmsFiles)
-    {
-        return ChartFileProjection.FromBmsFiles(
-            (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile),
-            includeWarningSnapshot: false,
-            includeResourceReferences: false,
-            includeScoreSnapshot: false);
-    }
+    private static List<ChartFile> CreateBmsChartSubsetSnapshot(IEnumerable<ChartFile> charts) =>
+        [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms)];
 
     private static List<ChartFile> NormalizeResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
     {
@@ -9038,32 +8680,29 @@ public partial class BMSLibrary : ObservableObject
         return ResourceMaintenanceTargetSet.ForSubset(NormalizeResourceMaintenanceTargetCharts(charts));
     }
 
-    private static List<ChartFile> RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(IEnumerable<ChartFile> charts)
+    /// <summary>保守確定後の同じ所持項目を再捕捉し、旧選択の不変値を評価へ流しません。</summary>
+    private List<ChartFile> RefreshResourceMaintenanceTargetChartsFromCurrentValues(IEnumerable<ChartFile> charts)
     {
-        return [.. (charts ?? [])
-            .Select(chart => ChartFileProjection.FromStorageOwner(
-                chart,
-                includeWarningSnapshot: false,
-                includeScoreSnapshot: false))
-            .Where(chart => chart != null)];
+        lock (lockOwnedChartCollection)
+        {
+            return [.. (charts ?? []).Select(chart => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
+                .Where(chart => chart != null)];
+        }
     }
-
 
     private ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
         int resourceHealthInputVersion = resourceHealthOwner.CurrentInputVersion;
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         List<ChartFile> targets;
-        StorageRowsVersionSnapshot storageRowsVersion;
+        OwnedChartCollectionVersionSnapshot storageRowsVersion;
         int ownedCollectionVersion;
         lock (lockOwnedChartCollection)
         {
             targets = catalogOwnedCollectionOwner.Collection.CreateFullResourceMaintenanceTargetSnapshot();
-            storageRowsVersion = new StorageRowsVersionSnapshot(
-                catalogOwnedCollectionOwner.BmsRowsVersion,
-                catalogOwnedCollectionOwner.BmsonRowsVersion);
-            ownedCollectionVersion = OwnedChartCollectionVersion;
+            storageRowsVersion = new OwnedChartCollectionVersionSnapshot(catalogOwnedCollectionOwner.OwnedCollectionVersion);
+            ownedCollectionVersion = OwnedCollectionVersion;
         }
         LogInstallPerformance("resource_maintenance_target build mode=full"
             + " reason=" + (reason ?? "unknown")
@@ -9352,63 +8991,30 @@ public partial class BMSLibrary : ObservableObject
     private ResourceMaintenanceTargetSet CreatePendingInstallableMaintenanceTargetSetUnsafe(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
-        OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe();
+        OwnedChartCollectionView ownerView = CreateOwnedChartCollectionViewUnsafe();
         List<ChartFile> targets = [];
         int bmsMissingInfo = 0;
         int bmsMissingEncoding = 0;
         int bmsonMissingInfo = 0;
-        foreach (BMSFile file in ownerView.BmsFiles)
+        foreach (ChartFile chart in ownerView.BmsCharts.Concat(ownerView.BmsonCharts))
         {
-            if (file == null)
-            {
-                continue;
-            }
-            BMSFileMaintenanceInfo maintenanceInfo = file.TryGetMaintenanceInfoWithoutCreating();
-            bool missingInfo = maintenanceInfo?.IsInformationChecked() != true;
-            bool missingEncoding = string.IsNullOrWhiteSpace(maintenanceInfo?.encoding);
+            ResourceHealthMaintenanceSnapshot maintenance = chart.ResourceHealthMaintenanceSnapshot;
+            bool missingInfo = maintenance?.IsInformationChecked != true;
+            bool missingEncoding = chart.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(maintenance?.Encoding);
             if (!missingInfo && !missingEncoding)
             {
                 continue;
             }
-            ChartFile target = ChartFileProjection.FromBmsFile(
-                file,
-                includeWarningSnapshot: false,
-                includeResourceReferences: true,
-                includeScoreSnapshot: false);
-            if (target != null)
+            targets.Add(chart);
+            if (chart.Kind == ChartFileKind.Bms)
             {
-                targets.Add(target);
+                bmsMissingInfo += missingInfo ? 1 : 0;
+                bmsMissingEncoding += missingEncoding ? 1 : 0;
             }
-            if (missingInfo)
+            else
             {
-                bmsMissingInfo++;
+                bmsonMissingInfo++;
             }
-            if (missingEncoding)
-            {
-                bmsMissingEncoding++;
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song song in ownerView.BmsonSongs)
-        {
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
-            {
-                continue;
-            }
-            BMSFileMaintenanceInfo maintenanceInfo = song.MaintenanceInfo;
-            bool missingInfo = maintenanceInfo?.IsInformationChecked() != true;
-            if (!missingInfo)
-            {
-                continue;
-            }
-            ChartFile target = ChartFileProjection.FromBmsonSong(
-                song,
-                includeWarningSnapshot: false,
-                includeResourceReferences: true);
-            if (target != null)
-            {
-                targets.Add(target);
-            }
-            bmsonMissingInfo++;
         }
         stopwatch.Stop();
         LogInstallPerformance("installable_maintenance_target build mode=hydrated_missing"
@@ -9453,7 +9059,7 @@ public partial class BMSLibrary : ObservableObject
         }
 
         List<ChartFile> targets = maintenanceResult.HasUpdates
-            ? RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(charts)
+            ? RefreshResourceMaintenanceTargetChartsFromCurrentValues(charts)
             : NormalizeResourceMaintenanceTargetCharts(charts);
         if (targets.Count == 0)
         {
@@ -9536,32 +9142,25 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// エンコーディングが Shift_JIS 以外と推定された（文字化けの可能性がある）BMS ファイル群を取得します。
     /// </summary>
-    private List<BMSFile> GetGarbledBmsStorageRows(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
+    private List<ChartFile> GetGarbledChartFiles(bool isInFixedList)
     {
-        bmsFiles ??= BMSFiles;
-        if (bmsFiles.Count() == 0)
-        {
-            return [];
-        }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        using (rwlockBMSFiles.GetReaderGuard())
         {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                return maintenanceService.GetGarbledFiles(bmsFiles, isInFixedList);
-            }
+            return maintenanceService.GetGarbledFiles(CreateOwnedBmsChartFilesUnsafe(), isInFixedList);
         }
     }
 
     /// <summary>
     /// 指定された BMS ファイル群のエンコーディングを上書き設定し、song.db と maintenance テーブルに反映します。
     /// </summary>
-    public void SetBMSFilesEncoding(IEnumerable<BMSFile> bmsFiles, string encoding = "")
+    internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "")
     {
-        if (bmsFiles == null)
+        if (charts == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("charts");
         }
-        if (bmsFiles == null || bmsFiles.Count() == 0)
+        if (charts == null || charts.Count() == 0)
         {
             return;
         }
@@ -9576,13 +9175,16 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
+        MaintenanceEncodingUpdateResult result;
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                catalogMaintenanceOwner.ApplyEncoding(bmsFiles, encoding);
+                result = catalogMaintenanceOwner.ApplyEncoding(charts, encoding);
             }
         }
+        mutationReservation.Dispose();
+        libraryMutationOwner.DispatchWarningPresentationChanged("encoding_changed", changedCharts: result.ChangedCharts, basicValuesChanged: result.SongsToUpsert.Count > 0);
     }
 
     /// <summary>
@@ -9593,7 +9195,7 @@ public partial class BMSLibrary : ObservableObject
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            allCharts = CreateOwnedBmsChartFilesUnsafe();
+            allCharts = CreateOwnedBmsChartFilesUnsafe(includeWarningSnapshot: true);
         }
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(
             allCharts,
@@ -9601,14 +9203,25 @@ public partial class BMSLibrary : ObservableObject
             ResolveChartInfoForChart);
         if (result.ChangedCount > 0)
         {
-            DispatchWarningPresentationChanged("zero_note_recheck");
+            lock (lockOwnedChartCollection)
+            {
+                foreach (ChartFile value in result.ChangedCharts)
+                {
+                    ChartFile current = catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
+                    if (current?.Token == value.Token)
+                    {
+                        catalogOwnedCollectionOwner.Collection.ApplyCurrentChartValue(current with { Warnings = value.Warnings });
+                    }
+                }
+            }
+            libraryMutationOwner.DispatchWarningPresentationChanged("zero_note_recheck", changedCharts: result.ChangedCharts);
         }
         NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3} changed={4}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount, result.ChangedCount));
     }
 
     internal List<ChartFile> GetChartInfoParseFailedChartFiles()
     {
-        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures = catalogChartInfoOwner.LoadCurrentParseFailureMap(dbGateway, chartInfoBuildService.CurrentParseTimeout);
+        Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> failures = catalogChartInfoOwner.LoadCurrentParseFailureMap(dbGateway, chartInfoBuildService.CurrentParseTimeout);
         if (failures.Count == 0)
         {
             return [];
@@ -9624,7 +9237,7 @@ public partial class BMSLibrary : ObservableObject
         List<ChartFile> result = [];
         foreach (ChartFile chart in failedCharts)
         {
-            if (string.IsNullOrWhiteSpace(chart?.Md5) || !failures.TryGetValue(chart.Md5, out LR2SongDBExtended.chart_info_parse_failure failure))
+            if (string.IsNullOrWhiteSpace(chart?.Md5) || !failures.TryGetValue(chart.Md5, out BeMusicSeeker.Models.ChartParseFailure failure))
             {
                 continue;
             }
@@ -9635,7 +9248,7 @@ public partial class BMSLibrary : ObservableObject
             .OrderBy(chart => chart.Path ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static ChartFile ApplyChartInfoParseFailureWarning(ChartFile chart, LR2SongDBExtended.chart_info_parse_failure failure)
+    private static ChartFile ApplyChartInfoParseFailureWarning(ChartFile chart, BeMusicSeeker.Models.ChartParseFailure failure)
     {
         if (chart == null || failure == null)
         {
@@ -9646,7 +9259,7 @@ public partial class BMSLibrary : ObservableObject
             [ChartWarning.Create(ChartWarningKind.ChartInfoParseFailure, BuildChartInfoParseFailureWarningMessage(failure))]);
     }
 
-    private static string BuildChartInfoParseFailureWarningMessage(LR2SongDBExtended.chart_info_parse_failure failure)
+    private static string BuildChartInfoParseFailureWarningMessage(BeMusicSeeker.Models.ChartParseFailure failure)
     {
         string reason = !string.IsNullOrWhiteSpace(failure.exception_type)
             ? failure.exception_type
@@ -9669,19 +9282,28 @@ public partial class BMSLibrary : ObservableObject
     /// BMS ファイル群のモード（SP/DP等）を検出し、song.db にコミットします。
     /// </summary>
     private int setModeAndCommitToDB(
-        IEnumerable<BMSFile> bmsFiles,
-        bool forceUpdate = false)
+        IEnumerable<ChartFile> bmsFiles,
+        bool forceUpdate = false, Action<Action> postLeaseEffectObserver = null)
     {
         // The caller supplies either the startup-owned file snapshot or the
         // active initialization collection.  Do not hold the BMS-file lock
         // across mode parsing or the catalog DB write.
-        List<BMSFile> list = maintenanceService.DetectModeChanges(bmsFiles, forceUpdate);
+        List<ChartFile> list = maintenanceService.DetectModeChanges(bmsFiles, forceUpdate);
         if (list.Count <= 0)
         {
             return 0;
         }
-        catalogMutationOwner.ApplyModeChangeSongRows(list);
-        return list.Count;
+        IReadOnlyList<ChartFile> changed = catalogMutationOwner.ApplyModeChangeSongRows(list);
+        Action publish = () => libraryMutationOwner.DispatchWarningPresentationChanged("mode_changed", changedCharts: changed, basicValuesChanged: true);
+        if (postLeaseEffectObserver != null)
+        {
+            postLeaseEffectObserver(publish);
+        }
+        else
+        {
+            publish();
+        }
+        return changed.Count;
     }
 
     /// <summary>
@@ -9707,18 +9329,29 @@ public partial class BMSLibrary : ObservableObject
                     IReadOnlyList<DuplicateChartRow> snapshot = duplicateSnapshot.Rows;
                     long ownedSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    IEnumerable<BMSFile> duplicateWarningClearTargets = duplicateWarningFullClearPending
-                        ? duplicateSnapshot.BmsStorageRows
-                        : duplicateWarningBmsOwners;
+                    lock (lockOwnedChartCollection)
+                    {
+                        catalogOwnedCollectionOwner.Collection.ClearDuplicateWarnings(duplicateWarningFullClearPending
+                            ? duplicateSnapshot.BmsCharts.Select(chart => chart.Token) : duplicateWarningTokens);
+                    }
                     duplicateWarningFullClearPending = false;
-                    duplicateWarningBmsOwners = [];
-                    duplicateService.ClearDuplicateState(duplicateWarningClearTargets);
+                    duplicateWarningTokens = [];
                     long clearDuplicateStateMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(duplicateSnapshot, DuplicateWarningMessage);
                     long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    duplicateWarningBmsOwners = duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage);
+                    lock (lockOwnedChartCollection)
+                    {
+                        foreach (ChartFile value in duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage))
+                        {
+                            catalogOwnedCollectionOwner.Collection.ApplyCurrentChartValue(value);
+                            if (value.Token != null)
+                            {
+                                duplicateWarningTokens.Add(value.Token);
+                            }
+                        }
+                    }
                     long applyWarningsMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateChartGroups = analysis.DuplicateGroups;
@@ -9766,33 +9399,16 @@ public partial class BMSLibrary : ObservableObject
             .Where(candidate => candidate != null);
     }
 
-    private static InstalledChartMetadataCandidate CreateInstalledChartMetadataCandidate(LibraryChartRef chartRef)
+    private InstalledChartMetadataCandidate CreateInstalledChartMetadataCandidate(LibraryChartRef chartRef)
     {
-        BMSFile bmsFile = chartRef?.GetBmsStorageOwner();
-        if (bmsFile != null)
+        ChartFile chart = catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(chartRef);
+        return chart == null ? null : new InstalledChartMetadataCandidate
         {
-            return new InstalledChartMetadataCandidate
-            {
-                Title = bmsFile.Title ?? string.Empty,
-                Artist = bmsFile.Artist ?? string.Empty,
-                Path = bmsFile.path ?? string.Empty
-            };
-        }
-
-        LR2SongDBExtended.bmson_song bmsonSong = chartRef?.GetBmsonStorageOwner();
-        if (bmsonSong != null)
-        {
-            return new InstalledChartMetadataCandidate
-            {
-                Title = BmsonSongParser.ComposeDisplayTitle(bmsonSong),
-                Artist = bmsonSong.artist ?? string.Empty,
-                Path = bmsonSong.path ?? string.Empty
-            };
-        }
-
-        return null;
+            Title = chart.Title,
+            Artist = chart.Artist,
+            Path = chart.Path
+        };
     }
-
     private static string NormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
     {
         if (string.IsNullOrWhiteSpace(destinationDirectory))
@@ -10203,7 +9819,7 @@ public partial class BMSLibrary : ObservableObject
         {
             return false;
         }
-        EnsureOwnedChartCollectionBuiltUnsafe();
+
         lock (lockOwnedChartCollection)
         {
             return catalogOwnedCollectionOwner.Collection.ContainsKnownChart(chart);
@@ -10407,29 +10023,29 @@ public partial class BMSLibrary : ObservableObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                foreach (BMSFile file in BMSFiles ?? [])
+                foreach (ChartFile file in BmsCharts ?? [])
                 {
                     if (file == null
-                        || string.IsNullOrWhiteSpace(file.path)
-                        || string.IsNullOrWhiteSpace(file.hash)
-                        || !LR2SongDB.md5HashRegex.IsMatch(file.hash)
-                        || !string.Equals(DirectoryExt.GetDirectoryNameSimple(file.path), directoryPath, StringComparison.OrdinalIgnoreCase))
+                        || string.IsNullOrWhiteSpace(file.Path)
+                        || string.IsNullOrWhiteSpace(file.Md5)
+                        || !LR2SongDB.md5HashRegex.IsMatch(file.Md5)
+                        || !string.Equals(DirectoryExt.GetDirectoryNameSimple(file.Path), directoryPath, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
-                    md5s.Add(file.hash);
+                    md5s.Add(file.Md5);
                 }
-                foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? [])
+                foreach (ChartFile song in BmsonCharts ?? [])
                 {
                     if (song == null
-                        || string.IsNullOrWhiteSpace(song.path)
-                        || string.IsNullOrWhiteSpace(song.md5)
-                        || !LR2SongDB.md5HashRegex.IsMatch(song.md5)
-                        || !string.Equals(DirectoryExt.GetDirectoryNameSimple(song.path), directoryPath, StringComparison.OrdinalIgnoreCase))
+                        || string.IsNullOrWhiteSpace(song.Path)
+                        || string.IsNullOrWhiteSpace(song.Md5)
+                        || !LR2SongDB.md5HashRegex.IsMatch(song.Md5)
+                        || !string.Equals(DirectoryExt.GetDirectoryNameSimple(song.Path), directoryPath, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
-                    md5s.Add(song.md5);
+                    md5s.Add(song.Md5);
                 }
             }
         }
@@ -10535,7 +10151,7 @@ public partial class BMSLibrary : ObservableObject
     {
         return catalogOwnedCollectionOwner.GetDuplicateInstallRepairPaths(
             chart,
-            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner,
             LogInstallPerformance);
     }
 
@@ -10797,7 +10413,7 @@ public partial class BMSLibrary : ObservableObject
         return installDestinationStateOwner.CreateOverlaySnapshot(out _);
     }
 
-    private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
+    private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(ChartFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
     {
         _ = removeFromLibraryOnSuccess;
         return libraryFileOperationsService.ProcessInvalidExtensionRename(
@@ -10832,13 +10448,10 @@ public partial class BMSLibrary : ObservableObject
             unregister);
     }
 
-    /// <summary>
-    /// Renames multiple invalid-extension families as one owned library mutation session and
-    /// returns its terminal facts without displaying the session report inside the model layer.
-    /// </summary>
-    /// <param name="batches">Extension-family batches that belong to one user operation.</param>
-    /// <param name="unregister">Whether successful renamed charts are removed from the catalog.</param>
-    /// <returns>The single operation-scoped mutation receipt, or an empty receipt when admission is blocked.</returns>
+    /// <summary>確認前に固定した拡張子別の対象を、一つの所持変更セッションで実行します。</summary>
+    /// <param name="batches">最初の確認前にprepareした固定対象と変更先拡張子。</param>
+    /// <param name="unregister">成功した対象を所持カタログから登録解除するか。</param>
+    /// <returns>一回のセッションの確定結果。未受理の場合は空の結果。</returns>
     internal LibraryMutationSessionReceipt RenameBMSFilesExtensionsWithReceipt(
         IEnumerable<LibraryFileExtensionRenameBatch> batches,
         bool? unregister = false)
@@ -10861,30 +10474,22 @@ public partial class BMSLibrary : ObservableObject
             newExt);
     }
 
-    /// <summary>
-    /// 指定された chart file 群をライブラリおよびファイルシステムから削除します。
-    /// </summary>
-    internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<LibraryChartRef> charts)
-    {
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
-                    charts,
-                    CreateOwnedCanonicalChartLookupUnsafe());
-            }
-        }
-    }
+    /// <summary>削除の最初の確認前に、現在hash・安全属性と確認候補を固定します。</summary>
+    internal LibraryChartRemovalPreflight PrepareLibraryChartRemoval(IEnumerable<LibraryChartRef> charts)
+        => libraryMutationOwner.PrepareLibraryChartRemoval(charts);
 
-    /// <summary>Returns observed deletion facts without retrying or inferring filesystem state.</summary>
-    internal LibraryChartRemovalOutcome RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
-    {
-        return libraryMutationOwner.RemoveLibraryCharts(
-            charts,
-            sendToRecycleBin,
-            approvedWholeFolderDeletePaths);
-    }
+    /// <summary>直接要求も確認前の捕捉と既存モデル確認を経て、一つの削除セッションで処理します。</summary>
+    internal LibraryChartRemovalOutcome RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)
+        => libraryMutationOwner.RemoveLibraryCharts(charts, sendToRecycleBin);
+
+    /// <summary>確認前に固定した同じ要求を、本受付後の鮮度検査と削除へ渡します。</summary>
+    internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
+        bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
+        => libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths);
+
+    /// <summary>拡張子変更の確認前に生存tokenの現在値と安全属性を固定します。</summary>
+    internal LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(IEnumerable<ChartFile> charts, string newExtension)
+        => libraryMutationOwner.PrepareLibraryFileExtensionRenameBatch(charts, newExtension);
 
     internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
@@ -10925,21 +10530,25 @@ public partial class BMSLibrary : ObservableObject
             return BmsFileLevelOverwriteOutcome.BlockedByLr2Synchronization;
         }
         using LibraryFileMutationCapability mutationCapability = mutationReservation.CreateMutationCapability();
+        IReadOnlyList<ChartFile> changed;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                List<BMSFile> bmsFiles = [.. from file in _BMSFiles ?? []
-                                             where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
+                List<ChartFile> bmsFiles = [.. from file in _BMSFiles ?? []
+                                             where file != null && !string.IsNullOrWhiteSpace(file.Md5) && !string.IsNullOrWhiteSpace(file.Path)
                                              join entry in from entry in bmsTable.GetEntriesExceptDummy()
                                                            where !entry.is_removed && entry.level.HasValue
-                                                           select entry on file.hash equals entry.md5
+                                                           select entry on file.Md5 equals entry.md5
                                              select ApplyPlaylistEntryLevel(file, entry.level) into file
                                              where file != null
                                              select file];
-                catalogMutationOwner.ApplyPlaylistLevelRows(bmsFiles);
+                changed = catalogMutationOwner.ApplyPlaylistLevelRows(bmsFiles);
             }
         }
+        mutationCapability.Dispose();
+        mutationReservation.Dispose();
+        libraryMutationOwner.DispatchWarningPresentationChanged("playlist_level_changed", changedCharts: changed, basicValuesChanged: true);
         return BmsFileLevelOverwriteOutcome.Completed;
     }
 
@@ -10949,14 +10558,14 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="file">更新対象の LR2 song row。</param>
     /// <param name="entryLevel">playlist entry 側の level。</param>
     /// <returns>更新後の BMS storage row。入力が不完全な場合は null。</returns>
-    private static BMSFile ApplyPlaylistEntryLevel(BMSFile file, double? entryLevel)
+    private static ChartFile ApplyPlaylistEntryLevel(ChartFile file, double? entryLevel)
     {
         if (file == null || !entryLevel.HasValue)
         {
             return null;
         }
-        file.level = ((!(entryLevel.Value < 0.0)) ? ((int)entryLevel.Value) : 0);
-        return file;
+        int level = entryLevel.Value < 0.0 ? 0 : (int)entryLevel.Value;
+        return file with { Level = level, LevelText = level.ToString(CultureInfo.InvariantCulture) };
     }
 
 }

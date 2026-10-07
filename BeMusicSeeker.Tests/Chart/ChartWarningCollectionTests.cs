@@ -17,47 +17,47 @@ public sealed class ChartWarningCollectionTests
     public void WarningDigestText_OrdersByPriorityAndDeduplicatesLabelsWhileCountingKinds()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.ResourceWavMissing, "wav missing");
-        file.SetWarning(ChartWarningKind.ResourceBgaMissing, "bga missing");
-        file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "wav missing")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceBgaMissing), ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "bga missing")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
 
-        Assert.AreEqual("[3] サブフォルダ譜面, リソース不足", file.Warnings.BuildDigestText());
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), Resources.Warning_NestedChartFileInPackage);
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "wav missing");
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "bga missing");
+        Assert.AreEqual("[3] サブフォルダ譜面, リソース不足", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), Resources.Warning_NestedChartFileInPackage);
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "wav missing");
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "bga missing");
     }
 
     [TestMethod]
     public void ClearWarningsByCategory_RemovesOnlyMatchingStructuredWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
-        file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "structured estimate");
-        file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "structured estimate")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
 
-        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation)] };
 
-        Assert.IsFalse(file.Warnings.BuildTooltipText().Contains("structured estimate"));
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-        Assert.AreEqual("[1] サブフォルダ譜面", file.Warnings.BuildDigestText());
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+        Assert.IsFalse(ChartWarningCollection.BuildTooltipText(file.Warnings).Contains("structured estimate"));
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.AreEqual("[1] サブフォルダ譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
     }
 
     [TestMethod]
     public void ResourceWarningDigest_IsHiddenWhenChartInstallDestinationIsSet()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
-        file.SetWarning(ChartWarningKind.ResourceWavMissing, string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2));
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2))] };
         ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+            (file),
             "C:\\Installed",
             string.Empty,
             string.Empty,
             [],
-            file.Warnings.ToStructuredList());
+            file.Warnings);
 
         Assert.AreEqual(string.Empty, ChartWarningProjectionFormatter.BuildDigestText(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
         StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), "WAV");
@@ -88,167 +88,165 @@ public sealed class ChartWarningCollectionTests
     public void StructuredWarnings_DriveHighlightAndDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
-        file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
-        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
 
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
         Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-        Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 推定先複数", file.Warnings.BuildDigestText());
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 推定先複数", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
 
-        file.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
-        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        file.ClearWarning(ChartWarningKind.DuplicateChart);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)] };
 
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
         Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
-        Assert.IsFalse(file.Warnings.HasHighlightedWarning);
-        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+        Assert.IsFalse(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
     [TestMethod]
     public void StructuredWarningMutators_UpdateStructuredWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
-        file.SetWarning(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence);
-        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationLowConfidence), ChartWarning.Create(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
 
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationLowConfidence));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
 
-        file.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
-        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        file.ClearWarning(ChartWarningKind.DuplicateChart);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)] };
 
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationLowConfidence));
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
     [TestMethod]
     public void InstalledDestinationResolveFailed_IsNotLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed), ChartWarning.Create(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed)] };
 
         Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
 
     [TestMethod]
     public void UnsupportedResourcePath_IsNotLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.UnsupportedResourcePath, Resources.Warning_UnsupportedResourcePath);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.UnsupportedResourcePath), ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath, Resources.Warning_UnsupportedResourcePath)] };
 
         Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsFalse(file.Warnings.HasHighlightedWarning);
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.UnsupportedResourcePath));
-        Assert.AreEqual("[1] リソースパス非対応", file.Warnings.BuildDigestText());
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), Resources.Warning_UnsupportedResourcePath);
+        Assert.IsFalse(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
+        Assert.AreEqual("[1] リソースパス非対応", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), Resources.Warning_UnsupportedResourcePath);
     }
 
     [TestMethod]
     public void InstalledDestinationAmbiguous_IsLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.InstalledDestinationAmbiguous, Resources.Warning_InstalledDestinationAmbiguous);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationAmbiguous), ChartWarning.Create(ChartWarningKind.InstalledDestinationAmbiguous, Resources.Warning_InstalledDestinationAmbiguous)] };
 
         Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous));
-        StringAssert.Contains(file.Warnings.BuildDigestText(), Resources.WarningDigest_InstalledDestinationAmbiguous);
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+        StringAssert.Contains(ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination), Resources.WarningDigest_InstalledDestinationAmbiguous);
     }
 
     [TestMethod]
     public void InstalledDestinationAutoAppliedAmbiguous_IsLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, Resources.Warning_InstalledDestinationAutoAppliedAmbiguous);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous), ChartWarning.Create(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, Resources.Warning_InstalledDestinationAutoAppliedAmbiguous)] };
 
         Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
-        StringAssert.Contains(file.Warnings.BuildDigestText(), Resources.WarningDigest_InstalledDestinationAutoAppliedAmbiguous);
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), Resources.Warning_InstalledDestinationAutoAppliedAmbiguous.Split('\n')[0]);
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+        StringAssert.Contains(ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination), Resources.WarningDigest_InstalledDestinationAutoAppliedAmbiguous);
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), Resources.Warning_InstalledDestinationAutoAppliedAmbiguous.Split('\n')[0]);
     }
 
     [TestMethod]
     public void ChartInfoParseFailure_HighlightsAndUsesDedicatedDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(
-            ChartWarningKind.ChartInfoParseFailure,
-            string.Format(Resources.Warning_ChartInfoParseFailure, "InvalidDataException", "開始BPM未定義"));
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ChartInfoParseFailure), ChartWarning.Create(ChartWarningKind.ChartInfoParseFailure, string.Format(Resources.Warning_ChartInfoParseFailure, "InvalidDataException", "開始BPM未定義"))] };
 
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
-        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-        Assert.AreEqual("[1] メタデータ解析エラー", file.Warnings.BuildDigestText());
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "InvalidDataException");
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "開始BPM未定義");
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.AreEqual("[1] メタデータ解析エラー", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "InvalidDataException");
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "開始BPM未定義");
     }
 
     [TestMethod]
     public void Lr2PathEncodingUnsupported_HighlightsAndUsesDedicatedDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported)] };
 
-        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-        Assert.AreEqual("[1] LR2パス非対応", file.Warnings.BuildDigestText());
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "Shift_JIS");
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.AreEqual("[1] LR2パス非対応", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "Shift_JIS");
     }
 
     [TestMethod]
     public void Lr2CompatibilityWarnings_HighlightAndUseDedicatedDigests()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
+        ChartFile file = ChartTestValues.Empty();
 
-        file.SetWarning(ChartWarningKind.Lr2PathTooLong, Resources.Warning_Lr2PathTooLong);
-        file.SetWarning(ChartWarningKind.Lr2ResourcePathUnsupported, Resources.Warning_Lr2ResourcePathUnsupported);
-        file.SetWarning(ChartWarningKind.Lr2ResourcePathTooLong, Resources.Warning_Lr2ResourcePathTooLong);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathTooLong), ChartWarning.Create(ChartWarningKind.Lr2PathTooLong, Resources.Warning_Lr2PathTooLong)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2ResourcePathUnsupported), ChartWarning.Create(ChartWarningKind.Lr2ResourcePathUnsupported, Resources.Warning_Lr2ResourcePathUnsupported)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2ResourcePathTooLong), ChartWarning.Create(ChartWarningKind.Lr2ResourcePathTooLong, Resources.Warning_Lr2ResourcePathTooLong)] };
 
-        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
-        Assert.AreEqual("[3] LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", file.Warnings.BuildDigestText());
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "パス長制限");
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "リソースパス");
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
+        Assert.AreEqual("[3] LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "パス長制限");
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "リソースパス");
     }
 
     [TestMethod]
     public void ClearWarning_RemovesMatchingStructuredWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile();
-        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
-        file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
 
-        file.ClearWarning(ChartWarningKind.DuplicateChart);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)] };
 
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
-        Assert.AreEqual("[1] サブフォルダ譜面", file.Warnings.BuildDigestText());
+        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
+        Assert.AreEqual("[1] サブフォルダ譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
     [TestMethod]

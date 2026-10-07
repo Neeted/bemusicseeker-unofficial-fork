@@ -6,40 +6,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryDuplicateService
 {
-    /// <summary>
-    /// BMS storage row に残っている重複 warning だけを消します。
-    /// </summary>
-    /// <param name="bmsFiles">重複判定対象の BMS storage row。</param>
-    public void ClearDuplicateState(IEnumerable<BMSFile> bmsFiles)
-    {
-        foreach (BMSFile file in (bmsFiles ?? []).Where(file => file != null).Distinct())
-        {
-            file.ClearWarning(ChartWarningKind.DuplicateChart);
-        }
-    }
-
-    /// <summary>
-    /// BMS storage row へ重複 warning を反映します。
-    /// bmson は storage row が warning collection を持たないため、<see cref="Analyze"/> が返す <see cref="DuplicateGroup.ChartFiles"/> の projection に反映します。
-    /// </summary>
-    /// <param name="charts">重複 warning を付与する chart。</param>
-    /// <param name="duplicateWarningMessage">重複 warning の表示本文。</param>
-    public HashSet<BMSFile> ApplyDuplicateWarnings(IEnumerable<ChartFile> charts, string duplicateWarningMessage)
-    {
-        var warningOwners = new HashSet<BMSFile>();
-        foreach (BMSFile file in (charts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null))
-        {
-            if (!warningOwners.Add(file))
-            {
-                continue;
-            }
-            file.ClearWarning(ChartWarningKind.DuplicateChart);
-            file.SetWarning(ChartWarningKind.DuplicateChart, duplicateWarningMessage);
-        }
-        return warningOwners;
-    }
+    /// <summary>重複警告を付けた不変の共通値を返します。</summary>
+    public IReadOnlyList<ChartFile> ApplyDuplicateWarnings(IEnumerable<ChartFile> charts, string message)
+        => [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms).Select(chart => chart with
+            { Warnings = [.. chart.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart),
+                ChartWarning.Create(ChartWarningKind.DuplicateChart, message)] })];
 
     /// <summary>
     /// lookup hash が一致する chart を重複として検出し、接続されたディレクトリ単位の group へまとめます。

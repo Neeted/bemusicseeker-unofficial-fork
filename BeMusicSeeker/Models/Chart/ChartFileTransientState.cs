@@ -140,7 +140,7 @@ internal sealed class ChartFileTransientState
         };
     }
 
-    internal static ChartFileTransientState FromResourceHealthMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo)
+    internal static ChartFileTransientState FromResourceHealthSnapshot(BmsLibraryInternal.ResourceHealthMaintenanceSnapshot maintenanceInfo)
     {
         if (maintenanceInfo == null)
         {
@@ -149,13 +149,13 @@ internal sealed class ChartFileTransientState
 
         return new ChartFileTransientState
         {
-            WAVHealth = maintenanceInfo.WAVHealth,
-            BGAHealth = maintenanceInfo.BGAHealth,
-            MovieHealth = maintenanceInfo.MovieHealth,
-            StagefileHealth = maintenanceInfo.StagefileHealth,
-            BannerHealth = maintenanceInfo.BannerHealth,
-            BackbmpHealth = maintenanceInfo.BackbmpHealth,
-            EncodingName = maintenanceInfo.encoding
+            WAVHealth = maintenanceInfo.GetWavHealth(),
+            BGAHealth = maintenanceInfo.GetBgaHealth(),
+            MovieHealth = maintenanceInfo.GetMovieHealth(),
+            StagefileHealth = maintenanceInfo.GetStagefileHealth(),
+            BannerHealth = maintenanceInfo.GetBannerHealth(),
+            BackbmpHealth = maintenanceInfo.GetBackbmpHealth(),
+            EncodingName = maintenanceInfo.Encoding
         };
     }
 

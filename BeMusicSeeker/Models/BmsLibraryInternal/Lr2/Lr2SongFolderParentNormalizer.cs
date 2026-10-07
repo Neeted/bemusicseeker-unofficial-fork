@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Text;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -15,7 +15,7 @@ internal static class Lr2SongFolderParentNormalizer
         EncoderFallback.ExceptionFallback,
         DecoderFallback.ExceptionFallback);
 
-    internal static bool ApplyExpected(BMSFile song, string lr2RootPath, bool fixRelativePath)
+    internal static bool ApplyExpected(LR2SongDB.song song, string lr2RootPath, bool fixRelativePath)
     {
         if (song == null || string.IsNullOrWhiteSpace(song.path))
         {
@@ -50,16 +50,16 @@ internal static class Lr2SongFolderParentNormalizer
             song.parent = parent;
             hasChanged = true;
         }
-        song.ClearWarning(ChartWarningKind.Lr2PathEncodingUnsupported);
+
         return hasChanged;
     }
 
-    internal static bool ApplyIfMissingOrInvalid(BMSFile song)
+    internal static bool ApplyIfMissingOrInvalid(LR2SongDB.song song)
     {
         return ApplyIfMissingOrInvalid(song, null);
     }
 
-    internal static bool ApplyIfMissingOrInvalid(BMSFile song, Lr2FolderParentHashCache cache)
+    internal static bool ApplyIfMissingOrInvalid(LR2SongDB.song song, Lr2FolderParentHashCache cache)
     {
         if (song == null || string.IsNullOrWhiteSpace(song.path) || !PathIsRooted(song.path))
         {
@@ -74,7 +74,7 @@ internal static class Lr2SongFolderParentNormalizer
 
         if (!crcMissingOrInvalid)
         {
-            song.ClearWarning(ChartWarningKind.Lr2PathEncodingUnsupported);
+
             return false;
         }
 
@@ -89,7 +89,7 @@ internal static class Lr2SongFolderParentNormalizer
             song.parent = parent;
             hasChanged = true;
         }
-        song.ClearWarning(ChartWarningKind.Lr2PathEncodingUnsupported);
+
         return hasChanged;
     }
 
@@ -165,12 +165,11 @@ internal static class Lr2SongFolderParentNormalizer
         return cache.TryCompute(chartPath, out folder, out parent);
     }
 
-    private static bool MarkUnsupported(BMSFile song)
+    private static bool MarkUnsupported(LR2SongDB.song song)
     {
         bool changed = !string.IsNullOrWhiteSpace(song.folder) || !string.IsNullOrWhiteSpace(song.parent);
         song.folder = null;
         song.parent = null;
-        song.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
         return changed;
     }
 

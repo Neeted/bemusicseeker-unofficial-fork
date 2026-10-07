@@ -4,13 +4,12 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>Facts observed by the existing deletion executor, without a filesystem recheck.</summary>
+/// <summary>既存の削除実行で観測した成功・未実行・物理失敗と、事前未解決の結果です。要求の結び付き異常は個別結果へ混ぜません。</summary>
 internal enum LibraryChartRemovalState
 {
     Confirmed,
     NotExecuted,
     Unconfirmed,
-    Stale,
     Unresolved
 }
 

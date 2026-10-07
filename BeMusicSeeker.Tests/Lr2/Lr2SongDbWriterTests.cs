@@ -116,7 +116,7 @@ public sealed class Lr2SongDbWriterTests
                 9,
                 9,
                 first.path);
-            var chartInfo = new LR2SongDBExtended.chart_info
+            var chartInfo = new BeMusicSeeker.Models.ChartDetails
             {
                 md5 = md5,
                 level = 12,
@@ -198,7 +198,7 @@ public sealed class Lr2SongDbWriterTests
             var projection = Lr2ChartInfoSongProjection.Create(
                 @"D:\BMS\Pack\missing.bms",
                 md5,
-                new LR2SongDBExtended.chart_info { md5 = md5, level = 12 });
+                new BeMusicSeeker.Models.ChartDetails { md5 = md5, level = 12 });
 
             Lr2ChartInfoSongProjectionWriteResult result =
                 Lr2SongDbWriter.UpdateChartInfoSongProjections(songDb, [projection]);
@@ -226,12 +226,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
-            songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-            {
-                path = existing.path,
-                hash = existing.hash,
-                encoding = "shift_jis"
-            }, typeof(LR2SongDBExtended.maintenance));
+            songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = existing.path, hash = existing.hash, encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
             TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "Title");
 
             int changed = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [updated]);
@@ -294,14 +289,14 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", oldHash, "Old");
             existing.SetSha256(oldSha);
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
-            songDb.InsertOrReplace(new LR2SongDBExtended.bmson_song
+            songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = @"D:\BMS\Pack\chart.bmson",
-                folder = @"D:\BMS\Pack",
-                title = "Bmson",
-                md5 = oldHash,
-                sha256 = oldSha
-            }, typeof(LR2SongDBExtended.bmson_song));
+                Path = @"D:\BMS\Pack\chart.bmson",
+                Folder = @"D:\BMS\Pack",
+                RawTitle = "Bmson",
+                Md5 = oldHash,
+                Sha256 = oldSha
+            }), typeof(LR2SongDBExtended.bmson_song));
 
             TestableBmsFile updated = CreateSong(existing.path, newHash, "New");
             updated.SetSha256(newSha);
@@ -354,12 +349,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
-            songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-            {
-                path = existing.path,
-                hash = existing.hash,
-                encoding = "shift_jis"
-            }, typeof(LR2SongDBExtended.maintenance));
+            songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = existing.path, hash = existing.hash, encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
             TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "Title");
 
             int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
@@ -569,14 +559,14 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", oldHash, "Old");
             existing.SetSha256(oldSha);
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
-            songDb.InsertOrReplace(new LR2SongDBExtended.bmson_song
+            songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = @"D:\BMS\Pack\chart.bmson",
-                folder = @"D:\BMS\Pack",
-                title = "Bmson",
-                md5 = oldHash,
-                sha256 = oldSha
-            }, typeof(LR2SongDBExtended.bmson_song));
+                Path = @"D:\BMS\Pack\chart.bmson",
+                Folder = @"D:\BMS\Pack",
+                RawTitle = "Bmson",
+                Md5 = oldHash,
+                Sha256 = oldSha
+            }), typeof(LR2SongDBExtended.bmson_song));
 
             TestableBmsFile updated = CreateSong(existing.path, newHash, "New");
             updated.SetSha256(newSha);
@@ -732,7 +722,7 @@ public sealed class Lr2SongDbWriterTests
             exlevel = 0
         };
         file.SetHash(hash);
-        file.SetTitleForTest(title);
+        file.title = title;
         file.SetArtistForTest("Artist");
         file.SetTextFlagForTest(0);
         return file;
@@ -767,7 +757,7 @@ public sealed class Lr2SongDbWriterTests
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
     }
 
-    private sealed class TestableBmsFile : BMSFile
+    private sealed class TestableBmsFile : LR2SongDB.song
     {
         public void SetHash(string value)
         {
@@ -781,12 +771,12 @@ public sealed class Lr2SongDbWriterTests
 
         public void SetTitleForTest(string value)
         {
-            Title = value;
+            title = value;
         }
 
         public void SetArtistForTest(string value)
         {
-            Artist = value;
+            artist = value;
         }
 
         public void SetTextFlagForTest(int? value)
@@ -801,7 +791,7 @@ public sealed class Lr2SongDbWriterTests
             tag = tagValue;
         }
 
-        public void CopyGeneratedHashesFrom(BMSFile source)
+        public void CopyGeneratedHashesFrom(LR2SongDB.song source)
         {
             folder = source.folder;
             parent = source.parent;

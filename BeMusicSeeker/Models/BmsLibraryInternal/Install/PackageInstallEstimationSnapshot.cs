@@ -72,7 +72,7 @@ internal sealed class PackageChartDiscoverySnapshot
         var normalizedEntries = new List<PackageChartEntry>();
         foreach (PackageChartEntry entry in entries ?? [])
         {
-            PackageChartEntry snapshot = entry?.ToChartEntrySnapshot();
+            PackageChartEntry snapshot = entry;
             if (snapshot?.Chart == null)
             {
                 continue;

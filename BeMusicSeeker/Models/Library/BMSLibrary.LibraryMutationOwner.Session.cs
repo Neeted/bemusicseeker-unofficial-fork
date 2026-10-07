@@ -437,14 +437,38 @@ internal sealed partial class LibraryMutationOwner
                 finalizationFailure = RunRequiredDurableFinalizers();
             }
 
+            var committedInstallCharts = new Dictionary<(ChartFileKind Kind, string Path), ChartFile>();
+            if (hasInstallChanges && finalizationFailure == null)
+            {
+                try
+                {
+                    lock (owner.catalogOwnedCollectionOwner.Gate)
+                    {
+                        foreach (ChartFile preparedChart in installedPackageCharts)
+                        {
+                            ChartFile current = owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
+                                LibraryChartRef.FromPath(preparedChart.Kind,
+                                    preparedChart.Path, preparedChart.Md5, preparedChart.Sha256)) ?? throw new KeyNotFoundException();
+                            committedInstallCharts[(current.Kind, current.Path)] = current;
+                        }
+                    }
+                }
+                catch (Exception exception)
+                {
+                    finalizationFailure = exception;
+                }
+            }
+
             DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
                 DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
             foreach (PackageInstallSessionPhysicalMutation physicalMutation in preparedPackageMutations)
             {
-                bool applyLiveState = finalizationFailure == null;
+                // 統合は短命なdetached packageを使い、現在値は確定済みの所持カタログへ適用済みです。
+                bool applyLiveState = hasInstallChanges && finalizationFailure == null;
                 FileDbMutationReceipt receipt = physicalMutation.CompleteAfterDurableCommit(
                     applyLiveState,
-                    finalizationFailure);
+                    finalizationFailure,
+                    committedInstallCharts);
                 AppendRecoveryCandidatePathsCore(receipt?.RecoveryPaths);
                 if (receipt?.CleanupFailure != null)
                 {

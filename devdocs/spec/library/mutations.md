@@ -58,6 +58,14 @@
 | 失敗 | 予期しない失敗では依存する後続処理を止め、確認済みの成功、失敗対象、未処理対象を同じ結果へ残す。確認済みの成功集合に対する確定は一回試みる |
 | 公開 | 必須反映が成功した通知だけを準備し、排他権を解放してから公開する。補助的な先行読込みを対象数だけ起動しない |
 
+削除と通常拡張子変更は、UIで選択とlibrary参照を固定し、既存UI共通受付を取得した後、最初の確認より前に背景処理で短命の不変要求をprepareして非同期に待ちます。フォルダ候補計算と現在値の解決をUIで同期実行しません。通常のprepared対象は不変 `ChartFile` 列で、FS存在・属性を捕捉しません。通常拡張子変更のBMS/PMS双方は一つの背景処理で順次準備し、全準備後に非同期確認へ進みます。重複hash整理の既存keeper選択と対象なし判定は共通受付前に維持します。準備例外では元原因を返して共通受付を解放し、確認・再生停止・変更処理へ進みません。選択削除と重複hash整理は `LibraryChartRemovalPreflight`、拡張子変更は固定対象と変更先拡張子を持つ `LibraryFileExtensionRenameBatch` を使います。フォルダ候補も削除対象と同じsnapshot scopeで捕捉します。確認中はモデルのguardやmutation leaseを保持せず、承認後に同じprepared値を本受付へ渡します。重複hash整理は件数確認の後、捕捉済み候補の全フォルダ確認をworkflowの非同期UI確認で済ませ、同じpreparedと明示的な承認パス列（非承認時もnullではない空列）をモデルへ渡します。件数確認の表示設定を無効にしてもフォルダ判断は行います。フォルダのNoや否定結果で閉じた場合は選択譜面だけ削除し、表示失敗・null応答・例外なら再生停止や本受付へ進まず失敗として受付を解放します。全判断の終了前にdialog scopeへ入らず、scope内の非OK判断拒否を維持します。直接モデル入口も同じprepareと実行を使い、確認後に元選択から対象を確定し直しません。
+
+削除のprepareでは同tokenの現在値でも要求のkindとDB完全一致パスが変わっていればUnresolvedとし、物理処理・DB変更へ進めません。古い選択hashだけは許容し、現在hashを固定します。通常拡張子変更では生存tokenの現在配置への追従を維持し、削除固有の要求oldpath照合を追加しません。指定tokenが退役済みなら、共通canonical解決も移転の保存要求も別項目へ救済しません。未所持の保守計算は所持項目への再接続と区別します。
+
+本受付後は最初のFS/DB変更より前に全固定対象のtoken・kind・固定pathの結び付きを照合します。削除はDBパスの `Ordinal`、通常拡張子変更は従来の物理パス比較を使い、renameの複数batchも全batchを先に照合します。不成立は原因と固定パスを持つ要求全体の失敗として既存failure経路へ渡します。hash・FS安全属性の履歴比較や、確認中のモデル変更を前提にした個別Stale継続は行いません。成立した対象は現在hashと現在値からDB・索引・overlay・成功factsを作り、確認した物理元パスと承認folder列を維持します。必要なFS観測は既存の実行直前処理に委ね、物理欠落・失敗の部分成功、親子削除の実観測依存、case-only配置の一回処理を維持します。通常変更の逐次前提は[ワークフローと並行性](../core/workflow-concurrency.md)、外部変更の保証範囲は[ファイルとDBの整合性](file-db-consistency.md)を参照します。項目削除と `PathCleanup` の意味は分けます。
+
+項目削除の確定事実は所持tokenを保持し、導入済み項目の剪定でもそのtokenを厳密に照合します。同じ形式・パス・hashの別項目へ削除を広げません。内部移転の事実も同じtokenを継承するため、移転してから削除した項目を剪定できます。`PathCleanup` は所持項目の削除と区別し、従来どおりDBの完全一致パスを使って移転先保護を適用します。
+
 `LibraryCatalogMutationFacts` と `LibraryPackageReferenceFacts` は入力列を構築時にコピーします。操作要約の件数やエラーから変更対象を再推測しません。正本への反映は非公開の `CommitCatalogSessionChanges` と `CommitInstalledSessionChanges` に限定し、呼出元は `LibraryMutationSession.Commit` だけとします。同じセッションにカタログの移転・削除と導入対象の反映を混在させた場合は失敗です。
 
 行のパス変更通知には `LibraryStorageRowPathNotificationPolicy` を渡します。診断用の `reason` 文字列で挙動を分岐しません。操作全体の結果は `LibraryMutationSessionReceipt` を正本とします。`FileDbMutationReceipt` は、局所的な物理処理、保全、補償、確定後の後片付けに限り、その結果を集めて操作全体の確定成功と解釈しません。
@@ -114,19 +122,19 @@ flowchart TB
 
 ### 導入と導入先修正
 
-導入先の採番と型衝突の検査は物理処理の前に行い、決定した実パスを保存結果とパッケージ状態に共通して使います。永続化前の準備では保存用のコピーを作り、現在の保存主体のパスを一時的に差し替えません。
+導入先の採番と型衝突の検査は物理処理の前に行い、決定した実パスを保存結果とパッケージ状態に共通して使います。永続化前の準備では保存用のコピーを作り、liveな `PackageChartEntry` の現在値や所持共通現在値のパスを一時的に差し替えません。DBと所持集合の確定後に、成功対象だけの共通現在値を捕捉して安定した項目へ渡します。新しい所持tokenを共有し、同じ項目の排他境界で現在値・導入状態を反映します。通知は項目の排他を解放し、既存の操作単位の延期境界を終えてから公開します。
 
 後続パッケージの分類に使う一時情報へ追加するのは、先行する物理処理の成功だけです。失敗、取消、未処理、推定先の解除は所持成功に加えません。開始前に欠落を確認した入力は失敗として保持し、独立した後続パッケージを処理できます。コピー開始後の入力消失は予期しない物理処理の失敗であり、依存する後続を止めます。
 
 リソース上書きの成功件数は、物理準備だけでなくカタログと必須反映の完了で確定します。後片付けだけの失敗は確定成功を取り消しません。推定先の状態更新と `PackageChartEntry.PropertyChanged` の公開は分け、公開は排他権の解放後に行います。
 
-導入先修正は、選択した譜面だけを対象とし、兄弟ファイル、リソース、親フォルダを便乗して処理しません。選択対象を除く既存所持情報を一回捕捉し、物理移動の成功を後続判定へ反映します。承認済みの重複削除も同じセッションへ追加します。確定後は実際の保存主体から保守対象を生成し、同じ外側の予約の内側で `forceUpdate: true` の保守を一回行います。
+導入先修正は、選択した譜面だけを対象とし、兄弟ファイル、リソース、親フォルダを便乗して処理しません。選択対象を除く既存所持情報を一回捕捉し、物理移動の成功を後続判定へ反映します。承認済みの重複削除も同じセッションへ追加します。確定後は確定後の共通現在値から保守対象を生成し、同じ外側の予約の内側で `forceUpdate: true` の保守を一回行います。
 
 ### フォルダ統合と確定後の保守
 
 フォルダ統合は変更一件のセッションです。入力元が欠落している場合は索引取得より前に終了します。共通のパッケージ処理で全体の導入先と型衝突を確認し、物理処理の成功からカタログ・パッケージの変更を追加します。統合先の走査と逆引きの置換も集約し、リソースだけの統合を落としません。
 
-後続の保守対象は、カタログの保存主体を移転した後、入力元の後片付けより前に固定します。入力元の削除は永続確定後です。統合用の排他権を解放してから、既存の保守予約を取り直し、`forceUpdate: true`、`DeferOnUpdates`、`merge_folder` の条件で保守します。
+後続の保守対象は、カタログの共通現在値を同じ所持tokenで移転した後、入力元の後片付けより前に固定します。入力元の削除は永続確定後です。統合用の排他権を解放してから、既存の保守予約を取り直し、`forceUpdate: true`、`DeferOnUpdates`、`merge_folder` の条件で保守します。
 
 この保守は論理的には同じ操作の必須処理 `PostCommitMaintenance` です。例外や予約拒否による `Canceled` も同じ結果の `FinalizationFailure` に残します。`MergeApplied` と永続確定成功を取り消しませんが、画面は通常の完全成功として報告しません。第二の変更セッションや別の成功報告は作りません。
 
@@ -188,7 +196,7 @@ sequenceDiagram
 
 全件補完では、パスとMD5が一致する既存BMS行の譜面情報由来の9列だけを更新します。基本列、`mode`、`judge`、利用者の列を更新せず、欠落行を挿入しません。BMSONからLR2の `song` 行を作りません。保存行を伴わない解析失敗の削除には、変更内容だけを扱う `ApplyChartInfoWrite` を使います。
 
-永続化が成功してから保存主体、ハッシュ、索引、警告を更新します。失敗時は未反映の対象を次回の候補として残します。`PrepareOwnedChartDigestPublication` で変更内容を一回組み立て、依存索引へ適用した同じ内容の公開処理を返します。譜面情報索引の更新とハッシュ変更範囲の解放後に公開し、公開時に内容を再計算しません。
+永続化が成功してから同じ所持tokenの共通現在値、ハッシュ、索引、警告を更新します。失敗時は未反映の対象を次回の候補として残します。`PrepareOwnedChartDigestPublication` で変更内容を一回組み立て、依存索引へ適用した同じ内容の公開処理を返します。譜面情報索引の更新とハッシュ変更範囲の解放後に公開し、公開時に内容を再計算しません。
 
 ### 起動時のLR2日時修正
 
@@ -232,6 +240,12 @@ sequenceDiagram
 | 終端の分類・件数・確認候補、表示失敗と多言語通知 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
 | 自動フォルダ名変更の承認、進捗、成功・失敗の終端 | [`FolderAutoRenameWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/FolderAutoRenameWorkflowOwner.cs) | [`FolderAutoRenameWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/FolderAutoRenameWorkflowOwnerTests.cs)。`SelectedRequest_IntermediateProgressSubscriberFailureStillCompletesAndReturnsIdle` は、中間進捗の通知失敗後も処理・成功終端・アイドル復帰が続くことを確認する。 |
 | 譜面削除の部分成功と異常報告 | [`LibraryChartRemovalReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/LibraryChartRemovalReport.cs) | [`LibraryChartRemovalReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/LibraryChartRemovalReportTests.cs) |
+
+削除対象の事前照合は [`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs) の `RemoveLibraryCharts_PreflightChecksCapturedKindAndExactPathButAllowsOldHash` が確認します。`PreparedRequests_RejectRetiredTargetBeforeAnyPhysicalOrCatalogMutation` は不成立な後方対象でも削除の先行対象とrenameの先行batchを全変更前に止め、原因・FS/DB/current/索引・通知の無変更と受付解放を確認します。`PreparedRename_UsesCurrentDigestAndFixedSourceWithoutHashHistoryComparison` は旧prepared MD5/SHA-256を持っても、固定元パスで処理しcurrentのhashをDB・current・索引へ維持する実接続を確認します。共通token解決は [`OwnedChartTokenTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartTokenTests.cs) の `CanonicalRoots_RejectRetiredTokenButKeepTokenlessExactPath` と内部移転・参照退役の試験が二つのroot、退役token、tokenなしDB完全一致と一般物理比較を分担します。pendingの属性・late missingは [`BmsLibraryPendingLegacyMutationTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingLegacyMutationTests.cs) の既存境界へ分担します。
+
+`SelectedChartMutationWorkflowOwnerTests.DeleteAsync_PrepareKeepsDispatcherResponsiveAndRetainsCopiedInput` は実Dispatcherから通常削除を開始し、準備待機中のUI応答・共通受付保持・コピー済み入力と、準備例外時の元原因・未実行・解放を確認します。このstore代替試験はワークフローの順序を担い、FS/DBと対象結び付きの保証は以下の実store試験へ分担します。
+
+最初の確認から同じprepared値を渡す本番接続は [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) の `PreparedTargets_RealStorePreservesFirstConfirmationBoundary` が実store・小実DBで削除の古いhash許容／確認取消と、通常拡張子変更のprepare前移転追従を確認します。重複整理の共通gate・本モデル受付Busyと解放は [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `RunHashCleanupAsync_RealPreparedTargetsKeepGateAndModelAdmission` に分担します。`RunHashCleanupAsync_WholeFolderDecisionUsesPreparedRealStore` は実store・小実DBでYes／No／否定close、候補部分集合だけの承認、モデル再確認なし、確認中の短期モデル受付を確認します。`RunHashCleanupAsync_WholeFolderFailureDoesNotStartMutation` は複数候補の先行Yes後でも後続の表示失敗・null応答・例外で実行しないことを確認します。`BmsLibraryMutationBoundaryTests.OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision` は実候補のdirect入口で非OK拒否を維持します。既存の `RunFolderMergeAsync_AwaitsConfirmationWithoutBlockingCaller` は確認待機中の共通gate取得失敗・別要求の拒否・store未実行と解放後の再取得を確認します。既存のscope、再生停止、取消、部分成功、解放後報告はprepared境界へ追従させて維持します。
 
 ## 関連資料
 

@@ -1116,5 +1116,6 @@
   "Statusbar_progress_operation_failed_format": "{0}失败",
   "Statusbar_progress_task_playlist_property_update": "更新播放列表属性",
   "Statusbar_progress_task_folder_rename": "自动修改文件夹名",
-  "Statusbar_progress_task_playlist_external_property_initialization": "使用外部数据初始化播放列表属性"
+  "Statusbar_progress_task_playlist_external_property_initialization": "使用外部数据初始化播放列表属性",
+  "Error_PreparedChartTargetMismatch": "已准备的谱面目标与当前持有的条目、格式或位置不匹配。未执行任何更改。"
 }

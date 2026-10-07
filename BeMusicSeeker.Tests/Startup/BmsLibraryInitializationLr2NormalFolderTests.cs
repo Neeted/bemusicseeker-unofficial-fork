@@ -100,17 +100,17 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(folderInfoPath, currentDirectoryTimestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, previousDirectoryTimestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, currentDirectoryTimestamp);
-            var currentFile = new TestableBmsFile
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
             };
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -185,18 +185,18 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
-            var currentFile = new TestableBmsFile
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
             };
-            currentFile.SetTextGroupFlagForTest(0);
+            currentFile = currentFile with { Txt = 0 };
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -335,18 +335,18 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
-            var currentFile = new TestableBmsFile
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
             };
-            currentFile.SetTextGroupFlagForTest(0);
+            currentFile = currentFile with { Txt = 0 };
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -429,18 +429,18 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
-            var currentFile = new TestableBmsFile
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
             };
-            currentFile.SetTextGroupFlagForTest(0);
+            currentFile = currentFile with { Txt = 0 };
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -511,18 +511,18 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(bmsPath, previousDirectoryTimestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, previousDirectoryTimestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, currentDirectoryTimestamp);
-            var currentFile = new TestableBmsFile
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
             };
-            currentFile.SetTextGroupFlagForTest(0);
+            currentFile = currentFile with { Txt = 0 };
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -656,19 +656,19 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var removedTimestamp = new DateTime(2026, 6, 6, 2, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(keepPath, keepTimestamp);
             File.SetLastWriteTimeUtc(removedPath, removedTimestamp);
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = keepPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(keepTimestamp)
+                Path = keepPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(keepTimestamp)
             };
-            keepFile.SetTextGroupFlagForTest(0);
-            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(keepPath).hash);
-            var removedFile = new TestableBmsFile
+            keepFile = keepFile with { Txt = 0 };
+            keepFile = keepFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(keepPath)).Md5 };
+            ChartFile removedFile = ChartTestValues.Empty() with
             {
-                path = removedPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(removedTimestamp)
+                Path = removedPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(removedTimestamp)
             };
-            removedFile.SetHash(BMSFile.CreateBMSFileFromFile(removedPath).hash);
+            removedFile = removedFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(removedPath)).Md5 };
             string removedFolderPath = ToFolderPath(removedDirectoryPath);
             string staleOtherFolderPath = ToFolderPath(staleOtherDirectoryPath);
             var logs = new List<string>();
@@ -678,8 +678,8 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -751,18 +751,18 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string removedPath = Path.Combine(removedDirectoryPath, "removed.bms");
             File.WriteAllText(keepPath, CreateValidBmsText("Keep Nested"), Encoding.ASCII);
             File.WriteAllText(removedPath, CreateValidBmsText("Removed Nested"), Encoding.ASCII);
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = keepPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keepPath))
+                Path = keepPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keepPath))
             };
-            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(keepPath).hash);
-            var removedFile = new TestableBmsFile
+            keepFile = keepFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(keepPath)).Md5 };
+            ChartFile removedFile = ChartTestValues.Empty() with
             {
-                path = removedPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(removedPath))
+                Path = removedPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(removedPath))
             };
-            removedFile.SetHash(BMSFile.CreateBMSFileFromFile(removedPath).hash);
+            removedFile = removedFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(removedPath)).Md5 };
             string bigFolderPath = ToFolderPath(Path.Combine(lr2RootPath, "Big"));
             string removedFolderPath = ToFolderPath(removedDirectoryPath);
             string staleSiblingFolderPath = ToFolderPath(staleSiblingDirectoryPath);
@@ -773,8 +773,8 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -849,12 +849,12 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Directory.CreateDirectory(removedDirectoryPath);
             string removedPath = Path.Combine(removedDirectoryPath, "removed.bms");
             File.WriteAllText(removedPath, CreateValidBmsText("Removed Last Nested"), Encoding.ASCII);
-            var removedFile = new TestableBmsFile
+            ChartFile removedFile = ChartTestValues.Empty() with
             {
-                path = removedPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(removedPath))
+                Path = removedPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(removedPath))
             };
-            removedFile.SetHash(BMSFile.CreateBMSFileFromFile(removedPath).hash);
+            removedFile = removedFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(removedPath)).Md5 };
             string packFolderPath = ToFolderPath(packDirectoryPath);
             string removedFolderPath = ToFolderPath(removedDirectoryPath);
 
@@ -863,7 +863,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -929,18 +929,18 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string removedPath = Path.Combine(lr2RootPath, "removed-root.bms");
             File.WriteAllText(keepPath, CreateValidBmsText("Keep Root Sibling"), Encoding.ASCII);
             File.WriteAllText(removedPath, CreateValidBmsText("Removed Root Level"), Encoding.ASCII);
-            var keepFile = new TestableBmsFile
+            ChartFile keepFile = ChartTestValues.Empty() with
             {
-                path = keepPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keepPath))
+                Path = keepPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keepPath))
             };
-            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(keepPath).hash);
-            var removedFile = new TestableBmsFile
+            keepFile = keepFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(keepPath)).Md5 };
+            ChartFile removedFile = ChartTestValues.Empty() with
             {
-                path = removedPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(removedPath))
+                Path = removedPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(removedPath))
             };
-            removedFile.SetHash(BMSFile.CreateBMSFileFromFile(removedPath).hash);
+            removedFile = removedFile with { Md5 = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(removedPath)).Md5 };
             string staleFolderPath = ToFolderPath(staleDirectoryPath);
             var logs = new List<string>();
 
@@ -949,8 +949,8 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -1185,12 +1185,12 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
             Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
-            var currentFile = new TestableBmsFile
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
             };
-            currentFile.SetTextGroupFlagForTest(0);
+            currentFile = currentFile with { Txt = 0 };
             string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
             var logs = new List<string>();
 
@@ -1198,7 +1198,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),
@@ -1267,14 +1267,14 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
             Directory.SetLastWriteTimeUtc(chartDirectoryPath, timestamp);
             Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
-            var parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var currentFile = new TestableBmsFile
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            ChartFile currentFile = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                Path = bmsPath,
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
             };
-            currentFile.SetHash(parsed.hash);
-            currentFile.SetTextGroupFlagForTest(0);
+            currentFile = currentFile with { Md5 = parsed.Md5 };
+            currentFile = currentFile with { Txt = 0 };
             string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
             var logs = new List<string>();
 
@@ -1282,7 +1282,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
                 songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
                 songDbConnection.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = ToFolderPath(lr2RootPath),

@@ -467,7 +467,7 @@ public sealed class CustomTablePhase6CacheTests
                 .Single(candidate => candidate.Id == "InstallDst");
             string longPath = @"C:\BMS\" + new string('W', 120);
             ChartFile chart = ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(new BMSFile()),
+                (ChartTestValues.Empty()),
                 hasDestination ? longPath : string.Empty, string.Empty, string.Empty,
                 new[] { longPath, longPath + "-other" }.Take(candidateCount).ToArray(), []);
             var row = LibraryChartRow.FromChartFile(chart);

@@ -12,7 +12,6 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -773,7 +772,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     {
         const string hash = "cccccccccccccccccccccccccccccccc";
         string sha256 = new string('d', 64);
-        var file = BMSFile.FromSongTableRawValues(
+        ChartFile file = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
         [
             hash,
             "Resolved Play History",
@@ -805,10 +804,9 @@ public sealed class MainWindowPlayHistoryWpfTests
             "",
             "",
             ""
-        ]);
-        file.ApplySnapshotDigest(hash, sha256);
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
-            [LibraryChartRef.FromBmsFile(file)]);
+        ]));
+        file = file with { Md5 = hash, Sha256 = sha256 };
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
         var projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
@@ -839,16 +837,17 @@ public sealed class MainWindowPlayHistoryWpfTests
     {
         const string md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
         string sha256 = new string('f', 64);
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\BMS\play-history-resolved.bmson",
-            title = "Resolved BMSON Play History",
-            artist = "Artist",
-            md5 = md5,
-            sha256 = sha256
+            Path = @"C:\BMS\play-history-resolved.bmson",
+            Title = "Resolved BMSON Play History",
+            RawTitle = "Resolved BMSON Play History",
+            Artist = "Artist",
+            RawArtist = "Artist",
+            Md5 = md5,
+            Sha256 = sha256
         };
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
-            [LibraryChartRef.FromBmsonSong(song)]);
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([song]);
         var projectionIndex = PlayHistoryProjectionIndex.Create(resolveIndex);
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(
             new BeatorajaPlayHistoryReadResult(

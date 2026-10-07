@@ -7,9 +7,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -292,8 +296,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(2, store.RenameBatches.Count);
         Assert.AreEqual(".bmx", store.RenameBatches[0].NewExtension);
         Assert.AreEqual(".pmx", store.RenameBatches[1].NewExtension);
-        Assert.AreEqual(1, store.RenameBatches[0].Charts.Count);
-        Assert.AreEqual(1, store.RenameBatches[1].Charts.Count);
+        Assert.AreEqual(1, store.RenameBatches[0].Targets.Count);
+        Assert.AreEqual(1, store.RenameBatches[1].Targets.Count);
         Assert.IsTrue(reportAfterRelease);
         Assert.AreEqual(1, dialogs.Messages.Count);
     }
@@ -606,8 +610,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         Assert.IsTrue(request.HasTargets);
         Assert.AreEqual(string.Empty, request.Encoding);
-        Assert.AreEqual(1, request.BmsFiles.Count);
-        Assert.AreSame(eligible.Chart.GetBmsStorageOwner(), request.BmsFiles[0]);
+        Assert.AreEqual(1, request.Charts.Count);
+        Assert.AreSame(eligible.Chart.Token, request.Charts[0].Token);
     }
 
     [TestMethod]
@@ -628,7 +632,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, store.EncodingCallCount);
         Assert.AreEqual(string.Empty, store.Encoding);
-        Assert.AreSame(target.Chart.GetBmsStorageOwner(), store.EncodingFiles[0]);
+        Assert.AreSame(target.Chart.Token, store.EncodingFiles[0].Token);
         CollectionAssert.AreEqual(new[] { "store-encoding", "encoding-refresh" }, events);
     }
 
@@ -709,6 +713,238 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(string.Empty, store.MovedDirectory);
     }
 
+    /// <summary>実storeと実DBを通し、最初の確認前の固定対象が削除・通常拡張子変更へ届くことを確認します。</summary>
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public async Task PreparedTargets_RealStorePreservesFirstConfirmationBoundary(int scenario)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string folder = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Pack");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "chart.bms");
+            File.WriteAllText(path, "#PLAYER 1");
+            File.WriteAllText(Path.Combine(folder, "keep.wav"), "keep folder");
+            var filesystem = new TestFileMutationService();
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [CreateFile(new string('a', 32), path)], BmsonCharts = [] };
+            ChartFile selected = library.BmsCharts.Single();
+            CatalogOwnedCollectionOwner collection = GetOwnedCollectionOwner(library);
+            void ChangeCurrent(ChartFile value)
+            {
+                using (collection.WriteGate.GetWriterGuard())
+                {
+                    lock (collection.Gate) { ApplyCapturedCurrentValues(collection.Collection, value); }
+                }
+            }
+            if (scenario == 0) { ChangeCurrent(selected with { Md5 = new string('b', 32) }); }
+            if (scenario == 3)
+            {
+                string moved = Path.Combine(folder, "moved.bms");
+                File.Move(path, moved);
+                ChangeCurrent(selected with { Path = moved });
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(library.BmsCharts);
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            var presentation = new RecordingPresentation();
+            var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dialogs = new FakeUiDialogService
+            {
+                ConfirmationResults = new([UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)]),
+                FirstConfirmation = scenario < 3 ? confirmation : null,
+                ConfirmationReached = reached
+            };
+            if (scenario >= 3)
+            {
+                dialogs.ConfirmationResults = new([UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)]);
+                dialogs.OnConfirmation = () =>
+                {
+                    Assert.IsTrue(gate.IsActive);
+
+                };
+            }
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, gate, activity,
+                presentation, dialogs, dialogs, new BmsLibrarySelectedChartMutationStore());
+            owner.WorkflowChanged += presentation.OnWorkflowChanged;
+            activity.ActivityChanged += presentation.OnActivityChanged;
+            var target = new ChartOperationTarget(selected, null, ChartOperationSourceScope.Library,
+                isOwned: true, isPending: false, isPlaylistMissing: false,
+                scenario < 3 ? ChartOperationCapabilities.RemoveFromLibrary : ChartOperationCapabilities.RenameInvalidExtension);
+            Task<SelectedChartMutationResult>? operation = null;
+            try
+            {
+                if (scenario < 3)
+                {
+                    operation = owner.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
+                    Task arrived = await Task.WhenAny(reached.Task, operation);
+                    Assert.AreSame(reached.Task, arrived, "確認到達前にTaskが終端しました。");
+                    await reached.Task;
+                    Assert.IsTrue(gate.IsActive);
+                    Assert.IsFalse(gate.TryEnter(out IDisposable competingLease));
+                    competingLease?.Dispose();
+                    confirmation.SetResult(UiDialogResult.FromMessageBoxResult(scenario == 2 ? MessageBoxResult.Cancel : MessageBoxResult.OK));
+                }
+                else
+                {
+                    operation = owner.RenameInvalidExtensionsAsync(new SelectedInvalidExtensionRenameRequest([target], false));
+                    Task arrived = await Task.WhenAny(reached.Task, operation);
+                    Assert.AreSame(reached.Task, arrived, "確認到達前にTaskが終端しました。");
+                    await reached.Task;
+                }
+                SelectedChartMutationResult result = await operation;
+                Assert.IsFalse(gate.IsActive);
+                Assert.IsFalse(activity.IsActive);
+                Assert.IsTrue(gate.TryEnter(out IDisposable probe));
+                probe.Dispose();
+                Assert.AreEqual(new string('a', 32), selected.Md5);
+                Assert.AreEqual(path, selected.Path);
+                using var readback = new LR2SongDBExtended(songDbPath);
+                if (scenario == 0)
+                {
+                    Assert.IsTrue(result.Succeeded);
+                    Assert.AreEqual(1, result.RemovalOutcome.ConfirmedChartCount);
+                    Assert.AreEqual(1, filesystem.FileDeleteCalls);
+                    Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
+                    Assert.IsFalse(File.Exists(path));
+                }
+                else if (scenario == 3)
+                {
+                    Assert.IsTrue(result.Succeeded);
+                    Assert.AreEqual(1, result.MutationReceipt.ConfirmedChangeCount);
+                    Assert.AreEqual(1, filesystem.FileMoveCalls);
+                    Assert.IsTrue(File.Exists(Path.Combine(folder, "moved.bmx")));
+                    Assert.IsFalse(File.Exists(path));
+                    Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
+                }
+                else
+                {
+                    Assert.AreEqual(0, filesystem.FileMoveCalls);
+                    Assert.AreEqual(0, filesystem.FileDeleteCalls);
+                    Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
+                    Assert.IsTrue(File.Exists(path));
+                    LR2SongDB.song row = readback.Table<LR2SongDB.song>().Single();
+                    Assert.AreEqual(path, row.path);
+                    Assert.AreEqual(selected.Md5, row.hash);
+                    Assert.AreEqual(1, library.BmsCharts.Count);
+                    Assert.IsTrue(result.Succeeded);
+                    Assert.IsNull(result.RemovalOutcome);
+                    Assert.IsNull(result.MutationReceipt);
+                    Assert.AreEqual(0, presentation.Events.Count);
+                }
+            }
+            finally
+            {
+                confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+                try { if (operation != null) { await operation; } }
+                finally
+                {
+                    owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                    activity.ActivityChanged -= presentation.OnActivityChanged;
+                    library.RequestShutdown("prepared-selected-test");
+                    TestUiDispatcherHost.Drain();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DeleteAsync_PrepareKeepsDispatcherResponsiveAndRetainsCopiedInput(bool prepareFails)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+                new FileDbReportRecordingDialogs(), scheduler,
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false });
+            var presentation = new RecordingPresentation();
+            var store = new HeldPrepareStore(presentation.Events);
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            FakeUiDialogService dialogs = AcceptedMessageDialogs();
+            int confirmationCount = 0;
+            dialogs.OnConfirmation = () => confirmationCount++;
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, gate, activity,
+                presentation, dialogs, dialogs, store);
+            owner.WorkflowChanged += presentation.OnWorkflowChanged;
+            activity.ActivityChanged += presentation.OnActivityChanged;
+            ChartOperationTarget first = CreateTarget("first.bms", ChartOperationSourceScope.Library,
+                false, ChartOperationCapabilities.RemoveFromLibrary);
+            ChartOperationTarget later = CreateTarget("later.bms", ChartOperationSourceScope.Library,
+                false, ChartOperationCapabilities.RemoveFromLibrary);
+            var selection = new List<ChartOperationTarget> { first };
+            var request = new SelectedChartDeleteRequest(selection, first, MainViewOperationSection.Library);
+            var failure = new IOException("prepare failed");
+            SelectedChartMutationResult? result = null;
+            Task? operation = null;
+            try
+            {
+                // workflow自体を背景へ移さず、実Dispatcherから呼び出します。
+                operation = scheduler.InvokeAsync(async () => result = await owner.DeleteAsync(request));
+                Task arrived = await Task.WhenAny(store.Reached.Task, operation);
+                if (arrived == operation) { await operation; }
+                Assert.AreSame(store.Reached.Task, arrived, "準備到達前に操作が終了しました。");
+                await store.Reached.Task;
+                await scheduler.InvokeAsync(() =>
+                {
+                    selection.Clear();
+                    selection.Add(later);
+                    Assert.IsTrue(gate.IsActive);
+                    Assert.IsFalse(gate.TryEnter(out IDisposable competing));
+                    competing?.Dispose();
+                    Assert.AreEqual(0, confirmationCount);
+                    Assert.AreEqual(0, store.LibraryDeleteCalls);
+                    Assert.IsFalse(activity.IsActive);
+                    Assert.AreEqual(0, presentation.Events.Count);
+                    Assert.AreEqual(first.Chart.Path, store.PreparedInput.Single().Path);
+                });
+                if (prepareFails) { store.Release.TrySetException(failure); }
+                else { store.Release.TrySetResult(true); }
+                await operation;
+                Assert.IsNotNull(result);
+                Assert.IsFalse(gate.IsActive);
+                Assert.IsFalse(activity.IsActive);
+                Assert.IsTrue(gate.TryEnter(out IDisposable probe));
+                probe.Dispose();
+                if (prepareFails)
+                {
+                    Assert.AreSame(failure, result.Failure);
+                    Assert.AreEqual(0, confirmationCount);
+                    Assert.AreEqual(0, store.LibraryDeleteCalls);
+                    Assert.AreEqual(0, presentation.Events.Count);
+                }
+                else
+                {
+                    Assert.IsTrue(result.Succeeded);
+                    Assert.AreEqual(1, confirmationCount);
+                    Assert.AreEqual(1, store.LibraryDeleteCalls);
+                    Assert.AreEqual(first.Chart.Path, store.LibraryCharts.Single().Path);
+                }
+            }
+            finally
+            {
+                store.Release.TrySetResult(true);
+                try { if (operation != null) { await operation; } }
+                finally
+                {
+                    owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                    activity.ActivityChanged -= presentation.OnActivityChanged;
+                    library.RequestShutdown("selected-ui-prepare-test");
+                    TestUiDispatcherHost.Drain();
+                }
+            }
+        });
+    }
+
     private static SelectedChartMutationWorkflowOwner CreateOwner(
         RecordingPresentation presentation,
         FakeUiDialogService dialogs,
@@ -758,27 +994,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
     private static ChartFile CreateChart(string path)
     {
-        var file = new BMSFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = path
+            Path = path
         };
-        return new ChartFile(
-            ChartFileKind.Bms,
-            path,
-            "hash-" + Path.GetFileNameWithoutExtension(path),
-            null,
-            "Title",
-            "Title",
-            "Artist",
-            "Genre",
-            "Folder",
-            string.Empty,
-            string.Empty,
-            null,
-            null,
-            null,
-            file,
-            null);
+        return new ChartFile(ChartFileKind.Bms, path, "hash-" + Path.GetFileNameWithoutExtension(path), null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 
     private sealed class RecordingPresentation : IChartMutationPlaybackPort
@@ -849,6 +1069,24 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
+    /// <summary>不変入力の準備だけを保留し、Dispatcherの応答と実行順序を検査します。</summary>
+    private sealed class HeldPrepareStore(List<string> events) : RecordingStore(events)
+    {
+        internal TaskCompletionSource<bool> Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal IReadOnlyList<LibraryChartRef> PreparedInput { get; private set; } = [];
+
+        public override LibraryChartRemovalPreflight PrepareLibraryChartRemoval(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts)
+        {
+            PreparedInput = charts.ToArray();
+            LibraryChartRemovalPreflight prepared = base.PrepareLibraryChartRemoval(library, PreparedInput);
+            Reached.TrySetResult(true);
+            // 同期store契約の背景処理だけを止め、試験側から確定または例外を渡します。
+            Release.Task.GetAwaiter().GetResult();
+            return prepared;
+        }
+    }
+
     private class RecordingStore : ISelectedChartMutationStore
     {
         private readonly List<string>? events;
@@ -880,12 +1118,19 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal Exception Failure { get; set; } = null!;
 
-        public IReadOnlyList<string> GetLibraryWholeFolderDeleteConfirmationPaths(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts) => WholeFolderDeletePaths;
+        public virtual LibraryChartRemovalPreflight PrepareLibraryChartRemoval(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts)
+            => new(charts.Select(chart => chart.ToChartFileIdentity()),
+                WholeFolderDeletePaths, [], charts.Count, charts.Count(chart => chart.Token == null));
+
+        public LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(
+            BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
+            => new(charts, newExtension);
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
 
-        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts, IReadOnlyList<string> approvedWholeFolderDeletePaths)
+        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderDeletePaths)
         {
+            IReadOnlyList<LibraryChartRef> charts = prepared.Targets.Select(chart => LibraryChartRef.FromChartFile(chart)).ToArray();
             ThrowIfConfigured();
             LibraryDeleteCalls++;
             events?.Add("store-library-delete");
@@ -936,7 +1181,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         public void SetBMSFilesEncoding(
             BMSLibrary library,
-            IReadOnlyList<BMSFile> bmsFiles,
+            IReadOnlyList<ChartFile> bmsFiles,
             string encoding)
         {
             EncodingCallCount++;
@@ -946,7 +1191,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             Encoding = encoding;
         }
 
-        internal IReadOnlyList<BMSFile> EncodingFiles { get; private set; } = [];
+        internal IReadOnlyList<ChartFile> EncodingFiles { get; private set; } = [];
 
         internal string Encoding { get; private set; } = string.Empty;
 
@@ -994,6 +1239,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal List<UiMessageRequest> Messages { get; } = [];
         internal Action? OnMessage { get; set; }
+        internal Action? OnConfirmation { get; set; }
+        internal TaskCompletionSource<UiDialogResult>? FirstConfirmation { get; set; }
+        internal TaskCompletionSource<bool>? ConfirmationReached { get; set; }
+        private int confirmationCount;
 
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
@@ -1004,6 +1253,13 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
+            confirmationCount++;
+            if (confirmationCount == 1)
+            {
+                OnConfirmation?.Invoke();
+                ConfirmationReached?.TrySetResult(true);
+                if (FirstConfirmation != null) { return FirstConfirmation.Task; }
+            }
             if (ConfirmationResults.Count == 0)
             {
                 throw new InvalidOperationException("No confirmation result configured.");

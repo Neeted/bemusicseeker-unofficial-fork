@@ -10,7 +10,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -87,7 +86,7 @@ public sealed class MainWindowPlaybackWpfTests
                 (viewModel, window) => TestUiDispatcherHost.RunWindowTest(scope =>
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "replace-player");
-                    ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song { path = path, title = "Bmson" });
+                    ChartFile chart = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, RawTitle = "Bmson" });
                     PlaylistDetailRow first = viewModel.MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
                         null, new BMSTableEntry { memo = "original" }, chart,
                         new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true }, null, null).CreateViewRow();

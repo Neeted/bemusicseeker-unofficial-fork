@@ -401,7 +401,7 @@ public partial class PlaybackPanelView : UserControl
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
     /// <summary>BMSの既存呼出元を形式共通の表示素材へ投影します。</summary>
-    public void RefreshArtwork(BMSFile bmsFile) => RefreshArtwork(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false));
+
 
     /// <summary>選曲中・再生中の共通譜面からstagefileとbannerを表示し、前曲の素材を残しません。</summary>
 #nullable enable annotations

@@ -1022,16 +1022,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public DateTime updated_at { get; set; }
 
-        /// <summary>解析入口で確定した短命の不変リソース結果です。未取得・解放はnullです。</summary>
-        [Ignore]
-        internal System.Collections.Immutable.ImmutableList<BeMusicSeeker.Models.BmsLibraryInternal.ChartResourceReference> Resources { get; set; }
-
-        /// <summary>
-        /// maintenance table から読み込んだ bmson 用の構成ファイル検査結果です。
-        /// bmson_song table には保存せず、既存 maintenance table の row を参照します。
-        /// </summary>
-        [Ignore]
-        public BeMusicSeeker.Models.BMSFileMaintenanceInfo MaintenanceInfo { get; set; }
     }
 
     [Table("ir_score")]

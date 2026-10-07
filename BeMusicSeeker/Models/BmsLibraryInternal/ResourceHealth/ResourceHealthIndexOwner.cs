@@ -25,7 +25,7 @@ internal sealed class ResourceHealthIndexOwner
     private ResourceHealthIndexSnapshotState state = new(
         ResourceHealthIndexSnapshot.Empty,
         -1,
-        new StorageRowsVersionSnapshot(-1, -1),
+        new OwnedChartCollectionVersionSnapshot(-1),
         -1);
 
     private bool invalidated = true;
@@ -261,8 +261,7 @@ internal sealed class ResourceHealthIndexOwner
                 || state.InputVersion != currentVersion.InputVersion
                 || !currentVersion.IsInputVersionStable
                 || observedVersion.InputVersion != currentVersion.InputVersion
-                || observedVersion.StorageRowsVersion.BmsRowsVersion != currentVersion.StorageRowsVersion.BmsRowsVersion
-                || observedVersion.StorageRowsVersion.BmsonRowsVersion != currentVersion.StorageRowsVersion.BmsonRowsVersion
+                || observedVersion.StorageRowsVersion.OwnedCollectionVersion != currentVersion.StorageRowsVersion.OwnedCollectionVersion
                 || observedVersion.OwnedCollectionVersion != currentVersion.OwnedCollectionVersion)
             {
                 return;
@@ -293,8 +292,7 @@ internal sealed class ResourceHealthIndexOwner
                 || currentVersion.InputVersion != mutation.TargetInputVersion
                 || !currentVersion.IsInputVersionStable
                 || observedVersion.InputVersion != currentVersion.InputVersion
-                || observedVersion.StorageRowsVersion.BmsRowsVersion != currentVersion.StorageRowsVersion.BmsRowsVersion
-                || observedVersion.StorageRowsVersion.BmsonRowsVersion != currentVersion.StorageRowsVersion.BmsonRowsVersion
+                || observedVersion.StorageRowsVersion.OwnedCollectionVersion != currentVersion.StorageRowsVersion.OwnedCollectionVersion
                 || observedVersion.OwnedCollectionVersion != currentVersion.OwnedCollectionVersion)
             {
                 return;
@@ -408,8 +406,7 @@ internal sealed class ResourceHealthIndexOwner
                 || inputVersion != targetInputVersion
                 || !IsStableInputVersion(targetInputVersion)
                 || publishVersion.InputVersion != targetInputVersion
-                || publishVersion.StorageRowsVersion.BmsRowsVersion != currentVersion.StorageRowsVersion.BmsRowsVersion
-                || publishVersion.StorageRowsVersion.BmsonRowsVersion != currentVersion.StorageRowsVersion.BmsonRowsVersion
+                || publishVersion.StorageRowsVersion.OwnedCollectionVersion != currentVersion.StorageRowsVersion.OwnedCollectionVersion
                 || publishVersion.OwnedCollectionVersion != currentVersion.OwnedCollectionVersion)
             {
                 snapshot = null;
@@ -439,8 +436,7 @@ internal sealed class ResourceHealthIndexOwner
         return currentState?.Snapshot != null
             && !Volatile.Read(ref invalidated)
             && currentState.InputVersion == currentVersion.InputVersion
-            && currentState.StorageRowsVersion.BmsRowsVersion == currentVersion.StorageRowsVersion.BmsRowsVersion
-            && currentState.StorageRowsVersion.BmsonRowsVersion == currentVersion.StorageRowsVersion.BmsonRowsVersion
+            && currentState.StorageRowsVersion.OwnedCollectionVersion == currentVersion.StorageRowsVersion.OwnedCollectionVersion
             && currentState.OwnedCollectionVersion == currentVersion.OwnedCollectionVersion
             && currentVersion.IsInputVersionStable;
     }
@@ -539,14 +535,14 @@ internal sealed class ResourceHealthIndexOwner
     private sealed class ResourceHealthIndexSnapshotState(
         ResourceHealthIndexSnapshot snapshot,
         int inputVersion,
-        StorageRowsVersionSnapshot storageRowsVersion,
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
         int ownedCollectionVersion)
     {
         internal ResourceHealthIndexSnapshot Snapshot { get; } = snapshot ?? ResourceHealthIndexSnapshot.Empty;
 
         internal int InputVersion { get; } = inputVersion;
 
-        internal StorageRowsVersionSnapshot StorageRowsVersion { get; } = storageRowsVersion;
+        internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; } = storageRowsVersion;
 
         internal int OwnedCollectionVersion { get; } = ownedCollectionVersion;
     }
@@ -597,7 +593,7 @@ internal sealed class ResourceHealthIndexOwner
 internal readonly struct ResourceHealthIndexCurrentVersion
 {
     internal ResourceHealthIndexCurrentVersion(
-        StorageRowsVersionSnapshot storageRowsVersion,
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
         int ownedCollectionVersion,
         int inputVersion)
     {
@@ -606,7 +602,7 @@ internal readonly struct ResourceHealthIndexCurrentVersion
         InputVersion = inputVersion;
     }
 
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
     internal int OwnedCollectionVersion { get; }
 

@@ -1111,7 +1111,7 @@ internal sealed class GridKeywordSearchQuery
         return value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
     }
 
-    private static IEnumerable<string> GetChartInfoValues(LR2SongDBExtended.chart_info chartInfo, string field)
+    private static IEnumerable<string> GetChartInfoValues(BeMusicSeeker.Models.ChartDetails chartInfo, string field)
     {
         switch (field)
         {
@@ -1180,7 +1180,7 @@ internal sealed class GridKeywordSearchQuery
         }
     }
 
-    private static bool MatchesChartInfoAlternative(SearchAlternative alternative, LR2SongDBExtended.chart_info chartInfo, string field)
+    private static bool MatchesChartInfoAlternative(SearchAlternative alternative, BeMusicSeeker.Models.ChartDetails chartInfo, string field)
     {
         if (alternative.IsInvalid || alternative.IsEmpty)
         {
@@ -1224,7 +1224,7 @@ internal sealed class GridKeywordSearchQuery
         return false;
     }
 
-    private static bool IsChartFieldDefined(LR2SongDBExtended.chart_info chartInfo, string field)
+    private static bool IsChartFieldDefined(BeMusicSeeker.Models.ChartDetails chartInfo, string field)
     {
         if (chartInfo == null)
         {
@@ -1243,7 +1243,7 @@ internal sealed class GridKeywordSearchQuery
         };
     }
 
-    private static double? GetChartFieldNumericValue(LR2SongDBExtended.chart_info chartInfo, string field)
+    private static double? GetChartFieldNumericValue(BeMusicSeeker.Models.ChartDetails chartInfo, string field)
     {
         if (chartInfo == null)
         {
@@ -1381,7 +1381,7 @@ internal sealed class GridKeywordSearchQuery
         }
     }
 
-    private static bool MatchesFeatureTerm(LR2SongDBExtended.chart_info chartInfo, string term)
+    private static bool MatchesFeatureTerm(BeMusicSeeker.Models.ChartDetails chartInfo, string term)
     {
         if (chartInfo == null)
         {

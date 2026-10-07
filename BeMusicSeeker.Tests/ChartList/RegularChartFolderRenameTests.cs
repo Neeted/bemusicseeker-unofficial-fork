@@ -37,7 +37,7 @@ public sealed class RegularChartFolderRenameTests
             string lr2RootPath = Path.Combine(libraryRoot, "LR2beta3");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE shutdown\r\n");
-            TestableBmsFile file = CreateTestableBmsFile(chartPath);
+            ChartFile file = CreateTestableBmsFile(chartPath);
             var dialogs = new FileDbReportRecordingDialogs();
             TestBmsLibrary library;
             if (finalizationFails)
@@ -57,7 +57,7 @@ public sealed class RegularChartFolderRenameTests
                     });
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                     songDb.Execute(
                         "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
                         + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
@@ -73,8 +73,8 @@ public sealed class RegularChartFolderRenameTests
                     dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             }
-            library.BMSFiles = [file];
-            ChartFile chart = ChartFileProjection.FromBmsFile(file);
+            library.BmsCharts = [file];
+            ChartFile chart = (file);
             var target = new ChartOperationTarget(
                 chart,
                 playlistEntry: null,
@@ -166,10 +166,10 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "chart.bms");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE busy\r\n");
-            TestableBmsFile file = CreateTestableBmsFile(chartPath);
+            ChartFile file = CreateTestableBmsFile(chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [file]
+                BmsCharts = [file]
             };
             RenameChartFolderRequest request = CreateRenameRequest(file);
             var table = new MainChartListViewModel();
@@ -223,10 +223,10 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "chart.bms");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE playlist communication\r\n");
-            TestableBmsFile file = CreateTestableBmsFile(chartPath);
+            ChartFile file = CreateTestableBmsFile(chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [file]
+                BmsCharts = [file]
             };
             var playlist = new TestBmsPlaylist(songDbPath)
             {
@@ -276,11 +276,11 @@ public sealed class RegularChartFolderRenameTests
             string secondChartPath = Path.Combine(secondSourceDirectory, "second.bms");
             File.WriteAllText(firstChartPath, "#PLAYER 1\r\n#TITLE first\r\n");
             File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE second\r\n");
-            TestableBmsFile firstFile = CreateTestableBmsFile(firstChartPath);
-            TestableBmsFile secondFile = CreateTestableBmsFile(secondChartPath);
+            ChartFile firstFile = CreateTestableBmsFile(firstChartPath);
+            ChartFile secondFile = CreateTestableBmsFile(secondChartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [firstFile, secondFile]
+                BmsCharts = [firstFile, secondFile]
             };
             RenameChartFolderRequest firstRequest = CreateRenameRequest(firstFile);
             RenameChartFolderRequest secondRequest = CreateRenameRequest(secondFile);
@@ -341,10 +341,10 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "queued.bms");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE queued\r\n");
-            TestableBmsFile file = CreateTestableBmsFile(chartPath);
+            ChartFile file = CreateTestableBmsFile(chartPath);
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [file]
+                BmsCharts = [file]
             };
             RenameChartFolderRequest request = CreateRenameRequest(file);
             var pendingActions = new Queue<Action>();
@@ -418,7 +418,7 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE workflow finalization failure\r\n");
             try
             {
-                TestableBmsFile file = CreateTestableBmsFile(chartPath);
+                ChartFile file = CreateTestableBmsFile(chartPath);
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
                 var library = new TestBmsLibrary(
                     songDbPath,
@@ -433,7 +433,7 @@ public sealed class RegularChartFolderRenameTests
                         LR2RootPath = lr2RootPath
                     })
                 {
-                    BMSFiles = [file]
+                    BmsCharts = [file]
                 };
                 dialogs.OnMessage = () =>
                 {
@@ -449,7 +449,7 @@ public sealed class RegularChartFolderRenameTests
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                     songDb.Execute(
                         "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
                         + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
@@ -489,7 +489,8 @@ public sealed class RegularChartFolderRenameTests
 
                 Assert.IsFalse(Directory.Exists(sourceDirectory));
                 Assert.IsTrue(File.Exists(destinationChartPath));
-                Assert.AreEqual(destinationChartPath, file.path);
+                Assert.AreEqual(chartPath, file.Path);
+                Assert.AreEqual(destinationChartPath, library.BmsCharts[0].Path);
                 Assert.AreEqual(0, Volatile.Read(ref normalRefreshApplyCount));
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 Assert.AreEqual(0, dialogs.ModelMessages, "Canonical reporting suppresses the lower receipt-backed dialog.");

@@ -599,7 +599,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 null,
                 null,
                 new TestFileMutationService());
-            Library.BMSFiles = [];
+            Library.BmsCharts = [];
             Playlist = BmsPlaylistTestSupport.CreatePlaylist(songDbPath);
             Table = CreateTable(1, "Manager fixture");
             Playlist.BMSTables = new ObservableCollection<BMSTable> { Table };

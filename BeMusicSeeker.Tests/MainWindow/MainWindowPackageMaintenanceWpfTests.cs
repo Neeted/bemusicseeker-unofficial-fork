@@ -26,6 +26,181 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPackageMaintenanceWpfTests
 {
+    /// <summary>実DBの混在純移転が安定entryと表示へ届き、無関係な表示と編集中入力を保持します。</summary>
+    [TestMethod]
+    public void InstalledMixedFolderRelocationKeepsRowsSelectionAndUncommittedEditor()
+    {
+        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        string root = Path.Combine(Path.GetTempPath(), "installed-current-wpf-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        settings.StartupSelectInstallPending = false;
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                settings,
+                (viewModel, window) => TestUiDispatcherHost.RunWindowTest(scope =>
+                {
+                    string source = Path.Combine(root, "source");
+                    Directory.CreateDirectory(source);
+                    string bmsPath = Path.Combine(source, "chart.bms");
+                    string bmsonPath = Path.Combine(source, "chart.bmson");
+                    File.WriteAllText(bmsPath, "#PLAYER 1\n#TITLE A current\n#BPM 120\n");
+                    File.WriteAllText(bmsonPath, "{}");
+                    ChartFile bms = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+                    ChartFile bmson = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsonPath));
+                    string dbPath = Path.Combine(root, "song.db");
+                    using (var db = new LR2SongDBExtended(dbPath))
+                    {
+                        db.CreateTable<LR2SongDB.song>();
+                        db.CreateTable<LR2SongDBExtended.bmson_song>();
+                    }
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath, settings);
+                    library.BmsCharts = [bms];
+                    library.BmsonCharts = [bmson];
+                    bms = library.BmsCharts.Single();
+                    bmson = library.BmsonCharts.Single();
+                    using (var db = new LR2SongDBExtended(dbPath))
+                    {
+                        db.CreateTable<LR2SongDB.song>();
+                        db.CreateTable<LR2SongDBExtended.bmson_song>();
+                        db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(bms), typeof(LR2SongDB.song));
+                        db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(bmson), typeof(LR2SongDBExtended.bmson_song));
+                    }
+                    var first = PackageChartEntry.FromChart(bms);
+                    var second = PackageChartEntry.FromChart(bmson);
+                    var package = ChartPackage.FromChartEntries([first, second]);
+                    package.path = source;
+                    library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package]);
+                    ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    object content = window.Content;
+                    window.Content = null;
+                    var host = new Window { Content = content, DataContext = viewModel, Width = 1000, Height = 700 };
+                    scope.ShowAndWaitForContentRendered(host);
+                    var rowsReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    System.ComponentModel.PropertyChangedEventHandler rowsChanged = (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(MainChartListViewModel.Rows))
+                        {
+                            rowsReady.TrySetResult();
+                        }
+                    };
+                    viewModel.MainChartList.PropertyChanged += rowsChanged;
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            viewModel.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected), "installed navigation");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsReady.Task, "installed rows applied");
+                    }
+                    finally
+                    {
+                        viewModel.MainChartList.PropertyChanged -= rowsChanged;
+                    }
+                    TestUiDispatcherHost.Drain();
+                    IList rows = viewModel.MainChartList.Rows;
+                    Assert.AreSame(rows, table.ItemsSource, "Rows公開と実表bindingの反映を別々に完了させてから編集を開始します。");
+                    Assert.AreEqual(2, rows.Count);
+                    LibraryChartRow[] realized = rows.Cast<LibraryChartRow>().ToArray();
+                    EventHandler<MainChartListCellEditBeginningEventArgs> allowEdit = (_, request) => request.Accepted = true;
+                    viewModel.MainChartList.CellEditBeginningRequested += allowEdit;
+                    var layout = new CustomTableColumnSettings.ColumnLayout { Width = 180, Visibility = Visibility.Visible };
+                    table.Columns = [new CustomTableColumn("Destination", "Destination", layout, 0, null,
+                        TextAlignment.Left, row => ((LibraryChartRow)row).instl_dst, editPropertyName: "instl_dst")];
+                    table.HandleKeyDown(Key.Down, ModifierKeys.None);
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    TextBox editor = FindCurrentEditors(table).Single();
+                    editor.Text = "uncommitted";
+                    int selected = table.SelectedIndex;
+                    int rowsReplacing = 0;
+                    EventHandler replacing = (_, _) => rowsReplacing++;
+                    viewModel.MainChartList.RowsReplacing += replacing;
+                    Assert.IsTrue(string.IsNullOrWhiteSpace(viewModel.ChartFilters.CaptureSnapshot().KeywordFilter));
+                    Assert.AreEqual(ChartModeFilter.All, viewModel.ChartFilters.CaptureSnapshot().ModeFilter);
+                    Assert.AreEqual(nameof(LibraryChartRow.Title), viewModel.RegularChartList.CaptureSortParameters()?.ColumnsName ?? nameof(LibraryChartRow.Title));
+                    int handledVersion = library.NormalLibraryRefreshNotificationVersion;
+                    var entryPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var refreshApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    System.ComponentModel.PropertyChangedEventHandler entryChanged = (_, _) =>
+                    {
+                        var probe = Task.Run(() =>
+                        {
+                            using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation("entry-release-probe", showMessage: false);
+                            Assert.IsNotNull(lease, "entry通知時にモデル受付権を解放します。");
+                        });
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(probe, "entry release probe");
+                        entryPublished.TrySetResult();
+                    };
+                    EventHandler<NormalLibraryRefreshAppliedEventArgs> applied = (_, _) => refreshApplied.TrySetResult();
+                    first.PropertyChanged += entryChanged;
+                    viewModel.RegularChartList.NormalLibraryRefreshApplied += applied;
+                    try
+                    {
+                        _ = OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+                        library.RenameChartFolder(source, "moved");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(entryPublished.Task, "installed entry publication");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed current refresh");
+                        TestUiDispatcherHost.Drain();
+                        string moved = Path.Combine(root, "moved");
+                        Assert.AreEqual(0, rowsReplacing);
+                        Assert.AreSame(rows, viewModel.MainChartList.Rows);
+                        Assert.AreSame(rows, table.ItemsSource);
+                        Assert.AreEqual(selected, table.SelectedIndex);
+                        CollectionAssert.AreEqual(realized, rows.Cast<LibraryChartRow>().ToArray());
+                        var remainingEditors = FindCurrentEditors(table).ToList();
+                        Assert.AreEqual(1, remainingEditors.Count);
+                        Assert.AreSame(editor, remainingEditors.Single());
+                        Assert.AreEqual("uncommitted", editor.Text);
+                        foreach (PackageChartEntry entry in new[] { first, second })
+                        {
+                            Assert.AreEqual(Path.Combine(moved, Path.GetFileName(entry == first ? bmsPath : bmsonPath)), entry.Chart.Path);
+                            Assert.AreEqual(entry.Chart.Path, realized.Single(row => row.Chart.Token == entry.Chart.Token).Chart.Path);
+                        }
+                        Assert.AreEqual(bmsPath, bms.Path);
+                        Assert.AreEqual(bmsonPath, bmson.Path);
+                        Assert.AreSame(first, package.ChartEntries[0]);
+                        Assert.AreSame(second, package.ChartEntries[1]);
+                        InstalledChartLookupIndexSnapshot index = OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+                        CollectionAssert.AreEqual(new[] { moved }, index.Md5Directories[bms.Md5].ToArray());
+                        NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledVersion);
+                        Assert.AreEqual(2, batch.ChangedCharts.Count);
+                        using var readback = new LR2SongDBExtended(dbPath);
+                        Assert.IsNotNull(readback.Find<LR2SongDB.song>(first.Chart.Path));
+                        Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
+                    }
+                    finally
+                    {
+                        viewModel.MainChartList.RowsReplacing -= replacing;
+                        first.PropertyChanged -= entryChanged;
+                        viewModel.RegularChartList.NormalLibraryRefreshApplied -= applied;
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
+                        library.ChartPackagesInstalled.Clear();
+                    }
+                }));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static IEnumerable<TextBox> FindCurrentEditors(DependencyObject parent)
+    {
+        for (int index = 0; index < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(parent, index);
+            if (child is TextBox editor)
+            {
+                yield return editor;
+            }
+            foreach (TextBox nested in FindCurrentEditors(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -44,7 +219,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Directory.CreateDirectory(source);
                 string sourceChart = Path.Combine(source, "chart.bms");
                 File.WriteAllText(sourceChart, "#PLAYER 1\r\n#TITLE ReceiptTarget\r\n#ARTIST Artist\r\n");
-                var chart = BMSFile.CreateBMSFileFromFile(sourceChart);
+                ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChart));
                 string dbPath = Path.Combine(root, "song.db");
                 string lr2Root = Path.Combine(root, "LR2");
                 LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
@@ -53,7 +228,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     db.CreateTable<LR2SongDB.song>();
                     db.CreateTable<LR2SongDB.folder>();
                     db.CreateTable<LR2SongDBExtended.maintenance>();
-                    db.InsertOrReplace(chart.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
                     db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
                 }
                 var library = new TestBmsLibrary(dbPath, () => config, null,
@@ -65,7 +240,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         LR2RootPath = lr2Root,
                         FolderNameFormat = "[%ARTIST%] %TITLE%"
                     })
-                { BMSFiles = [chart], SearchTargets = [root] };
+                { BmsCharts = [chart], SearchTargets = [root] };
                 viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
@@ -93,7 +268,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 else
                 {
                     Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.RequestStartSelected([
-                        new ChartOperationTarget(ChartFileProjection.FromBmsFile(chart), null,
+                        new ChartOperationTarget((chart), null,
                             ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary)]));
                 }
 
@@ -111,9 +286,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(1, outcome.MutationResult.SessionReceipt.ConfirmedChangeCount);
                 Assert.IsTrue(outcome.MutationResult.SessionReceipt.HasDurableFinalizationFailure);
                 Assert.IsFalse(File.Exists(sourceChart));
-                Assert.IsTrue(File.Exists(chart.path));
+                ChartFile current = library.BmsCharts.Single();
+                Assert.AreEqual(sourceChart, chart.Path);
+                Assert.IsTrue(File.Exists(current.Path));
                 using var verifyDb = new LR2SongDBExtended(dbPath);
-                Assert.IsNotNull(verifyDb.Find<LR2SongDB.song>(chart.path));
+                Assert.IsNotNull(verifyDb.Find<LR2SongDB.song>(current.Path));
             }
             finally
             {
@@ -176,7 +353,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         BMSInstallDir = installRoot,
                         KeepInstallablePackagesPending = false
                     })
-                { BMSFiles = [], SearchTargets = [installRoot] };
+                { BmsCharts = [], SearchTargets = [installRoot] };
                 viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
@@ -247,10 +424,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     File.WriteAllText(
                         chartPath,
                         "#PLAYER 1\r\n#TITLE Resource health UI\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
-                    var chart = BMSFile.CreateBMSFileFromFile(chartPath);
-                    BMSFileMaintenanceInfo initialMaintenance = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(
-                        ChartFileProjection.FromBmsFile(chart, includeWarningSnapshot: false));
-                    chart.SetMaintenanceInfo(initialMaintenance, suppressPropertyChanged: true);
+                    ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+                    ResourceHealthMaintenanceSnapshot initialMaintenance = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(
+                        (chart));
+                    chart = ChartFileProjection.WithMaintenance(chart, initialMaintenance);
                     string songDbPath = Path.Combine(root, "song.db");
                     using (var songDb = new LR2SongDBExtended(songDbPath))
                     {
@@ -261,12 +438,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     }
 
                     TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
-                    library.BMSFiles = [];
+                    library.BmsCharts = [];
                     ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
 
-                    library.BMSFiles = [chart];
+                    library.BmsCharts = [chart];
                     TestUiDispatcherHost.Drain();
-                    Assert.AreEqual(1, library.BMSFiles.Count);
+                    Assert.AreEqual(1, library.BmsCharts.Count);
                     Assert.IsTrue(library.NormalLibraryRefreshNotificationVersion > 0);
                     Assert.IsNotNull(viewModel.MainChartList.LastCompletion);
                     IList rowsBeforeMerge = viewModel.MainChartList.Rows;
@@ -315,15 +492,15 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         Assert.IsTrue(presentationRefreshObserved);
                         Assert.AreSame(rowsAfterSourceRefresh, rowsAfterPresentationRefresh);
                         Assert.AreSame(rowsAfterSourceRefresh, viewModel.MainChartList.Rows);
-                        Assert.AreEqual(1, library.BMSFiles.Count);
+                        Assert.AreEqual(1, library.BmsCharts.Count);
                         Assert.AreEqual(1, viewModel.MainChartList.Rows.Count);
                         var refreshedRow = (LibraryChartRow)viewModel.MainChartList.Rows[0]!;
                         StringAssert.Contains(refreshedRow.WarningDigestText, Resources.WarningDigest_ResourceMissing);
                         StringAssert.Contains(refreshedRow.WarningTooltipText, "WAV");
                         ResourceHealthIndexSnapshot snapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                         Assert.AreNotSame(ResourceHealthIndexSnapshot.Empty, snapshot);
-                        BMSFile installed = library.BMSFiles.Single();
-                        Assert.IsTrue(snapshot.GetProjection(ChartFileKind.Bms, installed.path, installed.hash).Warnings.Any(
+                        ChartFile installed = library.BmsCharts.Single();
+                        Assert.IsTrue(snapshot.GetProjection(ChartFileKind.Bms, installed.Path, installed.Md5).Warnings.Any(
                             warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
                     }
                     finally
@@ -672,8 +849,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 ContextMenu menu;
                 if (chartRoute)
                 {
-                    var chart = new BMSFile { path = @"C:\pending-source\chart.bms", hash = new string('a', 32) };
-                    var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(chart));
+                    ChartFile chart = (ChartTestValues.Empty() with { Path = @"C:\pending-source\chart.bms", Md5 = new string('a', 32) });
+                    var entry = PackageChartEntry.FromChart((chart));
                     var row = LibraryChartRow.FromPackageChartEntry(entry);
                     var table = (CustomTableView)window.FindName("customTableView");
                     table.ItemsSource = new List<object> { row };
@@ -764,22 +941,22 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                var bmsFile = new BMSFile
+                ChartFile bmsFile = ChartTestValues.Empty() with
                 {
-                    path = @"C:\wave6e-library\bms\chart.bms",
-                    hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    title = "BMS chart",
-                    artist = "Artist"
+                    Path = @"C:\wave6e-library\bms\chart.bms",
+                    Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    RawTitle = "BMS chart",
+                    RawArtist = "Artist"
                 };
-                var bmsonSong = new LR2SongDBExtended.bmson_song
+                ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
                 {
-                    path = @"C:\wave6e-library\bmson\chart.bmson",
-                    md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                    title = "bmson chart",
-                    artist = "Artist"
+                    Path = @"C:\wave6e-library\bmson\chart.bmson",
+                    Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    RawTitle = "bmson chart",
+                    RawArtist = "Artist"
                 };
-                var bmsRow = LibraryChartRow.FromBmsFile(bmsFile);
-                var bmsonRow = LibraryChartRow.FromBmsonSong(bmsonSong);
+                var bmsRow = LibraryChartRow.FromChartFile(bmsFile);
+                var bmsonRow = LibraryChartRow.FromChartFile((bmsonSong));
                 var rows = new List<object> { bmsRow, bmsonRow };
 
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -809,10 +986,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(2, capturedTargets.Count);
                 Assert.IsTrue(capturedTargets.Any(target =>
                     target.Chart.Kind == ChartFileKind.Bms
-                    && ReferenceEquals(target.Chart.GetBmsStorageOwner(), bmsFile)));
+                    && ReferenceEquals(target.Chart.Token, bmsFile.Token)));
                 Assert.IsTrue(capturedTargets.Any(target =>
                     target.Chart.Kind == ChartFileKind.Bmson
-                    && ReferenceEquals(target.Chart.GetBmsonStorageOwner(), bmsonSong)));
+                    && ReferenceEquals(target.Chart.Token, bmsonSong.Token)));
             },
             folderAutoRenameTerminal: autoRenameTerminal);
     }
@@ -916,14 +1093,14 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 window.Measure(new Size(window.Width, window.Height));
                 window.Arrange(new Rect(0d, 0d, window.Width, window.Height));
                 window.UpdateLayout();
-                var sourceChart = new BMSFile
+                ChartFile sourceChart = ChartTestValues.Empty() with
                 {
-                    path = @"C:\wave6e-duplicate\source\chart.bms",
-                    hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    title = "Duplicate"
+                    Path = @"C:\wave6e-duplicate\source\chart.bms",
+                    Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    RawTitle = "Duplicate"
                 };
                 var group = new DuplicateGroup(
-                    [ChartFileProjection.FromBmsFile(sourceChart)],
+                    [(sourceChart)],
                     [@"C:\wave6e-duplicate\source", @"C:\wave6e-duplicate\destination"]);
                 var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
                 duplicateRoot.ItemsSource = new[] { group };
@@ -1015,7 +1192,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 TestUiDispatcherHost.Drain();
 
                 var singleFolderGroup = new DuplicateGroup(
-                    [ChartFileProjection.FromBmsFile(sourceChart)],
+                    [(sourceChart)],
                     [@"C:\wave6e-duplicate\source"]);
                 duplicateRoot.ItemsSource = new[] { singleFolderGroup };
                 duplicateRoot.IsExpanded = true;
@@ -1068,13 +1245,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var repairClearCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var repairFixCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var catalogCompletion = new TaskCompletionSource<PackageCatalogMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pendingFile = new BMSFile
+        ChartFile pendingFile = ChartTestValues.Empty() with
         {
-            path = @"C:\wave6e-pending\chart.bms",
-            hash = "cccccccccccccccccccccccccccccccc",
-            title = "Pending chart"
+            Path = @"C:\wave6e-pending\chart.bms",
+            Md5 = "cccccccccccccccccccccccccccccccc",
+            RawTitle = "Pending chart"
         };
-        var pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
+        var pendingEntry = PackageChartEntry.FromChart((pendingFile));
         var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
         var pendingEstimationTerminal = new MainWindowPendingInstallEstimationTerminal(
             (kind, packages) => Task.CompletedTask,
@@ -1218,13 +1395,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 catalogCompletion.SetResult(PackageCatalogMutationResult.Rejected);
                 TestUiDispatcherHost.Drain();
 
-                var installedFile = new BMSFile
+                ChartFile installedFile = ChartTestValues.Empty() with
                 {
-                    path = @"C:\wave6e-installed\chart.bms",
-                    hash = "dddddddddddddddddddddddddddddddd",
-                    title = "Installed chart"
+                    Path = @"C:\wave6e-installed\chart.bms",
+                    Md5 = "dddddddddddddddddddddddddddddddd",
+                    RawTitle = "Installed chart"
                 };
-                var installedRow = LibraryChartRow.FromBmsFile(installedFile);
+                var installedRow = LibraryChartRow.FromChartFile(installedFile);
                 table.ItemsSource = new List<object> { installedRow };
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
@@ -1241,7 +1418,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual("search", repairCalls.Single().Kind);
                 Assert.AreEqual(1, repairCalls.Single().Request.Targets.Count);
                 Assert.AreSame(installedRow.Chart, repairCalls.Single().Request.Targets[0].Chart);
-                Assert.AreSame(installedFile, repairCalls.Single().Request.Targets[0].Chart.GetBmsStorageOwner());
+                Assert.AreSame(installedFile.Token, repairCalls.Single().Request.Targets[0].Chart.Token);
                 repairSearchCompletion.SetResult(null);
                 TestUiDispatcherHost.Drain();
 
@@ -1253,7 +1430,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual("fix", repairCalls[^1].Kind);
                 Assert.AreEqual(1, repairCalls[^1].Request.Targets.Count);
                 Assert.AreSame(installedRow.Chart, repairCalls[^1].Request.Targets[0].Chart);
-                Assert.AreSame(installedFile, repairCalls[^1].Request.Targets[0].Chart.GetBmsStorageOwner());
+                Assert.AreSame(installedFile.Token, repairCalls[^1].Request.Targets[0].Chart.Token);
                 repairFixCompletion.SetResult(null);
                 TestUiDispatcherHost.Drain();
 
@@ -1267,7 +1444,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual("clear", repairCalls[^1].Kind);
                 Assert.AreEqual(1, repairCalls[^1].Request.Targets.Count);
                 Assert.AreSame(installedRow.Chart, repairCalls[^1].Request.Targets[0].Chart);
-                Assert.AreSame(installedFile, repairCalls[^1].Request.Targets[0].Chart.GetBmsStorageOwner());
+                Assert.AreSame(installedFile.Token, repairCalls[^1].Request.Targets[0].Chart.Token);
                 repairClearCompletion.SetResult(null);
                 TestUiDispatcherHost.Drain();
             },

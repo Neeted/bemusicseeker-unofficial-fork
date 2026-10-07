@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -14,110 +14,80 @@ public sealed class InstallDestinationStateOwnerTests
     public void ReattachFileScanResidualInstallDestinationCharts_UsesExactPathWhenAliasHashMatches()
     {
         string path = "C:\\Library\\Chart.bms";
-        TestableBmsFile pathCandidate = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        TestableBmsFile hashCandidate = CreateBms(path.ToLowerInvariant(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        storageRowsOwner.ReplaceBmsRows([pathCandidate, hashCandidate]);
-        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
-        ChartFile detached = CreateDetachedBmsChart(
-            path,
-            hashCandidate.hash,
-            "C:\\Install\\Chart",
-            "Overlay title");
+        ChartFile first = Parse(path);
+        ChartFile alias = Parse(path.ToLowerInvariant()) with { Md5 = new string('b', 32) };
+        CatalogOwnedCollectionOwner collection = CreateCollection(first, alias);
+        var owner = new InstallDestinationStateOwner(collection, () => []);
+        ChartFile detached = WithDestination(first with { Md5 = alias.Md5 }, "C:\\Install\\Chart", "Overlay title");
 
         ChartFile reattached = owner.ReattachFileScanResidualInstallDestinationCharts([detached]).Single();
 
-        Assert.AreSame(pathCandidate, reattached.GetBmsStorageOwner());
+        ChartFile current = collection.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(first));
+        Assert.AreSame(current.Token, reattached.Token);
+        Assert.AreEqual(first.Md5, reattached.Md5);
         Assert.AreEqual("C:\\Install\\Chart", reattached.InstallDestination);
         Assert.AreEqual("Overlay title", reattached.InstallDestinationTitle);
     }
 
     [TestMethod]
-    public void ReattachFileScanResidualInstallDestinationCharts_RejectsAmbiguousPathAndCrossKindLeakage()
+    public void ReattachFileScanResidualInstallDestinationCharts_RejectsCrossKindLeakage()
     {
-        string path = "C:\\Library\\Chart.bms";
-        TestableBmsFile first = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        TestableBmsFile second = CreateBms(path, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var bmson = new LR2SongDBExtended.bmson_song
-        {
-            path = path,
-            md5 = "cccccccccccccccccccccccccccccccc"
-        };
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        storageRowsOwner.ReplaceBmsRows([first, second]);
-        storageRowsOwner.ReplaceBmsonRows([bmson]);
-        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
+        ChartFile bms = Parse("C:\\Library\\Chart.bms");
+        CatalogOwnedCollectionOwner collection = CreateCollection(bms);
+        var owner = new InstallDestinationStateOwner(collection, () => []);
+        ChartFile wrongKind = WithDestination(bms with { Kind = ChartFileKind.Bmson }, "C:\\Install\\Other", "");
 
-        ChartFile ambiguousBms = CreateDetachedBmsChart(path, "dddddddddddddddddddddddddddddddd", "C:\\Install\\Bms", "");
-        ChartFile sameHashBms = CreateDetachedBmsChart(path, bmson.md5, "C:\\Install\\BmsHash", "");
-
-        IReadOnlyList<ChartFile> reattached = owner.ReattachFileScanResidualInstallDestinationCharts(
-            [ambiguousBms, sameHashBms]);
-
-        Assert.AreEqual(0, reattached.Count);
+        Assert.AreEqual(0, owner.ReattachFileScanResidualInstallDestinationCharts([wrongKind]).Count);
     }
 
     [TestMethod]
-    public void ReattachFileScanResidualInstallDestinationCharts_ReattachesBmsonOwner()
+    public void ReattachFileScanResidualInstallDestinationCharts_ReattachesBmsonToken()
     {
-        string path = "C:\\Library\\Chart.bmson";
-        var bmson = new LR2SongDBExtended.bmson_song
-        {
-            path = path,
-            md5 = "cccccccccccccccccccccccccccccccc"
-        };
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        storageRowsOwner.ReplaceBmsonRows([bmson]);
-        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
-        ChartFile detached = CreateDetachedBmsonChart(path, bmson.md5, "C:\\Install\\Bmson");
+        ChartFile parsed = Parse("C:\\Library\\Chart.bmson") with { Kind = ChartFileKind.Bmson };
+        CatalogOwnedCollectionOwner collection = CreateCollection(parsed);
+        var owner = new InstallDestinationStateOwner(collection, () => []);
+        ChartFile detached = WithDestination(parsed, "C:\\Install\\Bmson", "");
 
         ChartFile reattached = owner.ReattachFileScanResidualInstallDestinationCharts([detached]).Single();
 
-        Assert.AreSame(bmson, reattached.GetBmsonStorageOwner());
+        Assert.AreSame(collection.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(parsed)).Token, reattached.Token);
         Assert.AreEqual("C:\\Install\\Bmson", reattached.InstallDestination);
     }
 
     [TestMethod]
-    public void OverlayRuntimeStates_UsesExactPathAndCaseInsensitiveHash()
+    public void OverlayRuntimeStates_UsesExactPathAndCaseInsensitiveHashButRejectsReplacementToken()
     {
-        string path = "C:\\Library\\Chart.bms";
-        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        TestableBmsFile storageOwner = CreateBms(path, hash);
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        storageRowsOwner.ReplaceBmsRows([storageOwner]);
-        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
+        ChartFile parsed = Parse("C:\\Library\\Chart.bms");
+        CatalogOwnedCollectionOwner collection = CreateCollection(parsed);
+        ChartFile current = collection.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(parsed));
+        var owner = new InstallDestinationStateOwner(collection, () => []);
         var mutation = new InstallDestinationRuntimeStateMutation();
-        mutation.AppliedCharts.Add(CreateOwnedBmsChart(storageOwner, "C:\\Install\\Exact"));
+        mutation.AppliedCharts.Add(WithDestination(current, "C:\\Install\\Exact", ""));
         owner.Apply(mutation);
 
-        ChartFile exactChart = ChartFileProjection.FromBmsFile(
-            CreateBms(path, hash.ToUpperInvariant()),
-            includeWarningSnapshot: false,
-            includeResourceReferences: false);
-        ChartFile aliasChart = ChartFileProjection.FromBmsFile(
-            CreateBms(path.ToLowerInvariant(), hash),
-            includeWarningSnapshot: false,
-            includeResourceReferences: false);
-
-        ChartFile exactOverlay = owner.OverlayRuntimeStates([exactChart]).Single();
-        ChartFile aliasOverlay = owner.OverlayRuntimeStates([aliasChart]).Single();
-
-        Assert.AreEqual("C:\\Install\\Exact", exactOverlay.InstallDestination);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(aliasOverlay.InstallDestination));
+        ChartFile exact = current with { Md5 = current.Md5.ToUpperInvariant() };
+        ChartFile alias = current with { Path = current.Path.ToLowerInvariant() };
+        Assert.AreEqual("C:\\Install\\Exact", owner.OverlayRuntimeStates([exact]).Single().InstallDestination);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(owner.OverlayRuntimeStates([alias]).Single().InstallDestination));
+        collection.Collection.UpsertCharts([current]);
+        // 置換で退役したtokenを救済せず、fixtureの新しい現在値はDB完全一致パスで取得します。
+        ChartFile replacement = collection.Collection.ResolveCurrentChart(
+            LibraryChartRef.FromPath(current.Kind, current.Path, current.Md5, current.Sha256));
+        Assert.IsNotNull(replacement);
+        Assert.AreNotSame(current.Token, replacement.Token);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(owner.OverlayRuntimeStates([replacement]).Single().InstallDestination));
     }
 
     [TestMethod]
     public void CreateOverlaySnapshot_PreservesCaseOnlyRowsWithSameHash()
     {
-        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        TestableBmsFile first = CreateBms("C:\\Library\\Chart.bms", hash);
-        TestableBmsFile second = CreateBms("C:\\Library\\chart.bms", hash);
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        storageRowsOwner.ReplaceBmsRows([first, second]);
-        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
+        ChartFile first = Parse("C:\\Library\\Chart.bms");
+        ChartFile second = first with { Path = "C:\\Library\\chart.bms" };
+        CatalogOwnedCollectionOwner collection = CreateCollection(first, second);
+        var owner = new InstallDestinationStateOwner(collection, () => []);
         var mutation = new InstallDestinationRuntimeStateMutation();
-        mutation.AppliedCharts.Add(CreateOwnedBmsChart(first, "C:\\Install\\First"));
-        mutation.AppliedCharts.Add(CreateOwnedBmsChart(second, "C:\\Install\\Second"));
+        mutation.AppliedCharts.Add(WithDestination(collection.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(first)), "C:\\Install\\First", ""));
+        mutation.AppliedCharts.Add(WithDestination(collection.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(second)), "C:\\Install\\Second", ""));
         owner.Apply(mutation);
 
         InstallDestinationOverlayChartRefSnapshot snapshot = owner.CreateOverlaySnapshot(out bool wasCached);
@@ -127,81 +97,28 @@ public sealed class InstallDestinationStateOwnerTests
     }
 
     [TestMethod]
-    public void ReattachFileScanResidualInstallDestinationCharts_DropsOwnerlessSnapshot()
+    public void ReattachFileScanResidualInstallDestinationCharts_DropsMissingItem()
     {
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
-        ChartFile detached = CreateDetachedBmsChart(
-            "C:\\Library\\Missing.bms",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "C:\\Install\\Missing",
-            "");
+        CatalogOwnedCollectionOwner collection = CreateCollection();
+        var owner = new InstallDestinationStateOwner(collection, () => []);
+        ChartFile detached = WithDestination(Parse("C:\\Library\\Missing.bms"), "C:\\Install\\Missing", "");
 
         IReadOnlyList<ChartFile> reattached = owner.ReattachFileScanResidualInstallDestinationCharts([detached]);
 
         Assert.AreEqual(0, reattached.Count);
     }
 
-    private static ChartFile CreateOwnedBmsChart(BMSFile owner, string installDestination)
+    private static CatalogOwnedCollectionOwner CreateCollection(params ChartFile[] charts)
     {
-        return ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(owner, includeWarningSnapshot: false, includeResourceReferences: false),
-            installDestination,
-            string.Empty,
-            string.Empty,
-            [],
-            []);
+        var owner = new CatalogOwnedCollectionOwner();
+        owner.ApplyBuiltCollection(OwnedChartCollectionState.FromCharts(charts));
+        return owner;
     }
 
-    private static ChartFile CreateDetachedBmsChart(
-        string path,
-        string md5,
-        string installDestination,
-        string installDestinationTitle)
-    {
-        TestableBmsFile source = CreateBms(path, md5);
-        ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(source, includeWarningSnapshot: false, includeResourceReferences: false),
-            installDestination,
-            installDestinationTitle,
-            "Overlay artist",
-            [],
-            []);
-        return ChartFileProjection.ToImmutableSnapshot(chart);
-    }
+    private static ChartFile WithDestination(ChartFile chart, string destination, string title)
+        => ChartFileProjection.WithPackageState(chart, destination, title, "Overlay artist", [], []);
 
-    private static ChartFile CreateDetachedBmsonChart(string path, string md5, string installDestination)
-    {
-        var source = new LR2SongDBExtended.bmson_song
-        {
-            path = path,
-            md5 = md5
-        };
-        ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(source, includeWarningSnapshot: false, includeResourceReferences: false),
-            installDestination,
-            string.Empty,
-            string.Empty,
-            [],
-            []);
-        return ChartFileProjection.ToImmutableSnapshot(chart);
-    }
-
-    private static TestableBmsFile CreateBms(string path, string hash)
-    {
-        var file = new TestableBmsFile
-        {
-            path = path
-        };
-        file.SetHash(hash);
-        return file;
-    }
-
-    private sealed class TestableBmsFile : BMSFile
-    {
-        internal void SetHash(string value)
-        {
-            hash = value;
-        }
-    }
+    private static ChartFile Parse(string path)
+        => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.CreateSnapshot(new ChartFileReadBuffer(
+            path, Encoding.ASCII.GetBytes("#TITLE Initial\n#ARTIST Author\n"), default)));
 }

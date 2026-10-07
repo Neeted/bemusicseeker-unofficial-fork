@@ -7,7 +7,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -72,7 +71,7 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished = null,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null,
         Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter = null)
     {
         return BackfillChartInfosCore(
@@ -95,7 +94,7 @@ internal sealed class ChartInfoBuildService
     internal ChartInfoSnapshotBuildResult EvaluateSnapshot(
         ChartFileSnapshot snapshot,
         ChartInfoBuildTarget target,
-        LR2SongDBExtended.chart_info currentRow,
+        BeMusicSeeker.Models.ChartDetails currentRow,
         bool hasCurrentParseFailure,
         TimeSpan? parseTimeout = null,
         Action<string> logInstallPerformance = null,
@@ -138,7 +137,7 @@ internal sealed class ChartInfoBuildService
                 timeout: resolvedParseTimeout);
             stopwatch.Stop();
             LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
-            LR2SongDBExtended.chart_info row = parseResult.Row;
+            BeMusicSeeker.Models.ChartDetails row = parseResult.Row;
             return ChartInfoSnapshotBuildResult.CreateSuccess(row, md5, stopwatch.ElapsedMilliseconds, byteCount);
         }
         catch (Exception ex)
@@ -146,9 +145,9 @@ internal sealed class ChartInfoBuildService
             stopwatch.Stop();
             logInstallPerformanceWarn?.Invoke(BuildParseFailureLogMessage(target, md5, sha256, ex));
             bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
-            LR2SongDBExtended.chart_info_parse_failure failureRow = string.IsNullOrWhiteSpace(md5)
+            BeMusicSeeker.Models.ChartParseFailure failureRow = string.IsNullOrWhiteSpace(md5)
                 ? null
-                : new LR2SongDBExtended.chart_info_parse_failure
+                : new BeMusicSeeker.Models.ChartParseFailure
                 {
                     md5 = md5,
                     sha256 = sha256,
@@ -176,7 +175,7 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         Action<ChartInfoStorageCommitPublication> storageCommitPublished,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot,
         Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter)
     {
         var result = new ChartInfoBackfillResult
@@ -194,12 +193,12 @@ internal sealed class ChartInfoBuildService
         dbGateway.EnsureChartInfoBackfillSchema();
         var existingRowsStopwatch = Stopwatch.StartNew();
         string existingRowsSource;
-        Dictionary<string, LR2SongDBExtended.chart_info> existingRows;
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> existingRows;
         if (existingRowsSnapshot != null)
         {
             existingRowsSource = "index";
-            existingRows = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-            foreach (KeyValuePair<string, LR2SongDBExtended.chart_info> pair in existingRowsSnapshot)
+            existingRows = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, BeMusicSeeker.Models.ChartDetails> pair in existingRowsSnapshot)
             {
                 if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null)
                 {
@@ -212,7 +211,7 @@ internal sealed class ChartInfoBuildService
             existingRowsSource = "db";
             existingRows = dbGateway.LoadChartInfoMap();
         }
-        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
+        Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
         existingRowsStopwatch.Stop();
         string existingRowsLogValue = existingRows.Count.ToString();
         var targetBuildStopwatch = Stopwatch.StartNew();
@@ -387,8 +386,8 @@ internal sealed class ChartInfoBuildService
 
     private ChartInfoBuildItemResult ParseQueuedItem(
         QueuedChartBytes item,
-        IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRows,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         TimeSpan parseTimeout)
@@ -396,7 +395,7 @@ internal sealed class ChartInfoBuildService
         ChartInfoBuildTarget target = item.Target;
         string md5 = string.IsNullOrWhiteSpace(target.Md5) ? ComputeHash(item.Bytes, MD5.Create()) : target.Md5;
         string sha256 = string.IsNullOrWhiteSpace(target.Sha256) ? ComputeHash(item.Bytes, SHA256.Create()) : target.Sha256;
-        LR2SongDBExtended.chart_info currentRow = null;
+        BeMusicSeeker.Models.ChartDetails currentRow = null;
         existingRows?.TryGetValue(sha256, out currentRow);
         var snapshot = new ChartFileSnapshot(target.Path, item.Bytes, DateTime.MinValue, md5, sha256);
         ChartInfoSnapshotBuildResult snapshotResult = EvaluateSnapshot(
@@ -561,8 +560,7 @@ internal sealed class ChartInfoBuildService
             List<Lr2ChartInfoSongProjection> songProjections = [.. commitChunk.ChartInfoApplications
                 .SelectMany(application => application.Target.CreateBmsChartInfoSongProjections(application.Row))];
             var request = new CatalogChartInfoStorageWriteRequest(
-                bmsRows: [],
-                bmsonRows: [],
+                charts: [],
                 new CatalogChartInfoWriteRequest(
                     commitChunk.DigestEntries,
                     commitChunk.ChartInfoRows,
@@ -609,15 +607,16 @@ internal sealed class ChartInfoBuildService
         var committedDigestChanges = new List<LibraryChartDigestChange>();
         foreach (PendingDigestApplication application in commitChunk.DigestApplications)
         {
-            result.DigestBackfilledCount += application.Target.ApplyDigest(application.Sha256, null, committedDigestChanges);
+            result.DigestBackfilledCount += application.Target.CreateDigestChanges(application.Sha256, committedDigestChanges);
         }
         result.DigestChanges.AddRange(committedDigestChanges);
+        var committedChartValues = new List<ChartFile>();
         foreach (PendingChartInfoApplication application in commitChunk.ChartInfoApplications)
         {
-            application.Target.ApplyCommittedChartInfo(application.Row, matchedSongProjectionIdentities);
+            committedChartValues.AddRange(application.Target.CreateCommittedChartInfoValues(application.Row, matchedSongProjectionIdentities));
             result.BackfilledCount++;
         }
-        LR2SongDBExtended.chart_info[] committedRows = [.. commitChunk.ChartInfoApplications
+        BeMusicSeeker.Models.ChartDetails[] committedRows = [.. commitChunk.ChartInfoApplications
             .Select(application => application.Row)
             .Where(row => row != null)
             .GroupBy(row => row.sha256, StringComparer.OrdinalIgnoreCase)
@@ -629,7 +628,8 @@ internal sealed class ChartInfoBuildService
             storageCommitPublished?.Invoke(new ChartInfoStorageCommitPublication(
                 committedDigestChanges,
                 committedRows,
-                parseFailureChanged));
+                parseFailureChanged, committedChartValues,
+                commitChunk.ParseFailureRows.Select(value => value.md5).Concat(commitChunk.ParseFailureDeleteMd5s)));
         }
         result.FailurePersistedCount += commitChunk.ParseFailureRows.Count;
         result.FailureClearedCount += commitChunk.ParseFailureDeleteMd5s.Count;
@@ -707,8 +707,8 @@ internal sealed class ChartInfoBuildService
 
     private List<ChartInfoBuildTarget> BuildTargets(
         IEnumerable<ChartFile> currentCharts,
-        IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartDetails> existingRows,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
         ChartInfoBackfillResult result)
     {
         var targets = new Dictionary<string, ChartInfoBuildTarget>(StringComparer.OrdinalIgnoreCase);
@@ -718,7 +718,7 @@ internal sealed class ChartInfoBuildService
             {
                 continue;
             }
-            LR2SongDBExtended.chart_info currentRow = null;
+            BeMusicSeeker.Models.ChartDetails currentRow = null;
             if (!string.IsNullOrWhiteSpace(chart.Sha256))
             {
                 existingRows?.TryGetValue(chart.Sha256, out currentRow);
@@ -760,7 +760,7 @@ internal sealed class ChartInfoBuildService
         return [.. targets.Values];
     }
 
-    private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row, string md5)
+    private static bool IsCurrentChartInfoRow(BeMusicSeeker.Models.ChartDetails row, string md5)
     {
         return row != null
             && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion
@@ -769,7 +769,7 @@ internal sealed class ChartInfoBuildService
                 || string.Equals(md5, row.md5, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsCurrentParseFailure(IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures, string md5)
+    private static bool IsCurrentParseFailure(IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures, string md5)
     {
         return currentFailures != null
             && !string.IsNullOrWhiteSpace(md5)
@@ -1031,13 +1031,13 @@ internal sealed class ChartInfoBuildService
     internal sealed class ChartInfoSnapshotBuildResult
     {
         private ChartInfoSnapshotBuildResult(
-            LR2SongDBExtended.chart_info row,
+            BeMusicSeeker.Models.ChartDetails row,
             bool shouldPersistRow,
             bool currentRowSkipped,
             bool skippedPersistedFailure,
             bool parseFailed,
             bool timeoutFailed,
-            LR2SongDBExtended.chart_info_parse_failure parseFailureRow,
+            BeMusicSeeker.Models.ChartParseFailure parseFailureRow,
             string parseFailureDeleteMd5,
             long parseMs,
             long byteCount)
@@ -1055,7 +1055,7 @@ internal sealed class ChartInfoBuildService
         }
 
         /// <summary>Gets the current or newly parsed row to apply to the chart model.</summary>
-        public LR2SongDBExtended.chart_info Row { get; }
+        public BeMusicSeeker.Models.ChartDetails Row { get; }
 
         /// <summary>Gets whether <see cref="Row"/> is newly parsed and must be persisted.</summary>
         public bool ShouldPersistRow { get; }
@@ -1073,7 +1073,7 @@ internal sealed class ChartInfoBuildService
         public bool TimeoutFailed { get; }
 
         /// <summary>Gets the failure row to persist, when its MD5 identity is known.</summary>
-        public LR2SongDBExtended.chart_info_parse_failure ParseFailureRow { get; }
+        public BeMusicSeeker.Models.ChartParseFailure ParseFailureRow { get; }
 
         /// <summary>Gets the MD5 whose stale failure row must be deleted after parse success.</summary>
         public string ParseFailureDeleteMd5 { get; }
@@ -1085,7 +1085,7 @@ internal sealed class ChartInfoBuildService
         public long ByteCount { get; }
 
         /// <summary>Creates the outcome for a newly parsed current row.</summary>
-        public static ChartInfoSnapshotBuildResult CreateSuccess(LR2SongDBExtended.chart_info row, string parseFailureDeleteMd5, long parseMs, long byteCount)
+        public static ChartInfoSnapshotBuildResult CreateSuccess(BeMusicSeeker.Models.ChartDetails row, string parseFailureDeleteMd5, long parseMs, long byteCount)
         {
             return new ChartInfoSnapshotBuildResult(
                 row,
@@ -1101,7 +1101,7 @@ internal sealed class ChartInfoBuildService
         }
 
         /// <summary>Creates the outcome for a pre-resolved current row.</summary>
-        public static ChartInfoSnapshotBuildResult CreateCurrentRowSkipped(LR2SongDBExtended.chart_info row, long byteCount)
+        public static ChartInfoSnapshotBuildResult CreateCurrentRowSkipped(BeMusicSeeker.Models.ChartDetails row, long byteCount)
         {
             return new ChartInfoSnapshotBuildResult(
                 row,
@@ -1133,7 +1133,7 @@ internal sealed class ChartInfoBuildService
         }
 
         /// <summary>Creates the outcome for a failed parse attempt.</summary>
-        public static ChartInfoSnapshotBuildResult CreateParseFailure(LR2SongDBExtended.chart_info_parse_failure parseFailureRow, bool timeoutFailed, long parseMs, long byteCount)
+        public static ChartInfoSnapshotBuildResult CreateParseFailure(BeMusicSeeker.Models.ChartParseFailure parseFailureRow, bool timeoutFailed, long parseMs, long byteCount)
         {
             return new ChartInfoSnapshotBuildResult(
                 null,
@@ -1168,20 +1168,20 @@ internal sealed class ChartInfoBuildService
     private sealed class ChartInfoBuildItemResult(
         ChartInfoBuildTarget target,
         string sha256,
-        LR2SongDBExtended.chart_info row,
+        BeMusicSeeker.Models.ChartDetails row,
         bool reusedExistingRow,
         bool parseFailed,
         bool timeoutFailed = false,
         bool readFailed = false,
         bool skippedPersistedFailure = false,
-        LR2SongDBExtended.chart_info_parse_failure parseFailureRow = null,
+        BeMusicSeeker.Models.ChartParseFailure parseFailureRow = null,
         string parseFailureDeleteMd5 = null)
     {
         public ChartInfoBuildTarget Target { get; } = target;
 
         public string Sha256 { get; } = sha256;
 
-        public LR2SongDBExtended.chart_info Row { get; } = row;
+        public BeMusicSeeker.Models.ChartDetails Row { get; } = row;
 
         public bool ReusedExistingRow { get; } = reusedExistingRow;
 
@@ -1193,7 +1193,7 @@ internal sealed class ChartInfoBuildService
 
         public bool SkippedPersistedFailure { get; } = skippedPersistedFailure;
 
-        public LR2SongDBExtended.chart_info_parse_failure ParseFailureRow { get; } = parseFailureRow;
+        public BeMusicSeeker.Models.ChartParseFailure ParseFailureRow { get; } = parseFailureRow;
 
         public string ParseFailureDeleteMd5 { get; } = parseFailureDeleteMd5;
 
@@ -1239,11 +1239,11 @@ internal sealed class ChartInfoBuildService
 
         public List<PendingDigestApplication> DigestApplications { get; } = [];
 
-        public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
+        public List<BeMusicSeeker.Models.ChartDetails> ChartInfoRows { get; } = [];
 
         public List<PendingChartInfoApplication> ChartInfoApplications { get; } = [];
 
-        public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = [];
+        public List<BeMusicSeeker.Models.ChartParseFailure> ParseFailureRows { get; } = [];
 
         public List<string> ParseFailureDeleteMd5s { get; } = [];
 
@@ -1265,7 +1265,7 @@ internal sealed class ChartInfoBuildService
             DigestApplications.Add(new PendingDigestApplication(target, sha256));
         }
 
-        public void AddChartInfoRow(LR2SongDBExtended.chart_info row)
+        public void AddChartInfoRow(BeMusicSeeker.Models.ChartDetails row)
         {
             if (row == null)
             {
@@ -1274,7 +1274,7 @@ internal sealed class ChartInfoBuildService
             ChartInfoRows.Add(row);
         }
 
-        public void AddChartInfoApplication(ChartInfoBuildTarget target, LR2SongDBExtended.chart_info row)
+        public void AddChartInfoApplication(ChartInfoBuildTarget target, BeMusicSeeker.Models.ChartDetails row)
         {
             if (target == null || row == null)
             {
@@ -1332,9 +1332,9 @@ internal sealed class ChartInfoBuildService
         int targetCount,
         IReadOnlyList<ChartDigestBackfillEntry> digestEntries,
         IReadOnlyList<ChartInfoBuildService.PendingDigestApplication> digestApplications,
-        IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows,
+        IReadOnlyList<BeMusicSeeker.Models.ChartDetails> chartInfoRows,
         IReadOnlyList<ChartInfoBuildService.PendingChartInfoApplication> chartInfoApplications,
-        IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows,
+        IReadOnlyList<BeMusicSeeker.Models.ChartParseFailure> parseFailureRows,
         IReadOnlyList<string> parseFailureDeleteMd5s)
     {
         public int TargetCount { get; } = targetCount;
@@ -1343,11 +1343,11 @@ internal sealed class ChartInfoBuildService
 
         public IReadOnlyList<PendingDigestApplication> DigestApplications { get; } = digestApplications ?? [];
 
-        public IReadOnlyList<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = chartInfoRows ?? [];
+        public IReadOnlyList<BeMusicSeeker.Models.ChartDetails> ChartInfoRows { get; } = chartInfoRows ?? [];
 
         public IReadOnlyList<PendingChartInfoApplication> ChartInfoApplications { get; } = chartInfoApplications ?? [];
 
-        public IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = parseFailureRows ?? [];
+        public IReadOnlyList<BeMusicSeeker.Models.ChartParseFailure> ParseFailureRows { get; } = parseFailureRows ?? [];
 
         public IReadOnlyList<string> ParseFailureDeleteMd5s { get; } = parseFailureDeleteMd5s ?? [];
     }
@@ -1359,11 +1359,11 @@ internal sealed class ChartInfoBuildService
         public string Sha256 { get; } = sha256 ?? string.Empty;
     }
 
-    private sealed class PendingChartInfoApplication(ChartInfoBuildTarget target, LR2SongDBExtended.chart_info row)
+    private sealed class PendingChartInfoApplication(ChartInfoBuildTarget target, BeMusicSeeker.Models.ChartDetails row)
     {
         public ChartInfoBuildTarget Target { get; } = target;
 
-        public LR2SongDBExtended.chart_info Row { get; } = row;
+        public BeMusicSeeker.Models.ChartDetails Row { get; } = row;
     }
 
     private sealed class SlowParseRecord(long elapsedMs, string status, long byteCount, string path, string md5, string sha256)
@@ -1389,13 +1389,18 @@ internal sealed class ChartInfoBuildService
 /// </summary>
 internal sealed class ChartInfoStorageCommitPublication(
     IEnumerable<LibraryChartDigestChange> digestChanges,
-    IEnumerable<LR2SongDBExtended.chart_info> appliedRows,
-    bool parseFailureChanged)
+    IEnumerable<BeMusicSeeker.Models.ChartDetails> appliedRows,
+    bool parseFailureChanged,
+    IEnumerable<ChartFile> currentValues = null,
+    IEnumerable<string> changedFailureMd5s = null)
 {
+    internal IReadOnlyList<string> ChangedFailureMd5s { get; } = Array.AsReadOnly([.. (changedFailureMd5s ?? []).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase)]);
+    internal IReadOnlyList<ChartFile> CurrentValues { get; } = Array.AsReadOnly([.. (currentValues ?? []).Where(value => value != null)]);
+
     internal IReadOnlyList<LibraryChartDigestChange> DigestChanges { get; } =
         Array.AsReadOnly([.. (digestChanges ?? []).Where(change => change != null)]);
 
-    internal IReadOnlyList<LR2SongDBExtended.chart_info> AppliedRows { get; } =
+    internal IReadOnlyList<BeMusicSeeker.Models.ChartDetails> AppliedRows { get; } =
         Array.AsReadOnly([.. (appliedRows ?? []).Where(row => row != null)]);
 
     internal bool ParseFailureChanged { get; } = parseFailureChanged;

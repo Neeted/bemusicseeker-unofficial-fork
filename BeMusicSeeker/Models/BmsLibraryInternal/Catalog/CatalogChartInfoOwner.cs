@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -63,7 +62,6 @@ internal sealed class CatalogChartInfoOwner
 
     private CatalogMutationOwner workflowMutationOwner;
 
-    private CatalogStorageRowsOwner workflowStorageRowsOwner;
 
     private CatalogOwnedCollectionOwner workflowOwnedCollectionOwner;
 
@@ -85,10 +83,10 @@ internal sealed class CatalogChartInfoOwner
 
     private readonly object lazyDisplayIndexGate = new();
 
-    private Dictionary<string, LR2SongDBExtended.chart_info> indexBySha256 =
+    private Dictionary<string, BeMusicSeeker.Models.ChartDetails> indexBySha256 =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> indexByMd5 =
+    private Dictionary<string, SortedDictionary<string, BeMusicSeeker.Models.ChartDetails>> indexByMd5 =
         new(StringComparer.OrdinalIgnoreCase);
 
     private bool displayIndexLoaded;
@@ -173,7 +171,6 @@ internal sealed class CatalogChartInfoOwner
     /// </summary>
     /// <param name="dbGateway">chart-infoを書き込むDB gateway。</param>
     /// <param name="mutationOwner">catalogの永続化を所有するmutation owner。</param>
-    /// <param name="storageRowsOwner">永続化済みstorage rowsのowner。</param>
     /// <param name="ownedCollectionOwner">所持譜面の正本owner。</param>
     /// <param name="logWarning">警告ログ出力。</param>
     /// <param name="workflowEvent">chart-info表示状態の通知。</param>
@@ -182,7 +179,6 @@ internal sealed class CatalogChartInfoOwner
     internal void ConfigureWorkflow(
         BmsLibraryDbGateway dbGateway,
         CatalogMutationOwner mutationOwner,
-        CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner,
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
@@ -191,7 +187,6 @@ internal sealed class CatalogChartInfoOwner
     {
         workflowDbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
-        workflowStorageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         workflowOwnedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
         workflowLogWarning = logWarning;
         this.workflowEvent = workflowEvent;
@@ -209,13 +204,13 @@ internal sealed class CatalogChartInfoOwner
 
     internal object LazyDisplayIndexGate => lazyDisplayIndexGate;
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> IndexBySha256
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> IndexBySha256
     {
         get => indexBySha256;
         set => indexBySha256 = value ?? new(StringComparer.OrdinalIgnoreCase);
     }
 
-    internal Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> IndexByMd5
+    internal Dictionary<string, SortedDictionary<string, BeMusicSeeker.Models.ChartDetails>> IndexByMd5
     {
         get => indexByMd5;
         set => indexByMd5 = value ?? new(StringComparer.OrdinalIgnoreCase);
@@ -811,9 +806,9 @@ internal sealed class CatalogChartInfoOwner
             try
             {
                 List<ChartFile> chartSnapshot;
-                using (workflowStorageRowsOwner.WriteGate.GetReaderGuard())
+                using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
                 {
-                    workflowOwnedCollectionOwner.EnsureCurrent(workflowStorageRowsOwner);
+
                     lock (workflowOwnedCollectionOwner.Gate)
                     {
                         chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(
@@ -823,7 +818,7 @@ internal sealed class CatalogChartInfoOwner
                 }
                 int snapshotCount = chartSnapshot.Count;
                 bool completedLatestRequest = false;
-                Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null;
+                Dictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null;
                 ChartInfoBackfillResult result = null;
                 List<Action> publicationEffects = [];
                 using (workflowBeginDigestMutationWindow())
@@ -855,7 +850,7 @@ internal sealed class CatalogChartInfoOwner
                                 publication.AppliedRows,
                                 publication.ParseFailureChanged,
                                 "chart_info_backfill",
-                                publicationEffects.Add),
+                                publicationEffects.Add, publication.CurrentValues, publication.ChangedFailureMd5s),
                             existingRowsSnapshot,
                             request =>
                             {
@@ -1044,7 +1039,7 @@ internal sealed class CatalogChartInfoOwner
         var result = new ChartInfoHydrationResult();
         var totalStopwatch = Stopwatch.StartNew();
         LogPerformance?.Invoke("chart_info_hydration start reason=" + (reason ?? "unknown"));
-        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap;
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> chartInfoMap;
         HashSet<string> currentChartInfoSha256s;
         HashSet<string> currentParseFailureMd5s;
         var loadStopwatch = Stopwatch.StartNew();
@@ -1099,12 +1094,10 @@ internal sealed class CatalogChartInfoOwner
             + " indexBuildMs=" + result.IndexBuildMs);
 
         int ownedCollectionVersionAtSummary = 0;
-        int bmsRowsVersionAtSummary = 0;
-        int bmsonRowsVersionAtSummary = 0;
         var ownerApplyStopwatch = Stopwatch.StartNew();
-        using (workflowStorageRowsOwner.WriteGate.GetReaderGuard())
+        using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
         {
-            workflowOwnedCollectionOwner.EnsureCurrent(workflowStorageRowsOwner);
+
             ChartInfoHydrationOwnerSummary ownerSummary;
             lock (workflowOwnedCollectionOwner.Gate)
             {
@@ -1117,21 +1110,14 @@ internal sealed class CatalogChartInfoOwner
             result.CurrentParseFailureOwnerCount = ownerSummary.CurrentParseFailureOwnerCount;
             result.BackfillCandidateOwnerCount = ownerSummary.BackfillCandidateOwnerCount;
             result.OwnerApplySkippedCount = ownerSummary.OwnerApplySkippedCount;
-            StorageRowsVersionSnapshot rowsSnapshot = workflowStorageRowsOwner.CaptureVersionSnapshot();
-            ownedCollectionVersionAtSummary = workflowOwnedCollectionOwner.CollectionVersion;
-            bmsRowsVersionAtSummary = rowsSnapshot.BmsRowsVersion;
-            bmsonRowsVersionAtSummary = rowsSnapshot.BmsonRowsVersion;
+            ownedCollectionVersionAtSummary = workflowOwnedCollectionOwner.OwnedCollectionVersion;
         }
         ownerApplyStopwatch.Stop();
         result.OwnerApplyMs = result.ApplyMs = ownerApplyStopwatch.ElapsedMilliseconds;
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         result.Succeeded = true;
-        CaptureHydrationAllCurrentSnapshot(
-            result,
-            ownedCollectionVersionAtSummary,
-            bmsRowsVersionAtSummary,
-            bmsonRowsVersionAtSummary);
+        CaptureHydrationAllCurrentSnapshot(result, ownedCollectionVersionAtSummary);
         return result;
     }
 
@@ -1273,11 +1259,7 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    private void CaptureHydrationAllCurrentSnapshot(
-        ChartInfoHydrationResult result,
-        int ownedCollectionVersion,
-        int bmsRowsVersion,
-        int bmsonRowsVersion)
+    private void CaptureHydrationAllCurrentSnapshot(ChartInfoHydrationResult result, int ownedCollectionVersion)
     {
         ChartInfoHydrationAllCurrentSnapshot snapshot = null;
         if (result != null
@@ -1288,8 +1270,7 @@ internal sealed class CatalogChartInfoOwner
             snapshot = new ChartInfoHydrationAllCurrentSnapshot
             {
                 OwnedCollectionVersion = ownedCollectionVersion,
-                BmsRowsVersion = bmsRowsVersion,
-                BmsonRowsVersion = bmsonRowsVersion,
+
                 OwnerCount = result.OwnerCount,
                 CurrentChartInfoOwnerCount = result.CurrentChartInfoOwnerCount,
                 CurrentParseFailureOwnerCount = result.CurrentParseFailureOwnerCount,
@@ -1310,11 +1291,10 @@ internal sealed class CatalogChartInfoOwner
         {
             snapshot = hydrationAllCurrentSnapshot;
         }
-        StorageRowsVersionSnapshot rows = workflowStorageRowsOwner.CaptureVersionSnapshot();
+        OwnedChartCollectionVersionSnapshot rows = workflowOwnedCollectionOwner.CaptureVersionSnapshot();
         if (snapshot == null
-            || snapshot.OwnedCollectionVersion != workflowOwnedCollectionOwner.CollectionVersion
-            || snapshot.BmsRowsVersion != rows.BmsRowsVersion
-            || snapshot.BmsonRowsVersion != rows.BmsonRowsVersion
+            || snapshot.OwnedCollectionVersion != workflowOwnedCollectionOwner.OwnedCollectionVersion
+            || snapshot.OwnedCollectionVersion != rows.OwnedCollectionVersion
             || snapshot.ParserVersion != BmsLibraryDbGateway.CurrentChartInfoParserVersion
             || snapshot.ParseTimeoutMs != Math.Max(0L, (long)Math.Ceiling(buildService.CurrentParseTimeout.TotalMilliseconds)))
         {
@@ -1334,7 +1314,6 @@ internal sealed class CatalogChartInfoOwner
     {
         if (workflowDbGateway == null
             || workflowMutationOwner == null
-            || workflowStorageRowsOwner == null
             || workflowOwnedCollectionOwner == null)
         {
             throw new InvalidOperationException("Chart-info workflow owner is not configured.");
@@ -1346,18 +1325,18 @@ internal sealed class CatalogChartInfoOwner
         workflowEvent?.Invoke(ownerEvent);
     }
 
-    internal void PublishWarningPresentationChanged(string reason)
+    internal void PublishWarningPresentationChanged(string reason, IReadOnlyList<ChartFile> charts = null, IReadOnlyList<string> md5s = null)
     {
-        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning(reason));
+        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning(reason, charts, md5s));
     }
 
-    internal LR2SongDBExtended.chart_info ResolveChartInfo(
+    internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(
         string sha256,
         string md5,
         Func<bool> shouldLazyLoad,
         Action<string> lazyLoad)
     {
-        LR2SongDBExtended.chart_info row = ResolveChartInfoFromIndex(sha256, md5);
+        BeMusicSeeker.Models.ChartDetails row = ResolveChartInfoFromIndex(sha256, md5);
         if (row == null && shouldLazyLoad?.Invoke() == true)
         {
             lazyLoad?.Invoke("resolve_chart_info");
@@ -1366,7 +1345,7 @@ internal sealed class CatalogChartInfoOwner
         return row;
     }
 
-    internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return ResolveChartInfo(
             sha256,
@@ -1437,13 +1416,13 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    internal Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2ResolverSnapshot()
+    internal Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2ResolverSnapshot()
     {
-        Dictionary<string, LR2SongDBExtended.chart_info> bySha256;
-        Dictionary<string, LR2SongDBExtended.chart_info> byMd5;
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> bySha256;
+        Dictionary<string, BeMusicSeeker.Models.ChartDetails> byMd5;
         lock (indexGate)
         {
-            bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(
+            bySha256 = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(
                 indexBySha256
                     .Where(pair => IsCurrentChartInfoRow(pair.Value))
                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
@@ -1464,13 +1443,13 @@ internal sealed class CatalogChartInfoOwner
             {
                 return null;
             }
-            if (!string.IsNullOrWhiteSpace(row.sha256)
-                && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256Row))
+            if (!string.IsNullOrWhiteSpace(row.Sha256)
+                && bySha256.TryGetValue(row.Sha256, out BeMusicSeeker.Models.ChartDetails bySha256Row))
             {
                 return bySha256Row;
             }
-            if (!string.IsNullOrWhiteSpace(row.hash)
-                && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5Row))
+            if (!string.IsNullOrWhiteSpace(row.Md5)
+                && byMd5.TryGetValue(row.Md5, out BeMusicSeeker.Models.ChartDetails byMd5Row))
             {
                 return byMd5Row;
             }
@@ -1481,16 +1460,15 @@ internal sealed class CatalogChartInfoOwner
     internal ChartInfoOwnerVersionSnapshot CaptureOwnerVersionSnapshot()
     {
         EnsureWorkflowConfigured();
-        using (workflowStorageRowsOwner.WriteGate.GetReaderGuard())
+        using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
         {
-            CatalogStorageRowsStateSnapshot rows = workflowStorageRowsOwner.CaptureStateSnapshot();
+            CatalogChartCollectionStateSnapshot rows = workflowOwnedCollectionOwner.CaptureStateSnapshot();
             lock (workflowOwnedCollectionOwner.Gate)
             {
                 return new ChartInfoOwnerVersionSnapshot
                 {
-                    OwnedCollectionVersion = workflowOwnedCollectionOwner.CollectionVersion,
-                    BmsRowsVersion = rows.BmsRowsVersion,
-                    BmsonRowsVersion = rows.BmsonRowsVersion,
+                    OwnedCollectionVersion = workflowOwnedCollectionOwner.OwnedCollectionVersion,
+
                     BmsOwnerCount = rows.BmsRowCount,
                     BmsonOwnerCount = rows.BmsonRowCount
                 };
@@ -1499,13 +1477,13 @@ internal sealed class CatalogChartInfoOwner
     }
 
     internal ChartInfoIndexUpdateResult ReplaceIndex(
-        IEnumerable<LR2SongDBExtended.chart_info> rows,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> rows,
         bool hydrated)
     {
-        var bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        var byMd5 = new Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>>(StringComparer.OrdinalIgnoreCase);
+        var bySha256 = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
+        var byMd5 = new Dictionary<string, SortedDictionary<string, BeMusicSeeker.Models.ChartDetails>>(StringComparer.OrdinalIgnoreCase);
         int inputRows = 0;
-        foreach (LR2SongDBExtended.chart_info row in rows ?? [])
+        foreach (BeMusicSeeker.Models.ChartDetails row in rows ?? [])
         {
             if (!TryGetSha256(row, out string sha256))
             {
@@ -1519,7 +1497,9 @@ internal sealed class CatalogChartInfoOwner
         {
             InputRows = inputRows,
             BySha256Count = bySha256.Count,
-            ByMd5Count = byMd5.Count
+            ByMd5Count = byMd5.Count,
+            ChangedMd5s = [.. byMd5.Keys],
+            ChangedSha256s = [.. bySha256.Keys]
         };
         lock (indexGate)
         {
@@ -1536,32 +1516,37 @@ internal sealed class CatalogChartInfoOwner
         {
             propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoIndexHydrated));
         }
-        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.IndexChanged("chart_info_index_snapshot"));
+        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.IndexChanged("chart_info_index_snapshot", result));
         return result;
     }
 
     internal ChartInfoIndexUpdateResult UpsertIndex(
-        IEnumerable<LR2SongDBExtended.chart_info> rows,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> rows,
         string reason,
         bool dispatchPresentation = true,
         bool publishEffects = true)
     {
-        List<LR2SongDBExtended.chart_info> rowList = [.. (rows ?? [])
+        List<BeMusicSeeker.Models.ChartDetails> rowList = [.. (rows ?? [])
             .Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
         if (rowList.Count == 0)
         {
             return new ChartInfoIndexUpdateResult();
         }
-        var result = new ChartInfoIndexUpdateResult { InputRows = rowList.Count };
+        var result = new ChartInfoIndexUpdateResult
+        {
+            InputRows = rowList.Count,
+            ChangedMd5s = [.. rowList.Select(row => row.md5).Where(key => !string.IsNullOrWhiteSpace(key)).Distinct(StringComparer.OrdinalIgnoreCase)],
+            ChangedSha256s = [.. rowList.Select(row => row.sha256).Distinct(StringComparer.OrdinalIgnoreCase)]
+        };
         lock (indexGate)
         {
-            foreach (LR2SongDBExtended.chart_info row in rowList)
+            foreach (BeMusicSeeker.Models.ChartDetails row in rowList)
             {
                 if (!TryGetSha256(row, out string sha256))
                 {
                     continue;
                 }
-                if (indexBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info previousRow))
+                if (indexBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.ChartDetails previousRow))
                 {
                     RemoveMd5Candidate(indexByMd5, previousRow, sha256);
                 }
@@ -1589,7 +1574,7 @@ internal sealed class CatalogChartInfoOwner
         propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoIndexVersion));
         if (dispatchPresentation)
         {
-            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.IndexChanged("chart_info_index_delta"));
+            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.IndexChanged("chart_info_index_delta", result));
         }
         logPerformance?.Invoke("chart_info_index_delta upserted=" + upsertedRowCount
             + " bySha256=" + result.BySha256Count
@@ -1598,7 +1583,7 @@ internal sealed class CatalogChartInfoOwner
             + " reason=" + (reason ?? "unknown"));
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> CreateSha256Snapshot()
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> CreateSha256Snapshot()
     {
         lock (indexGate)
         {
@@ -1606,11 +1591,11 @@ internal sealed class CatalogChartInfoOwner
             {
                 return null;
             }
-            return new Dictionary<string, LR2SongDBExtended.chart_info>(indexBySha256, StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(indexBySha256, StringComparer.OrdinalIgnoreCase);
         }
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfoMapSnapshot(Func<Dictionary<string, LR2SongDBExtended.chart_info>> loader)
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfoMapSnapshot(Func<Dictionary<string, BeMusicSeeker.Models.ChartDetails>> loader)
     {
         return loader?.Invoke();
     }
@@ -1626,17 +1611,17 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    private LR2SongDBExtended.chart_info ResolveChartInfoFromIndex(string sha256, string md5)
+    private BeMusicSeeker.Models.ChartDetails ResolveChartInfoFromIndex(string sha256, string md5)
     {
         lock (indexGate)
         {
             if (!string.IsNullOrWhiteSpace(sha256)
-                && indexBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info bySha256))
+                && indexBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.ChartDetails bySha256))
             {
                 return bySha256;
             }
             if (!string.IsNullOrWhiteSpace(md5)
-                && indexByMd5.TryGetValue(md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates)
+                && indexByMd5.TryGetValue(md5, out SortedDictionary<string, BeMusicSeeker.Models.ChartDetails> candidates)
                 && candidates.Count > 0)
             {
                 return candidates.First().Value;
@@ -1645,7 +1630,7 @@ internal sealed class CatalogChartInfoOwner
         return null;
     }
 
-    private static bool TryGetSha256(LR2SongDBExtended.chart_info row, out string sha256)
+    private static bool TryGetSha256(BeMusicSeeker.Models.ChartDetails row, out string sha256)
     {
         sha256 = row?.sha256?.Trim();
         if (string.IsNullOrWhiteSpace(sha256))
@@ -1656,7 +1641,7 @@ internal sealed class CatalogChartInfoOwner
         return true;
     }
 
-    private static bool TryGetMd5(LR2SongDBExtended.chart_info row, out string md5)
+    private static bool TryGetMd5(BeMusicSeeker.Models.ChartDetails row, out string md5)
     {
         md5 = row?.md5?.Trim();
         if (string.IsNullOrWhiteSpace(md5))
@@ -1667,21 +1652,21 @@ internal sealed class CatalogChartInfoOwner
         return true;
     }
 
-    private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
+    private static bool IsCurrentChartInfoRow(BeMusicSeeker.Models.ChartDetails row)
     {
         return row != null && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
     }
 
     private static void AddMd5Candidate(
-        IDictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> byMd5,
-        LR2SongDBExtended.chart_info row,
+        IDictionary<string, SortedDictionary<string, BeMusicSeeker.Models.ChartDetails>> byMd5,
+        BeMusicSeeker.Models.ChartDetails row,
         string sha256)
     {
         if (!TryGetMd5(row, out string md5) || string.IsNullOrWhiteSpace(sha256))
         {
             return;
         }
-        if (!byMd5.TryGetValue(md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates))
+        if (!byMd5.TryGetValue(md5, out SortedDictionary<string, BeMusicSeeker.Models.ChartDetails> candidates))
         {
             candidates = new(StringComparer.OrdinalIgnoreCase);
             byMd5[md5] = candidates;
@@ -1690,12 +1675,12 @@ internal sealed class CatalogChartInfoOwner
     }
 
     private static void RemoveMd5Candidate(
-        IDictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> byMd5,
-        LR2SongDBExtended.chart_info row,
+        IDictionary<string, SortedDictionary<string, BeMusicSeeker.Models.ChartDetails>> byMd5,
+        BeMusicSeeker.Models.ChartDetails row,
         string sha256)
     {
         if (!TryGetMd5(row, out string md5)
-            || !byMd5.TryGetValue(md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates))
+            || !byMd5.TryGetValue(md5, out SortedDictionary<string, BeMusicSeeker.Models.ChartDetails> candidates))
         {
             return;
         }
@@ -1809,7 +1794,7 @@ internal sealed class CatalogChartInfoOwner
         {
             throw new InvalidOperationException("Chart-info parse-failure delete returned no receipt.");
         }
-        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning("chart_info_parse_failure_remove"));
+        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning("chart_info_parse_failure_remove", md5s: normalizedMd5s));
     }
 
     internal static string[] NormalizeParseFailureMd5s(IEnumerable<string> md5s)
@@ -1820,12 +1805,12 @@ internal sealed class CatalogChartInfoOwner
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentParseFailureMap(
+    internal Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentParseFailureMap(
         BmsLibraryDbGateway dbGateway,
         TimeSpan parseTimeout)
     {
         return dbGateway?.LoadCurrentChartInfoParseFailureMap(parseTimeout)
-            ?? new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+            ?? new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase);
     }
 
     internal ChartInfoHydrationLoadResult LoadHydrationData(
@@ -1842,27 +1827,27 @@ internal sealed class CatalogChartInfoOwner
         return dbGateway?.GetChartInfoBackfillCandidateSummary(parseTimeout);
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfoMap(
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfoMap(
         BmsLibraryDbGateway dbGateway)
     {
         return dbGateway?.LoadChartInfoMap()
-            ?? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            ?? new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfosBySha256(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<string> sha256s)
     {
         return dbGateway?.LoadChartInfosBySha256(sha256s)
-            ?? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            ?? new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
     }
 
-    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosByMd5(
+    internal Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfosByMd5(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<string> md5s)
     {
         return dbGateway?.LoadChartInfosByMd5(md5s)
-            ?? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            ?? new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1898,22 +1883,15 @@ internal sealed class CatalogChartInfoOwner
             targetCharts,
             effectiveLog,
             effectiveWarningLog);
-        List<BMSFile> bmsRows = [.. result.StorageApplications
-            .Select(application => application.CreateBmsPersistenceCopy())
-            .Where(row => row != null)];
-        List<LR2SongDBExtended.bmson_song> bmsonRows = [.. result.StorageApplications
-            .Select(application => application.CreateBmsonPersistenceCopy())
-            .Where(row => row != null)];
+        ChartFile[] updatedCharts = [.. result.StorageApplications.Select(application => application.CreateCurrentValue())];
         CatalogChartInfoStorageWriteReceipt writeReceipt = workflowMutationOwner.ApplyChartInfoStorageWrite(
             new CatalogChartInfoStorageWriteRequest(
-                bmsRows,
-                bmsonRows,
+                updatedCharts,
                 new CatalogChartInfoWriteRequest(
                     chartInfoRows: result.ChartInfoRows,
                     parseFailureRows: result.ParseFailureRows,
                     parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
-        if ((bmsRows.Count > 0
-            || bmsonRows.Count > 0
+        if ((updatedCharts.Length > 0
             || result.ChartInfoRows.Count > 0
             || result.ParseFailureRows.Count > 0
             || result.ParseFailureDeleteMd5s.Count > 0)
@@ -1922,16 +1900,38 @@ internal sealed class CatalogChartInfoOwner
             throw new InvalidOperationException("Inline chart-info persistence returned no receipt.");
         }
         int songRowChartInfoApplied = 0;
-        foreach (ChartInfoStorageApplication application in result.StorageApplications)
+        var committedCurrentValues = new List<ChartFile>();
+        lock (workflowOwnedCollectionOwner.Gate)
         {
-            songRowChartInfoApplied += application.ApplyCommitted(result.DigestChanges);
+            foreach (ChartInfoStorageApplication application in result.StorageApplications)
+            {
+                ChartFile current = workflowOwnedCollectionOwner.Collection.ResolveCurrentChart(
+                    LibraryChartRef.FromChartFile(application.Chart));
+                if (current == null)
+                {
+                    continue;
+                }
+                ChartFile next = application.CreateCurrentValue(current);
+                var digestChange = new LibraryChartDigestChange(
+                    current.Kind,
+                    current.Path, current.Md5, current.Sha256, next.Md5, next.Sha256);
+                committedCurrentValues.Add(next);
+                if (digestChange.HasDigestChange)
+                {
+                    result.DigestChanges.Add(digestChange);
+                }
+                if (application.Row != null)
+                {
+                    songRowChartInfoApplied++;
+                }
+            }
         }
         PublishCommittedStorageApplication(
             result.DigestChanges,
             result.AppliedRows,
             result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0,
             reason ?? "install_package_inline",
-            deferPublication);
+            deferPublication, committedCurrentValues, [.. result.ParseFailureRows.Select(value => value.md5).Concat(result.ParseFailureDeleteMd5s)]);
         effectiveLog?.Invoke(
             "chart_info_inline_install owner_applied=" + songRowChartInfoApplied
             + " target=" + result.TargetCount
@@ -1947,21 +1947,64 @@ internal sealed class CatalogChartInfoOwner
     }
 
     /// <summary>
-    /// Publishes facts from a successful chart-info storage receipt in catalog dependency order.
-    /// Digest-derived lookup state is prepared before the chart-info session index, and the
-    /// prepared common effects are published only after the session index has been updated.
+    /// 詳細情報の永続確定後、共通現在値・ハッシュ由来索引・詳細索引の順で反映します。
+    /// 準備した共通通知は内部反映と排他解放の後にだけ発行します。
     /// </summary>
     private void PublishCommittedStorageApplication(
         IEnumerable<LibraryChartDigestChange> digestChanges,
-        IReadOnlyList<LR2SongDBExtended.chart_info> appliedRows,
+        IReadOnlyList<BeMusicSeeker.Models.ChartDetails> appliedRows,
         bool parseFailureChanged,
         string reason,
-        Action<Action> deferPublication = null)
+        Action<Action> deferPublication = null,
+        IReadOnlyList<ChartFile> currentValues = null,
+        IReadOnlyList<string> changedFailureMd5s = null)
     {
         LibraryChartDigestChange[] committedDigestChanges = [.. (digestChanges ?? [])
             .Where(change => change != null)];
-        LR2SongDBExtended.chart_info[] committedRows = [.. (appliedRows ?? [])
+        BeMusicSeeker.Models.ChartDetails[] committedRows = [.. (appliedRows ?? [])
             .Where(row => row != null)];
+
+        var changedCurrentValues = new List<ChartFile>();
+        bool baseValuesChanged = false;
+        if (currentValues?.Count > 0)
+        {
+            lock (workflowOwnedCollectionOwner.Gate)
+            {
+                foreach (ChartFile value in currentValues)
+                {
+                    ChartFile current = workflowOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
+                    if (current?.Token == null || value.Token != null && !ReferenceEquals(current.Token, value.Token))
+                    {
+                        continue;
+                    }
+
+                    ChartFile next = ChartFileProjection.WithChartInfo(current, value.ChartInfo) with
+                    {
+                        Md5 = value.Md5,
+                        Sha256 = value.Sha256,
+                        LastWriteTimeUtc = value.LastWriteTimeUtc,
+                        Level = value.Level,
+                        LevelText = value.LevelText,
+                        Difficulty = value.Difficulty,
+                        Mode = value.Mode
+                    };
+                    bool baseChanged = current.Level != next.Level || current.Mode != next.Mode || current.Difficulty != next.Difficulty;
+                    baseValuesChanged |= baseChanged;
+                    workflowOwnedCollectionOwner.Collection.ApplyCurrentChartValue(next);
+                    if (baseChanged || !string.Equals(current.Md5, next.Md5, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(current.Sha256, next.Sha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        changedCurrentValues.Add(next);
+                    }
+                }
+
+                if (baseValuesChanged && committedDigestChanges.Length == 0)
+                {
+                    workflowOwnedCollectionOwner.IncrementVersion();
+                    workflowOwnedCollectionOwner.RebaseHashIndexSnapshot();
+                }
+            }
+        }
 
         Action digestPublication = null;
         if (committedDigestChanges.Length > 0)
@@ -1978,12 +2021,20 @@ internal sealed class CatalogChartInfoOwner
                 reason + "_digest");
         }
 
+
         if (committedRows.Length > 0)
         {
             ChartInfoIndexUpdateResult indexResult = UpsertIndex(
                 committedRows,
                 reason,
-                publishEffects: deferPublication == null);
+                publishEffects: false);
+            // ハッシュ変更の共通通知には最新の基本値も含まれるため、集合版の公開を二重に行わない。
+            indexResult.ChangedCharts = committedDigestChanges.Length == 0 ? changedCurrentValues : [];
+            if (deferPublication == null)
+            {
+                PublishIndexUpsertEffects(indexResult, committedRows.Length, reason, dispatchPresentation: true);
+            }
+
             if (deferPublication != null)
             {
                 deferPublication(() => PublishIndexUpsertEffects(
@@ -1997,7 +2048,7 @@ internal sealed class CatalogChartInfoOwner
         if (parseFailureChanged)
         {
             var warningEvent = CatalogChartInfoOwnerEvent.Warning(
-                reason + "_parse_failure");
+                reason + "_parse_failure", md5s: changedFailureMd5s);
             if (deferPublication == null)
             {
                 PublishWorkflowEvent(warningEvent);

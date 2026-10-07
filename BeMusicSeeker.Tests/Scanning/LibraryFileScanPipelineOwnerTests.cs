@@ -95,9 +95,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true);
             var injectedException = new InvalidOperationException("injected post-lease observer failure");
-            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             int initialSynchronizationOwnedCollectionVersion =
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion;
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion;
 
             InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
                 () => owner.ApplyFileScanDiff(
@@ -128,13 +128,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.IsNotNull(callbacks.LastCatalogReplacement);
             int committedOwnedCollectionVersion = callbacks.LastCatalogReplacement.Receipt.OwnedCollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
             Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
             Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
-            Assert.AreEqual(initialSynchronizationOwnedCollectionVersion, input.OwnedChartCollectionVersion);
+            Assert.AreEqual(initialSynchronizationOwnedCollectionVersion, input.OwnedCollectionVersion);
             Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_late_receipt_failure_first_take"));
             Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_late_receipt_failure_second_take"));
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
         }
         finally
         {
@@ -165,9 +165,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true, chartFileScanner: chartFileScanner);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
-            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             int initialSynchronizationOwnedCollectionVersion =
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion;
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion;
 
             long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
             Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
@@ -180,7 +180,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.AreEqual(1, first.FileCheckResult.DbCommitBmsChangedCount);
             Assert.IsTrue(callbacks.ParseProgress.Any(progress => progress.Total == 1 && progress.Processed == 1));
             Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
-            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
 
             callbacks.ParseProgress.Clear();
@@ -197,10 +197,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.IsFalse(callbacks.ParseProgress.Any(progress => progress.Total > 0));
             Assert.IsNotNull(callbacks.LastCatalogReplacement);
             Assert.IsFalse(callbacks.LastCatalogReplacement.Receipt.Applied);
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
             Assert.AreEqual(
                 initialSynchronizationOwnedCollectionVersion,
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion);
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion);
             Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
             Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
                 callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput(),
@@ -250,9 +250,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 lr2ModeEnabled: true,
                 chartFileScanner: new SequenceChartFileScanner(completeScan, incompleteScan));
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
-            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             int initialSynchronizationOwnedCollectionVersion =
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion;
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion;
 
             long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
             Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
@@ -261,7 +261,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
             Assert.IsTrue(first.FileCheckResult.HasDbDiff);
             Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
-            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
 
             long secondGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete");
@@ -272,10 +272,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
                     installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty));
 
             Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
-            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
             Assert.AreEqual(
                 initialSynchronizationOwnedCollectionVersion,
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion);
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion);
             Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
             Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
             Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
@@ -493,9 +493,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyCatalogProjection_ReplacesDeletedAndAddedCatalogItems()
     {
-        var keepFile = new BMSFile { path = "keep.bms" };
-        var replacedFile = new BMSFile { path = "replace.bms" };
-        var replacementFile = new BMSFile { path = "replace.bms" };
+        ChartFile keepFile = (ChartTestValues.Empty() with { Path = "keep.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        ChartFile replacedFile = (ChartTestValues.Empty() with { Path = "replace.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        ChartFile replacementFile = (ChartTestValues.Empty() with { Path = "replace.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks
         {
             BmsFiles = [keepFile, replacedFile]
@@ -505,56 +505,54 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
         };
-        result.DeletedPaths.Add(replacedFile.path);
+        result.DeletedPaths.Add(replacedFile.Path);
         result.AddedFiles.Add(replacementFile);
-        CatalogStorageRowsSnapshot capturedRows = callbacks.CatalogStorageRowsOwner.CaptureSnapshot();
-        callbacks.CatalogStorageRowsOwner.ReplaceBmsRows([new BMSFile { path = "live-replacement.bms" }]);
+        CatalogChartCollectionSnapshot capturedRows = callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot();
+        callbacks.CatalogOwnedCollectionOwner.ReplaceCharts([((ChartTestValues.Empty() with { Path = "live-replacement.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }))], null, replaceBmson: false);
 
         owner.ApplyCatalogProjection(result, [], capturedRows);
 
         Assert.AreEqual(2, result.NextFiles.Count);
-        Assert.AreSame(keepFile, result.NextFiles[0]);
+        Assert.AreEqual(keepFile.Path, result.NextFiles[0].Path);
+        Assert.AreSame(capturedRows.BmsRows[0].Token, result.NextFiles[0].Token);
         Assert.AreSame(replacementFile, result.NextFiles[1]);
     }
 
     [TestMethod]
-    public void CatalogStorageRowsSnapshot_CapturesBothKindsAndRemainsStableAcrossReplacement()
+    public void CatalogChartCollectionSnapshot_CapturesBothKindsAndRemainsStableAcrossReplacement()
     {
-        var firstBms = new BMSFile { path = "first.bms" };
-        var secondBms = new BMSFile { path = "second.bms" };
-        var firstBmson = new LR2SongDBExtended.bmson_song { path = "first.bmson" };
-        var secondBmson = new LR2SongDBExtended.bmson_song { path = "second.bmson" };
-        var replacementBms = new BMSFile { path = "replacement.bms" };
-        var replacementBmson = new LR2SongDBExtended.bmson_song { path = "replacement.bmson" };
-        var owner = new CatalogStorageRowsOwner();
+        ChartFile firstBms = (ChartTestValues.Empty() with { Path = "first.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        ChartFile secondBms = (ChartTestValues.Empty() with { Path = "second.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        ChartFile firstBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = "first.bmson", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+        ChartFile secondBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = "second.bmson", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+        ChartFile replacementBms = (ChartTestValues.Empty() with { Path = "replacement.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        ChartFile replacementBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = "replacement.bmson", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+        var owner = new CatalogOwnedCollectionOwner();
 
-        CatalogStorageRowsSnapshot captured = owner.ReplaceRowsAndCaptureSnapshot(
+        CatalogChartCollectionSnapshot captured = owner.ReplaceChartsAndCaptureSnapshot(
             [firstBms, secondBms],
             [firstBmson, secondBmson]);
-        owner.ReplaceBmsRows([replacementBms]);
-        owner.ReplaceBmsonRows([replacementBmson]);
+        owner.ReplaceCharts([replacementBms], null, replaceBmson: false);
+        owner.ReplaceCharts(null, [replacementBmson], replaceBms: false);
 
-        Assert.AreEqual(1, captured.BmsRowsVersion);
-        Assert.AreEqual(1, captured.BmsonRowsVersion);
-        CollectionAssert.AreEqual(new[] { firstBms, secondBms }, captured.BmsRows.ToArray());
-        CollectionAssert.AreEqual(new[] { firstBmson, secondBmson }, captured.BmsonRows.ToArray());
+        Assert.AreEqual(0, captured.OwnedCollectionVersion);
+        CollectionAssert.AreEqual(new[] { firstBms, secondBms }.Select(chart => chart.Path).ToArray(), captured.BmsRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { firstBmson, secondBmson }.Select(chart => chart.Path).ToArray(), captured.BmsonRows.Select(chart => chart.Path).ToArray());
 
-        CatalogStorageRowsSnapshot current = owner.CaptureSnapshot();
-        CatalogStorageRowsStateSnapshot state = owner.CaptureStateSnapshot();
-        Assert.AreEqual(2, current.BmsRowsVersion);
-        Assert.AreEqual(2, current.BmsonRowsVersion);
-        Assert.AreEqual(current.BmsRowsVersion, state.BmsRowsVersion);
-        Assert.AreEqual(current.BmsonRowsVersion, state.BmsonRowsVersion);
+        CatalogChartCollectionSnapshot current = owner.CaptureSnapshot();
+        CatalogChartCollectionStateSnapshot state = owner.CaptureStateSnapshot();
+        Assert.AreEqual(0, current.OwnedCollectionVersion);
+        Assert.AreEqual(current.OwnedCollectionVersion, state.OwnedCollectionVersion);
         Assert.AreEqual(current.BmsRows.Count, state.BmsRowCount);
         Assert.AreEqual(current.BmsonRows.Count, state.BmsonRowCount);
-        CollectionAssert.AreEqual(new[] { replacementBms }, current.BmsRows.ToArray());
-        CollectionAssert.AreEqual(new[] { replacementBmson }, current.BmsonRows.ToArray());
+        CollectionAssert.AreEqual(new[] { replacementBms }.Select(chart => chart.Path).ToArray(), current.BmsRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { replacementBmson }.Select(chart => chart.Path).ToArray(), current.BmsonRows.Select(chart => chart.Path).ToArray());
     }
 
     [TestMethod]
     public void ApplyCatalogProjection_ClearsStaleInstallDestinationForCurrentOwner()
     {
-        var keepFile = new BMSFile { path = "keep.bms" };
+        ChartFile keepFile = (ChartTestValues.Empty() with { Path = "keep.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks
         {
             BmsFiles = [keepFile]
@@ -565,28 +563,28 @@ public sealed class LibraryFileScanPipelineOwnerTests
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
         };
         ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+            (keepFile),
             "stale-install-destination",
             string.Empty,
             string.Empty,
             []);
 
-        owner.ApplyCatalogProjection(result, [chart], callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
+        owner.ApplyCatalogProjection(result, [chart], callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot());
 
         ChartFile change = result.ClearedInstallDestinationCharts.Single();
-        Assert.AreSame(keepFile, change.GetBmsStorageOwner());
+        Assert.AreSame(keepFile.Token, change.Token);
         Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
     }
 
     [TestMethod]
     public void FileScanCatalogResidualEvent_CapturesImmutableInstallDestinationFacts()
     {
-        var bmsFile = new BMSFile
+        ChartFile bmsFile = ChartTestValues.Empty() with
         {
-            path = "C:\\Library\\chart.bms"
+            Path = "C:\\Library\\chart.bms"
         };
         ChartFile changedChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+            (bmsFile),
             "C:\\Install\\chart",
             string.Empty,
             string.Empty,
@@ -595,41 +593,41 @@ public sealed class LibraryFileScanPipelineOwnerTests
         var residual = FileScanCatalogResidualEvent.Create(
             [changedChart],
             "residual_test");
-        bmsFile.path = "C:\\Library\\renamed.bms";
+        bmsFile = bmsFile with { Path = "C:\\Library\\renamed.bms" };
 
         Assert.AreEqual("residual_test", residual.Reason);
         Assert.AreEqual("C:\\Library\\chart.bms", residual.InstallDestinationChangedCharts.Single().Path);
         Assert.AreEqual("C:\\Install\\chart", residual.InstallDestinationChangedCharts.Single().InstallDestination);
-        Assert.IsNull(residual.InstallDestinationChangedCharts.Single().GetBmsStorageOwner());
+        Assert.IsNull(residual.InstallDestinationChangedCharts.Single().Token);
     }
 
     [TestMethod]
     public void InstallDestinationCleanupSnapshot_DetachesChartProjectionFromMutableSource()
     {
-        var bmsFile = new BMSFile
+        ChartFile bmsFile = ChartTestValues.Empty() with
         {
-            path = "C:\\Library\\chart.bms"
+            Path = "C:\\Library\\chart.bms"
         };
         ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+            (bmsFile),
             "C:\\Install\\chart",
             string.Empty,
             string.Empty,
             []);
 
         var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
-        bmsFile.path = "C:\\Library\\renamed.bms";
+        bmsFile = bmsFile with { Path = "C:\\Library\\renamed.bms" };
 
         ChartFile capturedChart = snapshot.Charts.Single();
         Assert.AreEqual("C:\\Library\\chart.bms", capturedChart.Path);
-        Assert.IsNull(capturedChart.GetBmsStorageOwner());
+        Assert.IsNull(capturedChart.Token);
         Assert.AreEqual("C:\\Install\\chart", capturedChart.InstallDestination);
     }
 
     [TestMethod]
     public void ApplyCatalogProjection_ClearsStaleInstallDestinationFromDetachedBmsSnapshot()
     {
-        var keepFile = new BMSFile { path = "C:\\Library\\chart.bms" };
+        ChartFile keepFile = (ChartTestValues.Empty() with { Path = "C:\\Library\\chart.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks
         {
             BmsFiles = [keepFile]
@@ -640,14 +638,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
         };
         ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+            (keepFile),
             "C:\\Install\\stale",
             string.Empty,
             string.Empty,
             []);
         var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
 
-        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
+        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot());
 
         ChartFile change = result.ClearedInstallDestinationCharts.Single();
         Assert.AreEqual("C:\\Library\\chart.bms", change.Path);
@@ -657,14 +655,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyCatalogProjection_ClearsStaleInstallDestinationFromDetachedBmsonSnapshot()
     {
-        var bmsonSong = new LR2SongDBExtended.bmson_song
+        ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Library\\chart.bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            Path = "C:\\Library\\chart.bmson",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         };
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks
         {
-            BmsonSongs = [bmsonSong]
+            BmsonCharts = [bmsonSong]
         };
         LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
@@ -672,14 +670,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
         };
         ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false),
+            (bmsonSong),
             "C:\\Install\\stale",
             string.Empty,
             string.Empty,
             []);
         var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
 
-        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
+        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot());
 
         ChartFile change = result.ClearedInstallDestinationCharts.Single();
         Assert.AreEqual("C:\\Library\\chart.bmson", change.Path);
@@ -690,30 +688,30 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void ApplyCatalogProjection_DetachedBmsSnapshotDoesNotMatchSamePathBmsonOwner()
     {
         string sharedPath = "C:\\Library\\same-path.chart";
-        var bmsonSong = new LR2SongDBExtended.bmson_song
+        ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = sharedPath,
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            Path = sharedPath,
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         };
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks
         {
-            BmsonSongs = [bmsonSong]
+            BmsonCharts = [bmsonSong]
         };
         LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
         };
-        var bmsFile = new BMSFile { path = sharedPath };
+        ChartFile bmsFile = (ChartTestValues.Empty() with { Path = sharedPath, Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
         ChartFile bmsChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+            (bmsFile),
             "C:\\Install\\stale",
             string.Empty,
             string.Empty,
             []);
         var snapshot = InstallDestinationCleanupSnapshot.FromCharts([bmsChart]);
 
-        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
+        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot());
 
         Assert.AreEqual(0, result.ClearedInstallDestinationCharts.Count);
     }
@@ -721,8 +719,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyCatalogStorageReplacement_UsesCatalogOwnerAndPublishesReceipt()
     {
-        var keptFile = new BMSFile { path = "keep.bms" };
-        var addedFile = new BMSFile { path = "added.bms" };
+        ChartFile keptFile = (ChartTestValues.Empty() with { Path = "keep.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        ChartFile addedFile = (ChartTestValues.Empty() with { Path = "added.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks
         {
             BmsFiles = [keptFile]
@@ -741,7 +739,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         Assert.IsNotNull(callbacks.LastCatalogReplacement);
         Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
-        Assert.AreEqual(2, callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRows.Count);
+        Assert.AreEqual(2, callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot().BmsRows.Count);
     }
 
     private static LibraryFileScanPipelineOwner CreateOwner(
@@ -768,15 +766,15 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 })
             : new TestBmsLibrary(songDbPath);
         var dbGateway = new BmsLibraryDbGateway(songDbPath);
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
-        callbacks.CatalogStorageRowsOwner = storageRowsOwner;
+        var storageRowsOwner = new CatalogOwnedCollectionOwner();
+        CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+        ownedCollectionOwner.ReplaceCharts(storageRowsOwner.BmsRows, storageRowsOwner.BmsonRows);
+        callbacks.CatalogOwnedCollectionOwner = storageRowsOwner;
         callbacks.CatalogOwnedCollectionOwner = ownedCollectionOwner;
-        storageRowsOwner.ReplaceBmsRows([.. callbacks.BmsFiles]);
-        storageRowsOwner.ReplaceBmsonRows([.. callbacks.BmsonSongs]);
+        storageRowsOwner.ReplaceCharts([.. callbacks.BmsFiles], null, replaceBmson: false);
+        storageRowsOwner.ReplaceCharts(null, [.. callbacks.BmsonCharts], replaceBms: false);
         callbacks.Lr2Synchronization = library.Lr2Synchronization;
-        var catalogMutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, dbGateway);
+        var catalogMutationOwner = new CatalogMutationOwner(storageRowsOwner, dbGateway);
         var catalogChartInfoOwner = new CatalogChartInfoOwner(
             _ => { },
             () => false,
@@ -784,13 +782,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             null,
             _ => { });
         callbacks.CatalogChartInfoOwner = catalogChartInfoOwner;
-        catalogChartInfoOwner.ConfigureWorkflow(
-            dbGateway,
-            catalogMutationOwner,
-            storageRowsOwner,
-            ownedCollectionOwner,
-            _ => { },
-            ownerEvent =>
+        catalogChartInfoOwner.ConfigureWorkflow(dbGateway, catalogMutationOwner, ownedCollectionOwner, _ => { }, ownerEvent =>
             {
                 callbacks.CatalogChartInfoEvents.Add(ownerEvent);
                 callbacks.EventOrder.Add(ownerEvent.Kind.ToString());
@@ -799,7 +791,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             new BmsLibraryMaintenanceService(),
             _ => { },
             () => new ResourceHealthIndexCurrentVersion(
-                new StorageRowsVersionSnapshot(0, 0),
+                new OwnedChartCollectionVersionSnapshot(0),
                 0,
                 0));
         return new LibraryFileScanPipelineOwner(
@@ -887,9 +879,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
     private sealed class RecordingLibraryFileScanPipelineCallbacks
     {
-        public IReadOnlyList<BMSFile> BmsFiles { get; set; } = [];
+        public IReadOnlyList<ChartFile> BmsFiles { get; set; } = [];
 
-        public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs { get; set; } = [];
+        public IReadOnlyList<ChartFile> BmsonCharts { get; set; } = [];
 
         public int EnumerationCompletedCount { get; private set; }
 
@@ -904,8 +896,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public List<string> EverythingMessages { get; } = [];
 
         public List<(int Total, int Processed)> ParseProgress { get; } = [];
-
-        public CatalogStorageRowsOwner CatalogStorageRowsOwner { get; set; } = null!;
 
         public CatalogOwnedCollectionOwner CatalogOwnedCollectionOwner { get; set; } = null!;
 

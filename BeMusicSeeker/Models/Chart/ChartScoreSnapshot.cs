@@ -78,16 +78,6 @@ internal sealed class ChartScoreSnapshot
             : new ChartScoreSnapshot(ClearType.NO_PLAY);
     }
 
-    internal static ChartScoreSnapshot FromBmsFile(BMSFile file)
-    {
-        if (file == null || string.IsNullOrWhiteSpace(file.path))
-        {
-            return MissingChart;
-        }
-
-        return FromBmsScore(file.bmsScore, file.path);
-    }
-
     internal static ChartScoreSnapshot FromBmsScore(BMSScore score, string chartPath)
     {
         if (score == null)

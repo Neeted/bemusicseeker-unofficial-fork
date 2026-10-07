@@ -479,7 +479,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         try
         {
             TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, new Settings());
-            library.BMSFiles = [];
+            library.BmsCharts = [];
             TestUiDispatcherHost.Invoke(() =>
             {
                 owner = MainWindowViewModelTestFactory.Create();
@@ -1272,7 +1272,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = []
+                BmsCharts = []
             };
             library.SearchTargets = [tempRootPath];
             var writerGuardReady = new TaskCompletionSource<bool>(

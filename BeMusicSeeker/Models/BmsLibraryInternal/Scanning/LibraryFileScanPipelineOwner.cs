@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
 
@@ -42,7 +41,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly BmsLibraryDbGateway dbGateway;
 
-    private readonly CatalogStorageRowsOwner catalogStorageRowsOwner;
+    private readonly CatalogOwnedCollectionOwner catalogOwnedCollectionOwner;
+
 
     private readonly IBmsLibraryDialogService dialogService;
 
@@ -111,7 +111,7 @@ internal sealed class LibraryFileScanPipelineOwner
     /// <param name="markCatalogPathConvergenceCompleted">Publishes the process-local readiness fact after authoritative path diff and canonical replacement complete.</param>
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
-        CatalogStorageRowsOwner catalogStorageRowsOwner,
+        CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
         IBmsLibraryDialogService dialogService,
         Func<bool> everythingScanLoggingEnabled,
         Action<BMSLibrary.LibraryInitializationProgressStage, string, int, int, string, bool> reportLibraryInitializationProgress,
@@ -139,7 +139,7 @@ internal sealed class LibraryFileScanPipelineOwner
         LibraryDirectoryPreflightService directoryPreflightService = null)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
-        this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
+        this.catalogOwnedCollectionOwner = catalogOwnedCollectionOwner ?? throw new ArgumentNullException(nameof(catalogOwnedCollectionOwner));
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         this.everythingScanLoggingEnabled = everythingScanLoggingEnabled ?? throw new ArgumentNullException(nameof(everythingScanLoggingEnabled));
         this.reportLibraryInitializationProgress = reportLibraryInitializationProgress ?? throw new ArgumentNullException(nameof(reportLibraryInitializationProgress));
@@ -702,7 +702,7 @@ internal sealed class LibraryFileScanPipelineOwner
             }
         }
 
-        List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
+        List<BeMusicSeeker.Models.ChartDetails> committedInlineChartInfoRows = [];
         IReadOnlyList<ChartFile> currentInstallDestinationCharts = installDestinationCleanupSnapshot.Charts;
         Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope();
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
@@ -720,8 +720,8 @@ internal sealed class LibraryFileScanPipelineOwner
                 .LoggingAndPropagate("Lr2FolderFileDiffPrepare");
         }
 
-        IReadOnlyList<BMSFile> currentBmsRows = catalogStorageRowsOwner.BmsRows;
-        IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonRows = catalogStorageRowsOwner.BmsonRows;
+        IReadOnlyList<ChartFile> currentBmsRows = catalogOwnedCollectionOwner.BmsRows;
+        IReadOnlyList<ChartFile> currentBmsonRows = catalogOwnedCollectionOwner.BmsonRows;
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             everythingNative,
@@ -916,7 +916,7 @@ internal sealed class LibraryFileScanPipelineOwner
     internal void ApplyCatalogProjection(
         SongTableFileCheckResult fileCheckResult,
         IEnumerable<ChartFile> currentInstallDestinationCharts,
-        CatalogStorageRowsSnapshot storageRowsSnapshot)
+        CatalogChartCollectionSnapshot storageRowsSnapshot)
     {
         if (storageRowsSnapshot == null)
         {
@@ -931,8 +931,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal static void ApplyCatalogProjection(
         SongTableFileCheckResult fileCheckResult,
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        IEnumerable<ChartFile> currentFiles,
+        IEnumerable<ChartFile> currentBmsonSongs,
         IEnumerable<ChartFile> currentInstallDestinationCharts)
     {
         if (fileCheckResult == null)
@@ -942,45 +942,48 @@ internal sealed class LibraryFileScanPipelineOwner
 
         var stopwatchApply = Stopwatch.StartNew();
         var deletedPathSet = new HashSet<string>(fileCheckResult.DeletedPaths, StringComparer.Ordinal);
-        foreach (BMSFile addedFile in fileCheckResult.AddedFiles)
+        foreach (ChartFile addedFile in fileCheckResult.AddedFiles)
         {
-            if (addedFile != null && !string.IsNullOrWhiteSpace(addedFile.path))
+            if (addedFile != null && !string.IsNullOrWhiteSpace(addedFile.Path))
             {
-                deletedPathSet.Add(addedFile.path);
+                deletedPathSet.Add(addedFile.Path);
             }
         }
 
+        var updatedCharts = (fileCheckResult.UpdatedCharts ?? [])
+            .Where(chart => chart?.Token != null).ToDictionary(chart => chart.Token);
         fileCheckResult.NextFiles.Clear();
         fileCheckResult.NextFiles.AddRange((currentFiles ?? [])
-            .Where(file => file != null && !deletedPathSet.Contains(file.path)));
+            .Where(file => file != null && !deletedPathSet.Contains(file.Path))
+            .Select(file => file.Token != null && updatedCharts.TryGetValue(file.Token, out ChartFile updated) ? updated : file));
         fileCheckResult.NextFiles.AddRange(fileCheckResult.AddedFiles);
 
         var removedBmsonPaths = new HashSet<string>(fileCheckResult.DeletedBmsonPaths, StringComparer.Ordinal);
-        foreach (LR2SongDBExtended.bmson_song addedSong in fileCheckResult.AddedBmsonSongs)
+        foreach (ChartFile addedSong in fileCheckResult.AddedBmsonSongs)
         {
-            if (addedSong != null && !string.IsNullOrWhiteSpace(addedSong.path))
+            if (addedSong != null && !string.IsNullOrWhiteSpace(addedSong.Path))
             {
-                removedBmsonPaths.Add(addedSong.path);
+                removedBmsonPaths.Add(addedSong.Path);
             }
         }
 
-        List<LR2SongDBExtended.bmson_song> nextBmsonSongs = [.. (currentBmsonSongs ?? [])
+        List<ChartFile> nextBmsonSongs = [.. (currentBmsonSongs ?? [])
             .Where(song => song != null
-                && !string.IsNullOrWhiteSpace(song.path)
-                && !removedBmsonPaths.Contains(song.path))];
+                && !string.IsNullOrWhiteSpace(song.Path)
+                && !removedBmsonPaths.Contains(song.Path))];
         nextBmsonSongs.AddRange(fileCheckResult.AddedBmsonSongs);
 
         var directoryKeys = new HashSet<string>(
             fileCheckResult.NextDirectoryResourceLookupCache?.Keys ?? [],
             StringComparer.OrdinalIgnoreCase);
         var stopwatchInstlDstCleanup = Stopwatch.StartNew();
-        var nextFileOwners = new HashSet<BMSFile>(fileCheckResult.NextFiles.Where(file => file != null));
+        var nextFileOwners = new HashSet<OwnedChartToken>(fileCheckResult.NextFiles.Where(file => file?.Token != null).Select(file => file.Token));
         var nextFilePaths = new HashSet<string>(
-            fileCheckResult.NextFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            fileCheckResult.NextFiles.Select(file => file?.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
-        var nextBmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(nextBmsonSongs.Where(song => song != null));
+        var nextBmsonOwners = new HashSet<OwnedChartToken>(nextBmsonSongs.Where(song => song?.Token != null).Select(song => song.Token));
         var nextBmsonPaths = new HashSet<string>(
-            nextBmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            nextBmsonSongs.Select(song => song?.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
         foreach (ChartFile chart in (currentInstallDestinationCharts ?? [])
             .Where(IsCurrentChartOwner)
@@ -1009,17 +1012,14 @@ internal sealed class LibraryFileScanPipelineOwner
 
         bool IsCurrentChartOwner(ChartFile chart)
         {
-            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-            if (chart?.Kind == ChartFileKind.Bms)
+            if (chart == null)
             {
-                return (bmsOwner != null && nextFileOwners.Contains(bmsOwner))
-                    || (!string.IsNullOrWhiteSpace(chart.Path) && nextFilePaths.Contains(chart.Path));
+                return false;
             }
 
-            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
-            return chart?.Kind == ChartFileKind.Bmson
-                && ((bmsonOwner != null && nextBmsonOwners.Contains(bmsonOwner))
-                    || (!string.IsNullOrWhiteSpace(chart?.Path) && nextBmsonPaths.Contains(chart.Path)));
+            return chart.Kind == ChartFileKind.Bms
+                ? (chart.Token != null && nextFileOwners.Contains(chart.Token)) || nextFilePaths.Contains(chart.Path)
+                : (chart.Token != null && nextBmsonOwners.Contains(chart.Token)) || nextBmsonPaths.Contains(chart.Path);
         }
     }
 

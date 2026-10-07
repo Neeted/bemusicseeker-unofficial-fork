@@ -1,9 +1,9 @@
 using System;
 using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -11,6 +11,85 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionRefreshTests
 {
+    [TestMethod]
+    public void Publisher_PreservesEarlierTitleDependencyAndFinalCurrentInOneBatch()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
+            ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
+            {
+                Token = new OwnedChartToken(),
+                Path = @"C:\Charts\before.bms",
+                Md5 = new string('a', 32),
+                Sha256 = new string('a', 64),
+                Title = "A",
+                RawTitle = "A",
+                Mode = 7
+            };
+            var entry = PackageChartEntry.FromChart(before);
+            var package = ChartPackage.FromChartEntries([entry]);
+            owner.ReplaceInstalledPackages([package]);
+            var publisher = new NormalLibraryRefreshPublisher();
+            var pending = new System.Collections.Generic.Queue<Action>();
+            var scheduler = new RegularChartListOwnerTestSupport.ActionQueueUiScheduler(pending.Enqueue);
+            var scheduled = new System.Collections.Generic.List<IUiScheduledOperation>();
+            try
+            {
+                foreach (ChartFile current in new[] { before with { Title = "Z", RawTitle = "Z" }, before with { Title = "Z", RawTitle = "Z", Path = @"C:\Charts\after.bms" } })
+                {
+                    var changes = new System.Collections.Generic.List<InstalledChartCurrentChange>();
+                    Action publish = owner.PrepareCommittedChartApplication([current], changes);
+                    scheduled.Add(scheduler.Schedule(() =>
+                    {
+                        publish();
+                        publisher.Publish(new NormalLibraryRefreshPublishRequest
+                        {
+                            Effects = LibraryChartRefreshEffects.SourceChanged,
+                            ChangedCharts = [current],
+                            InstalledChartChanges = changes
+                        });
+                    }));
+                }
+                while (pending.TryDequeue(out Action? publication))
+                {
+                    publication();
+                }
+                foreach (IUiScheduledOperation operation in scheduled)
+                {
+                    operation.Completion.GetAwaiter().GetResult();
+                }
+                NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(0);
+                Assert.AreEqual(1, batch.ChangedCharts.Count);
+                Assert.AreEqual(@"C:\Charts\after.bms", batch.ChangedCharts.Single().Path);
+                Assert.AreEqual(2, batch.InstalledChartChanges.Count);
+                Assert.AreEqual("A", batch.InstalledChartChanges[0].Before.Title);
+                Assert.AreEqual("Z", batch.InstalledChartChanges[0].Current.Title);
+                Assert.AreEqual("Z", batch.InstalledChartChanges[1].Before.Title);
+                Assert.AreSame(entry, batch.InstalledChartChanges[0].Entry);
+                Assert.AreSame(package, batch.InstalledChartChanges[1].Packages.Single());
+                Assert.AreEqual(BeMusicSeeker.ViewModels.MainViewRefreshAction.Refresh,
+                    BeMusicSeeker.ViewModels.MainViewRefreshDecisionService.BuildNotificationBatch(batch,
+                        BeMusicSeeker.ViewModels.MainViewUpdateMode.NewlyInstalledFolderSelected, package, false, "",
+                        BeMusicSeeker.ViewModels.ChartModeFilter.All, "Title", false));
+            }
+            finally
+            {
+                foreach (IUiScheduledOperation operation in scheduled)
+                {
+                    if (!operation.IsCompleted)
+                    {
+                        operation.Abort();
+                    }
+                }
+                pending.Clear();
+                owner.ClearInstalledPackages();
+            }
+        });
+    }
+
     [TestMethod]
     public void ApplyFileScanCatalogResidual_UpdatesInstallDestinationProjectionThroughTypedFacts()
     {
@@ -20,17 +99,14 @@ public sealed class OwnedChartCollectionRefreshTests
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
             File.WriteAllText(chartPath, "#PLAYER 1");
-            BMSFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
             ChartFile residualChart = ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(
-                    bmsFile,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false),
+                (bmsFile),
                 Path.Combine(Path.GetDirectoryName(chartPath)!, "Overlay"),
                 string.Empty,
                 string.Empty,
@@ -45,9 +121,9 @@ public sealed class OwnedChartCollectionRefreshTests
             NormalLibraryRefreshNotificationBatch batch =
                 library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
-            Assert.IsFalse(batch.NotifiesStorageRows);
-            Assert.IsFalse(batch.NotifiesBmsFiles);
-            Assert.IsFalse(batch.NotifiesBmsonSongs);
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.AreEqual(0, batch.DeletedTokens.Count);
+            Assert.AreSame(bmsFile.Token, batch.ChangedCharts.Single().Token);
         });
     }
 
@@ -60,7 +136,7 @@ public sealed class OwnedChartCollectionRefreshTests
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual-empty.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
             File.WriteAllText(chartPath, "#PLAYER 1");
-            BMSFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
 
@@ -77,7 +153,7 @@ public sealed class OwnedChartCollectionRefreshTests
             LibraryResourceIndexSnapshot beforeResourceIndex = resourceIndexOwner.CaptureSnapshot();
             ResourceHealthIndexSnapshot beforeResourceHealth =
                 library.TryGetCurrentResourceHealthIndexSnapshotForView();
-            int beforeOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+            int beforeOwnedCollectionVersion = library.OwnedCollectionVersion;
             int beforeRefreshVersion = library.NormalLibraryRefreshNotificationVersion;
             int beforeDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
 
@@ -100,7 +176,7 @@ public sealed class OwnedChartCollectionRefreshTests
             Assert.AreSame(beforeResourceIndex.Index, afterResourceIndex.Index);
             Assert.AreSame(beforeResourceIndex.DirectoryLookupCache, afterResourceIndex.DirectoryLookupCache);
             Assert.AreSame(beforeResourceHealth, library.TryGetCurrentResourceHealthIndexSnapshotForView());
-            Assert.AreEqual(beforeOwnedCollectionVersion, library.OwnedChartCollectionVersion);
+            Assert.AreEqual(beforeOwnedCollectionVersion, library.OwnedCollectionVersion);
             Assert.AreEqual(beforeRefreshVersion, library.NormalLibraryRefreshNotificationVersion);
             Assert.AreEqual(beforeDuplicateInvalidationVersion, library.DuplicateChartGroupsInvalidationVersion);
         });

@@ -38,6 +38,10 @@ public class LR2SongDB : SQLiteConnectionEx
 
         protected int? _karinotes;
 
+        /// <summary>DB書込み境界で別表へ渡すSHA-256です。song表の保存列ではなく、共通値から行を作った一回の処理だけで使用します。</summary>
+        [Ignore]
+        internal string sha256 { get; set; }
+
         public virtual string hash
         {
             get
@@ -151,6 +155,10 @@ public class LR2SongDB : SQLiteConnectionEx
                 }
             }
         }
+
+        /// <summary>保存されたタグのnullを、表示用の空文字へ変換せずDB境界へ渡します。</summary>
+        [Ignore]
+        internal string StoredTag => _tag;
 
         [PrimaryKey]
         public virtual string path

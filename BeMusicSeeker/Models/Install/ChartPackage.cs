@@ -10,9 +10,9 @@ namespace BeMusicSeeker.Models;
 
 public class ChartPackage : LR2SongDBExtended.install
 {
-    private readonly List<PackageChartEntry> chartEntries;
+    private List<PackageChartEntry> chartEntries;
 
-    private readonly bool hasExplicitChartFiles;
+    private bool hasExplicitChartFiles;
 
     private readonly object installEstimationSnapshotLock = new();
 
@@ -21,6 +21,16 @@ public class ChartPackage : LR2SongDBExtended.install
     private PackageInstallSurfaceSnapshot packageInstallSurfaceSnapshot;
 
     internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
+
+    /// <summary>確定後、受付権とモデル排他を解放してからパスとヘッダーを公開します。</summary>
+    internal void PublishPath()
+    {
+        RaisePropertyChanged(nameof(path));
+        PublishDisplayTitle();
+    }
+
+    /// <summary>代表entryの確定後にヘッダーだけを公開します。所属集合通知は発行しません。</summary>
+    internal void PublishDisplayTitle() => RaisePropertyChanged(nameof(DisplayTitle));
 
     public string DisplayTitle
     {
@@ -37,6 +47,9 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
+    /// <summary>具体化済みの所属列が変わった時に、派生参照索引へだけ通知します。</summary>
+    internal event Action<ChartPackage> ChartEntriesChanged;
+
     internal List<PackageChartEntry> ChartEntries
     {
         get
@@ -45,7 +58,12 @@ public class ChartPackage : LR2SongDBExtended.install
             {
                 return [.. chartEntries ?? []];
             }
-            return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartEntries;
+            PackageChartDiscoverySnapshot snapshot = GetOrBuildPackageChartDiscoverySnapshot(out bool cacheHit);
+            if (!cacheHit)
+            {
+                ChartEntriesChanged?.Invoke(this);
+            }
+            return snapshot.ChartEntries;
         }
     }
 
@@ -91,23 +109,45 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
+    /// <summary>確定した所属列を保持します。残存entryを複製せず、以後のパス変更で再探索しません。</summary>
     internal void ReplaceChartEntries(IEnumerable<PackageChartEntry> nextEntries)
     {
         List<PackageChartEntry> normalizedEntries = [.. NormalizeChartEntries(nextEntries)];
-        if (hasExplicitChartFiles)
+        lock (installEstimationSnapshotLock)
         {
-            chartEntries.Clear();
-            chartEntries.AddRange(normalizedEntries);
-            return;
+            chartEntries = normalizedEntries;
+            hasExplicitChartFiles = true;
         }
-        GetOrBuildPackageChartDiscoverySnapshot(out _).ReplaceChartEntries(normalizedEntries);
+        ChartEntriesChanged?.Invoke(this);
+    }
+
+    /// <summary>既に取得した所属列だけを捕捉します。未取得のファイル探索や解析を開始しません。</summary>
+    internal IReadOnlyList<PackageChartEntry> CaptureMaterializedChartEntries()
+    {
+        lock (installEstimationSnapshotLock)
+        {
+            return hasExplicitChartFiles ? [.. chartEntries ?? []] : packageChartDiscoverySnapshot?.ChartEntries ?? [];
+        }
+    }
+
+    /// <summary>導入済み所属への加入時に、取得済み列を確定列へ移します。パス変更後も再探索へ戻しません。</summary>
+    internal void RetainMaterializedChartEntries()
+    {
+        lock (installEstimationSnapshotLock)
+        {
+            if (!hasExplicitChartFiles && packageChartDiscoverySnapshot != null)
+            {
+                chartEntries = packageChartDiscoverySnapshot.ChartEntries;
+                hasExplicitChartFiles = true;
+            }
+        }
     }
 
     private static IEnumerable<PackageChartEntry> NormalizeChartEntries(IEnumerable<PackageChartEntry> entries)
     {
         foreach (PackageChartEntry entry in entries ?? [])
         {
-            PackageChartEntry snapshot = entry?.ToChartEntrySnapshot();
+            PackageChartEntry snapshot = entry;
             if (snapshot?.Chart == null)
             {
                 continue;

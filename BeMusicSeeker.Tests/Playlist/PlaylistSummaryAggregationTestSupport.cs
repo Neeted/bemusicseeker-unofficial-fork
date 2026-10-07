@@ -36,29 +36,17 @@ internal static class PlaylistSummaryAggregationTestSupport
         return entry;
     }
 
-    internal static BMSFile CreateLibraryFile(string path, string md5, string sha256)
+    internal static ChartFile CreateLibraryFile(string path, string md5, string sha256)
     {
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = path
+            Path = path
         };
-        file.SetHash(md5);
-        file.SetSha256(sha256);
+        file = file with { Md5 = md5 };
+        file = file with { Sha256 = sha256 };
         return file;
     }
 
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            sha256 = value;
-        }
-    }
 
     internal sealed class TestablePlaylistEntry : BMSTableEntry
     {
@@ -73,12 +61,12 @@ internal static class PlaylistSummaryAggregationTestSupport
         }
     }
 
-    internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
+    internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<ChartFile> files)
     {
         OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, files);
     }
 
-    internal static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    internal static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<ChartFile> songs)
     {
         OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, songs);
     }

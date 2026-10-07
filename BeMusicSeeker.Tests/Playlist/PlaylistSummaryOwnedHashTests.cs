@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.PlaylistSummaryAggregationTestSupport;
 
@@ -37,12 +37,11 @@ public sealed class PlaylistSummaryOwnedHashTests
             ]);
             SetLibraryBmsonSongsWithoutNotification(library,
             [
-                new LR2SongDBExtended.bmson_song
-                {
-                    path = @"C:\Songs\bmson\chart.bmson",
-                    folder = @"C:\Songs\bmson",
-                    md5 = "cccccccccccccccccccccccccccccccc",
-                    sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                ChartTestValues.Empty(ChartFileKind.Bmson) with {
+                    Path = @"C:\Songs\bmson\chart.bmson",
+                    Folder = @"C:\Songs\bmson",
+                    Md5 = "cccccccccccccccccccccccccccccccc",
+                    Sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 }
             ]);
 

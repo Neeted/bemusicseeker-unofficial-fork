@@ -48,7 +48,7 @@
             <MultiBinding Converter="{StaticResource externalPlayerHostVisibilitiesConverter}" Mode="OneWay">
               <Binding Path="OverlayVisibility" ElementName="playbackPanelView" />
               <Binding Path="IsEnabled" ElementName="externalPlayerHost" />
-              <Binding Path="NowPlayingBmsFile" />
+              <Binding Path="HasNowPlayingChart" />
               <Binding RelativeSource="{RelativeSource Self}" />
             </MultiBinding>
           </UIElement.Visibility>

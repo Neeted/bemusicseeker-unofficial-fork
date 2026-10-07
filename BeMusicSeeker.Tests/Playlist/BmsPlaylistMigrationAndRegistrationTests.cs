@@ -1593,32 +1593,32 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string missingPath = Path.Combine(tempDirectory, "missing.bms");
             const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string missingMd5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = chartPath,
-                level = 3,
-                date = 123456,
-                adddate = 98765,
-                tag = "keep-tag"
+                Path = chartPath,
+                Level = 3,
+                Date = 123456,
+                AddDate = 98765,
+                Tag = "keep-tag"
             };
-            file.SetHash(md5);
-            file.SetTitleForTest("KeepTitle");
-            var missingFile = new TestableBmsFile
+            file = file with { Md5 = md5 };
+            file = file with { Title = "KeepTitle", RawTitle = "KeepTitle" };
+            ChartFile missingFile = ChartTestValues.Empty() with
             {
-                path = missingPath,
-                level = 1
+                Path = missingPath,
+                Level = 1
             };
-            missingFile.SetHash(missingMd5);
-            missingFile.SetTitleForTest("Missing");
+            missingFile = missingFile with { Md5 = missingMd5 };
+            missingFile = missingFile with { Title = "Missing", RawTitle = "Missing" };
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
-                setup.InsertOrReplace(file, typeof(LR2SongDB.song));
+                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 setup.Execute("DELETE FROM song WHERE path = ?;", missingPath);
             }
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = [file, missingFile],
-                BmsonSongs = []
+                BmsCharts = [file, missingFile],
+                BmsonCharts = []
             };
             var table = new BMSTable
             {
@@ -2199,16 +2199,4 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetTitleForTest(string value)
-        {
-            Title = value;
-        }
-    }
 }

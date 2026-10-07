@@ -199,6 +199,7 @@ internal sealed partial class PackageLifecycleOwner
             throw new InvalidOperationException("Package collection factory returned null.");
         }
         pendingPackagesView = new ReadOnlyObservableCollection<ChartPackage>(pendingPackages);
+        installedPackages.CollectionChanged += OnInstalledPackageCollectionChanged;
         stateMutationApplier = new PackageStateMutationApplier(
             this.dbGateway,
             () => pendingPackages,
@@ -665,7 +666,10 @@ internal sealed partial class PackageLifecycleOwner
         {
             return false;
         }
+        installedPackages.CollectionChanged -= OnInstalledPackageCollectionChanged;
+        ReconcileInstalledPackageMembership(value);
         installedPackages = value;
+        installedPackages.CollectionChanged += OnInstalledPackageCollectionChanged;
         return true;
     }
 

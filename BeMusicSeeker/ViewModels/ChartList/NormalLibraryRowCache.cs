@@ -1,11 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -18,436 +14,137 @@ internal sealed class LibraryRowCacheBuildStats
     internal int PrunedCount { get; set; }
 }
 
+/// <summary>所持tokenごとに表示行を保持し、変更された項目だけを更新します。</summary>
 internal sealed class NormalLibraryRowCache
 {
-    private readonly Dictionary<BMSFile, LibraryChartRow> rowsByFile = new(BmsFileReferenceComparer.Instance);
+    private readonly Dictionary<OwnedChartToken, LibraryChartRow> rowsByToken = [];
+    private readonly Dictionary<string, HashSet<OwnedChartToken>> tokensByMd5 = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<OwnedChartToken>> tokensBySha256 = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<OwnedChartToken, (string Md5, string Sha256)> scoreKeysByToken = [];
 
-    private readonly Dictionary<string, LibraryChartRow> rowsByBmsonPath = new(StringComparer.OrdinalIgnoreCase);
-
-    private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> rowsByBmsonSong = new(BmsonSongReferenceComparer.Instance);
-
-    private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonSortKeysByPath = new(StringComparer.OrdinalIgnoreCase);
-
-    internal NormalLibraryRowCache()
-    {
-    }
-
-    internal int Count => rowsByFile.Count + rowsByBmsonPath.Count;
-
-    internal List<LibraryChartRow> SnapshotRows()
-    {
-        return
-        [
-            .. rowsByFile.Values.Where(row => row != null),
-            .. rowsByBmsonPath.Values.Where(row => row != null)
-        ];
-    }
+    internal int Count => rowsByToken.Count;
+    internal List<LibraryChartRow> SnapshotRows() => [.. rowsByToken.Values];
 
     internal LibraryChartRow GetOrCreate(ChartFile chart, LibraryRowCacheBuildStats stats)
     {
-        BMSFile file = chart?.GetBmsStorageOwner();
-        if (file != null)
-        {
-            if (rowsByFile.TryGetValue(file, out LibraryChartRow row))
-            {
-                if (stats != null)
-                {
-                    stats.HitCount++;
-                }
-                row.UpdateSourceProjection(chart);
-                return row;
-            }
-            row = LibraryChartRow.FromChartFile(chart);
-            if (row == null)
-            {
-                return null;
-            }
-            rowsByFile[file] = row;
-            if (stats != null)
-            {
-                stats.MissCount++;
-            }
-            return row;
-        }
-
-        LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
-        if (bmsonSong == null)
+        if (chart?.Token == null)
         {
             return null;
         }
-        LibraryChartRow bmsonRow = null;
-        if (!rowsByBmsonSong.TryGetValue(bmsonSong, out bmsonRow)
-            && !string.IsNullOrWhiteSpace(bmsonSong.path))
+        if (rowsByToken.TryGetValue(chart.Token, out LibraryChartRow row))
         {
-            rowsByBmsonPath.TryGetValue(bmsonSong.path, out bmsonRow);
+            if (stats != null)
+            {
+                stats.HitCount++;
+            }
+            row.UpdateSourceProjection(chart);
+            UpdateScoreKeys(chart);
+            return row;
         }
-        if (bmsonRow != null)
+        row = LibraryChartRow.FromChartFile(chart);
+        rowsByToken.Add(chart.Token, row);
+        UpdateScoreKeys(chart);
+        if (stats != null)
         {
-            bmsonRow.UpdateSourceProjection(chart);
-            return bmsonRow;
+            stats.MissCount++;
         }
-
-        bmsonRow = LibraryChartRow.FromChartFile(chart);
-        return bmsonRow;
+        return row;
     }
 
-    internal BmsonLibraryRowCacheSyncResult SyncBmsonRows(
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+    /// <summary>通知で捕捉した変更値と削除tokenだけを既存の表示行へ反映します。</summary>
+    internal void ApplyChanges(IEnumerable<ChartFile> changedCharts, IEnumerable<OwnedChartToken> deletedTokens,
         Action<LibraryChartRow> configureRow)
     {
-        List<LR2SongDBExtended.bmson_song> snapshot =
-        [
-            .. (bmsonSongs ?? [])
-                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-        ];
-        var nextPaths = new HashSet<string>(snapshot.Select(song => song.path), StringComparer.OrdinalIgnoreCase);
-        bool membershipChanged = rowsByBmsonPath.Count != nextPaths.Count || rowsByBmsonPath.Keys.Any(path => !nextPaths.Contains(path));
-        bool sourceReferenceChanged = false;
-        bool sortKeyChanged = membershipChanged;
-        var nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
-        var nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
-        var nextSortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
-        bool sourceIdentityChanged = membershipChanged;
-        foreach (LR2SongDBExtended.bmson_song song in snapshot)
+        foreach (OwnedChartToken token in deletedTokens ?? [])
         {
-            bool foundBySameReference = rowsByBmsonSong.TryGetValue(song, out LibraryChartRow row);
-            if (!foundBySameReference)
+            if (token != null && rowsByToken.Remove(token))
             {
-                rowsByBmsonPath.TryGetValue(song.path, out row);
-                if (row != null)
-                {
-                    sourceReferenceChanged = true;
-                }
+                RemoveScoreKeys(token);
             }
-            if (row == null)
+        }
+        foreach (ChartFile chart in changedCharts ?? [])
+        {
+            if (chart?.Token != null && rowsByToken.TryGetValue(chart.Token, out LibraryChartRow row))
             {
-                row = LibraryChartRow.FromBmsonSong(song);
+                row.UpdateSourceProjection(chart);
+                UpdateScoreKeys(chart);
                 configureRow?.Invoke(row);
-                membershipChanged = true;
-                sortKeyChanged = true;
-            }
-            else
-            {
-                if (!row.ReferencesBmsonStorageOwner(song))
-                {
-                    sourceReferenceChanged = true;
-                }
-                bool hasPreviousSortKeys = bmsonSortKeysByPath.TryGetValue(song.path, out BmsonLibrarySortKeySnapshot previousSortKeys);
-                row.UpdateFromBmsonSong(song);
-                configureRow?.Invoke(row);
-                var nextSortKeys = BmsonLibrarySortKeySnapshot.Capture(song);
-                if (!hasPreviousSortKeys || previousSortKeys.HasChanged(nextSortKeys))
-                {
-                    sortKeyChanged = true;
-                    sourceIdentityChanged |= !hasPreviousSortKeys || previousSortKeys.HasSourceIdentityChanged(nextSortKeys);
-                }
-            }
-            if (row != null)
-            {
-                nextByPath[song.path] = row;
-                nextBySong[song] = row;
-                nextSortKeysByPath[song.path] = BmsonLibrarySortKeySnapshot.Capture(song);
+                row.RefreshDisplayForDataDependency(MainViewDataDependency.SourceMembership);
             }
         }
-        rowsByBmsonPath.Clear();
-        foreach (KeyValuePair<string, LibraryChartRow> item in nextByPath)
-        {
-            rowsByBmsonPath[item.Key] = item.Value;
-        }
-        rowsByBmsonSong.Clear();
-        foreach (KeyValuePair<LR2SongDBExtended.bmson_song, LibraryChartRow> item in nextBySong)
-        {
-            rowsByBmsonSong[item.Key] = item.Value;
-        }
-        bmsonSortKeysByPath.Clear();
-        foreach (KeyValuePair<string, BmsonLibrarySortKeySnapshot> item in nextSortKeysByPath)
-        {
-            bmsonSortKeysByPath[item.Key] = item.Value;
-        }
-        return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged, sourceIdentityChanged, sourceReferenceChanged);
     }
 
-    internal int PruneBmsFiles(IEnumerable<BMSFile> currentFiles)
+    /// <summary>変更したスコア識別子に対応する、作成済み表示行だけを返します。</summary>
+    internal IReadOnlyList<LibraryChartRow> GetRowsForScoreKeys(IEnumerable<string> md5Keys, IEnumerable<string> sha256Keys)
     {
-        if (rowsByFile.Count == 0)
-        {
-            return 0;
-        }
-        var current = new HashSet<BMSFile>(
-            (currentFiles ?? []).Where(file => file != null),
-            BmsFileReferenceComparer.Instance);
-        List<BMSFile> removed = [.. rowsByFile.Keys.Where(file => !current.Contains(file))];
-        foreach (BMSFile file in removed)
-        {
-            rowsByFile.Remove(file);
-        }
-        return removed.Count;
-    }
-
-    internal int RemoveBmsFiles(IEnumerable<BMSFile> removedFiles)
-    {
-        if (rowsByFile.Count == 0)
-        {
-            return 0;
-        }
-        var removed = new HashSet<BMSFile>(
-            (removedFiles ?? []).Where(file => file != null),
-            BmsFileReferenceComparer.Instance);
-        if (removed.Count == 0)
-        {
-            return 0;
-        }
-
-        var removedPaths = new HashSet<string>(
-            removed.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        List<BMSFile> removedKeys = [.. rowsByFile.Keys.Where(file =>
-            removed.Contains(file)
-            || (!string.IsNullOrWhiteSpace(file?.path) && removedPaths.Contains(file.path)))];
-        int count = 0;
-        foreach (BMSFile file in removedKeys)
-        {
-            if (rowsByFile.Remove(file))
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    internal BmsonLibraryRowCacheSyncResult RemoveBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
-    {
-        if (rowsByBmsonPath.Count == 0 && rowsByBmsonSong.Count == 0 && bmsonSortKeysByPath.Count == 0)
-        {
-            return default;
-        }
-
-        var removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(
-            (removedSongs ?? []).Where(song => song != null),
-            BmsonSongReferenceComparer.Instance);
-        if (removedSongRefs.Count == 0)
-        {
-            return default;
-        }
-
-        var removedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.bmson_song song in removedSongRefs)
-        {
-            if (!string.IsNullOrWhiteSpace(song.path))
-            {
-                removedPaths.Add(song.path);
-            }
-            if (rowsByBmsonSong.TryGetValue(song, out LibraryChartRow row))
-            {
-                string rowPath = row?.GetBmsonStorageOwner()?.path;
-                if (!string.IsNullOrWhiteSpace(rowPath))
-                {
-                    removedPaths.Add(rowPath);
-                }
-            }
-        }
-
-        int removedCount = 0;
-        foreach (string path in removedPaths)
-        {
-            if (rowsByBmsonPath.Remove(path))
-            {
-                removedCount++;
-            }
-            bmsonSortKeysByPath.Remove(path);
-        }
-
-        List<LR2SongDBExtended.bmson_song> removedKeys = [.. rowsByBmsonSong.Keys.Where(song =>
-            removedSongRefs.Contains(song)
-            || (!string.IsNullOrWhiteSpace(song?.path) && removedPaths.Contains(song.path)))];
-        foreach (LR2SongDBExtended.bmson_song song in removedKeys)
-        {
-            rowsByBmsonSong.Remove(song);
-        }
-
-        bool changed = removedCount > 0 || removedKeys.Count > 0;
-        return new BmsonLibraryRowCacheSyncResult(
-            membershipChanged: changed,
-            sortKeyChanged: changed,
-            sourceIdentityChanged: changed);
+        HashSet<OwnedChartToken> tokens = [];
+        CaptureTokens(tokensByMd5, md5Keys, tokens);
+        CaptureTokens(tokensBySha256, sha256Keys, tokens);
+        return [.. tokens.Select(token => rowsByToken[token])];
     }
 
     internal void Clear()
     {
-        rowsByFile.Clear();
-        rowsByBmsonPath.Clear();
-        rowsByBmsonSong.Clear();
-        bmsonSortKeysByPath.Clear();
+        rowsByToken.Clear();
+        tokensByMd5.Clear();
+        tokensBySha256.Clear();
+        scoreKeysByToken.Clear();
     }
 
-    internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
+    private void UpdateScoreKeys(ChartFile chart)
     {
-        if (row == null)
+        if (scoreKeysByToken.TryGetValue(chart.Token, out (string Md5, string Sha256) previous)
+            && string.Equals(previous.Md5, chart.Md5, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(previous.Sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase))
         {
-            return nextSong != null;
+            return;
         }
-        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row.GetBmsonStorageOwner());
-        row.UpdateFromBmsonSong(nextSong);
-        return previousSortKeys.HasChanged(BmsonLibrarySortKeySnapshot.Capture(nextSong));
+        RemoveScoreKeys(chart.Token);
+        scoreKeysByToken[chart.Token] = (chart.Md5, chart.Sha256);
+        AddKey(tokensByMd5, chart.Md5, chart.Token);
+        AddKey(tokensBySha256, chart.Sha256, chart.Token);
     }
 
-    internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
+    private void RemoveScoreKeys(OwnedChartToken token)
     {
-        LR2SongDBExtended.bmson_song bmsonSong = row?.GetBmsonStorageOwner();
-        if (bmsonSong == null || mutateCurrentSong == null)
+        if (scoreKeysByToken.Remove(token, out (string Md5, string Sha256) keys))
         {
-            return false;
-        }
-        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(bmsonSong);
-        mutateCurrentSong(bmsonSong);
-        return previousSortKeys.HasChanged(BmsonLibrarySortKeySnapshot.Capture(bmsonSong));
-    }
-
-    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
-    {
-        if (row == null)
-        {
-            return nextSong != null;
-        }
-        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row.GetBmsonStorageOwner());
-        row.UpdateFromBmsonSong(nextSong);
-        return previousSortKeys.HasSourceIdentityChanged(BmsonLibrarySortKeySnapshot.Capture(nextSong));
-    }
-
-    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
-    {
-        LR2SongDBExtended.bmson_song bmsonSong = row?.GetBmsonStorageOwner();
-        if (bmsonSong == null || mutateCurrentSong == null)
-        {
-            return false;
-        }
-        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(bmsonSong);
-        mutateCurrentSong(bmsonSong);
-        return previousSortKeys.HasSourceIdentityChanged(BmsonLibrarySortKeySnapshot.Capture(bmsonSong));
-    }
-
-    internal static IReadOnlyList<string> GetBmsonLibrarySortKeySnapshotColumnNamesForTest()
-    {
-        return BmsonLibrarySortKeySnapshot.ColumnNames;
-    }
-
-    internal static IReadOnlyList<string> GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest()
-    {
-        return BmsonLibrarySortKeySnapshot.SourceIdentityColumnNames;
-    }
-
-    private readonly struct BmsonLibrarySortKeySnapshot
-    {
-        internal static readonly IReadOnlyList<string> ColumnNames =
-        [
-            nameof(LibraryChartRow.Title),
-            nameof(LibraryChartRow.Artist),
-            nameof(LibraryChartRow.genre),
-            nameof(LibraryChartRow.level),
-            nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.Folder),
-            nameof(LibraryChartRow.path),
-            nameof(LibraryChartRow.tag),
-            nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256)
-        ];
-
-        internal static readonly IReadOnlyList<string> SourceIdentityColumnNames =
-        [
-            nameof(LibraryChartRow.Title),
-            nameof(LibraryChartRow.Artist),
-            nameof(LibraryChartRow.genre),
-            nameof(LibraryChartRow.level),
-            nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.Folder),
-            nameof(LibraryChartRow.path),
-            nameof(LibraryChartRow.tag),
-            nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256)
-        ];
-
-        private readonly string title;
-        private readonly string artist;
-        private readonly string genre;
-        private readonly string levelText;
-        private readonly double? levelValue;
-        private readonly int? mode;
-        private readonly string folder;
-        private readonly string path;
-        private readonly string tag;
-        private readonly string hash;
-        private readonly string sha256;
-
-        private BmsonLibrarySortKeySnapshot(LR2SongDBExtended.bmson_song song)
-        {
-            title = song == null ? string.Empty : BmsonSongParser.ComposeDisplayTitle(song);
-            artist = song?.artist ?? string.Empty;
-            genre = song?.genre ?? string.Empty;
-            levelText = song?.level.HasValue == true ? song.level.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
-            levelValue = song?.level;
-            mode = song == null ? null : BmsonSongParser.ResolvePlaylistMode(song.mode_hint);
-            folder = song == null ? string.Empty : BmsonSongParser.ComposeDisplayFolder(song);
-            path = song?.path ?? string.Empty;
-            tag = string.Empty;
-            hash = song?.md5 ?? string.Empty;
-            sha256 = song?.sha256 ?? string.Empty;
-        }
-
-        internal static BmsonLibrarySortKeySnapshot Capture(LR2SongDBExtended.bmson_song song)
-        {
-            return new BmsonLibrarySortKeySnapshot(song);
-        }
-
-        internal bool HasChanged(BmsonLibrarySortKeySnapshot next)
-        {
-            return HasSourceIdentityChanged(next);
-        }
-
-        internal bool HasSourceIdentityChanged(BmsonLibrarySortKeySnapshot next)
-        {
-            return !string.Equals(title, next.title, StringComparison.Ordinal)
-                || !string.Equals(artist, next.artist, StringComparison.Ordinal)
-                || !string.Equals(genre, next.genre, StringComparison.Ordinal)
-                || !string.Equals(levelText, next.levelText, StringComparison.Ordinal)
-                || !object.Equals(levelValue, next.levelValue)
-                || mode != next.mode
-                || !string.Equals(folder, next.folder, StringComparison.Ordinal)
-                || !string.Equals(path, next.path, StringComparison.Ordinal)
-                || !string.Equals(tag, next.tag, StringComparison.Ordinal)
-                || !string.Equals(hash, next.hash, StringComparison.Ordinal)
-                || !string.Equals(sha256, next.sha256, StringComparison.Ordinal);
-        }
-
-    }
-
-    private sealed class BmsFileReferenceComparer : IEqualityComparer<BMSFile>
-    {
-        internal static readonly BmsFileReferenceComparer Instance = new();
-
-        public bool Equals(BMSFile x, BMSFile y)
-        {
-            return ReferenceEquals(x, y);
-        }
-
-        public int GetHashCode(BMSFile obj)
-        {
-            return RuntimeHelpers.GetHashCode(obj);
+            RemoveKey(tokensByMd5, keys.Md5, token);
+            RemoveKey(tokensBySha256, keys.Sha256, token);
         }
     }
 
-    private sealed class BmsonSongReferenceComparer : IEqualityComparer<LR2SongDBExtended.bmson_song>
+    private static void AddKey(Dictionary<string, HashSet<OwnedChartToken>> index, string key, OwnedChartToken token)
     {
-        internal static readonly BmsonSongReferenceComparer Instance = new();
-
-        public bool Equals(LR2SongDBExtended.bmson_song x, LR2SongDBExtended.bmson_song y)
+        if (string.IsNullOrWhiteSpace(key))
         {
-            return ReferenceEquals(x, y);
+            return;
         }
-
-        public int GetHashCode(LR2SongDBExtended.bmson_song obj)
+        if (!index.TryGetValue(key, out HashSet<OwnedChartToken> tokens))
         {
-            return RuntimeHelpers.GetHashCode(obj);
+            index.Add(key, tokens = []);
+        }
+        tokens.Add(token);
+    }
+
+    private static void RemoveKey(Dictionary<string, HashSet<OwnedChartToken>> index, string key, OwnedChartToken token)
+    {
+        if (!string.IsNullOrWhiteSpace(key) && index.TryGetValue(key, out HashSet<OwnedChartToken> tokens)
+            && tokens.Remove(token) && tokens.Count == 0)
+        {
+            index.Remove(key);
+        }
+    }
+
+    private static void CaptureTokens(Dictionary<string, HashSet<OwnedChartToken>> index,
+        IEnumerable<string> keys, HashSet<OwnedChartToken> target)
+    {
+        foreach (string key in keys ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(key) && index.TryGetValue(key, out HashSet<OwnedChartToken> tokens))
+            {
+                target.UnionWith(tokens);
+            }
         }
     }
 }

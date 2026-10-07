@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -38,6 +37,9 @@ internal sealed class MainChartRowProjectionOwner
             return;
         }
         row.SetChartTransientStateProvider(GetTransientState);
+        row.SetScoreProjectionProvider(
+            chart => library?.ResolveChartScoreSnapshot(chart.Kind, chart.Path, chart.Md5, chart.Sha256),
+            () => ScoreSnapshotVersion);
         row.SetPlaybackStatusProvider(playbackStatusProvider);
         row.SetChartInfoProjectionProvider(chart => ResolveChartInfo(library, chart));
         row.SetResourceHealthProjectionProvider(candidate => ResolveResourceHealth(library, candidate));
@@ -126,61 +128,18 @@ internal sealed class MainChartRowProjectionOwner
     }
 
     internal List<ChartListSourceRow> BuildNormalSourceRows(
-        BMSLibrary library,
-        OwnedChartStorageOwnerView source,
-        bool includeBmsonRows)
+        BMSLibrary library, OwnedChartCollectionView source, bool includeBmsonRows)
     {
-        int expectedCount = source == null
-            ? 0
-            : source.BmsFiles.Count + (includeBmsonRows ? source.BmsonSongs.Count : 0);
-        List<ChartListSourceRow> rows = expectedCount > 0 ? new List<ChartListSourceRow>(expectedCount) : [];
-        foreach (BMSFile file in source?.BmsFiles ?? [])
+        IEnumerable<ChartFile> charts = source?.BmsCharts ?? [];
+        if (includeBmsonRows)
         {
-            if (file == null)
-            {
-                continue;
-            }
-            var row = ChartListSourceRow.FromBmsStorageOwner(
-                file,
-                candidate => ResolveResourceHealth(library, candidate),
-                candidate => ResolvePlaylistReferenceDisplay(library, candidate),
-                GetTransientState,
-                chart => ResolveChartInfo(library, chart),
-                candidate => ResolveChartInfo(library, candidate),
-                () => ChartInfoVersion,
-                () => ScoreSnapshotVersion,
-                candidate => ResolveScoreSnapshot(library, candidate));
-            if (row != null)
-            {
-                rows.Add(row);
-            }
+            charts = charts.Concat(source?.BmsonCharts ?? []);
         }
-        if (!includeBmsonRows)
-        {
-            return rows;
-        }
-        foreach (LR2SongDBExtended.bmson_song song in source?.BmsonSongs ?? [])
-        {
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
-            {
-                continue;
-            }
-            var row = ChartListSourceRow.FromBmsonStorageOwner(
-                song,
-                candidate => ResolveResourceHealth(library, candidate),
-                candidate => ResolvePlaylistReferenceDisplay(library, candidate),
-                GetTransientState,
-                chart => ResolveChartInfo(library, chart),
-                candidate => ResolveChartInfo(library, candidate),
-                () => ChartInfoVersion,
-                () => ScoreSnapshotVersion,
-                candidate => ResolveScoreSnapshot(library, candidate));
-            if (row != null)
-            {
-                rows.Add(row);
-            }
-        }
-        return rows;
+        return ChartListSourceRow.BuildStandardLibraryRows(charts, ChartListSourceProjectionMode.OwnerBacked,
+            candidate => ResolveResourceHealth(library, candidate),
+            candidate => ResolvePlaylistReferenceDisplay(library, candidate), GetTransientState,
+            chart => ResolveChartInfo(library, chart), candidate => ResolveChartInfo(library, candidate),
+            () => ChartInfoVersion, () => ScoreSnapshotVersion, candidate => ResolveScoreSnapshot(library, candidate));
     }
 
     internal PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(
@@ -188,7 +147,7 @@ internal sealed class MainChartRowProjectionOwner
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore scoreSnapshot,
-        LR2SongDBExtended.chart_info entryChartInfo,
+        BeMusicSeeker.Models.ChartDetails entryChartInfo,
         LibraryChartRef resolvedChartRef)
     {
         var row = new PlaylistDetailSourceRow(
@@ -277,12 +236,12 @@ internal sealed class MainChartRowProjectionOwner
             : library.ResolveChartScoreSnapshot(row.Kind, row.Path, row.Hash, row.Sha256);
     }
 
-    internal LR2SongDBExtended.chart_info ResolveChartInfo(BMSLibrary library, ChartFile chart)
+    internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(BMSLibrary library, ChartFile chart)
     {
         return chart == null ? null : library?.ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
-    internal LR2SongDBExtended.chart_info ResolveChartInfo(BMSLibrary library, ChartListSourceRow row)
+    internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(BMSLibrary library, ChartListSourceRow row)
     {
         return row == null ? null : library?.ResolveChartInfo(row.Sha256, row.Hash);
     }

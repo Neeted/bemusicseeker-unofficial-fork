@@ -13,7 +13,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
@@ -83,7 +82,10 @@ internal sealed class RegularChartListOwner : IDisposable
     private ListSortDirection? folderSortDirection;
     private RegularNormalLibraryTreeFilter treeFilter;
     private ChartListSortSpecification currentSort;
-    private List<ChartListSourceRow> virtualSourceRows;
+    private IReadOnlyList<ChartListSourceRow> virtualSourceRows;
+    private CatalogStorageIndexedSequence<ChartListSourceRow> virtualSourceSequence;
+    private readonly Dictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartListSourceRow>> virtualSourcesByToken = [];
+    private long nextVirtualSourceOrdinal;
     private BMSLibrary virtualSourceRowsLibrary;
     private bool virtualSourceRowsLibraryReserved;
     private bool virtualSourceRowsAvailable;
@@ -100,6 +102,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private long referenceTablesGeneration;
     private int handledOwnedCollectionVersion;
     private PropertyChangedEventListener normalLibraryRefreshListener;
+    private Action<ScoreSnapshotChange> scoreSnapshotChangedHandler;
     private BMSLibrary normalLibraryRefreshSource;
     private int normalLibraryRefreshHandledNotificationVersion;
     private int normalLibraryRefreshRequestedNotificationVersion;
@@ -168,6 +171,11 @@ internal sealed class RegularChartListOwner : IDisposable
                         return;
                     }
 
+                    if (normalLibraryRefreshSource != null && scoreSnapshotChangedHandler != null)
+                    {
+                        normalLibraryRefreshSource.ScoreSnapshotChanged -= scoreSnapshotChangedHandler;
+                    }
+                    scoreSnapshotChangedHandler = null;
                     previousListener = normalLibraryRefreshListener;
                     normalLibraryRefreshListener = null;
                     normalLibraryRefreshSource = library;
@@ -178,6 +186,10 @@ internal sealed class RegularChartListOwner : IDisposable
                     {
                         nextListener = new PropertyChangedEventListener(library);
                         normalLibraryRefreshListener = nextListener;
+                        BMSLibrary scoreLibrary = library;
+                        scoreSnapshotChangedHandler = change => ApplyScoreSnapshotChange(scoreLibrary, change);
+                        library.ScoreSnapshotChanged += scoreSnapshotChangedHandler;
+
                     }
                 }
             }
@@ -199,6 +211,23 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
         previousListener?.Dispose();
+    }
+
+    private void ApplyScoreSnapshotChange(BMSLibrary library, ScoreSnapshotChange change)
+    {
+        dispatchToUi(() =>
+        {
+            if (!IsCurrentLibrary(library))
+            {
+                return;
+            }
+            mainChartList.RowProjection.CaptureVersions(library);
+            foreach (LibraryChartRow row in rowCache.GetRowsForScoreKeys(change.Md5Keys, change.Sha256Keys))
+            {
+                row.RefreshDisplayForDataDependency(MainViewDataDependency.Score);
+            }
+            InvalidateSortCacheByDependency(MainViewDataDependency.Score, out _);
+        });
     }
 
     internal void QueueLatestNormalLibraryRefreshNotification(
@@ -1239,12 +1268,7 @@ internal sealed class RegularChartListOwner : IDisposable
                     return;
                 }
             }
-            BmsonLibraryRowCacheSyncResult bmsonSync = SyncBmsonRows(library);
-            if (bmsonSync.SortKeyChanged)
-            {
-                InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSync, "bmson_path_changed");
-            }
-            InvalidateIdentitySortKeys(clearSourceRows: true);
+            InvalidateIdentitySortKeys(clearSourceRows: false);
         }
     }
 
@@ -1360,33 +1384,6 @@ internal sealed class RegularChartListOwner : IDisposable
         return rowCache.SnapshotRows();
     }
 
-    internal int PruneBmsRows(IEnumerable<BMSFile> currentFiles)
-    {
-        return rowCache.Count == 0 ? 0 : rowCache.PruneBmsFiles(currentFiles);
-    }
-
-    internal int RemoveBmsRows(IEnumerable<BMSFile> removedFiles)
-    {
-        return rowCache.Count == 0 ? 0 : rowCache.RemoveBmsFiles(removedFiles);
-    }
-
-    internal BmsonLibraryRowCacheSyncResult SyncBmsonRows(
-        BMSLibrary library,
-        OwnedChartStorageOwnerView ownerView = null)
-    {
-        ownerView ??= library?.CreateNormalLibrarySourceStorageOwnerView();
-        mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library);
-        return rowCache.SyncBmsonRows(
-            ownerView?.BmsonSongs ?? [],
-            row => mainChartList.RowProjection.ConfigureLibraryRow(library, row));
-    }
-
-    internal BmsonLibraryRowCacheSyncResult RemoveBmsonRows(
-        IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
-    {
-        return rowCache.RemoveBmsonSongs(removedSongs);
-    }
-
     private NormalLibraryRefreshNotificationBatch ConsumeNormalLibraryRefreshNotification(BMSLibrary library)
     {
         if (library == null)
@@ -1442,9 +1439,14 @@ internal sealed class RegularChartListOwner : IDisposable
             mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library);
         }
 
-        SyncNormalLibraryStorageRowCachesForRefreshNotification(library, notificationBatch);
+        ApplyNormalLibraryChartChanges(library, notificationBatch);
+        mainChartList.RowProjection.CaptureVersions(library);
+        foreach (LibraryChartRow row in rowCache.GetRowsForScoreKeys(notificationBatch.ChangedDetailMd5s, notificationBatch.ChangedDetailSha256s))
+        {
+            row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo);
+        }
         ApplyNormalLibraryRefreshNotificationEffects(notificationBatch, reason);
-        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+        if (notificationBatch.ResetsPriorNotifications)
         {
             ResetDerivedCaches();
         }
@@ -1453,75 +1455,130 @@ internal sealed class RegularChartListOwner : IDisposable
             new NormalLibraryRefreshAppliedEventArgs(notificationBatch, reason));
     }
 
-    private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification(
-        BMSLibrary library,
-        NormalLibraryRefreshNotificationBatch notificationBatch)
+    /// <summary>現在の表示条件で全batch依存を一度判断します。非依存表示ではRowsと編集を保持します。</summary>
+    /// <param name="library">現在のライブラリと既存の警告・保守索引の所有者。</param>
+    /// <param name="batch">今回消費する全通知の変更事実。</param>
+    /// <param name="mode">現在の表示モード。</param>
+    /// <param name="selectedPackage">選択中の導入済み所属。全所属表示ではnull。</param>
+    /// <param name="filters">現在の検索・モード条件。</param>
+    /// <param name="playlistDetail">プレイリスト詳細を表示しているか。</param>
+    /// <returns>表示更新はここで公開し、一覧更新は画面の既存接続へ返します。</returns>
+    internal MainViewRefreshAction ApplyNotificationPresentation(
+        BMSLibrary library, NormalLibraryRefreshNotificationBatch batch, MainViewUpdateMode mode,
+        ChartPackage selectedPackage, ChartListFilterSnapshot filters, bool playlistDetail)
     {
-        if (library == null || notificationBatch?.HasRefreshNotification != true)
+        MainViewRefreshAction action = MainViewRefreshDecisionService.BuildNotificationBatch(
+            batch, mode, selectedPackage, HasTreeFilter, filters.KeywordFilter, filters.ModeFilter,
+            CaptureSortParameters()?.ColumnsName, playlistDetail);
+        if (action == MainViewRefreshAction.Refresh)
         {
-            return default;
+            ResetDerivedCaches();
+            return action;
         }
-
-        if (notificationBatch.StorageRowsRemoveDeltaComplete)
+        if (batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged)
+            || batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
         {
-            if (notificationBatch.NotifiesBmsFiles)
+            PrepareResourceHealthIndexForView(library, mode, "normal_library_batch_display");
+        }
+        if (mainChartList.Rows is ChartListVirtualView view)
+        {
+            view.ForEachRealizedRow(row =>
             {
-                RemoveBmsRows(notificationBatch.RemovedBmsFiles);
-            }
+                if (batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged))
+                {
+                    row.RefreshDisplayForDataDependency(MainViewDataDependency.Warning);
+                }
+                if (batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
+                {
+                    row.RefreshDisplayForDataDependency(MainViewDataDependency.Maintenance);
+                }
+                if (batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
+                {
+                    row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination);
+                }
+                if (batch.ChangedDetailMd5s.Count > 0 || batch.ChangedDetailSha256s.Count > 0)
+                {
+                    row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo);
+                }
+            });
+        }
+        mainChartList.RequestDisplayRefresh();
+        return action;
+    }
 
-            if (!notificationBatch.NotifiesBmsonSongs)
+    /// <summary>既存通知が捕捉した共通値と退役tokenだけを、通常一覧のcacheへ反映します。</summary>
+    internal void ApplyNormalLibraryChartChanges(BMSLibrary library, NormalLibraryRefreshNotificationBatch notification)
+    {
+        if (notification.ResetsPriorNotifications)
+        {
+            rowCache.Clear();
+            lock (syncRoot)
             {
-                return default;
+                ClearVirtualSourceRowsUnsafe();
             }
-
-            BmsonLibraryRowCacheSyncResult removeResult = RemoveBmsonRows(notificationBatch.RemovedBmsonSongs);
-            if (removeResult.SortKeyChanged)
+            return;
+        }
+        rowCache.ApplyChanges(notification.ChangedCharts, notification.DeletedTokens,
+            row => mainChartList.RowProjection.ConfigureLibraryRow(library, row));
+        lock (syncRoot)
+        {
+            if (!virtualSourceRowsAvailable || virtualSourceSequence == null)
             {
-                InvalidateNormalLibrarySortKeysForBmsonSync(removeResult);
+                return;
             }
-            if (removeResult.SourceChanged
-                && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+            foreach (OwnedChartToken token in notification.DeletedTokens)
             {
-                InvalidateVirtualSourceRows();
-                logWarning("normal_library_bmson_remove_delta_uncovered_source_change"
-                    + " notificationVersion=" + notificationBatch.LatestVersion
-                    + " membershipChanged=" + removeResult.MembershipChanged
-                    + " sourceIdentityChanged=" + removeResult.SourceIdentityChanged
-                    + " sourceReferenceChanged=" + removeResult.SourceReferenceChanged);
+                if (virtualSourcesByToken.Remove(token, out CatalogStorageSequenceEntry<ChartListSourceRow> entry))
+                {
+                    virtualSourceSequence = virtualSourceSequence.RemoveAt(virtualSourceSequence.FindIndex(entry));
+                }
             }
-            return removeResult;
+            foreach (ChartFile chart in notification.ChangedCharts)
+            {
+                if (chart.Token == null || (chart.Kind == ChartFileKind.Bmson && !virtualSourceRowsIncludeBmson))
+                {
+                    continue;
+                }
+                if (virtualSourcesByToken.TryGetValue(chart.Token, out CatalogStorageSequenceEntry<ChartListSourceRow> entry))
+                {
+                    entry.Value.ApplyCurrentChart(chart);
+                    if (chart.Kind == ChartFileKind.Bmson && !string.Equals(entry.SortKey, chart.Path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        virtualSourceSequence = virtualSourceSequence.RemoveAt(virtualSourceSequence.FindIndex(entry));
+                        entry = new(entry.Value, chart.Path, chart.Path, entry.Ordinal);
+                        virtualSourceSequence = virtualSourceSequence.InsertAt(virtualSourceSequence.FindInsertionIndex(entry), entry);
+                        virtualSourcesByToken[chart.Token] = entry;
+                    }
+                    continue;
+                }
+                ChartListSourceRow source = mainChartList.RowProjection.BuildStandardSourceRows(library, [chart],
+                    ChartListSourceProjectionMode.OwnerBacked, includeResourceHealth: true).Single();
+                entry = new(source, chart.Path, chart.Path, nextVirtualSourceOrdinal++);
+                int index = virtualSourceSequence.FindInsertionIndex(entry);
+                virtualSourceSequence = virtualSourceSequence.InsertAt(index, entry);
+                virtualSourcesByToken.Add(chart.Token, entry);
+            }
+            virtualSourceRows = new CatalogStorageReadOnlyView<ChartListSourceRow>(virtualSourceSequence);
         }
+    }
 
-        OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles
-            || notificationBatch.NotifiesBmsonSongs
-                ? library.CreateNormalLibrarySourceStorageOwnerView()
-                : null;
-        if (notificationBatch.NotifiesBmsFiles)
+    private static int CompareVirtualSourceEntries(CatalogStorageSequenceEntry<ChartListSourceRow> left,
+        CatalogStorageSequenceEntry<ChartListSourceRow> right)
+    {
+        int byKind = left.Value.Kind.CompareTo(right.Value.Kind);
+        if (byKind != 0)
         {
-            PruneBmsRows(sourceOwnerView?.BmsFiles);
+            return byKind;
         }
-
-        if (!notificationBatch.NotifiesBmsonSongs)
+        if (left.Value.Kind == ChartFileKind.Bmson)
         {
-            return default;
+            int byPath = StringComparer.OrdinalIgnoreCase.Compare(left.SortKey, right.SortKey);
+            if (byPath != 0)
+            {
+                return byPath;
+            }
         }
-
-        BmsonLibraryRowCacheSyncResult result = SyncBmsonRows(library, sourceOwnerView);
-        if (result.SortKeyChanged)
-        {
-            InvalidateNormalLibrarySortKeysForBmsonSync(result);
-        }
-        if (result.SourceChanged
-            && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
-        {
-            InvalidateVirtualSourceRows();
-            logWarning("normal_library_bmson_sync_uncovered_source_change"
-                + " notificationVersion=" + notificationBatch.LatestVersion
-                + " membershipChanged=" + result.MembershipChanged
-                + " sourceIdentityChanged=" + result.SourceIdentityChanged
-                + " sourceReferenceChanged=" + result.SourceReferenceChanged);
-        }
-        return result;
+        return left.Ordinal.CompareTo(right.Ordinal);
     }
 
     private void ApplyNormalLibraryRefreshNotificationEffects(
@@ -1532,7 +1589,8 @@ internal sealed class RegularChartListOwner : IDisposable
         bool sourceGenerationChanged = notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)
             && TryInvalidateSourceForOwnedCollectionVersion(
                 notificationBatch.OwnedCollectionVersion,
-                out sourceCacheCount);
+                out sourceCacheCount,
+                clearSourceRows: notificationBatch.ResetsPriorNotifications);
         if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
         {
             LogNormalLibrarySortCacheInvalidation("source", reason, sourceCacheCount);
@@ -1780,7 +1838,7 @@ internal sealed class RegularChartListOwner : IDisposable
                 + " runId=" + lease.RunId
                 + " descriptorCount=" + descriptorCount
                 + " degree=" + degree);
-            List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
+            IReadOnlyList<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
                 library,
                 includeBmsonRows,
                 out bool sourceRowsCacheHit,
@@ -1996,7 +2054,7 @@ internal sealed class RegularChartListOwner : IDisposable
         return cacheCount;
     }
 
-    internal bool TryInvalidateSourceForOwnedCollectionVersion(int currentVersion, out int cacheCount)
+    internal bool TryInvalidateSourceForOwnedCollectionVersion(int currentVersion, out int cacheCount, bool clearSourceRows = true)
     {
         CancellationTokenSource previous = null;
         CancellationTokenSource prewarmCancellation;
@@ -2011,7 +2069,11 @@ internal sealed class RegularChartListOwner : IDisposable
             cacheCount = GetCacheCountUnsafe();
             sourceGeneration++;
             previous = InvalidateCurrentRequestUnsafe();
-            ClearAllSortCachesUnsafe(clearSourceRows: true);
+            ClearAllSortCachesUnsafe(clearSourceRows);
+            if (!clearSourceRows && virtualSourceRowsAvailable)
+            {
+                virtualSourceRowsGeneration = sourceGeneration;
+            }
             prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
@@ -2114,7 +2176,20 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 return;
             }
-            virtualSourceRows = rows;
+            virtualSourcesByToken.Clear();
+            nextVirtualSourceOrdinal = 0;
+            List<CatalogStorageSequenceEntry<ChartListSourceRow>> entries = [];
+            foreach (ChartListSourceRow row in rows)
+            {
+                var entry = new CatalogStorageSequenceEntry<ChartListSourceRow>(row, row.Path, row.Path, nextVirtualSourceOrdinal++);
+                entries.Add(entry);
+                if (row.Token != null)
+                {
+                    virtualSourcesByToken.Add(row.Token, entry);
+                }
+            }
+            virtualSourceSequence = CatalogStorageIndexedSequence<ChartListSourceRow>.FromEntries(entries, CompareVirtualSourceEntries);
+            virtualSourceRows = new CatalogStorageReadOnlyView<ChartListSourceRow>(virtualSourceSequence);
             virtualSourceRowsLibrary = lookup.Library;
             virtualSourceRowsAvailable = true;
             virtualSourceRowsGeneration = lookup.SourceGeneration;
@@ -2525,7 +2600,6 @@ internal sealed class RegularChartListOwner : IDisposable
             ? columnSelection
             : mainChartList.ResolveColumnSettingForViewUpdate(resolvedTreeMode, request.CurrentTreeMode);
 
-        SynchronizeBmsonRowsForRefresh(request);
         bool sortWasReset = !TryResolveVirtualSort(
             sort,
             out string virtualSortColumn,
@@ -2662,39 +2736,6 @@ internal sealed class RegularChartListOwner : IDisposable
             });
         LogMaterializedEntry(request, effectiveMode, refreshRequest, materialized);
         return new RegularChartListEntryResult(materialized.WasCommitted, RegularChartListEntryRoute.Materialized, sortWasReset: false);
-    }
-
-    private void SynchronizeBmsonRowsForRefresh(RegularChartListEntryRequest request)
-    {
-        if (!request.IncludeBmsonRows)
-        {
-            return;
-        }
-
-        BmsonLibraryRowCacheSyncResult result = SyncBmsonRows(request.Library);
-        if (result.SortKeyChanged)
-        {
-            int cacheCount = InvalidateIdentitySortKeys(result.SourceIdentityChanged);
-            log("normal_library_sort_cache_invalidate reason=sort_key detail="
-                + (result.SourceIdentityChanged ? "bmson_source_identity_changed" : "bmson_sort_key_changed")
-                + " cacheCountBefore=" + cacheCount);
-        }
-        if (result.SourceChanged)
-        {
-            string reason = result.MembershipChanged
-                ? "bmson_membership_changed"
-                : result.SourceIdentityChanged
-                    ? "bmson_source_identity_changed"
-                    : "bmson_source_reference_changed";
-            if (TryInvalidateSourceForOwnedCollectionVersion(request.Library.OwnedChartCollectionVersion, out int cacheCount))
-            {
-                log("normal_library_sort_cache_invalidate reason=source detail=" + reason + " cacheCountBefore=" + cacheCount);
-            }
-            else
-            {
-                InvalidateVirtualSourceRows();
-            }
-        }
     }
 
     private static bool TryResolveVirtualSort(
@@ -3243,7 +3284,7 @@ internal sealed class RegularChartListOwner : IDisposable
         mainChartList.RowProjection.CaptureVersions(request.Library);
 
         long stageStartMs = stopwatch.ElapsedMilliseconds;
-        List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
+        IReadOnlyList<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
             request.Library,
             request.IncludeBmsonRows,
             out bool sourceRowsCacheHit,
@@ -3649,7 +3690,7 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
+    private IReadOnlyList<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
         BMSLibrary library,
         bool includeBmsonRows,
         out bool cacheHit,
@@ -3662,10 +3703,10 @@ internal sealed class RegularChartListOwner : IDisposable
             cacheHit = true;
             sourceGenerationAtLookup = lookup.SourceGeneration;
             sortKeyGenerationAtLookup = lookup.SortKeyGeneration;
-            return lookup.Rows as List<ChartListSourceRow> ?? [.. lookup.Rows];
+            return lookup.Rows;
         }
 
-        OwnedChartStorageOwnerView sourceOwnerView = library?.CreateNormalLibrarySourceStorageOwnerView();
+        OwnedChartCollectionView sourceOwnerView = library?.CreateNormalLibrarySourceChartView();
         List<ChartListSourceRow> sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(
             library,
             sourceOwnerView,
@@ -4252,6 +4293,11 @@ internal sealed class RegularChartListOwner : IDisposable
                 regularRequestActive = false;
                 normalLibraryRefreshListenerToDispose = normalLibraryRefreshListener;
                 normalLibraryRefreshListener = null;
+                if (normalLibraryRefreshSource != null && scoreSnapshotChangedHandler != null)
+                {
+                    normalLibraryRefreshSource.ScoreSnapshotChanged -= scoreSnapshotChangedHandler;
+                }
+                scoreSnapshotChangedHandler = null;
                 normalLibraryRefreshSource = null;
                 normalLibraryRefreshHandledNotificationVersion = 0;
                 normalLibraryRefreshRequestedNotificationVersion = 0;
@@ -4461,6 +4507,8 @@ internal sealed class RegularChartListOwner : IDisposable
     private void ClearVirtualSourceRowsUnsafe()
     {
         virtualSourceRows = null;
+        virtualSourceSequence = null;
+        virtualSourcesByToken.Clear();
         virtualSourceRowsAvailable = false;
     }
 

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -9,11 +8,11 @@ internal sealed class ChartInfoInlineBuildResult
 
     public List<LibraryChartDigestChange> DigestChanges { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> ChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> AppliedRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> AppliedRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartParseFailure> ParseFailureRows { get; } = [];
 
     public List<string> ParseFailureDeleteMd5s { get; } = [];
 
@@ -50,7 +49,7 @@ internal sealed class ChartInfoStorageApplication(
     string md5,
     string sha256,
     System.DateTime lastWriteTimeUtc,
-    LR2SongDBExtended.chart_info row)
+    BeMusicSeeker.Models.ChartDetails row)
 {
     internal ChartFile Chart { get; } = chart;
 
@@ -60,20 +59,26 @@ internal sealed class ChartInfoStorageApplication(
 
     internal System.DateTime LastWriteTimeUtc { get; } = lastWriteTimeUtc;
 
-    internal LR2SongDBExtended.chart_info Row { get; } = row;
+    internal BeMusicSeeker.Models.ChartDetails Row { get; } = row;
 
-    internal BMSFile CreateBmsPersistenceCopy() =>
-        ChartStorageOwnerMutator.CreateBmsPersistenceCopy(Chart, Md5, Sha256, Row);
-
-    internal LR2SongDBExtended.bmson_song CreateBmsonPersistenceCopy() =>
-        ChartStorageOwnerMutator.CreateBmsonPersistenceCopy(Chart, Md5, Sha256, LastWriteTimeUtc);
-
-    internal int ApplyCommitted(ICollection<LibraryChartDigestChange> digestChanges) =>
-        ChartStorageOwnerMutator.ApplyCommittedSnapshot(
-            Chart,
-            Md5,
-            Sha256,
-            LastWriteTimeUtc,
-            Row,
-            digestChanges);
+    /// <summary>捕捉したファイル識別と確定した詳細値を持つ共通値を作成します。</summary>
+    internal ChartFile CreateCurrentValue(ChartFile current = null)
+    {
+        ChartFile source = current ?? Chart;
+        ChartFile next = source with { Md5 = Md5, Sha256 = Sha256, LastWriteTimeUtc = LastWriteTimeUtc };
+        if (Row == null || !string.Equals(Row.md5, Md5, System.StringComparison.OrdinalIgnoreCase))
+        {
+            bool digestChanged = !string.Equals(source.Md5, Md5, System.StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(source.Sha256, Sha256, System.StringComparison.OrdinalIgnoreCase);
+            return digestChanged ? ChartFileProjection.WithChartInfo(next, null) : next;
+        }
+        next = ChartFileProjection.WithChartInfo(next, Row);
+        return next with
+        {
+            Level = Row.level,
+            LevelText = Row.level?.ToString(System.Globalization.CultureInfo.CurrentCulture) ?? string.Empty,
+            Difficulty = Lr2ChartInfoSongProjection.NormalizeDifficulty(Row.difficulty),
+            Mode = Row.mode
+        };
+    }
 }

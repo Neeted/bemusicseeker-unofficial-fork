@@ -117,7 +117,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
             new EverythingNative(TestBmsFactory.MissingEverythingBridge),
             enumerator);
         Lr2SongDbSyncInput input = builder.Create(
-            new Lr2SongDbSyncInputRowSnapshot([], [], 1, 1, 1),
+            new Lr2SongDbSyncInputRowSnapshot([], [], 1),
             new Lr2SongDbSyncInputRootSnapshot(
                 DateTime.UtcNow,
                 [rootDirectory],

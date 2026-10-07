@@ -1,7 +1,12 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class MaintenanceWorkflowResult
 {
+    /// <summary>確定後に所持集合へ適用する共通現在値です。</summary>
+    internal List<ChartFile> ChangedCharts { get; } = [];
+
     public bool HasUpdates { get; set; }
 
     public int CheckedFileCount { get; set; }
@@ -103,6 +108,7 @@ internal sealed class MaintenanceWorkflowResultFacts
 {
     private MaintenanceWorkflowResultFacts(MaintenanceWorkflowResult source)
     {
+        ChangedCharts = System.Array.AsReadOnly([.. source?.ChangedCharts ?? []]);
         HasUpdates = source?.HasUpdates == true;
         CheckedFileCount = source?.CheckedFileCount ?? 0;
         BmsResourceTargetCount = source?.BmsResourceTargetCount ?? 0;
@@ -193,6 +199,9 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal bool Canceled { get; }
     internal long TotalMs { get; }
 
+    /// <summary>DB確定済みの共通現在値を、受渡し中に変更されない対象集合として保持します。</summary>
+    internal IReadOnlyList<ChartFile> ChangedCharts { get; }
+
     internal static MaintenanceWorkflowResultFacts From(MaintenanceWorkflowResult source)
     {
         return new MaintenanceWorkflowResultFacts(source);
@@ -200,7 +209,7 @@ internal sealed class MaintenanceWorkflowResultFacts
 
     internal MaintenanceWorkflowResult ToMutable()
     {
-        return new MaintenanceWorkflowResult
+        var result = new MaintenanceWorkflowResult
         {
             HasUpdates = HasUpdates,
             CheckedFileCount = CheckedFileCount,
@@ -245,5 +254,7 @@ internal sealed class MaintenanceWorkflowResultFacts
             Canceled = Canceled,
             TotalMs = TotalMs
         };
+        result.ChangedCharts.AddRange(ChangedCharts);
+        return result;
     }
 }

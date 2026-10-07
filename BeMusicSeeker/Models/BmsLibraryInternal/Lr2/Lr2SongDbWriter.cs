@@ -54,7 +54,7 @@ internal static class Lr2SongDbWriter
 
     private const string TempChartInfoSongProjectionTable = "chart_info_song_projection_update";
 
-    internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
+    internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, LR2SongDB.song song)
     {
         if (songDb == null)
         {
@@ -85,14 +85,14 @@ internal static class Lr2SongDbWriter
         return changed;
     }
 
-    internal static int UpsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    internal static int UpsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<LR2SongDB.song> songs)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        List<BMSFile> rows = [.. (songs ?? [])
+        List<LR2SongDB.song> rows = [.. (songs ?? [])
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         if (rows.Count == 0)
         {
@@ -101,10 +101,10 @@ internal static class Lr2SongDbWriter
 
         Dictionary<string, GeneratedSongRow> existingByPath = FindSongsByPaths(songDb, rows.Select(song => song.path));
         var previousHashesToCheck = new List<string>();
-        var rowsToInsert = new List<BMSFile>();
-        var rowsToUpdate = new List<BMSFile>();
+        var rowsToInsert = new List<LR2SongDB.song>();
+        var rowsToUpdate = new List<LR2SongDB.song>();
         int changedCount = 0;
-        foreach (BMSFile song in rows)
+        foreach (LR2SongDB.song song in rows)
         {
             existingByPath.TryGetValue(song.path, out GeneratedSongRow existingSong);
             Lr2SongRowEnricher.EnrichGeneratedSong(song);
@@ -182,7 +182,7 @@ internal static class Lr2SongDbWriter
         }
     }
 
-    internal static int UpsertGeneratedSongsForLr2SongDbSync(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    internal static int UpsertGeneratedSongsForLr2SongDbSync(LR2SongDBExtended songDb, IReadOnlyList<LR2SongDB.song> songs)
     {
         return UpsertGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs).ChangedCount;
     }
@@ -194,21 +194,77 @@ internal static class Lr2SongDbWriter
     /// </summary>
     internal static Lr2GeneratedSongWriteResult UpdateGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
-        IReadOnlyList<BMSFile> songs)
+        IReadOnlyList<LR2SongDB.song> songs)
     {
         return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs, allowMembershipMutation: false);
     }
 
+    /// <summary>解析できない対象では既存exact path/hash行の生成列を継承し、取得済み詳細の限定列とtxtだけを反映します。読取り成功の対象は共通解析結果から生成します。</summary>
+    internal static Lr2GeneratedSongWriteResult UpdateGeneratedSongsForLr2SongDbSyncWithResult(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<(ChartFile Chart, bool ParsedFromSnapshot)> facts)
+    {
+        Dictionary<string, GeneratedSongRow> fallbackRows = FindSongsByPaths(songDb,
+            facts.Where(fact => !fact.ParsedFromSnapshot).Select(fact => fact.Chart.Path));
+        var rows = new List<LR2SongDB.song>(facts.Count);
+        foreach ((ChartFile Chart, bool ParsedFromSnapshot) fact in facts)
+        {
+            ChartFile chart = fact.Chart;
+            LR2SongDB.song row = ChartSongStorageMapping.ToBmsRow(chart);
+            if (!fact.ParsedFromSnapshot && fallbackRows.TryGetValue(chart.Path, out GeneratedSongRow existing)
+                && string.Equals(existing.hash, chart.Md5, StringComparison.OrdinalIgnoreCase))
+            {
+                row = new LR2SongDB.song
+                {
+                    path = existing.path,
+                    hash = existing.hash,
+                    title = existing.title,
+                    subtitle = existing.subtitle,
+                    artist = existing.artist,
+                    subartist = existing.subartist,
+                    genre = existing.genre,
+                    type = existing.type,
+                    folder = existing.folder,
+                    parent = existing.parent,
+                    stagefile = existing.stagefile,
+                    banner = existing.banner,
+                    backbmp = existing.backbmp,
+                    level = existing.level,
+                    difficulty = existing.difficulty,
+                    maxbpm = existing.maxbpm,
+                    minbpm = existing.minbpm,
+                    mode = existing.mode,
+                    judge = existing.judge,
+                    longnote = existing.longnote,
+                    bga = existing.bga,
+                    random = existing.random,
+                    date = existing.date,
+                    karinotes = existing.karinotes,
+                    exlevel = existing.exlevel,
+                    txt = chart.Txt,
+                    sha256 = chart.Sha256
+                };
+                if (chart.ChartInfo != null)
+                {
+                    Lr2SongRowEnricher.EnrichFromChartInfo(row, chart.ChartInfo);
+                }
+            }
+            Lr2SongRowEnricher.ApplyLr2ChartMetadataDefaults(row);
+            rows.Add(row);
+        }
+        return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, rows, allowMembershipMutation: false);
+    }
+
     internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
-        IReadOnlyList<BMSFile> songs)
+        IReadOnlyList<LR2SongDB.song> songs)
     {
         return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs, allowMembershipMutation: true);
     }
 
     private static Lr2GeneratedSongWriteResult WriteGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
-        IReadOnlyList<BMSFile> songs,
+        IReadOnlyList<LR2SongDB.song> songs,
         bool allowMembershipMutation)
     {
         if (songDb == null)
@@ -216,7 +272,7 @@ internal static class Lr2SongDbWriter
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        List<BMSFile> rows = [.. (songs ?? [])
+        List<LR2SongDB.song> rows = [.. (songs ?? [])
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         if (rows.Count == 0)
         {
@@ -224,7 +280,7 @@ internal static class Lr2SongDbWriter
         }
 
         var stageStopwatch = Stopwatch.StartNew();
-        foreach (BMSFile song in rows)
+        foreach (LR2SongDB.song song in rows)
         {
             Lr2SongRowEnricher.EnrichGeneratedSong(song);
             ApplyGeneratedPersistenceDefaults(song, isNewRow: allowMembershipMutation);
@@ -321,7 +377,7 @@ internal static class Lr2SongDbWriter
             tempCleanupStageMs);
     }
 
-    private static void ApplyGeneratedPersistenceDefaults(BMSFile song, bool isNewRow)
+    private static void ApplyGeneratedPersistenceDefaults(LR2SongDB.song song, bool isNewRow)
     {
         if (song == null)
         {
@@ -460,7 +516,7 @@ internal static class Lr2SongDbWriter
     }
 
 
-    private static void BulkInsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    private static void BulkInsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<LR2SongDB.song> songs)
     {
         if (songs == null || songs.Count == 0)
         {
@@ -508,7 +564,7 @@ internal static class Lr2SongDbWriter
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);
-            foreach (BMSFile song in chunk)
+            foreach (LR2SongDB.song song in chunk)
             {
                 AddGeneratedSongInsertArgs(args, song);
             }
@@ -531,7 +587,7 @@ internal static class Lr2SongDbWriter
         ClearTempTable(songDb, TempGeneratedSongUpsertTable);
     }
 
-    private static void BulkInsertGeneratedSongUpsertTempRows(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    private static void BulkInsertGeneratedSongUpsertTempRows(LR2SongDBExtended songDb, IReadOnlyList<LR2SongDB.song> songs)
     {
         if (songs == null || songs.Count == 0)
         {
@@ -578,7 +634,7 @@ internal static class Lr2SongDbWriter
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);
-            foreach (BMSFile song in chunk)
+            foreach (LR2SongDB.song song in chunk)
             {
                 AddGeneratedSongInsertArgs(args, song);
             }
@@ -648,7 +704,7 @@ internal static class Lr2SongDbWriter
             + "AND (u.hash IS NULL OR trim(u.hash) = '' OR lower(trim(s." + songHashColumn + ")) <> lower(trim(u.hash)));");
     }
 
-    private static void AddGeneratedSongInsertArgs(List<object> args, BMSFile song)
+    private static void AddGeneratedSongInsertArgs(List<object> args, LR2SongDB.song song)
     {
         args.Add(song.hash);
         args.Add(song.title);
@@ -681,7 +737,7 @@ internal static class Lr2SongDbWriter
         args.Add(song.exlevel);
     }
 
-    private static void BulkUpdateGeneratedColumns(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    private static void BulkUpdateGeneratedColumns(LR2SongDBExtended songDb, IReadOnlyList<LR2SongDB.song> songs)
     {
         if (songs == null || songs.Count == 0)
         {
@@ -696,7 +752,7 @@ internal static class Lr2SongDbWriter
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", 26)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * 26);
-            foreach (BMSFile song in chunk)
+            foreach (LR2SongDB.song song in chunk)
             {
                 AddGeneratedSongUpdateArgs(args, song);
             }
@@ -757,7 +813,7 @@ internal static class Lr2SongDbWriter
         ClearTempTable(songDb, TempGeneratedSongUpdateTable);
     }
 
-    private static void AddGeneratedSongUpdateArgs(List<object> args, BMSFile song)
+    private static void AddGeneratedSongUpdateArgs(List<object> args, LR2SongDB.song song)
     {
         args.Add(song.path);
         args.Add(song.hash);
@@ -852,11 +908,11 @@ internal static class Lr2SongDbWriter
 
     private static void UpsertChartDigests(
         LR2SongDBExtended songDb,
-        IEnumerable<BMSFile> songs,
+        IEnumerable<LR2SongDB.song> songs,
         bool ensureTable = true)
     {
         var digestsByMd5 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile song in songs ?? [])
+        foreach (LR2SongDB.song song in songs ?? [])
         {
             if (song == null)
             {
@@ -1134,7 +1190,7 @@ internal static class Lr2SongDbWriter
     }
 
 
-    private static bool HasSameGeneratedColumns(BMSFile expected, GeneratedSongRow existing)
+    private static bool HasSameGeneratedColumns(LR2SongDB.song expected, GeneratedSongRow existing)
     {
         return expected != null
             && existing != null
@@ -1181,7 +1237,7 @@ internal static class Lr2SongDbWriter
         }
     }
 
-    private static void UpdateGeneratedColumns(LR2SongDBExtended songDb, BMSFile song)
+    private static void UpdateGeneratedColumns(LR2SongDBExtended songDb, LR2SongDB.song song)
     {
         songDb.Execute(
             "UPDATE " + SQLiteTable<LR2SongDB.song>.GetTableName()

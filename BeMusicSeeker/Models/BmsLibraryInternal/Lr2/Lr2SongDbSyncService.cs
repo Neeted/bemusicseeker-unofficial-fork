@@ -65,11 +65,11 @@ internal sealed class Lr2SongDbSyncRequest
 
     public bool Lr2FolderFileDiscoveryComplete { get; set; } = true;
 
-    public IReadOnlyCollection<BMSFile> SongRows { get; set; } = [];
+    public IReadOnlyCollection<ChartFile> SongRows { get; set; } = [];
 
     public IReadOnlyCollection<string> TextFileDirectories { get; set; } = [];
 
-    public Func<BMSFile, LR2SongDBExtended.chart_info> ChartInfoResolver { get; init; }
+    public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> ChartInfoResolver { get; init; }
 
     public bool ChartInfoResolverIsThreadSafe { get; init; }
 
@@ -83,7 +83,7 @@ internal sealed class Lr2SongDbSyncRequest
     /// </summary>
     public Func<string, ChartFileReadBuffer> ChartFileBufferReader { get; init; }
 
-    public Action<IReadOnlyList<LR2SongDBExtended.chart_info>> ChartInfoRowsCommitted { get; init; }
+    public Action<IReadOnlyList<BeMusicSeeker.Models.ChartDetails>> ChartInfoRowsCommitted { get; init; }
 
     /// <summary>
     /// Applies chart-info facts inside the synchronizer's existing song database
@@ -92,7 +92,7 @@ internal sealed class Lr2SongDbSyncRequest
     /// </summary>
     public Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> ChartInfoChunkWriter { get; init; }
 
-    public Action<int, int> ChartInfoParseFailuresCommitted { get; init; }
+    public Action<int, int, IReadOnlyList<string>> ChartInfoParseFailuresCommitted { get; init; }
 
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 
@@ -109,7 +109,7 @@ internal sealed class Lr2SongDbSyncRequest
     /// <summary>段階内の実対象件数と保存済みカーソルを区別して通知します。通知失敗は同期結果に影響しません。</summary>
     public Action<Lr2SongDbSyncProgress> ProgressReporter { get; init; }
 
-    public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; init; }
+    public Action<IReadOnlyList<ResourceHealthMaintenanceSnapshot>> Lr2CompatibilityFactsCommitted { get; init; }
 
     /// <summary>
     /// Contains paths whose immediately preceding file-diff transaction has
@@ -224,8 +224,8 @@ internal static class Lr2SongDbSyncService
         List<string> lr2FolderDiscoveryDirectories = [.. (request.Lr2FolderDiscoveryDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-        List<BMSFile> songRows = [.. (request.SongRows ?? [])
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
+        List<ChartFile> songRows = [.. (request.SongRows ?? [])
+            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path))];
         HashSet<string> textFileDirectories = [.. (request.TextFileDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)
@@ -1056,7 +1056,7 @@ internal static class Lr2SongDbSyncService
 
     private static SongRowSyncResult UpsertSongRows(
         LR2SongDBExtended songDb,
-        IReadOnlyCollection<BMSFile> songRows,
+        IReadOnlyCollection<ChartFile> songRows,
         ISet<string> textFileDirectories,
         int startIndex,
         int baseProcessedCursor,
@@ -1071,7 +1071,7 @@ internal static class Lr2SongDbSyncService
             return new SongRowSyncResult(0, 0, 0, 0, 0);
         }
 
-        List<BMSFile> targetRows = [.. songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        List<ChartFile> targetRows = [.. songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.Path))];
         int safeStartIndex = Math.Max(0, startIndex);
         if (targetRows.Count == 0 || safeStartIndex >= targetRows.Count)
         {
@@ -1110,33 +1110,33 @@ internal static class Lr2SongDbSyncService
         long totalReadTicks = 0L;
         long totalDigestTicks = 0L;
         long totalParseTicks = 0L;
-        var generatedChartInfoBySha256 = new ConcurrentDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        var generatedChartInfoByMd5 = new ConcurrentDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        Func<BMSFile, LR2SongDBExtended.chart_info> baseChartInfoResolver =
+        var generatedChartInfoBySha256 = new ConcurrentDictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
+        var generatedChartInfoByMd5 = new ConcurrentDictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> baseChartInfoResolver =
             CreateSongRowSyncChartInfoResolver(
                 request?.ChartInfoResolver,
                 request?.ChartInfoResolverIsThreadSafe == true);
-        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver = row =>
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoResolver = row =>
         {
             if (row == null)
             {
                 return null;
             }
-            if (!string.IsNullOrWhiteSpace(row.sha256)
-                && generatedChartInfoBySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256))
+            if (!string.IsNullOrWhiteSpace(row.Sha256)
+                && generatedChartInfoBySha256.TryGetValue(row.Sha256, out BeMusicSeeker.Models.ChartDetails bySha256))
             {
                 Interlocked.Increment(ref chartInfoRunCacheHitCount);
                 return bySha256;
             }
-            if (!string.IsNullOrWhiteSpace(row.hash)
-                && generatedChartInfoByMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5))
+            if (!string.IsNullOrWhiteSpace(row.Md5)
+                && generatedChartInfoByMd5.TryGetValue(row.Md5, out BeMusicSeeker.Models.ChartDetails byMd5))
             {
                 Interlocked.Increment(ref chartInfoRunCacheHitCount);
                 return byMd5;
             }
             return baseChartInfoResolver?.Invoke(row);
         };
-        void CacheGeneratedChartInfo(LR2SongDBExtended.chart_info row)
+        void CacheGeneratedChartInfo(BeMusicSeeker.Models.ChartDetails row)
         {
             if (row == null || row.parser_version < BmsLibraryDbGateway.CurrentChartInfoParserVersion)
             {
@@ -1230,7 +1230,7 @@ internal static class Lr2SongDbSyncService
                 + " offset=" + offset
                 + " count=" + chunk.Count
                 + " processedCursor=" + (baseProcessedCursor + offset));
-            var rowsToWrite = new List<BMSFile>(chunk.Count);
+            var rowsToWrite = new List<(ChartFile Chart, bool ParsedFromSnapshot)>(chunk.Count);
             long chunkReadTicks = 0L;
             long chunkDigestTicks = 0L;
             long chunkParseTicks = 0L;
@@ -1247,8 +1247,8 @@ internal static class Lr2SongDbSyncService
                     chunkReceiptSkippedCount++;
                     continue;
                 }
-                BMSFile row = item.Row;
-                if (row == null || string.IsNullOrWhiteSpace(row.path))
+                ChartFile row = item.Row;
+                if (row == null || string.IsNullOrWhiteSpace(row.Path))
                 {
                     continue;
                 }
@@ -1257,7 +1257,7 @@ internal static class Lr2SongDbSyncService
                     chunkParseFailureCount++;
                     chunkFallbackCount++;
                 }
-                rowsToWrite.Add(row);
+                rowsToWrite.Add((row, item.ParsedFromSnapshot));
             }
             totalReadTicks += chunkReadTicks;
             totalDigestTicks += chunkDigestTicks;
@@ -1266,9 +1266,9 @@ internal static class Lr2SongDbSyncService
             long chunkChartInfoTicks = 0L;
             long chunkCompatibilityTicks = 0L;
             int chunkChartInfoAppliedCount = 0;
-            var chunkCompatibilityInfos = new List<BMSFileMaintenanceInfo>();
-            var chunkChartInfoRows = new List<LR2SongDBExtended.chart_info>();
-            var chunkChartInfoParseFailures = new List<LR2SongDBExtended.chart_info_parse_failure>();
+            var chunkCompatibilityInfos = new List<ResourceHealthMaintenanceSnapshot>();
+            var chunkChartInfoRows = new List<BeMusicSeeker.Models.ChartDetails>();
+            var chunkChartInfoParseFailures = new List<BeMusicSeeker.Models.ChartParseFailure>();
             var chunkChartInfoParseFailureDeleteMd5s = new List<string>();
             foreach (SongRowSyncComputedItem item in chunk)
             {
@@ -1349,7 +1349,8 @@ internal static class Lr2SongDbSyncService
                 ReportCommittedChartInfoParseFailures(
                     request,
                     chunkChartInfoParseFailures.Count,
-                    chunkChartInfoParseFailureDeleteMd5s.Count);
+                    chunkChartInfoParseFailureDeleteMd5s.Count,
+                    [.. chunkChartInfoParseFailures.Select(value => value.md5).Concat(chunkChartInfoParseFailureDeleteMd5s)]);
                 ReportCommittedLr2CompatibilityFacts(request, chunkCompatibilityInfos);
                 chartInfoGeneratedCount += chunkChartInfoRows.Count;
                 chartInfoParseFailurePersistedCount += chunkChartInfoParseFailures.Count;
@@ -1634,7 +1635,7 @@ internal static class Lr2SongDbSyncService
 
     private static void ReportCommittedLr2CompatibilityFacts(
         Lr2SongDbSyncRequest request,
-        IReadOnlyList<BMSFileMaintenanceInfo> compatibilityInfos)
+        IReadOnlyList<ResourceHealthMaintenanceSnapshot> compatibilityInfos)
     {
         if (request?.Lr2CompatibilityFactsCommitted == null
             || compatibilityInfos == null
@@ -1657,7 +1658,7 @@ internal static class Lr2SongDbSyncService
 
     private static void ReportCommittedChartInfoRows(
         Lr2SongDbSyncRequest request,
-        IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows)
+        IReadOnlyList<BeMusicSeeker.Models.ChartDetails> chartInfoRows)
     {
         if (request?.ChartInfoRowsCommitted == null
             || chartInfoRows == null
@@ -1681,7 +1682,8 @@ internal static class Lr2SongDbSyncService
     private static void ReportCommittedChartInfoParseFailures(
         Lr2SongDbSyncRequest request,
         int persistedCount,
-        int clearedCount)
+        int clearedCount,
+        IReadOnlyList<string> changedMd5s)
     {
         if (request?.ChartInfoParseFailuresCommitted == null
             || (persistedCount <= 0 && clearedCount <= 0))
@@ -1691,7 +1693,7 @@ internal static class Lr2SongDbSyncService
 
         try
         {
-            request.ChartInfoParseFailuresCommitted(persistedCount, clearedCount);
+            request.ChartInfoParseFailuresCommitted(persistedCount, clearedCount, changedMd5s);
         }
         catch (Exception ex)
         {
@@ -1782,10 +1784,10 @@ internal static class Lr2SongDbSyncService
 
     private static SongRowSyncReadCandidate ReadSyncSongRowCandidate(
         int index,
-        BMSFile existingSong,
+        ChartFile existingSong,
         Func<string, ChartFileReadBuffer> readBuffer)
     {
-        if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
+        if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.Path))
         {
             return new SongRowSyncReadCandidate(index, existingSong, null, 0L);
         }
@@ -1793,7 +1795,7 @@ internal static class Lr2SongDbSyncService
         try
         {
             var stopwatch = Stopwatch.StartNew();
-            ChartFileReadBuffer buffer = readBuffer(existingSong.path);
+            ChartFileReadBuffer buffer = readBuffer(existingSong.Path);
             stopwatch.Stop();
             return new SongRowSyncReadCandidate(index, existingSong, buffer, stopwatch.ElapsedTicks);
         }
@@ -1803,19 +1805,19 @@ internal static class Lr2SongDbSyncService
         }
     }
 
-    private static bool ShouldSkipCommittedReceiptPath(BMSFile row, IReadOnlySet<string> committedReceiptPaths)
+    private static bool ShouldSkipCommittedReceiptPath(ChartFile row, IReadOnlySet<string> committedReceiptPaths)
     {
         return row != null
-            && !string.IsNullOrWhiteSpace(row.path)
+            && !string.IsNullOrWhiteSpace(row.Path)
             && committedReceiptPaths != null
-            && committedReceiptPaths.Contains(row.path);
+            && committedReceiptPaths.Contains(row.Path);
     }
 
     private static SongRowSyncComputedItem CreateSyncSongRowItem(
         SongRowSyncReadCandidate candidate,
         ISet<string> textFileDirectories,
-        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver,
-        Action<LR2SongDBExtended.chart_info> generatedChartInfoAvailable,
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoResolver,
+        Action<BeMusicSeeker.Models.ChartDetails> generatedChartInfoAvailable,
         TimeSpan? chartInfoParseTimeout,
         ISet<string> currentChartInfoParseFailureMd5s,
         Action<string> logInstallPerformance,
@@ -1827,7 +1829,7 @@ internal static class Lr2SongDbSyncService
         }
 
         ChartFileSnapshot snapshot = CreateSyncSongRowSnapshot(candidate, out long digestTicks);
-        BMSFile row = CreateSyncSongRow(
+        ChartFile row = CreateSyncSongRow(
             candidate,
             snapshot,
             textFileDirectories,
@@ -1835,19 +1837,16 @@ internal static class Lr2SongDbSyncService
             out long parseTicks);
         bool chartInfoApplied = false;
         long chartInfoTicks = 0L;
-        LR2SongDBExtended.chart_info generatedChartInfoRow = null;
-        LR2SongDBExtended.chart_info_parse_failure chartInfoParseFailureRow = null;
+        BeMusicSeeker.Models.ChartDetails generatedChartInfoRow = null;
+        BeMusicSeeker.Models.ChartParseFailure chartInfoParseFailureRow = null;
         string chartInfoParseFailureDeleteMd5 = null;
         bool chartInfoParseFailureSkipped = false;
         if (row != null)
         {
             long chartInfoStart = Stopwatch.GetTimestamp();
-            ChartFile chart = ChartFileProjection.FromBmsFile(
-                row,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
+            ChartFile chart = row;
             ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(chart);
-            LR2SongDBExtended.chart_info currentRow = chartInfoResolver?.Invoke(row);
+            BeMusicSeeker.Models.ChartDetails currentRow = chartInfoResolver?.Invoke(row);
             bool hasCurrentParseFailure = IsCurrentChartInfoParseFailure(
                 row,
                 candidate,
@@ -1861,7 +1860,7 @@ internal static class Lr2SongDbSyncService
                 chartInfoParseTimeout,
                 logInstallPerformance,
                 logInstallPerformanceWarn);
-            LR2SongDBExtended.chart_info chartInfo = snapshotResult.Row;
+            BeMusicSeeker.Models.ChartDetails chartInfo = snapshotResult.Row;
             generatedChartInfoRow = snapshotResult.ShouldPersistRow ? snapshotResult.Row : null;
             chartInfoParseFailureRow = snapshotResult.ParseFailureRow;
             chartInfoParseFailureDeleteMd5 = snapshotResult.ParseFailureDeleteMd5;
@@ -1870,12 +1869,17 @@ internal static class Lr2SongDbSyncService
             {
                 generatedChartInfoAvailable?.Invoke(generatedChartInfoRow);
             }
-            chartInfoApplied = TryApplyChartInfoRow(row, chartInfo);
-            Lr2SongRowEnricher.ApplyLr2ChartMetadataDefaults(row);
+            chartInfoApplied = chartInfo != null;
+            if (chartInfo != null)
+            {
+                row = row with { ChartInfo = chartInfo, Level = chartInfo.level, LevelText = chartInfo.level?.ToString(System.Globalization.CultureInfo.InvariantCulture), Difficulty = chartInfo.difficulty };
+            }
+
+            row = row with { Difficulty = Lr2ChartInfoSongProjection.NormalizeDifficulty(row.Difficulty) };
             chartInfoTicks = Stopwatch.GetTimestamp() - chartInfoStart;
         }
 
-        BMSFileMaintenanceInfo compatibilityInfo = null;
+        ResourceHealthMaintenanceSnapshot compatibilityInfo = null;
         long compatibilityTicks = 0L;
         if (row != null)
         {
@@ -1885,7 +1889,7 @@ internal static class Lr2SongDbSyncService
                 TryCreateLr2CompatibilityMaintenanceInfo(row, out compatibilityInfo);
                 compatibilityTicks = Stopwatch.GetTimestamp() - compatibilityStart;
             }
-            row.ClearResourceReferenceCollections();
+            row = row with { Resources = null };
         }
 
         return new SongRowSyncComputedItem(
@@ -1930,7 +1934,7 @@ internal static class Lr2SongDbSyncService
     }
 
     private static bool IsCurrentChartInfoParseFailure(
-        BMSFile row,
+        ChartFile row,
         SongRowSyncReadCandidate candidate,
         ChartFileSnapshot snapshot,
         ISet<string> currentChartInfoParseFailureMd5s)
@@ -1940,15 +1944,15 @@ internal static class Lr2SongDbSyncService
             return false;
         }
 
-        string md5 = !string.IsNullOrWhiteSpace(row?.hash)
-            ? row.hash
+        string md5 = !string.IsNullOrWhiteSpace(row?.Md5)
+            ? row.Md5
             : (!string.IsNullOrWhiteSpace(snapshot?.Md5)
                 ? snapshot.Md5
-                : candidate?.ExistingSong?.hash);
+                : candidate?.ExistingSong?.Md5);
         return !string.IsNullOrWhiteSpace(md5) && currentChartInfoParseFailureMd5s.Contains(md5);
     }
 
-    private static BMSFile CreateSyncSongRow(
+    private static ChartFile CreateSyncSongRow(
         SongRowSyncReadCandidate candidate,
         ChartFileSnapshot snapshot,
         ISet<string> textFileDirectories,
@@ -1957,8 +1961,8 @@ internal static class Lr2SongDbSyncService
     {
         parsedFromSnapshot = false;
         parseTicks = 0L;
-        BMSFile existingSong = candidate?.ExistingSong;
-        if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
+        ChartFile existingSong = candidate?.ExistingSong;
+        if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.Path))
         {
             return null;
         }
@@ -1970,10 +1974,15 @@ internal static class Lr2SongDbSyncService
         try
         {
             var stopwatchParse = Stopwatch.StartNew();
-            BMSFile parsed = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
-                snapshot,
-                ResolveTextGroupFlag(existingSong.path, textFileDirectories, existingSong.txt.GetValueOrDefault()),
-                existingSong);
+            ChartFile parsed = BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot) with
+            {
+                Token = existingSong.Token,
+                Txt = ResolveTextGroupFlag(existingSong.Path, textFileDirectories, existingSong.Txt.GetValueOrDefault()),
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc),
+                Favorite = existingSong.Favorite,
+                AddDate = existingSong.AddDate,
+                Tag = existingSong.Tag
+            };
             stopwatchParse.Stop();
             parseTicks = stopwatchParse.ElapsedTicks;
             parsedFromSnapshot = true;
@@ -1990,11 +1999,9 @@ internal static class Lr2SongDbSyncService
         return ticks <= 0L ? 0L : (long)(ticks * 1000.0 / Stopwatch.Frequency);
     }
 
-    private static BMSFile CreateFallbackSyncSongRow(BMSFile existingSong, ISet<string> textFileDirectories)
+    private static ChartFile CreateFallbackSyncSongRow(ChartFile existingSong, ISet<string> textFileDirectories)
     {
-        BMSFile copy = existingSong?.CreateSongRowPersistenceCopy();
-        copy?.SetTextGroupFlag(ResolveTextGroupFlag(existingSong?.path, textFileDirectories, existingSong?.txt.GetValueOrDefault() ?? 0));
-        return copy;
+        return existingSong == null ? null : existingSong with { Txt = ResolveTextGroupFlag(existingSong.Path, textFileDirectories, existingSong.Txt.GetValueOrDefault()) };
     }
 
     private static int ResolveTextGroupFlag(string path, ISet<string> textFileDirectories, int fallback)
@@ -2020,20 +2027,8 @@ internal static class Lr2SongDbSyncService
         return textFileDirectories.Contains(Path.GetFullPath(directory)) ? 1 : 0;
     }
 
-    private static bool TryApplyChartInfoRow(
-        BMSFile row,
-        LR2SongDBExtended.chart_info chartInfo)
-    {
-        if (row == null || chartInfo == null)
-        {
-            return false;
-        }
-        row.ApplyLr2ChartInfoDetailedColumns(chartInfo);
-        return true;
-    }
-
-    private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateSongRowSyncChartInfoResolver(
-        Func<BMSFile, LR2SongDBExtended.chart_info> requestResolver,
+    private static Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateSongRowSyncChartInfoResolver(
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> requestResolver,
         bool requestResolverIsThreadSafe)
     {
         if (requestResolver != null)
@@ -2055,9 +2050,9 @@ internal static class Lr2SongDbSyncService
         return null;
     }
 
-    private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateChartInfoResolver(
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> bySha256,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> byMd5)
+    private static Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateChartInfoResolver(
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> bySha256,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> byMd5)
     {
         return row =>
         {
@@ -2065,15 +2060,15 @@ internal static class Lr2SongDbSyncService
             {
                 return null;
             }
-            if (!string.IsNullOrWhiteSpace(row.sha256)
+            if (!string.IsNullOrWhiteSpace(row.Sha256)
                 && bySha256 != null
-                && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256Row))
+                && bySha256.TryGetValue(row.Sha256, out BeMusicSeeker.Models.ChartDetails bySha256Row))
             {
                 return bySha256Row;
             }
-            if (!string.IsNullOrWhiteSpace(row.hash)
+            if (!string.IsNullOrWhiteSpace(row.Md5)
                 && byMd5 != null
-                && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5Row))
+                && byMd5.TryGetValue(row.Md5, out BeMusicSeeker.Models.ChartDetails byMd5Row))
             {
                 return byMd5Row;
             }
@@ -2092,14 +2087,14 @@ internal static class Lr2SongDbSyncService
 
     private static Lr2CompatibilityFactsWriteResult UpsertLr2CompatibilityFacts(
         LR2SongDBExtended songDb,
-        IReadOnlyCollection<BMSFileMaintenanceInfo> infos)
+        IReadOnlyCollection<ResourceHealthMaintenanceSnapshot> infos)
     {
         if (songDb == null)
         {
             return Lr2CompatibilityFactsWriteResult.Empty;
         }
-        List<BMSFileMaintenanceInfo> rows = [.. (infos ?? [])
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
+        List<ResourceHealthMaintenanceSnapshot> rows = [.. (infos ?? [])
+            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.Path))];
         if (rows.Count == 0)
         {
             return Lr2CompatibilityFactsWriteResult.Empty;
@@ -2189,7 +2184,7 @@ internal static class Lr2SongDbSyncService
 
     private static void BulkInsertLr2CompatibilityMaintenanceTempRows(
         LR2SongDBExtended songDb,
-        IReadOnlyList<BMSFileMaintenanceInfo> rows)
+        IReadOnlyList<ResourceHealthMaintenanceSnapshot> rows)
     {
         if (rows == null || rows.Count == 0)
         {
@@ -2206,12 +2201,12 @@ internal static class Lr2SongDbSyncService
             var args = new List<object>(count * columnCount);
             for (int index = 0; index < count; index++)
             {
-                BMSFileMaintenanceInfo row = rows[offset + index];
-                args.Add(row.path);
-                args.Add(row.hash);
-                args.Add(row.lr2_warning_flags);
-                args.Add(row.lr2_resource_max_relative_cp932_bytes);
-                args.Add(ToNullableInteger(row.lr2_resource_has_parent_traversal));
+                ResourceHealthMaintenanceSnapshot row = rows[offset + index];
+                args.Add(row.Path);
+                args.Add(row.Hash);
+                args.Add(row.Lr2WarningFlags);
+                args.Add(row.Lr2ResourceMaxRelativeCp932Bytes);
+                args.Add(ToNullableInteger(row.Lr2ResourceHasParentTraversal));
             }
             songDb.Execute(
                 "INSERT OR REPLACE INTO temp." + TempLr2CompatibilityMaintenanceTable
@@ -2221,22 +2216,25 @@ internal static class Lr2SongDbSyncService
         }
     }
 
-    private static bool TryCreateLr2CompatibilityMaintenanceInfo(BMSFile row, out BMSFileMaintenanceInfo info)
+    private static bool TryCreateLr2CompatibilityMaintenanceInfo(ChartFile row, out ResourceHealthMaintenanceSnapshot info)
     {
         info = null;
-        if (row == null || string.IsNullOrWhiteSpace(row.path))
+        if (row == null || string.IsNullOrWhiteSpace(row.Path))
         {
             return false;
         }
 
-        Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(row.path);
-        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(row.path, ChartResourceSnapshot.Create(row.Resources));
-        info = new BMSFileMaintenanceInfo
+        Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(row.Path);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(row.Path, ChartResourceSnapshot.Create(row.Resources));
+        info = new ResourceHealthMaintenanceSnapshot
         {
-            path = row.path,
-            hash = row.hash
+            Path = row.Path,
+            Hash = row.Md5,
+            Origin = MaintenanceInfoOrigin.Calculated,
+            Lr2WarningFlags = (int)(pathEvaluation.WarningFlags | resourceEvaluation.WarningFlags),
+            Lr2ResourceMaxRelativeCp932Bytes = resourceEvaluation.MaxRelativeCp932Bytes,
+            Lr2ResourceHasParentTraversal = resourceEvaluation.HasParentTraversal
         };
-        info.ApplyLr2CompatibilityEvaluation(pathEvaluation, resourceEvaluation);
         return true;
     }
 
@@ -2247,19 +2245,19 @@ internal static class Lr2SongDbSyncService
 
     private sealed class SongRowSyncReadCandidate(
         int index,
-        BMSFile existingSong,
+        ChartFile existingSong,
         ChartFileReadBuffer buffer,
         long readElapsedTicks,
         bool receiptSkipped = false)
     {
-        public static SongRowSyncReadCandidate CreateReceiptSkipped(int index, BMSFile existingSong)
+        public static SongRowSyncReadCandidate CreateReceiptSkipped(int index, ChartFile existingSong)
         {
             return new SongRowSyncReadCandidate(index, existingSong, null, 0L, receiptSkipped: true);
         }
 
         public int Index { get; } = index;
 
-        public BMSFile ExistingSong { get; } = existingSong;
+        public ChartFile ExistingSong { get; } = existingSong;
 
         public ChartFileReadBuffer Buffer { get; } = buffer;
 
@@ -2270,18 +2268,18 @@ internal static class Lr2SongDbSyncService
 
     private sealed class SongRowSyncComputedItem(
         int index,
-        BMSFile row,
+        ChartFile row,
         bool parsedFromSnapshot,
         long readElapsedTicks,
         long digestElapsedTicks,
         long parseElapsedTicks,
         bool chartInfoApplied,
         long chartInfoElapsedTicks,
-        LR2SongDBExtended.chart_info generatedChartInfoRow,
-        LR2SongDBExtended.chart_info_parse_failure chartInfoParseFailureRow,
+        BeMusicSeeker.Models.ChartDetails generatedChartInfoRow,
+        BeMusicSeeker.Models.ChartParseFailure chartInfoParseFailureRow,
         string chartInfoParseFailureDeleteMd5,
         bool chartInfoParseFailureSkipped,
-        BMSFileMaintenanceInfo lr2CompatibilityInfo,
+        ResourceHealthMaintenanceSnapshot lr2CompatibilityInfo,
         long compatibilityElapsedTicks,
         bool receiptSkipped = false)
     {
@@ -2307,7 +2305,7 @@ internal static class Lr2SongDbSyncService
 
         public int Index { get; } = index;
 
-        public BMSFile Row { get; } = row;
+        public ChartFile Row { get; } = row;
 
         public bool ParsedFromSnapshot { get; } = parsedFromSnapshot;
 
@@ -2321,15 +2319,15 @@ internal static class Lr2SongDbSyncService
 
         public long ChartInfoElapsedTicks { get; } = chartInfoElapsedTicks;
 
-        public LR2SongDBExtended.chart_info GeneratedChartInfoRow { get; } = generatedChartInfoRow;
+        public BeMusicSeeker.Models.ChartDetails GeneratedChartInfoRow { get; } = generatedChartInfoRow;
 
-        public LR2SongDBExtended.chart_info_parse_failure ChartInfoParseFailureRow { get; } = chartInfoParseFailureRow;
+        public BeMusicSeeker.Models.ChartParseFailure ChartInfoParseFailureRow { get; } = chartInfoParseFailureRow;
 
         public string ChartInfoParseFailureDeleteMd5 { get; } = chartInfoParseFailureDeleteMd5;
 
         public bool ChartInfoParseFailureSkipped { get; } = chartInfoParseFailureSkipped;
 
-        public BMSFileMaintenanceInfo Lr2CompatibilityInfo { get; } = lr2CompatibilityInfo;
+        public ResourceHealthMaintenanceSnapshot Lr2CompatibilityInfo { get; } = lr2CompatibilityInfo;
 
         public long CompatibilityElapsedTicks { get; } = compatibilityElapsedTicks;
 

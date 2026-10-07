@@ -459,12 +459,12 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void PlaylistDetailSourceRow_UsesEffectiveUrlForDisplay()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "SongE", 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Path = "SongE" + ".bms", Title = "SongE", RawTitle = "SongE", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         var entry = new BMSTableEntry(file);
         entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
+        var sourceRow = new PlaylistDetailSourceRow(entry, (file));
 
         Assert.AreEqual(new Uri("https://example.com/runtime"), sourceRow.Url);
         Assert.AreEqual(new Uri("https://example.com/runtime-diff"), sourceRow.Url_diff);
@@ -658,17 +658,17 @@ public sealed class PlaylistUrlCompletionTests
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4004, "BmsonTable");
             InsertPlaylistHeader(tempDbPath, table);
-            var song = new LR2SongDBExtended.bmson_song
+            ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = Path.Combine(Path.GetTempPath(), "playlist-bmson-test", "song.bmson"),
-                folder = string.Empty,
-                title = "BmsonSong",
-                artist = "Artist",
-                level = 12,
-                md5 = "99999999999999999999999999999999",
-                sha256 = "8989898989898989898989898989898989898989898989898989898989898989"
+                Path = Path.Combine(Path.GetTempPath(), "playlist-bmson-test", "song.bmson"),
+                Folder = string.Empty,
+                RawTitle = "BmsonSong",
+                RawArtist = "Artist",
+                Level = 12,
+                Md5 = "99999999999999999999999999999999",
+                Sha256 = "8989898989898989898989898989898989898989898989898989898989898989"
             };
-            var entry = new BMSTableEntry(ChartFileProjection.FromBmsonSong(song))
+            var entry = new BMSTableEntry((song))
             {
                 folder = string.Empty,
                 playlist_id = table.playlist_id,
@@ -708,8 +708,8 @@ public sealed class PlaylistUrlCompletionTests
 
     private static BMSTableEntry CreateEntry(string md5, string title)
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot(md5, title, 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = md5, Path = title + ".bms", Title = title, RawTitle = title, Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         return new BMSTableEntry(file)
         {
             folder = string.Empty
@@ -769,18 +769,6 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        public void ApplySnapshot(string snapshotHash, string snapshotTitle, int? snapshotMode)
-        {
-            hash = snapshotHash;
-            path = snapshotTitle + ".bms";
-            Title = snapshotTitle;
-            Artist = "TestArtist";
-            genre = "TestGenre";
-            mode = snapshotMode;
-        }
-    }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry
     {

@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2SongRowEnricherTests
 {
     [TestMethod]
-    public void EnrichParsedSong_AppliesSnapshotMetadataAndPreservesUserColumns()
+    public void CommonToStorageRow_CapturesSnapshotMetadataAndUserColumns()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Lr2SongRowEnricher_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -24,15 +24,14 @@ public sealed class Lr2SongRowEnricherTests
             var timestamp = new DateTime(2026, 6, 1, 2, 3, 4, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(chartPath, timestamp);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            var existing = new TestableBmsFile
+            ChartFile parsedChart = BmsChartFileParser.ParseSnapshot(snapshot) with
             {
-                adddate = 12345,
-                tag = "keep-tag"
+                Txt = 1,
+                Favorite = 7,
+                AddDate = 12345,
+                Tag = "keep-tag"
             };
-            existing.SetFavorite(7);
-
-            Lr2SongRowEnricher.EnrichParsedSong(parsed, snapshot, textFlag: 1, existing);
+            LR2SongDB.song parsed = ChartSongStorageMapping.ToBmsRow(parsedChart);
 
             Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp), parsed.date);
             Assert.AreEqual(1, parsed.txt);
@@ -67,15 +66,12 @@ public sealed class Lr2SongRowEnricherTests
                 "#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile shiftJisParsed = BmsChartFileParser.ParseSnapshot(snapshot);
 
-            BMSFile parsed = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
-                snapshot,
-                textFlag: 0,
-                existingSong: null);
+            ChartFile parsed = BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot);
 
-            Assert.AreEqual(title, parsed.title);
-            Assert.AreEqual(artist, parsed.artist);
+            Assert.AreEqual(title, parsed.RawTitle);
+            Assert.AreEqual(artist, parsed.RawArtist);
             Assert.AreEqual(
                 shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
                 parsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
@@ -104,7 +100,7 @@ public sealed class Lr2SongRowEnricherTests
 
         Lr2SongRowEnricher.EnrichGeneratedSong(file);
 
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+        Assert.IsTrue(Lr2CompatibilityEvaluator.EvaluateChartPath(file.path).WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
         Assert.IsTrue(string.IsNullOrWhiteSpace(file.folder));
         Assert.IsTrue(string.IsNullOrWhiteSpace(file.parent));
     }
@@ -150,7 +146,7 @@ public sealed class Lr2SongRowEnricherTests
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.SetJudgeForTest(1);
         file.SetModeForTest(5);
-        var chartInfo = new LR2SongDBExtended.chart_info
+        var chartInfo = new BeMusicSeeker.Models.ChartDetails
         {
             md5 = file.hash,
             level = 12,
@@ -194,7 +190,7 @@ public sealed class Lr2SongRowEnricherTests
         {
             File.WriteAllText(chartPath, chartText, Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            LR2SongDB.song parsed = ChartSongStorageMapping.ToBmsRow(BmsChartFileParser.ParseSnapshot(snapshot));
 
             Assert.AreEqual(expectedMode, parsed.mode);
         }
@@ -217,7 +213,7 @@ public sealed class Lr2SongRowEnricherTests
         {
             File.WriteAllText(chartPath, "#RANK 3\r\n#CUSTOMFOLDER\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            LR2SongDB.song parsed = ChartSongStorageMapping.ToBmsRow(BmsChartFileParser.ParseSnapshot(snapshot));
 
             Assert.AreEqual(2, parsed.judge);
         }
@@ -235,7 +231,7 @@ public sealed class Lr2SongRowEnricherTests
     {
         var file = new TestableBmsFile { path = @"C:\BMS\Pack\chart.bms" };
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var chartInfo = new LR2SongDBExtended.chart_info
+        var chartInfo = new BeMusicSeeker.Models.ChartDetails
         {
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             level = 12,
@@ -253,7 +249,7 @@ public sealed class Lr2SongRowEnricherTests
     {
         var file = new TestableBmsFile { path = @"C:\BMS\Pack\chart.bms" };
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var chartInfo = new LR2SongDBExtended.chart_info
+        var chartInfo = new BeMusicSeeker.Models.ChartDetails
         {
             md5 = file.hash,
             exlevel = null
@@ -291,7 +287,7 @@ public sealed class Lr2SongRowEnricherTests
         };
         existingSong.SetHash(md5);
         existingSong.SetJudgeForTest(9);
-        var chartInfo = new LR2SongDBExtended.chart_info
+        var chartInfo = new BeMusicSeeker.Models.ChartDetails
         {
             md5 = md5,
             level = null,
@@ -357,7 +353,7 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(4, file.difficulty);
     }
 
-    private sealed class TestableBmsFile : BMSFile
+    private sealed class TestableBmsFile : LR2SongDB.song
     {
         public void SetHash(string value)
         {

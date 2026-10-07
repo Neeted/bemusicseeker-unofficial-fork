@@ -1,32 +1,28 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class NormalLibraryRefreshPublishRequest
 {
-    public int OwnedCollectionVersion { get; set; }
+    public int OwnedCollectionVersion { get; init; }
 
-    public LibraryChartRefreshEffects Effects { get; set; }
+    public IReadOnlyList<ChartFile> ChangedCharts { get; init; } = [];
 
-    public IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; set; } = [];
+    /// <summary>確定した導入済みentryの所属と旧新基本値です。</summary>
+    public IReadOnlyList<InstalledChartCurrentChange> InstalledChartChanges { get; init; } = [];
+    public IReadOnlyList<OwnedChartToken> DeletedTokens { get; init; } = [];
+    internal IReadOnlyList<string> ChangedDetailMd5s { get; init; } = [];
+    internal IReadOnlyList<string> ChangedDetailSha256s { get; init; } = [];
 
-    public bool NotifiesStorageRows { get; set; }
+    public LibraryChartRefreshEffects Effects { get; init; }
 
-    public bool ResetsPriorNotifications { get; set; }
+    public IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; init; } = [];
 
-    public bool NotifiesBmsFiles { get; set; }
 
-    public bool NotifiesBmsonSongs { get; set; }
+    public bool ResetsPriorNotifications { get; init; }
 
-    public IReadOnlyList<BMSFile> RemovedBmsFiles { get; set; } = [];
-
-    public IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonSongs { get; set; } = [];
-
-    public bool StorageRowsRemoveDeltaComplete { get; set; }
 }
 
 internal sealed class NormalLibraryRefreshPublisher
@@ -57,7 +53,6 @@ internal sealed class NormalLibraryRefreshPublisher
                     0,
                     LibraryChartRefreshEffects.None,
                     [],
-                    notifiesStorageRows: false,
                     resetsPriorNotifications: false);
             }
             bool resetsPriorNotifications = resetIndex >= 0;
@@ -66,34 +61,21 @@ internal sealed class NormalLibraryRefreshPublisher
             LibraryChartRefreshEffects effects = pendingNotifications.Aggregate(
                 LibraryChartRefreshEffects.None,
                 (current, notification) => current | notification.Effects);
-            bool notifiesStorageRows = pendingNotifications.Any(notification => notification.NotifiesStorageRows);
-            bool notifiesBmsFiles = pendingNotifications.Any(notification => notification.NotifiesBmsFiles);
-            bool notifiesBmsonSongs = pendingNotifications.Any(notification => notification.NotifiesBmsonSongs);
-            bool storageRowsRemoveDeltaComplete = notifiesStorageRows
-                && pendingNotifications
-                    .Where(notification => notification.NotifiesStorageRows)
-                    .All(notification => notification.StorageRowsRemoveDeltaComplete);
-            List<BMSFile> removedBmsFiles = storageRowsRemoveDeltaComplete
-                ? [.. pendingNotifications.SelectMany(notification => notification.RemovedBmsFiles ?? []).Where(file => file != null).Distinct()]
-                : [];
-            List<LR2SongDBExtended.bmson_song> removedBmsonSongs = storageRowsRemoveDeltaComplete
-                ? [.. pendingNotifications.SelectMany(notification => notification.RemovedBmsonSongs ?? []).Where(song => song != null).Distinct()]
-                : [];
             List<ChartFile> installDestinationChangedCharts = [.. pendingNotifications
                 .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
                 .Where(chart => chart != null)];
+            var deletedTokens = new HashSet<OwnedChartToken>(pendingNotifications.SelectMany(notification => notification.DeletedTokens));
             return new NormalLibraryRefreshNotificationBatch(
                 latestPendingVersion,
                 ownedCollectionVersion,
                 effects,
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
-                notifiesStorageRows,
                 resetsPriorNotifications,
-                notifiesBmsFiles,
-                notifiesBmsonSongs,
-                removedBmsFiles,
-                removedBmsonSongs,
-                storageRowsRemoveDeltaComplete);
+                changedCharts: DistinctChartsByNotificationKey(pendingNotifications.SelectMany(notification => notification.ChangedCharts).Where(chart => chart.Token == null || !deletedTokens.Contains(chart.Token))),
+                deletedTokens: [.. deletedTokens],
+                changedDetailMd5s: [.. pendingNotifications.SelectMany(value => value.ChangedDetailMd5s).Distinct(System.StringComparer.OrdinalIgnoreCase)],
+                changedDetailSha256s: [.. pendingNotifications.SelectMany(value => value.ChangedDetailSha256s).Distinct(System.StringComparer.OrdinalIgnoreCase)],
+                installedChartChanges: [.. pendingNotifications.SelectMany(value => value.InstalledChartChanges)]);
         }
     }
 
@@ -103,25 +85,19 @@ internal sealed class NormalLibraryRefreshPublisher
         {
             return 0;
         }
-        int version = Interlocked.Increment(ref latestVersion);
-        var notification = new NormalLibraryRefreshNotification(
-            version,
-            request.OwnedCollectionVersion,
-            request.Effects,
-            request.InstallDestinationChangedCharts,
-            request.NotifiesStorageRows,
-            request.ResetsPriorNotifications,
-            request.NotifiesBmsFiles,
-            request.NotifiesBmsonSongs,
-            request.RemovedBmsFiles,
-            request.RemovedBmsonSongs,
-            request.StorageRowsRemoveDeltaComplete);
         lock (syncRoot)
         {
+            int version = Interlocked.Increment(ref latestVersion);
+            var notification = new NormalLibraryRefreshNotification(
+                version,
+                request.OwnedCollectionVersion,
+                request.Effects,
+                request.InstallDestinationChangedCharts,
+                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges);
             latestNotification = notification;
             notifications.Add(notification);
+            return version;
         }
-        return version;
     }
 
     internal void Clear(int notificationVersion)
@@ -143,14 +119,14 @@ internal sealed class NormalLibraryRefreshPublisher
     private static IReadOnlyList<ChartFile> DistinctChartsByNotificationKey(IEnumerable<ChartFile> charts)
     {
         var result = new List<ChartFile>();
-        var resultIndexByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var resultIndexByKey = new Dictionary<object, int>();
         foreach (ChartFile chart in charts ?? [])
         {
             if (chart == null)
             {
                 continue;
             }
-            string key = CreateNormalLibraryRefreshNotificationKey(chart);
+            object key = chart.Token is OwnedChartToken token ? token : (chart.Kind, chart.Path);
             if (resultIndexByKey.TryGetValue(key, out int index))
             {
                 result[index] = chart;
@@ -164,12 +140,4 @@ internal sealed class NormalLibraryRefreshPublisher
         return result;
     }
 
-    private static string CreateNormalLibraryRefreshNotificationKey(ChartFile chart)
-    {
-        string kind = chart?.Kind.ToString() ?? string.Empty;
-        string path = chart?.Path ?? string.Empty;
-        string md5 = chart?.Md5 ?? string.Empty;
-        string sha256 = chart?.Sha256 ?? string.Empty;
-        return kind + "\n" + path + "\n" + md5 + "\n" + sha256;
-    }
 }

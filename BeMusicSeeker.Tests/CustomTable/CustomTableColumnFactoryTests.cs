@@ -766,9 +766,9 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("Folder", columns["Folder"].EditPropertyName);
         Assert.AreEqual("instl_dst", columns["InstallDst"].EditPropertyName);
 
-        var bmsFile = new BMSFile();
+        ChartFile bmsFile = ChartTestValues.Empty();
         var bmsRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(bmsFile),
+            (bmsFile),
             null,
             string.Empty,
             string.Empty,
@@ -779,12 +779,12 @@ public sealed class CustomTableColumnFactoryTests
             columns["InstallDst"].GetEditSuggestions(bmsRow).ToArray());
 
         var adapterlessBmsonRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            (ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = "C:\\Bmson\\adapterless.bmson",
-                folder = "C:\\Bmson",
-                md5 = "cccccccccccccccccccccccccccccccc",
-                sha256 = new string('d', 64)
+                Path = "C:\\Bmson\\adapterless.bmson",
+                Folder = "C:\\Bmson",
+                Md5 = "cccccccccccccccccccccccccccccccc",
+                Sha256 = new string('d', 64)
             }),
             null,
             "Candidate",
@@ -796,12 +796,12 @@ public sealed class CustomTableColumnFactoryTests
             columns["InstallDst"].GetEditSuggestions(adapterlessBmsonRow).ToArray());
 
         var bmsonRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            (ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = "C:\\Bmson\\chart.bmson",
-                folder = "C:\\Bmson",
-                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                sha256 = new string('b', 64)
+                Path = "C:\\Bmson\\chart.bmson",
+                Folder = "C:\\Bmson",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Sha256 = new string('b', 64)
             }),
             null,
             string.Empty,
@@ -830,7 +830,7 @@ public sealed class CustomTableColumnFactoryTests
         string destination = hasDestination ? @"C:\BMS\A" : string.Empty;
         string[] candidates = new[] { @"C:\BMS\A", @"C:\BMS\B" }.Take(candidateCount).ToArray();
         ChartFile chart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsFile(new BMSFile()),
+            (ChartTestValues.Empty()),
             destination, string.Empty, string.Empty, candidates, []);
         var row = LibraryChartRow.FromChartFile(chart);
 

@@ -10,11 +10,11 @@
 
 ## 仕様
 
-### 識別と保存主体
+### 識別と共通詳細値
 
 BMSは `song.hash` のMD5と `chart_digest_map` のSHA-256を結び、`chart_info.sha256` を参照します。BMSONは `bmson_song.sha256` を優先し、`chart_digest_map` を作りません。
 
-`chart_info` は譜面メタデータのキャッシュでもあるため、現在のカタログに所持主体がない行を、読込みや補完解析だけを理由に削除しません。BMSとBMSONの保存主体に実行中の `ChartInfo` オブジェクトを付けず、表示はセッション内の索引と投影の提供元から解決します。
+`chart_info` は譜面メタデータのキャッシュでもあるため、現在のカタログに所持主体がない行を、読込みや補完解析だけを理由に削除しません。`CatalogChartInfoOwner` が不変の `ChartDetails` と `ChartParseFailure` のキャッシュ・最新性を所有し、DB行型への変換はDB境界だけに置きます。表示は既存のセッション索引と投影の提供元から解決し、保存行への逆参照を持ちません。
 
 #### 情報を解決するキー
 
@@ -51,13 +51,13 @@ flowchart TB
 
 パスから導入後の情報を生成する場合、実際に読めたスナップショットのMD5だけで解析失敗を検索します。発見時のMD5は、その後に内容が変わっている可能性があるため根拠にしません。対象が空ならDBを開かず、問い合わせもしません。
 
-検索はパラメーター付きのMD5集合を分割して行い、失敗表を全件取得してから絞りません。全所持主体を照合する起動時の読込みとは区別します。現在の情報を再利用する場合も、新しい保存主体に必要な適用と確定後の索引・通知は省きません。
+検索はパラメーター付きのMD5集合を分割して行い、失敗表を全件取得してから絞りません。全所持項目を照合する起動時の読込みとは区別します。現在の情報を再利用する場合も、新しい所持項目に必要な適用と確定後の索引・通知は省きません。
 
 ### 保存する列と公開順序
 
 導入時解析と全件補完は、保存対象と譜面情報を `CatalogChartInfoStorageWriteRequest` へまとめ、`CatalogMutationOwner.ApplyChartInfoStorageWrite` から一つのトランザクションへ渡します。
 
-新規・更新ファイルは基本解析と詳細解析を組み合わせた保存行を生成できます。既所持譜面の全件補完は行全体を再生成せず、パスと正規化MD5が一致する既存BMSの次の9列だけを更新します。
+新規・更新ファイルは基本解析と詳細解析を組み合わせた不変の共通変更事実を作り、DB境界で生成列へ変換します。 新規scan候補の保存用 `mode` は捕捉本文の基本解析値を維持し、再利用した詳細値の `mode` を生成列へコピーしません。詳細からの共通基本値更新や明示的なmode再検出の限定書戻しとは別の境界です。既所持譜面の全件補完は行全体を再生成せず、パスと正規化MD5が一致する既存BMSの次の9列だけを更新します。
 
 `level`、`difficulty`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes`
 
@@ -65,7 +65,7 @@ flowchart TB
 
 ハッシュ不足の候補が既存の現在情報を再利用した場合も保存用の適用結果を作ります。同じMD5を持つ複数BMSは一回の読取り・評価結果を全対象へ反映します。
 
-公開順序は、DB確定、DBで一致した保存主体の更新、ハッシュ依存索引、譜面情報のセッション索引、警告・ハッシュ通知の順です。確定前や確定失敗時に部分公開しません。ハッシュの変更内容は一回作り、索引更新と公開に共用します。
+公開順序は、DB確定、DBで一致した共通現在値の一回適用、ハッシュ依存索引、譜面情報のセッション索引、警告・ハッシュ通知の順です。level/modeなどの基本値を詳細確定で更新するときは同じtokenに適用し、集合版を一回進めます。詳細表示だけの更新は集合版を進めず、詳細版と変更hashを通知します。確定前や確定失敗時に部分公開しません。ハッシュの変更内容は一回作り、索引更新と公開に共用します。
 
 ### 起動時の読込みと同一起動内の省略
 
@@ -73,7 +73,7 @@ LR2連携と単独動作は、同じ読み取り専用の処理で実在する�
 
 `lr2_song_db_sync_status` はLR2の生成行の同期状態です。同期済み、またはファイル差分なしという状態は、`chart_info` の存在と完全性を証明しません。どちらの動作モードでも、現在の情報も失敗もない所持譜面は補完候補になります。
 
-実データの照合で全対象が現在の情報または失敗と判定された場合は、`ChartInfoHydrationAllCurrentSnapshot` を記録できます。所持集合、BMS・BMSONの保存行、解析器の版、時間上限が変わらない同一起動内だけ、候補集計と全件補完を `hydration_all_current` として省略します。LR2の同期状態からこの結果を合成しません。
+実データの照合で全対象が現在の情報または失敗と判定された場合は、`ChartInfoHydrationAllCurrentSnapshot` を記録できます。共通所持集合版、解析器の版、時間上限が変わらない同一起動内だけ、候補集計と全件補完を `hydration_all_current` として省略します。LR2の同期状態からこの結果を合成しません。
 
 解析失敗の明示削除は、失敗行と警告を更新しますが、同一起動内の上記記録を無効化せず、即時の再読込みや補完を予約しません。現在の情報がない譜面は次回起動の実データ照合で候補へ戻ります。同一起動中に既に進行中の読込みが削除前後のどちらを観測するかは保証しません。
 
@@ -90,6 +90,8 @@ DBの読込み失敗では「全て最新」を合成しません。解析時間
 | 全件補完の9列更新、同じハッシュの複数主体、確定失敗 | [`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) の `BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows`、`BackfillChartInfos_UpdatesOnlyChartInfoSongProjectionAndPreservesOtherColumns`、`BackfillChartInfos_ReusedCurrentRowProjectsSongColumnsForMissingDigestCandidate`、`BackfillChartInfos_GroupsDuplicateMissingSha256TargetsByMd5`（同じMD5を一回読取りで反映）、`BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex`、`BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk` |
 | 読取り専用の照合、対象MD5の検索、既存情報の適用、公開順序 | [`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)、[`CatalogChartInfoOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs) | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs) |
 | 導入後の実ハッシュ、警告削除、競合と次回の再評価 | [`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs)、[`ChartInfoParseFailureRemovalWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/ChartInfoParseFailureRemovalWorkflowOwner.cs) | [`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs) の `InstallChartPackages_UsesInstalledSnapshotMd5ForFailureLookup`、`BackfillChartInfos_ParseFailureStillPersistsDigest`、`BackfillChartInfos_SkipsCurrentPersistedParseFailure`、`BackfillChartInfos_ReparsesStalePersistedParseFailureAndUpdatesRecord`、`BackfillChartInfos_ReparsesShorterTimeoutFailure`、`RemoveChartInfoParseFailuresByMd5_RetriesOnNextStartupInBothModes`、`BackfillChartInfos_CommitsInChunksAndLogsPhaseBoundaries`、`RetryIfLockedOrBusy_RetriesRealDatabaseContention`。実MD5のBMS解析失敗、確定後の警告、次回起動の再評価を確認する。 |
+
+新規scanのcached詳細再利用と保存modeの分離は [`BmsLibraryInitializationInlineChartInfoTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInlineChartInfoTests.cs) の `ApplyFileScanDiff_CurrentInlineChartInfoRowSkipsParseAndReturnsAppliedRow` が、基本解析とcached詳細のmodeが異なる入力と実DB読戻しで確認します。
 
 ## 関連資料
 

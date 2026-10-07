@@ -97,13 +97,13 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public void TryPatchDetailSourceChartInfo_ReplacesCurrentGenerationWithoutMutatingOldRow()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
-        var oldInfo = new LR2SongDBExtended.chart_info
+        var oldInfo = new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = new string('a', 64),
             parser_version = 1,
             updated_at = new DateTime(2026, 1, 1)
         };
-        var newInfo = new LR2SongDBExtended.chart_info
+        var newInfo = new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = oldInfo.sha256,
             parser_version = 2,
@@ -160,7 +160,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         workspace.DetailViewState.Source.Rows = [oldRow];
         workspace.DetailBuildState.RequestVersion = 9;
 
-        var chartInfo = new LR2SongDBExtended.chart_info
+        var chartInfo = new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = new string('c', 64),
             parser_version = 1,
@@ -228,7 +228,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     public void TryPatchDetailSourceChartInfo_RejectsStaleRequestWithoutReplacingSource()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
-        var oldInfo = new LR2SongDBExtended.chart_info
+        var oldInfo = new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = new string('b', 64),
             parser_version = 1,
@@ -239,7 +239,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         List<PlaylistDetailSourceRow> oldRows = [oldRow];
         workspace.DetailViewState.Source.Rows = oldRows;
         workspace.DetailBuildState.RequestVersion = 8;
-        dataSource.ChartInfo = new LR2SongDBExtended.chart_info
+        dataSource.ChartInfo = new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = oldInfo.sha256,
             parser_version = 2,
@@ -271,7 +271,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var missing = new TestablePlaylistEntry("77777777777777777777777777777777", "missing");
         var table = new BMSTable { entries = [owned, missing] };
         var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
-            [LibraryChartRef.FromPath(LibraryChartKind.Bms, @"C:\songs\owned.bms", owned.md5, null)]);
+            [LibraryChartRef.FromPath(ChartFileKind.Bms, @"C:\songs\owned.bms", owned.md5, null)]);
         string cancellationStage = string.Empty;
 
         PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
@@ -1130,18 +1130,18 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     [TestMethod]
-    public async Task RequestDetailRefresh_UsesAttachedResolveIndexAndPreservesStorageOwnerIdentity()
+    public async Task RequestDetailRefresh_UsesAttachedResolveIndexAndPreservesOwnedToken()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
         const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        var ownedChart = new BMSFile
+        ChartFile ownedChart = ChartTestValues.Empty() with
         {
-            path = @"C:\owned\chart.bms",
-            hash = md5,
-            title = "Owned chart"
+            Path = @"C:\owned\chart.bms",
+            Md5 = md5,
+            RawTitle = "Owned chart",
+            Token = new OwnedChartToken()
         };
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
-            [LibraryChartRef.FromBmsFile(ownedChart)]);
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([ownedChart]);
 
         var entry = new TestablePlaylistEntry(md5, "playlist entry");
         var table = new BMSTable { entries = [entry] };
@@ -1169,7 +1169,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         PlaylistDetailSourceRow row = workspace.DetailViewState.Source.Rows[0];
         Assert.AreSame(entry, row.Entry);
         Assert.IsTrue(row.IsOwned);
-        Assert.AreSame(ownedChart, row.BmsPlayerFile);
+        Assert.AreSame(ownedChart.Token, row.Chart.Token);
+        Assert.AreEqual(ownedChart.Path, row.Chart.Path);
     }
 
     [TestMethod]
@@ -1191,7 +1192,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         dataSource.RuntimeState = new BMSLibrary.PlaylistLibraryResolveIndexRuntimeState
         {
             IsCached = true,
-            OwnedCollectionVersion = (int)dataSource.OwnedChartCollectionVersion,
+            OwnedCollectionVersion = (int)dataSource.OwnedCollectionVersion,
             BuildElapsedMs = 12L
         };
         PlaylistLibraryIndexReadinessSnapshot readiness = workspace.CapturePlaylistLibraryIndexReadinessSnapshot();
@@ -1228,15 +1229,15 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Directory.CreateDirectory(secondDirectory);
             File.WriteAllText(firstPath, "#PLAYER 1");
             File.WriteAllText(secondPath, "#PLAYER 1");
-            var first = new BMSFile
+            ChartFile first = ChartTestValues.Empty() with
             {
-                path = firstPath,
-                hash = new string('a', 32)
+                Path = firstPath,
+                Md5 = new string('a', 32)
             };
-            var second = new BMSFile
+            ChartFile second = ChartTestValues.Empty() with
             {
-                path = secondPath,
-                hash = new string('b', 32)
+                Path = secondPath,
+                Md5 = new string('b', 32)
             };
             var library = new TestBmsLibrary(
                 songDbPath,
@@ -1245,13 +1246,13 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 new OwnedChartCollectionTestSupport.TestFileMutationService(),
                 new FileDbReportRecordingDialogs())
             {
-                BMSFiles = [first, second],
-                BmsonSongs = []
+                BmsCharts = [first, second],
+                BmsonCharts = []
             };
             using (var db = new LR2SongDBExtended(songDbPath))
             {
-                db.InsertOrReplace(first.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(second.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(first), typeof(LR2SongDB.song));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(second), typeof(LR2SongDB.song));
             }
 
             library.GetOwnedChartHashIndexSnapshot();
@@ -1267,11 +1268,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             List<string> playlistWork = [];
             library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
             LibraryChartRemovalOutcome firstOutcome = library.RemoveLibraryCharts(
-                [LibraryChartRef.FromBmsFile(first)],
+                library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((first))]),
                 sendToRecycleBin: false,
                 approvedWholeFolderDeletePaths: [firstDirectory]);
             LibraryChartRemovalOutcome secondOutcome = library.RemoveLibraryCharts(
-                [LibraryChartRef.FromBmsFile(second)],
+                library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((second))]),
                 sendToRecycleBin: false,
                 approvedWholeFolderDeletePaths: [secondDirectory]);
             Assert.IsFalse(firstOutcome.HasError);

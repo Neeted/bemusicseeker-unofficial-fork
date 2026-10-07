@@ -1116,5 +1116,6 @@
   "Statusbar_progress_operation_failed_format": "{0} 失敗",
   "Statusbar_progress_task_playlist_property_update": "プレイリストのプロパティ更新",
   "Statusbar_progress_task_folder_rename": "フォルダ名の自動変更",
-  "Statusbar_progress_task_playlist_external_property_initialization": "プレイリストの外部プロパティ初期化"
+  "Statusbar_progress_task_playlist_external_property_initialization": "プレイリストの外部プロパティ初期化",
+  "Error_PreparedChartTargetMismatch": "準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。"
 }

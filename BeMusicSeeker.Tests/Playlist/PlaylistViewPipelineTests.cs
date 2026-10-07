@@ -31,7 +31,7 @@ public sealed class PlaylistViewPipelineTests
         var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow };
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -56,7 +56,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, keywordCount);
         Assert.AreEqual(2, modeCount);
         Assert.IsFalse(string.IsNullOrWhiteSpace(sortProfile));
-        Assert.IsTrue(result.All(row => !typeof(BMSFile).IsAssignableFrom(row.GetType())));
+        Assert.IsTrue(result.All(row => !typeof(ChartFile).IsAssignableFrom(row.GetType())));
     }
 
     [TestMethod]
@@ -68,7 +68,7 @@ public sealed class PlaylistViewPipelineTests
         var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow, bravoRow };
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -555,7 +555,7 @@ public sealed class PlaylistViewPipelineTests
         var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow };
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -596,16 +596,16 @@ public sealed class PlaylistViewPipelineTests
         TestUiDispatcherHost.Invoke(() =>
         {
             PlaylistDetailSourceRow source = CreateOwnedBmsSourceRow(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Owned", 7, out TestableBmsFile file);
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Owned", 7, out ChartFile file);
             if (bmson)
             {
                 source = new PlaylistDetailSourceRow(source.Entry,
-                    ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+                    (ChartTestValues.Empty(ChartFileKind.Bmson) with
                     {
-                        path = "Owned.bmson",
-                        title = "Owned",
-                        mode_hint = "beat-7k"
-                    }), scoreSnapshot: file.bmsScore);
+                        Path = "Owned.bmson",
+                        RawTitle = "Owned",
+                        ModeHint = "beat-7k"
+                    }), scoreSnapshot: new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true });
             }
             ChartFileStatus currentStatus = ChartFileStatus.NONE;
             source.PlaybackStatusProvider = _ => currentStatus;
@@ -635,12 +635,12 @@ public sealed class PlaylistViewPipelineTests
                 Assert.AreEqual("edited comment", first.comment);
                 Assert.AreEqual("edited memo", first.memo);
                 Assert.AreEqual("9", first.Level);
-                Assert.AreEqual(BMSFile.BMSFileStatus.NONE, file.status);
+                Assert.AreEqual(ChartFileStatus.SCORE_UNSENT, file.Status);
             }
             finally
             {
                 view.DisposeRealizedRows();
-                file.bmsScore = null;
+                file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(null, file.Path));
             }
         });
     }
@@ -653,16 +653,16 @@ public sealed class PlaylistViewPipelineTests
         TestUiDispatcherHost.Invoke(() =>
         {
             PlaylistDetailSourceRow source = CreateOwnedBmsSourceRow(
-                "cccccccccccccccccccccccccccccccc", "Unrealized", 7, out TestableBmsFile file);
+                "cccccccccccccccccccccccccccccccc", "Unrealized", 7, out ChartFile file);
             if (bmson)
             {
                 source = new PlaylistDetailSourceRow(source.Entry,
-                    ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+                    (ChartTestValues.Empty(ChartFileKind.Bmson) with
                     {
-                        path = "Unrealized.bmson",
-                        title = "Unrealized",
-                        mode_hint = "beat-7k"
-                    }), scoreSnapshot: file.bmsScore);
+                        Path = "Unrealized.bmson",
+                        RawTitle = "Unrealized",
+                        ModeHint = "beat-7k"
+                    }), scoreSnapshot: new BMSScore { perfect = 100, great = 12, totalnotes = 200, IsLr2IrScoreUnsent = true });
             }
             ChartFileStatus currentStatus = ChartFileStatus.PLAY;
             source.PlaybackStatusProvider = _ => currentStatus;
@@ -684,7 +684,7 @@ public sealed class PlaylistViewPipelineTests
             finally
             {
                 view.DisposeRealizedRows();
-                file.bmsScore = null;
+                file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(null, file.Path));
             }
         });
     }
@@ -697,7 +697,7 @@ public sealed class PlaylistViewPipelineTests
         var sourceRows = new PlaylistDetailSourceRow[] { matchedRow, filteredRow };
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -742,7 +742,7 @@ public sealed class PlaylistViewPipelineTests
             sourceRows,
             keywordFilter: "title:Matched memo:special md5:333333 sha256:abab",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new ChartListSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(ChartFile.Title), Direction = ListSortDirection.Ascending },
             out string _,
             out int keywordCount,
             out int modeCount,
@@ -766,7 +766,7 @@ public sealed class PlaylistViewPipelineTests
             [matchedRow],
             keywordFilter: "unknown:Matched",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new ChartListSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(ChartFile.Title), Direction = ListSortDirection.Ascending },
             out string _,
             out int keywordCount,
             out int modeCount,
@@ -802,7 +802,7 @@ public sealed class PlaylistViewPipelineTests
             [matchedRow, filteredRow],
             keywordFilter: "memo:\"special memo\" -comment:ordinary md5:333333|555555 sha256:abab|efef title:re:^matched",
             modeFilter: ChartModeFilter.All,
-            sortParameters: new ChartListSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(ChartFile.Title), Direction = ListSortDirection.Ascending },
             out string _,
             out int keywordCount,
             out int modeCount,
@@ -825,7 +825,7 @@ public sealed class PlaylistViewPipelineTests
         var sourceRows = new PlaylistDetailSourceRow[] { sevenKeysRow, fourteenKeysRow };
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -856,7 +856,7 @@ public sealed class PlaylistViewPipelineTests
         var sourceRows = new PlaylistDetailSourceRow[] { alphaRow };
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -928,7 +928,7 @@ public sealed class PlaylistViewPipelineTests
         var table = new BMSTable();
         var sortParameters = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
@@ -975,12 +975,12 @@ public sealed class PlaylistViewPipelineTests
         var table = new BMSTable();
         var titleAscending = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
         var titleDescending = new ChartListSortParameters
         {
-            ColumnsName = nameof(BMSFile.Title),
+            ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Descending
         };
 
@@ -1431,10 +1431,10 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void GridRowResolver_GetExternalActionSha256_UsesBmsChartRowChartInfoFallback()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "ChartInfoSha", 7);
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('d', 64), file.hash);
-        var row = LibraryChartRow.FromBmsFile(file);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "ChartInfoSha" + ".bms", Title = "ChartInfoSha", RawTitle = "ChartInfoSha", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(new string('d', 64), file.Md5);
+        var row = LibraryChartRow.FromChartFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetExternalActionSha256(row));
@@ -1443,32 +1443,32 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void GridRowResolver_BmsPlayerDisplayHelpers_ReadRawBmsFile()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "PlayerTitle", 7);
-        file.SetSubtitle("[PlayerSubtitle]");
-        file.SetArtist("PlayerArtist");
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "PlayerTitle" + ".bms", Title = "PlayerTitle", RawTitle = "PlayerTitle", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Subtitle = "[PlayerSubtitle]", RawSubtitle = "[PlayerSubtitle]", Title = "PlayerTitle [PlayerSubtitle]" };
+        file = file with { Artist = "PlayerArtist", RawArtist = "PlayerArtist" };
 
-        Assert.AreEqual("PlayerTitle", GridRowResolver.GetBmsPlayerDisplayTitle(file));
-        Assert.AreEqual("[PlayerSubtitle]", GridRowResolver.GetBmsPlayerDisplaySubtitle(file));
-        Assert.AreEqual("PlayerArtist", GridRowResolver.GetBmsPlayerDisplayArtist(file));
-        Assert.AreEqual(string.Empty, GridRowResolver.GetDisplayTitle(file));
-        Assert.AreEqual(string.Empty, GridRowResolver.GetDisplaySubtitle(file));
-        Assert.AreEqual(string.Empty, GridRowResolver.GetDisplayArtist(file));
+        Assert.AreEqual("PlayerTitle", file.RawTitle);
+        Assert.AreEqual("[PlayerSubtitle]", file.Subtitle);
+        Assert.AreEqual("PlayerArtist", file.RawArtist);
+        Assert.AreEqual("PlayerTitle [PlayerSubtitle]", GridRowResolver.GetDisplayTitle(file));
+        Assert.AreEqual("[PlayerSubtitle]", GridRowResolver.GetDisplaySubtitle(file));
+        Assert.AreEqual("PlayerArtist", GridRowResolver.GetDisplayArtist(file));
     }
 
     [TestMethod]
     public void SetBmsPlayerHeader_UsesSplitBmsMetadata()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "ouroVoros", 7);
-        file.SetSubtitle("[LAST BOSS]");
-        file.SetArtist("Nepentropy Movie:Vogeln obj:sak");
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "ouroVoros" + ".bms", Title = "ouroVoros", RawTitle = "ouroVoros", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Subtitle = "[LAST BOSS]" };
+        file = file with { Artist = "Nepentropy Movie:Vogeln obj:sak", RawArtist = "Nepentropy Movie:Vogeln obj:sak" };
 
         PlaybackPanelViewModel panel = viewModel.PlaybackPanel;
         panel.SetBmsPlayerHeader(file);
 
-        Assert.AreSame(file, panel.DisplayedBmsPlayerFile);
+        Assert.AreSame(file, panel.DisplayedChart);
         Assert.AreEqual("ouroVoros", panel.BmsPlayerHeaderTitle);
         Assert.AreEqual("[LAST BOSS]", panel.BmsPlayerHeaderSubtitle);
         Assert.AreEqual("Nepentropy Movie:Vogeln obj:sak", panel.BmsPlayerHeaderArtist);
@@ -1481,15 +1481,15 @@ public sealed class PlaylistViewPipelineTests
     public void BeginPlayback_SynchronizesPlayerHeader()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "NextTitle", 7);
-        file.SetSubtitle("[NextSubtitle]");
-        file.SetArtist("NextArtist");
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "NextTitle" + ".bms", Title = "NextTitle", RawTitle = "NextTitle", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Subtitle = "[NextSubtitle]" };
+        file = file with { Artist = "NextArtist", RawArtist = "NextArtist" };
 
         PlaybackPanelViewModel panel = viewModel.PlaybackPanel;
         panel.BeginPlayback(file, 0);
 
-        Assert.AreSame(file, panel.DisplayedBmsPlayerFile);
+        Assert.AreSame(file, panel.DisplayedChart);
         Assert.AreEqual("NextTitle", panel.BmsPlayerHeaderTitle);
         Assert.AreEqual("[NextSubtitle]", panel.BmsPlayerHeaderSubtitle);
         Assert.AreEqual("NextArtist", panel.BmsPlayerHeaderArtist);
@@ -1501,9 +1501,9 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_ImmutableResolvedBmsKeepsPlayerOwner()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Immutable BMS", 7);
-        var resolvedRef = LibraryChartRef.FromImmutableSnapshot(LibraryChartRef.FromBmsFile(file));
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Immutable BMS" + ".bms", Title = "Immutable BMS", RawTitle = "Immutable BMS", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        var resolvedRef = LibraryChartRef.FromImmutableSnapshot(LibraryChartRef.FromChartFile((file)));
         ChartFile resolvedChart = resolvedRef.ToChartFileIdentity();
         var entry = new TestablePlaylistEntry(file);
 
@@ -1513,12 +1513,12 @@ public sealed class PlaylistViewPipelineTests
             resolvedChartRef: resolvedRef).CreateViewRow();
 
         Assert.IsTrue(row.IsOwned);
-        Assert.IsNull(row.Chart.GetBmsStorageOwner());
-        Assert.AreEqual(file.path, row.Chart.Path);
-        Assert.IsTrue(GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile playerFile));
-        Assert.AreSame(file, playerFile);
+        Assert.IsNull(row.Chart.Token);
+        Assert.AreEqual(file.Path, row.Chart.Path);
+        Assert.IsTrue(GridRowResolver.TryGetBmsChart(row, out ChartFile playerFile));
+        Assert.AreEqual(file.Path, playerFile.Path);
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
-        Assert.AreSame(file, target.Chart.GetBmsStorageOwner());
+        Assert.AreEqual(file.Path, target.Chart.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
@@ -1527,12 +1527,12 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_ImmutableResolvedBmsUsesChartInfoProjection()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Immutable BMS", 7);
-        file.SetSha256(new string('b', 64));
-        var resolvedRef = LibraryChartRef.FromImmutableSnapshot(LibraryChartRef.FromBmsFile(file));
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Immutable BMS" + ".bms", Title = "Immutable BMS", RawTitle = "Immutable BMS", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Sha256 = new string('b', 64) };
+        var resolvedRef = LibraryChartRef.FromImmutableSnapshot(LibraryChartRef.FromChartFile((file)));
         ChartFile resolvedChart = resolvedRef.ToChartFileIdentity();
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(file.sha256, file.hash, level: 12, notes: 2000);
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(file.Sha256, file.Md5, level: 12, notes: 2000);
         var entry = new TestablePlaylistEntry(file);
 
         PlaylistDetailRow row = new PlaylistDetailSourceRow(
@@ -1562,64 +1562,68 @@ public sealed class PlaylistViewPipelineTests
             comment = "comment",
             memo = "memo"
         };
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            subtitle = "[Another]",
-            artist = "Artist",
-            genre = "Genre",
-            level = 11,
-            mode_hint = "beat-7k",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            Title = "Bmson [Another]",
+            Subtitle = "[Another]",
+            RawArtist = "Artist",
+            Artist = "Artist",
+            Genre = "Genre",
+            Level = 11,
+            Mode = 7,
+            ModeHint = "beat-7k",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        bmson = bmson with { Score = ChartScoreSnapshot.NoScore(bmson.Path) };
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
+        var sourceRow = new PlaylistDetailSourceRow(entry, (bmson));
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.IsTrue(sourceRow.IsOwned);
-        Assert.IsNull(row.Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(row.Chart.Token);
+        Assert.AreSame(bmson.Token, row.Chart.Token);
         Assert.AreSame(sourceRow.Chart, row.Chart);
         Assert.IsTrue(GridRowResolver.TryGetChartFile(sourceRow, out ChartFile sourceChart));
         Assert.AreSame(sourceRow.Chart, sourceChart);
         Assert.IsTrue(GridRowResolver.TryGetChartFile(row, out ChartFile rowChart));
         Assert.AreSame(row.Chart, rowChart);
         Assert.AreEqual(ChartFileKind.Bmson, rowChart.Kind);
-        Assert.AreSame(bmson, rowChart.GetBmsonStorageOwner());
+        Assert.AreSame(bmson.Token, rowChart.Token);
         Assert.AreEqual("Bmson [Another]", row.Title);
         Assert.AreEqual("Artist", row.Artist);
         Assert.AreEqual("[Another]", GridRowResolver.GetDisplaySubtitle(row));
         Assert.AreEqual("Genre", row.genre);
         Assert.AreEqual(7, row.mode);
-        Assert.AreEqual(bmson.path, row.path);
-        Assert.AreEqual(bmson.sha256, row.sha256);
-        Assert.AreEqual(bmson.sha256, GridRowResolver.GetExternalActionSha256(row));
+        Assert.AreEqual(bmson.Path, row.path);
+        Assert.AreEqual(bmson.Sha256, row.sha256);
+        Assert.AreEqual(bmson.Sha256, GridRowResolver.GetExternalActionSha256(row));
         Assert.AreEqual(ClearType.NO_PLAY, row.clear);
         Assert.AreEqual(RankType.INVALID, row.rank);
         Assert.IsNull(row.score);
         Assert.AreEqual(ChartFileStatus.NONE, row.status);
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
     }
 
     [TestMethod]
     public void PlaylistDetailSourceRow_BmsonOwnedWithResolvedScore_UsesScoreSnapshot()
     {
         var entry = new TestablePlaylistEntry();
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            title = "Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            RawTitle = "Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
         var score = new BMSScore
         {
-            hash = bmson.md5,
+            hash = bmson.Md5,
             clear = ClearType.HARD,
             rank = RankType.AA,
             perfect = 800,
@@ -1628,12 +1632,12 @@ public sealed class PlaylistViewPipelineTests
             maxcombo = 900,
             minbp = 7
         };
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            (bmson),
             scoreSnapshot: score);
 
         Assert.AreEqual(ClearType.HARD, sourceRow.clear);
@@ -1648,15 +1652,15 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailSourceRow_BmsonOwnedChart_UsesPlaylistReferenceProjection()
     {
         var entry = new TestablePlaylistEntry();
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            title = "Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            RawTitle = "Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
         var table = new BMSTable
         {
             name = "Bmson Playlist",
@@ -1668,7 +1672,7 @@ public sealed class PlaylistViewPipelineTests
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            (bmson),
             playlistReferenceDisplayProvider: chart => index.Find(chart));
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
@@ -1685,7 +1689,7 @@ public sealed class PlaylistViewPipelineTests
 
         var refreshedSourceRow = new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            (bmson),
             playlistReferenceDisplayProvider: chart => index.Find(chart));
         Assert.AreEqual("REPLACED", refreshedSourceRow.RefTablesSymbols);
         Assert.AreEqual("Replaced Bmson Playlist", refreshedSourceRow.RefTablesNames);
@@ -1696,35 +1700,36 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithBmsonChartFile()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            level = 11,
-            mode_hint = "beat-7k",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            RawArtist = "Artist",
+            Level = 11,
+            ModeHint = "beat-7k",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, (bmson)).CreateViewRow();
 
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreSame(row.Chart, target.Chart);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
-        Assert.IsNull(target.Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(target.Chart.Token);
+        Assert.AreSame(bmson.Token, target.Chart.Token);
         var libraryRef = target.ToLibraryChartRef();
-        Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
-        Assert.IsNull(libraryRef.GetBmsStorageOwner());
-        Assert.AreSame(bmson, libraryRef.GetBmsonStorageOwner());
-        Assert.AreEqual(bmson.path, libraryRef.Path);
+        Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
+        Assert.AreEqual(bmson.Path, libraryRef.Path);
+        Assert.AreEqual(bmson.Md5, libraryRef.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
+        Assert.AreEqual(bmson.Path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
@@ -1741,25 +1746,25 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistMissingContextMenuPolicy_UsesChartOperationTargetOwnership()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
         var ownedBmsonEntry = new TestablePlaylistEntry();
-        ownedBmsonEntry.SetMd5(bmson.md5);
-        ownedBmsonEntry.SetSha256(bmson.sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(ownedBmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
+        ownedBmsonEntry.SetMd5(bmson.Md5);
+        ownedBmsonEntry.SetSha256(bmson.Sha256);
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(ownedBmsonEntry, (bmson)).CreateViewRow();
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetTitle("Missing");
         missingEntry.SetMd5("abababababababababababababababab");
         PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null).CreateViewRow();
 
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(ownedBmsonRow, out _));
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(ownedBmsonRow, out _));
         Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(ownedBmsonRow, ChartOperationSourceScope.PlaylistOwned));
         Assert.IsTrue(MainWindow.ShouldUsePlaylistMissingContextMenu(missingRow, ChartOperationSourceScope.PlaylistOwned));
         Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(new object(), ChartOperationSourceScope.PlaylistOwned));
@@ -1768,54 +1773,54 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailRow_BmsonChartProjectionHasNoCompatibilityBmsFileSurface()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
+            (bmson));
 
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
-        Assert.IsNull(row.Chart.GetBmsStorageOwner());
+        Assert.AreSame(bmson.Token, row.Chart.Token);
+        Assert.IsNull(row.Chart.Token);
         Assert.IsNull(typeof(PlaylistDetailRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
     }
 
     [TestMethod]
     public void PlaylistDetailSourceRow_UsesResolvedChartProjectionBeforeStorageOwnerMetadata()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Storage Title",
-            artist = "Storage Artist",
-            genre = "Storage Genre",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64),
-            level = 3,
-            mode_hint = "beat-7k"
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Storage Title",
+            RawArtist = "Storage Artist",
+            Genre = "Storage Genre",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64),
+            Level = 3,
+            ModeHint = "beat-7k"
         };
         var entry = new TestablePlaylistEntry();
         entry.SetTitle("Entry Title");
         entry.SetArtist("Entry Artist");
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
         ChartFile projectedChart = new(
             ChartFileKind.Bmson,
-            bmson.path,
-            bmson.md5,
-            bmson.sha256,
+            bmson.Path,
+            bmson.Md5,
+            bmson.Sha256,
             "Projected Title",
             "Projected Raw Title",
             "Projected Artist",
@@ -1826,8 +1831,6 @@ public sealed class PlaylistViewPipelineTests
             12d,
             14,
             chartInfo: null,
-            bmsFile: null,
-            bmsonSong: bmson,
             installDestination: "C:\\Installed\\Bmson",
             warnings: [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "projected warning")]);
 
@@ -1850,67 +1853,69 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void LibraryChartRow_BmsonChartProjectionDoesNotCreateCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreEqual(string.Empty, row.instl_dst);
-        Assert.IsNull(row.Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(row.Chart.Token);
+        Assert.AreSame(bmson.Token, row.Chart.Token);
         Assert.IsNull(typeof(LibraryChartRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
     }
 
     [TestMethod]
     public void LibraryChartRow_BmsonChartProjectionUsesUpdatedStorageSongAfterSourceSongReplacement()
     {
-        var oldSong = new LR2SongDBExtended.bmson_song
+        ChartFile oldSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Old Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Old Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
-        var newSong = new LR2SongDBExtended.bmson_song
+        ChartFile newSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = oldSong.path,
-            folder = oldSong.folder,
-            title = "New Bmson",
-            md5 = oldSong.md5,
-            sha256 = oldSong.sha256
+            Path = oldSong.Path,
+            Folder = oldSong.Folder,
+            RawTitle = "New Bmson",
+            Md5 = oldSong.Md5,
+            Sha256 = oldSong.Sha256
         };
-        oldSong.Resources = TestChartResources.Create(audio: [@"..\audio\foo.v2.flac"], banner: @".\banner.jpeg");
-        newSong.Resources = TestChartResources.Create(audio: ["different.wav"]);
+        oldSong = oldSong with { Resources = TestChartResources.Create(audio: [@"..\audio\foo.v2.flac"], banner: @".\banner.jpeg") };
+        newSong = newSong with { Resources = TestChartResources.Create(audio: ["different.wav"]) };
         ChartFile statefulChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(newSong),
+            (newSong),
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
             [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
         foreach (bool includeResources in new[] { false, true })
         {
-            LibraryChartRow row = includeResources
-                ? LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(oldSong))
-                : LibraryChartRow.FromBmsonSong(oldSong);
+            var row = LibraryChartRow.FromChartFile(oldSong with
+            { Resources = includeResources ? oldSong.Resources : null });
+            ChartFile previous = row.Chart;
             int transientStateLookupCount = 0;
             row.SetChartTransientStateProvider((chart, includeWarningSnapshot) =>
             {
                 transientStateLookupCount++;
-                Assert.AreSame(newSong, chart.GetBmsonStorageOwner());
+                Assert.AreSame(newSong.Token, chart.Token);
                 return ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot);
             });
 
-            row.UpdateFromBmsonSong(newSong);
+            row.UpdateSourceProjection(newSong
+                with
+            { Token = previous.Token, Resources = previous.Resources });
             ChartFile chart = row.Chart;
 
-            Assert.AreSame(newSong, chart.GetBmsonStorageOwner());
+            Assert.AreSame(newSong.Token, chart.Token);
             Assert.AreEqual("New Bmson", chart.RawTitle);
             Assert.AreSame(includeResources ? oldSong.Resources : null, chart.Resources);
             Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
@@ -1922,21 +1927,21 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartListSourceRow_BmsonChartProjectionHasNoCompatibilityBmsFileSurface()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('e', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('e', 64)
         };
         ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows(
-            [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
+            [(bmson)],
             ChartListSourceProjectionMode.OwnerBacked).Single();
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreEqual(string.Empty, row.InstallDestination);
-        Assert.IsNull(row.Chart.GetBmsStorageOwner());
+        Assert.IsNull(row.Chart.Token);
         Assert.IsNull(typeof(ChartListSourceRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
         Assert.IsNull(typeof(ChartListSourceRow).GetProperty("BmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
         Assert.IsNull(typeof(ChartListSourceRow).GetProperty("BmsonSong", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
@@ -1945,24 +1950,26 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_PlaylistOwnedBms_HasBmsOnlyAndLocalCapabilities()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        file.SetSha256(new string('a', 64));
-        file.SetSubtitle("Another");
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Sha256 = new string('a', 64) };
+        file = file with { Subtitle = "Another" };
         var entry = new TestablePlaylistEntry(file);
 
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file)).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, (file)).CreateViewRow();
 
         Assert.AreEqual("Another", GridRowResolver.GetDisplaySubtitle(row));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
-        Assert.AreSame(file, target.Chart.GetBmsStorageOwner());
+        Assert.AreEqual(file.Path, target.Chart.Path);
         var libraryRef = target.ToLibraryChartRef();
-        Assert.AreEqual(LibraryChartKind.Bms, libraryRef.Kind);
-        Assert.AreSame(file, libraryRef.GetBmsStorageOwner());
-        Assert.AreEqual(file.path, libraryRef.Path);
+        Assert.AreEqual(ChartFileKind.Bms, libraryRef.Kind);
+        Assert.AreEqual(file.Path, libraryRef.Path);
+        Assert.AreEqual(file.Md5, libraryRef.Md5);
+        Assert.AreEqual(ChartFileKind.Bms, libraryRef.Kind);
+        Assert.AreEqual(file.Path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
@@ -1982,21 +1989,21 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_RegularBmson_DisablesBmsOnlyCapabilities()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            sha256 = new string('f', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            RawArtist = "Artist",
+            Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            Sha256 = new string('f', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.IsNull(target.Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(target.Chart.Token);
+        Assert.AreSame(bmson.Token, target.Chart.Token);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -2010,22 +2017,22 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_LibraryChartRowBmson_DisablesBmsOnlyCapabilities()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            md5 = "12121212121212121212121212121212",
-            sha256 = new string('1', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            RawArtist = "Artist",
+            Md5 = "12121212121212121212121212121212",
+            Sha256 = new string('1', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.IsNull(target.Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(target.Chart.Token);
+        Assert.AreSame(bmson.Token, target.Chart.Token);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -2037,80 +2044,84 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_LibraryChartRowBmson_HasNoCompatibilityAdapterSurface()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\lazy.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Lazy Bmson",
-            artist = "Artist",
-            md5 = "56565656565656565656565656565656",
-            sha256 = new string('5', 64)
+            Path = "C:\\Songs\\Bmson\\lazy.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Lazy Bmson",
+            RawArtist = "Artist",
+            Md5 = "56565656565656565656565656565656",
+            Sha256 = new string('5', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
 
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.IsNull(target.Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(target.Chart.Token);
+        Assert.AreSame(bmson.Token, target.Chart.Token);
         Assert.IsNull(typeof(ChartOperationTarget).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
 
         var libraryRef = target.ToLibraryChartRef();
 
-        Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
-        Assert.IsNull(libraryRef.GetBmsStorageOwner());
-        Assert.AreSame(bmson, libraryRef.GetBmsonStorageOwner());
+        Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
+        Assert.AreEqual(bmson.Path, libraryRef.Path);
+        Assert.AreEqual(bmson.Md5, libraryRef.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
     }
 
     [TestMethod]
     public void LibraryChartRef_StorageOwnersAreGetterOnlyAndKindGated()
     {
-        var bms = new TestableBmsFile();
-        bms.ApplySnapshot("abababababababababababababababab", "BMS", 7);
-        bms.SetSha256(new string('a', 64));
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bms = ChartTestValues.Empty();
+        bms = bms with { Md5 = "abababababababababababababababab", Path = "BMS" + ".bms", Title = "BMS", RawTitle = "BMS", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        bms = bms with { Sha256 = new string('a', 64) };
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            md5 = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
-            sha256 = new string('c', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            Md5 = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            Sha256 = new string('c', 64)
         };
 
-        var bmsRef = LibraryChartRef.FromBmsFile(bms);
-        var bmsonRef = LibraryChartRef.FromBmsonSong(bmson);
+        var bmsRef = LibraryChartRef.FromChartFile((bms));
+        var bmsonRef = LibraryChartRef.FromChartFile((bmson));
         var pathOnlyRef = LibraryChartRef.FromPath(
-            LibraryChartKind.Bmson,
+            ChartFileKind.Bmson,
             "C:\\Songs\\Missing\\missing.bmson",
             "efefefefefefefefefefefefefefefef",
             new string('e', 64));
 
         Assert.IsNull(typeof(LibraryChartRef).GetProperty("BmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
         Assert.IsNull(typeof(LibraryChartRef).GetProperty("BmsonSong", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-        Assert.AreSame(bms, bmsRef.GetBmsStorageOwner());
-        Assert.IsNull(bmsRef.GetBmsonStorageOwner());
-        Assert.AreSame(bms, bmsRef.ToChartFile().GetBmsStorageOwner());
-        Assert.IsNull(bmsonRef.GetBmsStorageOwner());
-        Assert.AreSame(bmson, bmsonRef.GetBmsonStorageOwner());
-        Assert.AreSame(bmson, bmsonRef.ToChartFile().GetBmsonStorageOwner());
-        Assert.IsNull(pathOnlyRef.GetBmsStorageOwner());
-        Assert.IsNull(pathOnlyRef.GetBmsonStorageOwner());
-        Assert.IsNull(pathOnlyRef.ToChartFile());
+        Assert.AreEqual(bms.Path, bmsRef.Path);
+        Assert.AreEqual(bms.Md5, bmsRef.Md5);
+        Assert.AreEqual(ChartFileKind.Bms, bmsRef.Kind);
+        Assert.IsNull(bmsRef.ToChartFileIdentity().Token);
+        Assert.AreEqual(ChartFileKind.Bmson, bmsonRef.Kind);
+        Assert.AreEqual(bmson.Path, bmsonRef.Path);
+        Assert.AreEqual(bmson.Md5, bmsonRef.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, bmsonRef.Kind);
+        Assert.IsNull(bmsonRef.ToChartFileIdentity().Token);
+        Assert.AreEqual(ChartFileKind.Bmson, pathOnlyRef.Kind);
+        Assert.IsNull(pathOnlyRef.Token);
+        Assert.AreEqual(pathOnlyRef.Path, pathOnlyRef.ToChartFileIdentity().Path);
     }
 
     [TestMethod]
     public void ChartOperationTarget_ToPackageChartEntry_DoesNotMaterializeBmsonCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\loose-entry.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Loose Entry Bmson",
-            artist = "Artist",
-            md5 = "68686868686868686868686868686868"
+            Path = "C:\\Songs\\Bmson\\loose-entry.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Loose Entry Bmson",
+            RawArtist = "Artist",
+            Md5 = "68686868686868686868686868686868"
         };
         var target = new ChartOperationTarget(
-            ChartFileProjection.FromBmsonSong(bmson),
+            (bmson),
             null,
             ChartOperationSourceScope.PendingPackage,
             isOwned: false,
@@ -2121,17 +2132,17 @@ public sealed class PlaylistViewPipelineTests
         var entry = target.ToPackageChartEntry();
 
         Assert.IsNotNull(entry);
-        Assert.IsNull(entry.GetBmsOwnerForTest());
+        Assert.IsNull(entry.GetBmsChartForTest());
         Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
-        Assert.AreSame(bmson, entry.Chart.GetBmsonStorageOwner());
+        Assert.AreSame(bmson.Token, entry.Chart.Token);
     }
 
     [TestMethod]
     public void ChartOperationTarget_ToPackageChartEntry_UsesBmsStorageOwner()
     {
-        BMSFile file = CreateBmsFile("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ChartFile file = CreateBmsFile("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var target = new ChartOperationTarget(
-            ChartFileProjection.FromBmsFile(file),
+            (file),
             null,
             ChartOperationSourceScope.Library,
             isOwned: true,
@@ -2142,45 +2153,45 @@ public sealed class PlaylistViewPipelineTests
         var entry = target.ToPackageChartEntry();
 
         Assert.IsNotNull(entry);
-        Assert.AreSame(file, entry.GetBmsOwnerForTest());
-        Assert.AreSame(file, entry.Chart.GetBmsStorageOwner());
+        Assert.AreSame(file, entry.GetBmsChartForTest());
+        Assert.AreSame(file.Token, entry.Chart.Token);
     }
 
     [TestMethod]
     public void ChartFolderAutoRenameRequest_UsesChartFileWithoutMaterializingBmsonCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\auto-rename.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Auto Rename Bmson",
-            artist = "Artist",
-            md5 = "67676767676767676767676767676767",
-            sha256 = new string('6', 64)
+            Path = "C:\\Songs\\Bmson\\auto-rename.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Auto Rename Bmson",
+            RawArtist = "Artist",
+            Md5 = "67676767676767676767676767676767",
+            Sha256 = new string('6', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.IsTrue(ChartFolderAutoRenameRequest.TryCreate([target], out ChartFolderAutoRenameRequest request));
 
         Assert.AreEqual(1, request.Charts.Count);
         Assert.IsTrue(request.HasTargets);
-        Assert.AreSame(bmson, request.Charts[0].GetBmsonStorageOwner());
+        Assert.AreSame(bmson.Token, request.Charts[0].Token);
     }
 
     [TestMethod]
     public void ChartLibraryMoveRequest_UsesLibraryChartRefWithoutMaterializingBmsonCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\move.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Move Bmson",
-            artist = "Artist",
-            md5 = "68686868686868686868686868686868",
-            sha256 = new string('8', 64)
+            Path = "C:\\Songs\\Bmson\\move.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Move Bmson",
+            RawArtist = "Artist",
+            Md5 = "68686868686868686868686868686868",
+            Sha256 = new string('8', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.IsTrue(ChartLibraryMoveRequest.TryCreate([target], "D:\\Songs", out ChartLibraryMoveRequest request));
@@ -2188,22 +2199,24 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, request.Charts.Count);
         Assert.IsTrue(request.HasTargets);
         Assert.AreEqual("D:\\Songs", request.NewParentDirectory);
-        Assert.AreSame(bmson, request.Charts[0].GetBmsonStorageOwner());
+        Assert.AreEqual(bmson.Path, request.Charts[0].Path);
+        Assert.AreEqual(bmson.Md5, request.Charts[0].Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, request.Charts[0].Kind);
     }
 
     [TestMethod]
     public void RepairInstalledLocationRequest_HasInstallDestinationDoesNotMaterializeLooseBmsonCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\repair.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Repair Bmson",
-            artist = "Artist",
-            md5 = "68686868686868686868686868686868",
-            sha256 = new string('8', 64)
+            Path = "C:\\Songs\\Bmson\\repair.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Repair Bmson",
+            RawArtist = "Artist",
+            Md5 = "68686868686868686868686868686868",
+            Sha256 = new string('8', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([target], out RepairInstalledLocationRequest request));
@@ -2220,16 +2233,16 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RepairInstalledLocationRequest_RepairChartsDoNotOverlayLooseCompatibilityInstallDestination()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\repair-playlist.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Repair Playlist Bmson",
-            artist = "Artist",
-            md5 = "70707070707070707070707070707070",
-            sha256 = new string('a', 64)
+            Path = "C:\\Songs\\Bmson\\repair-playlist.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Repair Playlist Bmson",
+            RawArtist = "Artist",
+            Md5 = "70707070707070707070707070707070",
+            Sha256 = new string('a', 64)
         };
-        ChartFile staleChart = ChartFileProjection.FromBmsonSong(bmson);
+        ChartFile staleChart = (bmson);
         var target = new ChartOperationTarget(
             staleChart,
             playlistEntry: null,
@@ -2243,35 +2256,35 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsFalse(request.HasInstallDestination);
         Assert.AreEqual(string.Empty, request.RepairCharts[0].InstallDestination);
-        Assert.AreSame(bmson, request.RepairCharts[0].GetBmsonStorageOwner());
+        Assert.AreSame(bmson.Token, request.RepairCharts[0].Token);
     }
 
     [TestMethod]
     public void RepairInstalledLocationRequest_RepairChartsOverlayUsesPathBeforeHash()
     {
         string md5 = "71717171717171717171717171717171";
-        var firstBmson = new LR2SongDBExtended.bmson_song
+        ChartFile firstBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\duplicate-a.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Duplicate A",
-            md5 = md5
+            Path = "C:\\Songs\\Bmson\\duplicate-a.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Duplicate A",
+            Md5 = md5
         };
-        var secondBmson = new LR2SongDBExtended.bmson_song
+        ChartFile secondBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\duplicate-b.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Duplicate B",
-            md5 = md5
+            Path = "C:\\Songs\\Bmson\\duplicate-b.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Duplicate B",
+            Md5 = md5
         };
         ChartFile firstChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(firstBmson),
+            (firstBmson),
             "C:\\Installed\\A",
             string.Empty,
             string.Empty,
             []);
         ChartFile secondChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(secondBmson),
+            (secondBmson),
             "C:\\Installed\\B",
             string.Empty,
             string.Empty,
@@ -2305,17 +2318,17 @@ public sealed class PlaylistViewPipelineTests
     public void RepairInstalledLocationRequest_HasInstallDestinationUsesExistingChartWithoutCreatingAdapter()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\repair-existing.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Repair Existing Bmson",
-            artist = "Artist",
-            md5 = "69696969696969696969696969696969",
-            sha256 = new string('9', 64)
+            Path = "C:\\Songs\\Bmson\\repair-existing.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Repair Existing Bmson",
+            RawArtist = "Artist",
+            Md5 = "69696969696969696969696969696969",
+            Sha256 = new string('9', 64)
         };
         var row = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(bmson),
+            (bmson),
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
@@ -2332,16 +2345,16 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PendingInstallDestinationClearRequest_DoesNotMaterializeLooseBmsonEntryBeforeBackgroundWork()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\pending-loose.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Pending Loose Bmson",
-            artist = "Artist",
-            md5 = "69696969696969696969696969696969",
-            sha256 = new string('9', 64)
+            Path = "C:\\Songs\\Bmson\\pending-loose.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Pending Loose Bmson",
+            RawArtist = "Artist",
+            Md5 = "69696969696969696969696969696969",
+            Sha256 = new string('9', 64)
         };
-        ChartFile chart = ChartFileProjection.FromBmsonSong(bmson);
+        ChartFile chart = (bmson);
         int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             chart,
@@ -2367,23 +2380,23 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(1, request.LooseEntries.Count);
         Assert.AreEqual(ChartFileKind.Bmson, request.LooseEntries[0].Chart.Kind);
-        Assert.IsNull(request.LooseEntries[0].GetBmsOwnerForTest());
+        Assert.IsNull(request.LooseEntries[0].GetBmsChartForTest());
         Assert.AreEqual(0, adapterRequestCount);
     }
 
     [TestMethod]
     public void PendingInstallDestinationEditRequest_DoesNotMaterializeLooseBmsonCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\pending-edit.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Pending Edit Bmson",
-            artist = "Artist",
-            md5 = "70707070707070707070707070707070",
-            sha256 = new string('a', 64)
+            Path = "C:\\Songs\\Bmson\\pending-edit.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Pending Edit Bmson",
+            RawArtist = "Artist",
+            Md5 = "70707070707070707070707070707070",
+            Sha256 = new string('a', 64)
         };
-        ChartFile chart = ChartFileProjection.FromBmsonSong(bmson);
+        ChartFile chart = (bmson);
         int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             chart,
@@ -2409,7 +2422,7 @@ public sealed class PlaylistViewPipelineTests
         editEntry.ApplyInstallDestination("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
 
         Assert.AreEqual(0, adapterRequestCount);
-        Assert.IsNull(editEntry.GetBmsOwnerForTest());
+        Assert.IsNull(editEntry.GetBmsChartForTest());
         Assert.AreEqual("C:\\Installed\\Bmson", editEntry.Chart.InstallDestination);
         Assert.AreEqual("Installed Bmson", editEntry.Chart.InstallDestinationTitle);
     }
@@ -2417,56 +2430,41 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RenameChartFolderRequest_DoesNotMaterializeBmsonCompatibilityAdapter()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\rename.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Rename Bmson",
-            artist = "Artist",
-            md5 = "71717171717171717171717171717171",
-            sha256 = new string('b', 64)
+            Path = "C:\\Songs\\Bmson\\rename.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Rename Bmson",
+            RawArtist = "Artist",
+            Md5 = "71717171717171717171717171717171",
+            Sha256 = new string('b', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget target));
         Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
 
         Assert.IsTrue(request.HasTarget);
-        Assert.AreSame(bmson, request.Chart.GetBmsonStorageOwner());
+        Assert.AreSame(bmson.Token, request.Chart.Token);
     }
 
     [TestMethod]
     public void LibraryChartRow_BmsonChartCombinesFreshSongMaintenanceWithTransientState()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\maintenance.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Maintenance Bmson",
-            artist = "Artist",
-            md5 = "67676767676767676767676767676767",
-            sha256 = new string('6', 64),
-            MaintenanceInfo = new BMSFileMaintenanceInfo
-            {
-                wav_files_defined = 10,
-                wav_files_existing = 10,
-                bga_files_defined = 8,
-                bga_files_existing = 8,
-                movie_files_defined = 0,
-                encoding = "utf-8"
-            }
+            Path = "C:\\Songs\\Bmson\\maintenance.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Maintenance Bmson",
+            RawArtist = "Artist",
+            Md5 = "67676767676767676767676767676767",
+            Sha256 = new string('6', 64),
+            ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { hash = "67676767676767676767676767676767", wav_files_defined = 10, wav_files_existing = 10, bga_files_defined = 8, bga_files_existing = 8, movie_files_defined = 0, encoding = "utf-8" })
         };
-        bmson.MaintenanceInfo = new BMSFileMaintenanceInfo
-        {
-            wav_files_defined = 10,
-            wav_files_existing = 10,
-            bga_files_defined = 8,
-            bga_files_existing = 8,
-            movie_files_defined = 0,
-            encoding = "utf-16"
-        };
+        bmson = bmson with { ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { hash = "67676767676767676767676767676767", wav_files_defined = 10, wav_files_existing = 10, bga_files_defined = 8, bga_files_existing = 8, movie_files_defined = 0, encoding = "utf-16" }) };
+        bmson = ChartFileProjection.WithMaintenance(bmson, bmson.ResourceHealthMaintenanceSnapshot);
         ChartFile statefulChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(bmson),
+            (bmson),
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
@@ -2486,17 +2484,17 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_BmsonRowsUseChartTransientStateForInstallLocationRepair()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            md5 = "34343434343434343434343434343434",
-            sha256 = new string('3', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            RawArtist = "Artist",
+            Md5 = "34343434343434343434343434343434",
+            Sha256 = new string('3', 64)
         };
         ChartFile libraryChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(bmson),
+            (bmson),
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
@@ -2509,7 +2507,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(firstLibraryTarget.Chart.Kind, secondLibraryTarget.Chart.Kind);
         Assert.AreEqual(firstLibraryTarget.Chart.Path, secondLibraryTarget.Chart.Path);
         Assert.AreEqual(firstLibraryTarget.Chart.PrimaryLookupHash, secondLibraryTarget.Chart.PrimaryLookupHash);
-        Assert.AreSame(firstLibraryTarget.Chart.GetBmsonStorageOwner(), secondLibraryTarget.Chart.GetBmsonStorageOwner());
+        Assert.AreSame(firstLibraryTarget.Chart.Token, secondLibraryTarget.Chart.Token);
         Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.Chart.InstallDestination);
         Assert.IsTrue(secondLibraryTarget.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         Assert.AreEqual("C:\\Installed\\Bmson", libraryRow.instl_dst);
@@ -2522,10 +2520,10 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
 
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
         ChartFile playlistChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(bmson),
+            (bmson),
             "C:\\Installed\\PlaylistBmson",
             "Installed Playlist Bmson",
             "Installed Playlist Artist",
@@ -2554,34 +2552,32 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartListSourceRow_BmsonUsesTransientStateForInstallRepairState()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            md5 = "45454545454545454545454545454545",
-            sha256 = new string('4', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            RawArtist = "Artist",
+            Md5 = "45454545454545454545454545454545",
+            Sha256 = new string('4', 64)
         };
         ChartFile statefulChart = ChartFileProjection.WithPackageState(
-            ChartFileProjection.FromBmsonSong(bmson),
+            (bmson),
             "C:\\Installed\\Bmson",
             "Installed Bmson",
             "Installed Artist",
             [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
 
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
-            [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
+            [(bmson)],
             ChartListSourceProjectionMode.OwnerBacked,
             chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
-            [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
+            [(bmson)],
             ChartListSourceProjectionMode.OwnerBacked,
             chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
-        var rebuiltViewRow = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(
-            rebuiltSourceRow.Chart.GetBmsonStorageOwner(),
-            ChartFileTransientState.FromChartFile(statefulChart)));
+        var rebuiltViewRow = LibraryChartRow.FromChartFile(rebuiltSourceRow.Chart);
 
         Assert.AreEqual("C:\\Installed\\Bmson", firstSourceRow.InstallDestination);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);
@@ -2598,67 +2594,52 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void WorkspaceDropChartResolution_LibraryBmsonRowCreatesPlaylistEntryWithBothHashes()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            level = 12,
-            md5 = "12121212121212121212121212121212",
-            sha256 = new string('1', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            Title = "Bmson",
+            RawArtist = "Artist",
+            Level = 12,
+            Md5 = "12121212121212121212121212121212",
+            Sha256 = new string('1', 64)
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
+        var row = LibraryChartRow.FromChartFile((bmson));
 
         ChartFile chart = PlaylistWorkspaceViewModel.ResolveDropChart(row);
         var entry = BMSTableEntry.CreateForPlaylistDrop(chart);
 
         Assert.IsNotNull(chart);
         Assert.AreEqual(ChartFileKind.Bmson, chart.Kind);
-        Assert.IsNull(chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, chart.GetBmsonStorageOwner());
-        Assert.AreEqual(bmson.path, chart.Path);
-        Assert.AreEqual(bmson.title, chart.Title);
-        Assert.AreEqual(bmson.md5, entry.md5);
-        Assert.AreEqual(bmson.sha256, entry.sha256);
+        Assert.IsNull(chart.Token);
+        Assert.AreSame(bmson.Token, chart.Token);
+        Assert.AreEqual(bmson.Path, chart.Path);
+        Assert.AreEqual(bmson.RawTitle, chart.Title);
+        Assert.AreEqual(bmson.Md5, entry.md5);
+        Assert.AreEqual(bmson.Sha256, entry.sha256);
         Assert.AreEqual(0, entry.Org_md5.Count);
     }
 
     [TestMethod]
     public void CreateForPlaylistDrop_BmsChartUsesProvidedOrgMd5s()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "BMS", 8);
-        file.SetSha256(new string('e', 64));
-        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "BMS" + ".bms", Title = "BMS", RawTitle = "BMS", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 8 };
+        file = file with { Sha256 = new string('e', 64) };
+        ChartFile chart = (file);
 
         var entry = BMSTableEntry.CreateForPlaylistDrop(chart, ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]);
 
-        Assert.AreEqual(file.hash, entry.md5);
-        Assert.AreEqual(file.sha256, entry.sha256);
+        Assert.AreEqual(file.Md5, entry.md5);
+        Assert.AreEqual(file.Sha256, entry.sha256);
         CollectionAssert.AreEqual(new[] { "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" }, entry.Org_md5);
     }
 
     [TestMethod]
     public void CreateForPlaylistDrop_OwnerlessBmsonChartPreservesBothHashesAndOrgMd5()
     {
-        var chart = new ChartFile(
-            ChartFileKind.Bmson,
-            path: "C:\\Songs\\ownerless.bmson",
-            md5: "abababababababababababababababab",
-            sha256: new string('f', 64),
-            title: "Ownerless bmson",
-            rawTitle: "Ownerless bmson",
-            artist: "Artist",
-            genre: string.Empty,
-            folder: "Folder",
-            tag: string.Empty,
-            levelText: "12",
-            level: 12,
-            mode: null,
-            chartInfo: null,
-            bmsFile: null,
-            bmsonSong: null);
+        var chart = new ChartFile(ChartFileKind.Bmson, path: "C:\\Songs\\ownerless.bmson", md5: "abababababababababababababababab", sha256: new string('f', 64), title: "Ownerless bmson", rawTitle: "Ownerless bmson", artist: "Artist", genre: string.Empty, folder: "Folder", tag: string.Empty, levelText: "12", level: 12, mode: null, chartInfo: null);
 
         var entry = BMSTableEntry.CreateForPlaylistDrop(chart, ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]);
 
@@ -2698,14 +2679,14 @@ public sealed class PlaylistViewPipelineTests
             };
             entry.SetSha256(new string('9', 64));
             entry.SetTitle("External Bmson");
-            var bmson = new LR2SongDBExtended.bmson_song
+            ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = "C:\\Songs\\Bmson\\external.bmson",
-                title = "External Bmson",
-                md5 = "99999999999999999999999999999999",
-                sha256 = entry.sha256
+                Path = "C:\\Songs\\Bmson\\external.bmson",
+                RawTitle = "External Bmson",
+                Md5 = "99999999999999999999999999999999",
+                Sha256 = entry.sha256
             };
-            PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
+            PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, (bmson)).CreateViewRow();
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, new BeMusicSeeker.Properties.Settings()));
 
@@ -2899,61 +2880,63 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void LibraryChartRow_FromPendingBmson_PreservesPendingInstallState()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Bmson\\chart.bmson",
-            folder = "C:\\Pending\\Bmson",
-            title = "Pending Bmson",
-            artist = "Artist",
-            level = 9,
-            mode_hint = "beat-7k",
-            md5 = "34343434343434343434343434343434",
-            sha256 = new string('3', 64)
+            Path = "C:\\Pending\\Bmson\\chart.bmson",
+            Folder = "C:\\Pending\\Bmson",
+            RawTitle = "Pending Bmson",
+            RawArtist = "Artist",
+            Level = 9,
+            ModeHint = "beat-7k",
+            Md5 = "34343434343434343434343434343434",
+            Sha256 = new string('3', 64)
         };
-        bmson.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(bmson.path, bmson.md5);
-        bmson.MaintenanceInfo.wav_files_defined = 4;
-        bmson.MaintenanceInfo.wav_files_existing = 1;
+        bmson = bmson with { ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmson.Path, hash = bmson.Md5, encoding = "utf-8" }) };
+        bmson = ChartFileProjection.WithMaintenance(bmson, bmson.ResourceHealthMaintenanceSnapshot with { WavFilesDefined = 4 });
+        bmson = ChartFileProjection.WithMaintenance(bmson, bmson.ResourceHealthMaintenanceSnapshot with { WavFilesExisting = 1 });
 
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        var entry = PackageChartEntry.FromChart((bmson));
         entry.SetWarning(ChartWarningKind.AlreadyInstalled, "installed chart warning");
         entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
         var row = LibraryChartRow.FromPackageChartEntry(entry);
 
-        Assert.IsNull(row.GetBmsStorageOwner());
-        Assert.AreSame(bmson, row.GetBmsonStorageOwner());
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
+        Assert.AreEqual(bmson.Path, row.Chart.Path);
+        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
+        Assert.AreSame(bmson.Token, row.Chart.Token);
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
         Assert.IsTrue(row.DisplayWarning.Contains("installed chart warning"));
         Assert.AreEqual("C:\\Library\\Destination", row.instl_dst);
-        Assert.AreEqual(bmson.MaintenanceInfo.WAVHealth, row.WAVHealth);
+        Assert.AreEqual(bmson.ResourceHealthMaintenanceSnapshot.GetWavHealth(), row.WAVHealth);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, isPendingSection: true, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
+        Assert.AreSame(bmson.Token, target.Chart.Token);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
 
         var chartRef = LibraryChartRef.FromChartFile(row.Chart);
-        Assert.IsNull(chartRef.GetBmsStorageOwner());
-        Assert.AreSame(bmson, chartRef.GetBmsonStorageOwner());
+        Assert.AreEqual(ChartFileKind.Bmson, chartRef.Kind);
+        Assert.AreEqual(bmson.Path, chartRef.Path);
+        Assert.AreEqual(bmson.Md5, chartRef.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, chartRef.Kind);
     }
 
     [TestMethod]
     public void LibraryChartRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Bmson\\resource-missing.bmson",
-            folder = "C:\\Pending\\Bmson",
-            title = "Resource Missing",
-            artist = "Artist",
-            md5 = "45454545454545454545454545454545",
-            sha256 = new string('4', 64)
+            Path = "C:\\Pending\\Bmson\\resource-missing.bmson",
+            Folder = "C:\\Pending\\Bmson",
+            RawTitle = "Resource Missing",
+            RawArtist = "Artist",
+            Md5 = "45454545454545454545454545454545",
+            Sha256 = new string('4', 64)
         };
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        var entry = PackageChartEntry.FromChart((bmson));
         entry.SetWarning(ChartWarningKind.ResourceWavMissing, "WAV missing detail");
 
         var unresolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
@@ -2969,16 +2952,16 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartListSourceRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Bmson\\source-resource-missing.bmson",
-            folder = "C:\\Pending\\Bmson",
-            title = "Source Resource Missing",
-            artist = "Artist",
-            md5 = "67676767676767676767676767676767",
-            sha256 = new string('6', 64)
+            Path = "C:\\Pending\\Bmson\\source-resource-missing.bmson",
+            Folder = "C:\\Pending\\Bmson",
+            RawTitle = "Source Resource Missing",
+            RawArtist = "Artist",
+            Md5 = "67676767676767676767676767676767",
+            Sha256 = new string('6', 64)
         };
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        var entry = PackageChartEntry.FromChart((bmson));
         entry.SetWarning(ChartWarningKind.ResourceWavMissing, "source WAV missing detail");
 
         var unresolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
@@ -2994,25 +2977,25 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_PendingBmson_UsesPendingPathAndPendingCapabilities()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Original\\Bmson\\chart.bmson",
-            folder = "C:\\Original\\Bmson",
-            title = "Pending Bmson",
-            artist = "Artist",
-            md5 = "56565656565656565656565656565656",
-            sha256 = new string('5', 64)
+            Path = "C:\\Original\\Bmson\\chart.bmson",
+            Folder = "C:\\Original\\Bmson",
+            RawTitle = "Pending Bmson",
+            RawArtist = "Artist",
+            Md5 = "56565656565656565656565656565656",
+            Sha256 = new string('5', 64)
         };
-        bmson.path = "C:\\Pending\\Package\\chart.bmson";
-        bmson.folder = "C:\\Pending\\Package";
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        bmson = bmson with { Path = "C:\\Pending\\Package\\chart.bmson" };
+        bmson = bmson with { Folder = "C:\\Pending\\Package" };
+        var entry = PackageChartEntry.FromChart((bmson));
         var row = LibraryChartRow.FromPackageChartEntry(entry);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
 
         Assert.AreEqual(ChartOperationSourceScope.PendingPackage, target.SourceScope);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.AreEqual(bmson.path, target.Chart.Path);
+        Assert.AreEqual(bmson.Path, target.Chart.Path);
         Assert.IsFalse(target.IsOwned);
         Assert.IsTrue(target.IsPending);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
@@ -3073,9 +3056,9 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void MainViewOperationContext_PendingModeMakesLibraryChartRowPendingScoped()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
-        var row = LibraryChartRow.FromBmsFile(file);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Pending Bms" + ".bms", Title = "Pending Bms", RawTitle = "Pending Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        var row = LibraryChartRow.FromChartFile(file);
         var mainChartList = new MainChartListViewModel();
         mainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
         ChartOperationSourceScope sourceScope = mainChartList.CurrentOperationContext.SourceScope;
@@ -3169,33 +3152,33 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_NewlyInstalledBmson_UsesInstalledPathAndLibraryCapabilities()
     {
-        var original = new LR2SongDBExtended.bmson_song
+        ChartFile original = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Package\\chart.bmson",
-            folder = "C:\\Pending\\Package",
-            title = "Installed Bmson",
-            artist = "Artist",
-            md5 = "67676767676767676767676767676767",
-            sha256 = new string('6', 64)
+            Path = "C:\\Pending\\Package\\chart.bmson",
+            Folder = "C:\\Pending\\Package",
+            RawTitle = "Installed Bmson",
+            RawArtist = "Artist",
+            Md5 = "67676767676767676767676767676767",
+            Sha256 = new string('6', 64)
         };
-        var installed = new LR2SongDBExtended.bmson_song
+        ChartFile installed = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Library\\Package\\chart.bmson",
-            folder = "C:\\Library\\Package",
-            title = original.title,
-            artist = original.artist,
-            md5 = original.md5,
-            sha256 = original.sha256
+            Path = "C:\\Library\\Package\\chart.bmson",
+            Folder = "C:\\Library\\Package",
+            RawTitle = original.RawTitle,
+            RawArtist = original.RawArtist,
+            Md5 = original.Md5,
+            Sha256 = original.Sha256
         };
-        var row = LibraryChartRow.FromBmsonSong(installed);
+        var row = LibraryChartRow.FromChartFile((installed));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.NewlyInstalledPackage, out ChartOperationTarget target));
 
         Assert.AreEqual(ChartOperationSourceScope.NewlyInstalledPackage, target.SourceScope);
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPending);
-        Assert.AreEqual(installed.path, target.Chart.Path);
-        Assert.AreSame(installed, target.Chart.GetBmsonStorageOwner());
+        Assert.AreEqual(installed.Path, target.Chart.Path);
+        Assert.AreSame(installed.Token, target.Chart.Token);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -3203,17 +3186,17 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.AreEqual(installed.path, LibraryChartRef.FromChartFile(target.Chart).Path);
+        Assert.AreEqual(installed.Path, LibraryChartRef.FromChartFile(target.Chart).Path);
     }
 
     [TestMethod]
     public void ChartOperationTarget_BmsRow_HasBmsOnlyCapabilities()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
-        file.SetSha256(new string('a', 64));
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Bms" + ".bms", Title = "Bms", RawTitle = "Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Sha256 = new string('a', 64) };
 
-        var row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromChartFile(file);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
@@ -3232,29 +3215,29 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_CapabilityMatrix_SeparatesBmsOnlyAndBmsonCommonOperations()
     {
-        var bms = new TestableBmsFile();
-        bms.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Bms", 7);
-        bms.SetSha256(new string('a', 64));
-        var bmson = LibraryChartRow.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        ChartFile bms = ChartTestValues.Empty();
+        bms = bms with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path = "Bms" + ".bms", Title = "Bms", RawTitle = "Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        bms = bms with { Sha256 = new string('a', 64) };
+        var bmson = LibraryChartRow.FromChartFile((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Bmson",
-            artist = "Artist",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
-        });
-        var pendingBmson = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Bmson",
+            RawArtist = "Artist",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
+        }));
+        var pendingBmson = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Bmson\\chart.bmson",
-            folder = "C:\\Pending\\Bmson",
-            title = "Pending Bmson",
-            artist = "Artist",
-            md5 = "cccccccccccccccccccccccccccccccc",
-            sha256 = new string('c', 64)
+            Path = "C:\\Pending\\Bmson\\chart.bmson",
+            Folder = "C:\\Pending\\Bmson",
+            RawTitle = "Pending Bmson",
+            RawArtist = "Artist",
+            Md5 = "cccccccccccccccccccccccccccccccc",
+            Sha256 = new string('c', 64)
         })));
 
-        var bmsRow = LibraryChartRow.FromBmsFile(bms);
+        var bmsRow = LibraryChartRow.FromChartFile(bms);
         var pendingBms = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsRow.Chart));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bmsRow, out ChartOperationTarget bmsTarget));
@@ -3312,34 +3295,34 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void FolderEditChartOperationTarget_UsesBmsonChartForOwnedRowsAndRejectsPendingRows()
     {
-        var ownedBmson = new LR2SongDBExtended.bmson_song
+        ChartFile ownedBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            artist = "Artist",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            RawArtist = "Artist",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
         };
-        var pendingBmson = new LR2SongDBExtended.bmson_song
+        ChartFile pendingBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Bmson\\chart.bmson",
-            folder = "C:\\Pending\\Bmson",
-            title = "Pending Bmson",
-            artist = "Artist",
-            md5 = "cccccccccccccccccccccccccccccccc",
-            sha256 = new string('c', 64)
+            Path = "C:\\Pending\\Bmson\\chart.bmson",
+            Folder = "C:\\Pending\\Bmson",
+            RawTitle = "Pending Bmson",
+            RawArtist = "Artist",
+            Md5 = "cccccccccccccccccccccccccccccccc",
+            Sha256 = new string('c', 64)
         };
-        var pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson));
+        var pendingEntry = PackageChartEntry.FromChart((pendingBmson));
 
-        var ownedRow = LibraryChartRow.FromBmsonSong(ownedBmson);
+        var ownedRow = LibraryChartRow.FromChartFile((ownedBmson));
         var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
 
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(ownedRow, out _));
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(ownedRow, out _));
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(ownedRow, ChartOperationSourceScope.Library, out ChartOperationTarget ownedTarget));
         Assert.AreEqual(ChartFileKind.Bmson, ownedTarget.Chart.Kind);
-        Assert.AreEqual(ownedBmson.path, ownedTarget.Chart.Path);
-        Assert.AreSame(ownedBmson, ownedTarget.Chart.GetBmsonStorageOwner());
+        Assert.AreEqual(ownedBmson.Path, ownedTarget.Chart.Path);
+        Assert.AreSame(ownedBmson.Token, ownedTarget.Chart.Token);
         Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(pendingRow, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingTarget));
         Assert.IsNull(pendingTarget);
     }
@@ -3347,10 +3330,10 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_PendingBms_SeparatesInstallDestinationFromInstalledRepair()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Pending Bms" + ".bms", Title = "Pending Bms", RawTitle = "Pending Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
 
-        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file)));
+        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart((file)));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
 
@@ -3365,18 +3348,18 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ChartOperationTarget_ChartNamedApis_TreatRawBmsAsBmsPlayerOnlyBoundary()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Bms" + ".bms", Title = "Bms", RawTitle = "Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
 
-        Assert.IsFalse(GridRowResolver.TryGetChartFile(file, out _));
-        Assert.IsFalse(GridRowResolver.TryGetChartOperationTarget(file, out _));
-        Assert.IsTrue(GridRowResolver.TryGetBmsPlayerFile(file, out BMSFile playerFile));
-        Assert.AreSame(file, playerFile);
+        Assert.IsTrue(GridRowResolver.TryGetChartFile(file, out _));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out _));
+        Assert.IsTrue(GridRowResolver.TryGetBmsChart(file, out ChartFile playerFile));
+        Assert.AreEqual(file.Path, playerFile.Path);
 
-        var row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromChartFile(file);
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
-        Assert.AreSame(file, target.Chart.GetBmsStorageOwner());
+        Assert.AreEqual(file.Path, target.Chart.Path);
     }
 
     private static void AssertMainViewOperationContext(
@@ -3413,30 +3396,29 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         var chartRef = target.ToLibraryChartRef();
         Assert.IsNotNull(chartRef);
-        Assert.AreEqual(LibraryChartKind.Bms, chartRef.Kind);
+        Assert.AreEqual(ChartFileKind.Bms, chartRef.Kind);
         Assert.IsNull(chartRef.Path);
         Assert.AreEqual(entry.md5, chartRef.Md5);
-        Assert.IsNull(chartRef.GetBmsStorageOwner());
-        Assert.IsNull(chartRef.GetBmsonStorageOwner());
-        Assert.AreSame(target.Chart, chartRef.GetChartSnapshot());
+        Assert.IsNull(chartRef.Token);
+        Assert.AreEqual(target.Chart.Md5, chartRef.Md5);
         Assert.IsFalse(ChartLibraryMoveRequest.TryCreate([target], "C:\\Songs", out _));
     }
 
     [TestMethod]
     public void GridRowResolver_TreatsPlaylistSourceRowAsPlaylistEntryRow()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
         };
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
-        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
+        var sourceRow = new PlaylistDetailSourceRow(entry, (bmson));
 
         Assert.IsTrue(GridRowResolver.IsPlaylistRow(sourceRow));
         Assert.AreSame(entry, GridRowResolver.GetPlaylistEntry(sourceRow));
@@ -3450,22 +3432,22 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailContextMenuPolicy_OwnedRowsAllowEntryAndFileDeleteButMissingRowsAllowEntryOnly()
     {
-        var bms = new TestableBmsFile();
-        bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
+        ChartFile bms = ChartTestValues.Empty();
+        bms = bms with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), (bms)).CreateViewRow();
 
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
         };
         var bmsonEntry = new TestablePlaylistEntry();
-        bmsonEntry.SetMd5(bmson.md5);
-        bmsonEntry.SetSha256(bmson.sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
+        bmsonEntry.SetMd5(bmson.Md5);
+        bmsonEntry.SetSha256(bmson.Sha256);
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, (bmson)).CreateViewRow();
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
@@ -3479,22 +3461,22 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RootFolderDropEntryPolicy_PreservesOnlyMissingPlaylistRows()
     {
-        var bms = new TestableBmsFile();
-        bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
+        ChartFile bms = ChartTestValues.Empty();
+        bms = bms with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), (bms)).CreateViewRow();
 
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
         };
         var bmsonEntry = new TestablePlaylistEntry();
-        bmsonEntry.SetMd5(bmson.md5);
-        bmsonEntry.SetSha256(bmson.sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
+        bmsonEntry.SetMd5(bmson.Md5);
+        bmsonEntry.SetSha256(bmson.Sha256);
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, (bmson)).CreateViewRow();
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
@@ -3510,18 +3492,18 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RootFolderDropEntryPolicy_SourceRowsPreservesOnlyMissingPlaylistRows()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
         };
         var bmsonEntry = new TestablePlaylistEntry();
-        bmsonEntry.SetMd5(bmson.md5);
-        bmsonEntry.SetSha256(bmson.sha256);
-        var ownedBmsonSourceRow = new PlaylistDetailSourceRow(bmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
+        bmsonEntry.SetMd5(bmson.Md5);
+        bmsonEntry.SetSha256(bmson.Sha256);
+        var ownedBmsonSourceRow = new PlaylistDetailSourceRow(bmsonEntry, (bmson));
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
@@ -3549,10 +3531,10 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDropCandidatePolicy_AcceptsChartAndPlaylistDetailRows()
     {
-        var bms = new TestableBmsFile();
-        bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        var libraryRow = LibraryChartRow.FromBmsFile(bms);
-        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
+        ChartFile bms = ChartTestValues.Empty();
+        bms = bms with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        var libraryRow = LibraryChartRow.FromChartFile(bms);
+        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), (bms)).CreateViewRow();
 
         Assert.IsTrue(PlaylistWorkspaceViewModel.IsDropCandidateRow(libraryRow));
         Assert.IsTrue(PlaylistWorkspaceViewModel.IsDropCandidateRow(playlistRow));
@@ -3576,7 +3558,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(unresolvedRow));
         Assert.IsFalse(GridRowResolver.IsPlaylistRow(resolvedRow));
         Assert.IsNull(GridRowResolver.GetPlaylistEntry(resolvedRow));
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(resolvedRow, out _));
+        Assert.IsFalse(GridRowResolver.TryGetBmsChart(resolvedRow, out _));
         Assert.IsFalse(GridRowResolver.TryGetChartFile(resolvedRow, out _));
         Assert.IsFalse(GridRowResolver.TryGetChartOperationTarget(resolvedRow, out _));
         Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(resolvedRow, ChartOperationSourceScope.Library, out _));
@@ -3652,11 +3634,11 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_AfterBmsRemoval_RematerializesEntryAsMissingNoSong()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         var entry = new TestablePlaylistEntry(file);
 
-        var ownedSource = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
+        var ownedSource = new PlaylistDetailSourceRow(entry, (file));
         var missingSource = new PlaylistDetailSourceRow(entry, resolvedChart: null);
         PlaylistDetailRow missingRow = missingSource.CreateViewRow();
 
@@ -3671,19 +3653,19 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_AfterBmsonRemoval_RematerializesEntryAsMissingNoSong()
     {
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            folder = "C:\\Songs\\Bmson",
-            title = "Owned Bmson",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('d', 64)
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Folder = "C:\\Songs\\Bmson",
+            RawTitle = "Owned Bmson",
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = new string('d', 64)
         };
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(bmson.md5);
-        entry.SetSha256(bmson.sha256);
+        entry.SetMd5(bmson.Md5);
+        entry.SetSha256(bmson.Sha256);
 
-        var ownedSource = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
+        var ownedSource = new PlaylistDetailSourceRow(entry, (bmson));
         var missingSource = new PlaylistDetailSourceRow(entry, resolvedChart: null);
         PlaylistDetailRow missingRow = missingSource.CreateViewRow();
 
@@ -3723,7 +3705,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithEntryChartInfo_DisplaysMetadataWithoutChangingOwnership()
     {
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(
             sha256: new string('d', 64),
             md5: "abababababababababababababababab",
             level: 12,
@@ -3762,7 +3744,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithChartInfoFallback_UsesChartInfoSha256()
     {
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('a', 64), "abababababababababababababababab");
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(new string('a', 64), "abababababababababababababababab");
         var entry = new TestablePlaylistEntry();
         entry.SetTitle("MissingShaFallback");
         entry.SetMd5(chartInfo.md5);
@@ -3776,8 +3758,8 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingEntryChartInfoPatchCreatesCopyForViewRematerialize()
     {
-        LR2SongDBExtended.chart_info oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3, notes: 500, total: 100);
-        LR2SongDBExtended.chart_info newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
+        BeMusicSeeker.Models.ChartDetails oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3, notes: 500, total: 100);
+        BeMusicSeeker.Models.ChartDetails newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
         PlaylistDetailSourceRow sourceRow = CreateMissingSourceRow("PatchChartInfo", oldInfo);
 
         Assert.IsTrue(sourceRow.HasEntryChartInfoDependency);
@@ -3806,30 +3788,13 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_ChartInfoCopyDoesNotInvokeProjectionProvider()
     {
-        LR2SongDBExtended.chart_info oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3);
-        LR2SongDBExtended.chart_info newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12);
+        BeMusicSeeker.Models.ChartDetails oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3);
+        BeMusicSeeker.Models.ChartDetails newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12);
         var entry = new TestablePlaylistEntry();
         entry.SetTitle("ProviderFreePatch");
         entry.SetMd5(oldInfo.md5);
         entry.SetSha256(oldInfo.sha256);
-        var resolvedChart = new ChartFile(
-            ChartFileKind.Bms,
-            string.Empty,
-            oldInfo.md5,
-            oldInfo.sha256,
-            "ProviderFreePatch",
-            "ProviderFreePatch",
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            "3",
-            3,
-            7,
-            oldInfo,
-            null,
-            null,
-            null);
+        var resolvedChart = new ChartFile(ChartFileKind.Bms, string.Empty, oldInfo.md5, oldInfo.sha256, "ProviderFreePatch", "ProviderFreePatch", string.Empty, string.Empty, string.Empty, string.Empty, "3", 3, 7, oldInfo, null);
         int projectionCount = 0;
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
@@ -3853,12 +3818,12 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_OwnedBmsChartInfoFollowsProjectionProviderAfterHydration()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('b', 64), file.hash, level: 13, notes: 3333, total: 700);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(new string('b', 64), file.Md5, level: 13, notes: 3333, total: 700);
         var sourceRow = new PlaylistDetailSourceRow(
             new TestablePlaylistEntry(file),
-            ChartFileProjection.FromBmsFile(file),
+            (file),
             chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
 
         Assert.AreSame(chartInfo, sourceRow.ChartInfo);
@@ -3873,24 +3838,24 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_OwnedBmsonChartInfoFollowsProjectionProviderAfterHydration()
     {
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Songs\OwnedBmson\chart.bmson",
-            title = "Owned Bmson",
-            artist = "Bmson Artist",
-            mode_hint = "beat-7k",
-            level = 7,
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('c', 64)
+            Path = @"C:\Songs\OwnedBmson\chart.bmson",
+            RawTitle = "Owned Bmson",
+            RawArtist = "Bmson Artist",
+            ModeHint = "beat-7k",
+            Level = 7,
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('c', 64)
         };
         var entry = new TestablePlaylistEntry();
-        entry.SetTitle(song.title);
-        entry.SetMd5(song.md5);
-        entry.SetSha256(song.sha256);
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('d', 64), song.md5, level: 14, notes: 4444, total: 800);
+        entry.SetTitle(song.RawTitle);
+        entry.SetMd5(song.Md5);
+        entry.SetSha256(song.Sha256);
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(new string('d', 64), song.Md5, level: 14, notes: 4444, total: 800);
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsonSong(song),
+            (song),
             chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
 
         Assert.AreSame(chartInfo, sourceRow.ChartInfo);
@@ -3905,21 +3870,21 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailSourceRow_OwnedBmsonProjectionPreservesMetadataWithTransientProvider()
     {
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Songs\OwnedBmsonProjection\chart.bmson",
-            title = "Storage Title",
-            artist = "Storage Artist",
-            mode_hint = "beat-7k",
-            level = 7,
-            md5 = "cccccccccccccccccccccccccccccccc",
-            sha256 = new string('e', 64)
+            Path = @"C:\Songs\OwnedBmsonProjection\chart.bmson",
+            RawTitle = "Storage Title",
+            RawArtist = "Storage Artist",
+            ModeHint = "beat-7k",
+            Level = 7,
+            Md5 = "cccccccccccccccccccccccccccccccc",
+            Sha256 = new string('e', 64)
         };
         ChartFile projectedChart = new(
             ChartFileKind.Bmson,
-            song.path,
-            song.md5,
-            song.sha256,
+            song.Path,
+            song.Md5,
+            song.Sha256,
             "Projected Title",
             "Projected Raw Title",
             "Projected Artist",
@@ -3930,14 +3895,12 @@ public sealed class PlaylistViewPipelineTests
             12d,
             14,
             chartInfo: null,
-            bmsFile: null,
-            bmsonSong: song,
             installDestination: @"C:\Installed\Projected",
             warnings: [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "projected warning")]);
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(song.md5);
-        entry.SetSha256(song.sha256);
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('f', 64), song.md5, level: 15, notes: 5555, total: 900);
+        entry.SetMd5(song.Md5);
+        entry.SetSha256(song.Sha256);
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(new string('f', 64), song.Md5, level: 15, notes: 5555, total: 900);
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
@@ -3980,8 +3943,8 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort()
     {
-        LR2SongDBExtended.chart_info highNotesInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
-        LR2SongDBExtended.chart_info lowNotesInfo = CreateChartInfo(new string('f', 64), "ffffffffffffffffffffffffffffffff", level: 3, notes: 500, total: 100);
+        BeMusicSeeker.Models.ChartDetails highNotesInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
+        BeMusicSeeker.Models.ChartDetails lowNotesInfo = CreateChartInfo(new string('f', 64), "ffffffffffffffffffffffffffffffff", level: 3, notes: 500, total: 100);
         PlaylistDetailSourceRow highNotesRow = CreateMissingSourceRow("HighNotes", highNotesInfo);
         PlaylistDetailSourceRow lowNotesRow = CreateMissingSourceRow("LowNotes", lowNotesInfo);
 
@@ -4012,50 +3975,54 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         entry.SetSha256(new string('f', 64));
-        var bmsMd5LaterPath = new TestableBmsFile();
-        bmsMd5LaterPath.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", entry.md5);
-        bmsMd5LaterPath.SetSha256(entry.sha256);
+        ChartFile bmsMd5LaterPath = ChartTestValues.Empty();
+        bmsMd5LaterPath = bmsMd5LaterPath with { Path = "C:\\Songs\\Omega\\chart.bms", Title = "BMS", RawTitle = "BMS", Artist = "Artist", RawArtist = "Artist", Md5 = entry.md5, Folder = System.IO.Path.GetDirectoryName("C:\\Songs\\Omega\\chart.bms") };
+        bmsMd5LaterPath = bmsMd5LaterPath with { Sha256 = entry.sha256 };
 
-        var laterPath = new LR2SongDBExtended.bmson_song
+        ChartFile laterPath = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Zeta\\chart.bmson",
-            md5 = entry.md5,
-            sha256 = new string('1', 64)
+            Path = "C:\\Songs\\Zeta\\chart.bmson",
+            Md5 = entry.md5,
+            Sha256 = new string('1', 64)
         };
-        var earlierPath = new LR2SongDBExtended.bmson_song
+        ChartFile earlierPath = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Alpha\\chart.bmson",
-            md5 = entry.md5,
-            sha256 = new string('2', 64)
+            Path = "C:\\Songs\\Alpha\\chart.bmson",
+            Md5 = entry.md5,
+            Sha256 = new string('2', 64)
         };
-        var shaOnly = new LR2SongDBExtended.bmson_song
+        ChartFile shaOnly = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Sha\\chart.bmson",
-            md5 = "99999999999999999999999999999999",
-            sha256 = entry.sha256
+            Path = "C:\\Songs\\Sha\\chart.bmson",
+            Md5 = "99999999999999999999999999999999",
+            Sha256 = entry.sha256
         };
 
         var md5Index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsonSong(laterPath),
-            LibraryChartRef.FromBmsonSong(earlierPath),
-            LibraryChartRef.FromBmsFile(bmsMd5LaterPath)
+            LibraryChartRef.FromChartFile((laterPath)),
+            LibraryChartRef.FromChartFile((earlierPath)),
+            LibraryChartRef.FromChartFile((bmsMd5LaterPath))
         ]);
         LibraryChartRef preferred = md5Index.ResolveChartForPlaylistHash(entry.md5, null);
         LibraryChartRef resolvedMd5First = md5Index.ResolveChartForPlaylistEntry(entry);
         var shaIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsonSong(shaOnly)
+            LibraryChartRef.FromChartFile((shaOnly))
         ]);
         LibraryChartRef resolvedBmson = shaIndex.ResolveChartForPlaylistEntry(entry);
 
-        Assert.AreSame(earlierPath, preferred.GetBmsonStorageOwner());
-        Assert.AreSame(earlierPath, resolvedMd5First.GetBmsonStorageOwner());
-        Assert.AreEqual(earlierPath.path, preferred.Path);
-        Assert.AreEqual(earlierPath.path, resolvedMd5First.Path);
-        Assert.AreEqual(earlierPath.md5, preferred.Md5);
-        Assert.AreEqual(earlierPath.sha256, preferred.Sha256);
-        Assert.IsNull(preferred.ToChartFileIdentity().GetBmsonStorageOwner());
+        Assert.AreEqual(earlierPath.Path, preferred.Path);
+        Assert.AreEqual(earlierPath.Md5, preferred.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, preferred.Kind);
+        Assert.AreEqual(earlierPath.Path, resolvedMd5First.Path);
+        Assert.AreEqual(earlierPath.Md5, resolvedMd5First.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, resolvedMd5First.Kind);
+        Assert.AreEqual(earlierPath.Path, preferred.Path);
+        Assert.AreEqual(earlierPath.Path, resolvedMd5First.Path);
+        Assert.AreEqual(earlierPath.Md5, preferred.Md5);
+        Assert.AreEqual(earlierPath.Sha256, preferred.Sha256);
+        Assert.IsNull(preferred.ToChartFileIdentity().Token);
         Assert.IsNull(resolvedBmson);
     }
 
@@ -4064,31 +4031,35 @@ public sealed class PlaylistViewPipelineTests
     {
         var entry = new TestablePlaylistEntry();
         entry.SetSha256(new string('f', 64));
-        var laterBms = new TestableBmsFile();
-        laterBms.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", new string('1', 32));
-        laterBms.SetSha256(entry.sha256);
-        var earlierBmson = new LR2SongDBExtended.bmson_song
+        ChartFile laterBms = ChartTestValues.Empty();
+        laterBms = laterBms with { Path = "C:\\Songs\\Omega\\chart.bms", Title = "BMS", RawTitle = "BMS", Artist = "Artist", RawArtist = "Artist", Md5 = new string('1', 32), Folder = System.IO.Path.GetDirectoryName("C:\\Songs\\Omega\\chart.bms") };
+        laterBms = laterBms with { Sha256 = entry.sha256 };
+        ChartFile earlierBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Alpha\\chart.bmson",
-            md5 = new string('2', 32),
-            sha256 = entry.sha256
+            Path = "C:\\Songs\\Alpha\\chart.bmson",
+            Md5 = new string('2', 32),
+            Sha256 = entry.sha256
         };
 
         var index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsFile(laterBms),
-            LibraryChartRef.FromBmsonSong(earlierBmson)
+            LibraryChartRef.FromChartFile((laterBms)),
+            LibraryChartRef.FromChartFile((earlierBmson))
         ]);
         LibraryChartRef preferred = index.ResolveChartForPlaylistHash(null, entry.sha256);
         LibraryChartRef resolved = index.ResolveChartForPlaylistEntry(entry);
 
-        Assert.AreSame(earlierBmson, preferred.GetBmsonStorageOwner());
-        Assert.AreSame(earlierBmson, resolved.GetBmsonStorageOwner());
-        Assert.AreEqual(earlierBmson.path, preferred.Path);
-        Assert.AreEqual(earlierBmson.path, resolved.Path);
-        Assert.AreEqual(earlierBmson.md5, preferred.Md5);
-        Assert.AreEqual(earlierBmson.sha256, preferred.Sha256);
-        Assert.IsNull(preferred.ToChartFileIdentity().GetBmsonStorageOwner());
+        Assert.AreEqual(earlierBmson.Path, preferred.Path);
+        Assert.AreEqual(earlierBmson.Md5, preferred.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, preferred.Kind);
+        Assert.AreEqual(earlierBmson.Path, resolved.Path);
+        Assert.AreEqual(earlierBmson.Md5, resolved.Md5);
+        Assert.AreEqual(ChartFileKind.Bmson, resolved.Kind);
+        Assert.AreEqual(earlierBmson.Path, preferred.Path);
+        Assert.AreEqual(earlierBmson.Path, resolved.Path);
+        Assert.AreEqual(earlierBmson.Md5, preferred.Md5);
+        Assert.AreEqual(earlierBmson.Sha256, preferred.Sha256);
+        Assert.IsNull(preferred.ToChartFileIdentity().Token);
     }
 
     [TestMethod]
@@ -4097,16 +4068,16 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         entry.SetSha256(new string('f', 64));
-        var shaMatch = new LR2SongDBExtended.bmson_song
+        ChartFile shaMatch = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Sha\\chart.bmson",
-            md5 = new string('1', 32),
-            sha256 = entry.sha256
+            Path = "C:\\Songs\\Sha\\chart.bmson",
+            Md5 = new string('1', 32),
+            Sha256 = entry.sha256
         };
 
         var index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsonSong(shaMatch)
+            LibraryChartRef.FromChartFile((shaMatch))
         ]);
         LibraryChartRef resolved = index.ResolveChartForPlaylistEntry(entry);
 
@@ -4121,20 +4092,20 @@ public sealed class PlaylistViewPipelineTests
         var shaEntry = new TestablePlaylistEntry();
         shaEntry.SetMd5("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         shaEntry.SetSha256(new string('c', 64));
-        var pathlessBms = new TestableBmsFile();
-        pathlessBms.Apply("C:\\Songs\\Temp\\chart.bms", "BMS", "Artist", md5Entry.md5);
-        pathlessBms.path = null;
-        var pathlessBmson = new LR2SongDBExtended.bmson_song
+        ChartFile pathlessBms = ChartTestValues.Empty();
+        pathlessBms = pathlessBms with { Path = "C:\\Songs\\Temp\\chart.bms", Title = "BMS", RawTitle = "BMS", Artist = "Artist", RawArtist = "Artist", Md5 = md5Entry.md5, Folder = System.IO.Path.GetDirectoryName("C:\\Songs\\Temp\\chart.bms") };
+        pathlessBms = pathlessBms with { Path = null };
+        ChartFile pathlessBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = null,
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = shaEntry.sha256
+            Path = null,
+            Md5 = "dddddddddddddddddddddddddddddddd",
+            Sha256 = shaEntry.sha256
         };
 
         var index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsFile(pathlessBms),
-            LibraryChartRef.FromBmsonSong(pathlessBmson)
+            LibraryChartRef.FromChartFile((pathlessBms)),
+            LibraryChartRef.FromChartFile((pathlessBmson))
         ]);
 
         Assert.IsNull(index.ResolveChartForPlaylistHash(md5Entry.md5, null));
@@ -4148,20 +4119,20 @@ public sealed class PlaylistViewPipelineTests
     {
         var shaEntry = new TestablePlaylistEntry();
         shaEntry.SetSha256(new string('c', 64));
-        var md5lessBms = new TestableBmsFile();
-        md5lessBms.Apply("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", string.Empty);
-        md5lessBms.SetSha256(shaEntry.sha256);
-        var md5lessBmson = new LR2SongDBExtended.bmson_song
+        ChartFile md5lessBms = ChartTestValues.Empty();
+        md5lessBms = md5lessBms with { Path = "C:\\Songs\\Bms\\chart.bms", Title = "BMS", RawTitle = "BMS", Artist = "Artist", RawArtist = "Artist", Md5 = string.Empty, Folder = System.IO.Path.GetDirectoryName("C:\\Songs\\Bms\\chart.bms") };
+        md5lessBms = md5lessBms with { Sha256 = shaEntry.sha256 };
+        ChartFile md5lessBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\chart.bmson",
-            md5 = null,
-            sha256 = shaEntry.sha256
+            Path = "C:\\Songs\\Bmson\\chart.bmson",
+            Md5 = null,
+            Sha256 = shaEntry.sha256
         };
 
         var index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsFile(md5lessBms),
-            LibraryChartRef.FromBmsonSong(md5lessBmson)
+            LibraryChartRef.FromChartFile((md5lessBms)),
+            LibraryChartRef.FromChartFile((md5lessBmson))
         ]);
 
         Assert.IsNull(index.ResolveChartForPlaylistHash(null, shaEntry.sha256));
@@ -4173,25 +4144,25 @@ public sealed class PlaylistViewPipelineTests
     {
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        var laterBms = new TestableBmsFile();
-        laterBms.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", entry.md5);
-        laterBms.SetSha256(new string('1', 64));
-        var earlierBmson = new LR2SongDBExtended.bmson_song
+        ChartFile laterBms = ChartTestValues.Empty();
+        laterBms = laterBms with { Path = "C:\\Songs\\Omega\\chart.bms", Title = "BMS", RawTitle = "BMS", Artist = "Artist", RawArtist = "Artist", Md5 = entry.md5, Folder = System.IO.Path.GetDirectoryName("C:\\Songs\\Omega\\chart.bms") };
+        laterBms = laterBms with { Sha256 = new string('1', 64) };
+        ChartFile earlierBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Alpha\\chart.bmson",
-            md5 = entry.md5,
-            sha256 = new string('2', 64)
+            Path = "C:\\Songs\\Alpha\\chart.bmson",
+            Md5 = entry.md5,
+            Sha256 = new string('2', 64)
         };
         var index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
-            LibraryChartRef.FromBmsFile(laterBms),
-            LibraryChartRef.FromBmsonSong(earlierBmson)
+            LibraryChartRef.FromChartFile((laterBms)),
+            LibraryChartRef.FromChartFile((earlierBmson))
         ]);
         LibraryChartRef representativeRef = index.ResolveChartForPlaylistEntry(entry);
         ChartFile representative = representativeRef.ToChartFileIdentity();
         var bmsonScore = new BMSScore
         {
-            hash = earlierBmson.sha256,
+            hash = earlierBmson.Sha256,
             clear = ClearType.HARD,
             perfect = 900,
             great = 50,
@@ -4199,7 +4170,7 @@ public sealed class PlaylistViewPipelineTests
         };
         var bmsScore = new BMSScore
         {
-            hash = laterBms.sha256,
+            hash = laterBms.Sha256,
             clear = ClearType.EASY,
             perfect = 100,
             great = 50,
@@ -4210,8 +4181,8 @@ public sealed class PlaylistViewPipelineTests
             ActiveScoreSource = ActiveScoreSource.Beatoraja,
             ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
             {
-                [earlierBmson.sha256] = bmsonScore,
-                [laterBms.sha256] = bmsScore
+                [earlierBmson.Sha256] = bmsonScore,
+                [laterBms.Sha256] = bmsScore
             }
         };
 
@@ -4223,25 +4194,25 @@ public sealed class PlaylistViewPipelineTests
             scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
             scoresBySha256: snapshot.ScoresBySha256);
 
-        Assert.IsNull(representative.GetBmsonStorageOwner());
+        Assert.IsNull(representative.Token);
         Assert.AreEqual(ChartFileKind.Bmson, representative.Kind);
-        Assert.AreEqual(earlierBmson.path, representative.Path);
-        Assert.AreEqual(earlierBmson.md5, representative.Md5);
-        Assert.AreEqual(earlierBmson.sha256, representative.Sha256);
+        Assert.AreEqual(earlierBmson.Path, representative.Path);
+        Assert.AreEqual(earlierBmson.Md5, representative.Md5);
+        Assert.AreEqual(earlierBmson.Sha256, representative.Sha256);
         Assert.IsNotNull(resolved);
-        Assert.AreEqual(earlierBmson.md5, resolved.hash);
+        Assert.AreEqual(earlierBmson.Md5, resolved.hash);
         Assert.AreEqual(ClearType.HARD, resolved.clear);
     }
 
     [TestMethod]
     public void PlaylistDetailSourceRow_UsesScoreSnapshotForOwnedRowsBeforeGlobalHydration()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "cccccccccccccccccccccccccccccccc", Path = "Owned" + ".bms", Title = "Owned", RawTitle = "Owned", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         var entry = new BMSTableEntry(file);
         var score = new BMSScore
         {
-            hash = file.hash,
+            hash = file.Md5,
             clear = ClearType.HARD,
             totalnotes = 1000,
             perfect = 800,
@@ -4249,7 +4220,7 @@ public sealed class PlaylistViewPipelineTests
             rank = RankType.AA,
             minbp = 3
         };
-        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file), scoreSnapshot: score);
+        var sourceRow = new PlaylistDetailSourceRow(entry, (file), scoreSnapshot: score);
 
         Assert.AreEqual(ClearType.HARD, sourceRow.clear);
         Assert.AreEqual(RankType.AA, sourceRow.rank);
@@ -4261,14 +4232,14 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesResolvedChartSha256ForMd5OnlyEntry()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
-        file.SetSha256(new string('a', 64));
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "cccccccccccccccccccccccccccccccc", Path = "Owned" + ".bms", Title = "Owned", RawTitle = "Owned", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
+        file = file with { Sha256 = new string('a', 64) };
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5(file.hash);
+        entry.SetMd5(file.Md5);
         var score = new BMSScore
         {
-            hash = file.sha256,
+            hash = file.Sha256,
             clear = ClearType.HARD,
             perfect = 800,
             great = 100,
@@ -4279,20 +4250,20 @@ public sealed class PlaylistViewPipelineTests
             ActiveScoreSource = ActiveScoreSource.Beatoraja,
             ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
             {
-                [file.sha256] = score
+                [file.Sha256] = score
             }
         };
 
         BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
-            ChartFileProjection.FromBmsFile(file),
+            (file),
             entryChartInfo: null,
             snapshot,
             scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
             scoresBySha256: snapshot.ScoresBySha256);
 
         Assert.IsNotNull(resolved);
-        Assert.AreEqual(file.hash, resolved.hash);
+        Assert.AreEqual(file.Md5, resolved.hash);
         Assert.AreEqual(ClearType.HARD, resolved.clear);
         Assert.AreEqual(1700, resolved.score);
     }
@@ -4300,13 +4271,13 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_Lr2PrefersResolvedChartHashWhenEntryHashIsStale()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = "cccccccccccccccccccccccccccccccc", Path = "Owned" + ".bms", Title = "Owned", RawTitle = "Owned", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("dddddddddddddddddddddddddddddddd");
         var fileScore = new BMSScore
         {
-            hash = file.hash,
+            hash = file.Md5,
             clear = ClearType.HARD,
             perfect = 800,
             great = 100,
@@ -4325,14 +4296,14 @@ public sealed class PlaylistViewPipelineTests
             ActiveScoreSource = ActiveScoreSource.Lr2,
             ScoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
             {
-                [file.hash] = fileScore,
+                [file.Md5] = fileScore,
                 [entry.md5] = staleEntryScore
             }
         };
 
         BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
-            ChartFileProjection.FromBmsFile(file),
+            (file),
             entryChartInfo: null,
             snapshot,
             scoresByHash: snapshot.ScoresByHash,
@@ -4347,7 +4318,7 @@ public sealed class PlaylistViewPipelineTests
     {
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("dddddddddddddddddddddddddddddddd");
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('b', 64), entry.md5);
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(new string('b', 64), entry.md5);
         var score = new BMSScore
         {
             hash = chartInfo.sha256,
@@ -4384,16 +4355,16 @@ public sealed class PlaylistViewPipelineTests
     {
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("dddddddddddddddddddddddddddddddd");
-        var bmson = new LR2SongDBExtended.bmson_song
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Songs\\Bmson\\score.bmson",
-            md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            sha256 = new string('c', 64),
-            title = "Bmson score"
+            Path = "C:\\Songs\\Bmson\\score.bmson",
+            Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            Sha256 = new string('c', 64),
+            RawTitle = "Bmson score"
         };
         var score = new BMSScore
         {
-            hash = bmson.sha256,
+            hash = bmson.Sha256,
             clear = ClearType.HARD,
             perfect = 700,
             great = 100,
@@ -4404,20 +4375,20 @@ public sealed class PlaylistViewPipelineTests
             ActiveScoreSource = ActiveScoreSource.Beatoraja,
             ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
             {
-                [bmson.sha256] = score
+                [bmson.Sha256] = score
             }
         };
 
         BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
-            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            (bmson),
             entryChartInfo: null,
             snapshot,
             scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
             scoresBySha256: snapshot.ScoresBySha256);
 
         Assert.IsNotNull(resolved);
-        Assert.AreEqual(bmson.md5, resolved.hash);
+        Assert.AreEqual(bmson.Md5, resolved.hash);
         Assert.AreEqual(ClearType.HARD, resolved.clear);
         Assert.AreEqual(1500, resolved.score);
     }
@@ -4446,218 +4417,82 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void NormalLibraryRowCache_ReusesRowsAndPrunesRemovedFiles()
+    public void NormalLibraryRowCache_AppliesOnlyChangedOwnedTokenAndKeepsOtherRows()
     {
-        var fileA = new TestableBmsFile();
-        fileA.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
-        var fileB = new TestableBmsFile();
-        fileB.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
+        ChartFile first = (CreateBmsonCacheSong(@"folder\chart.bmson", "First"))
+            with
+        { Token = new OwnedChartToken() };
+        ChartFile other = first with { Token = new OwnedChartToken(), Path = @"folder\other.bmson", Title = "Other", Md5 = new string('e', 32), Sha256 = new string('f', 64) };
         var cache = new NormalLibraryRowCache();
-        var firstStats = new LibraryRowCacheBuildStats();
-        LibraryChartRow firstA = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), firstStats);
-        LibraryChartRow firstB = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileB), firstStats);
-        var secondStats = new LibraryRowCacheBuildStats();
-        LibraryChartRow secondA = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), secondStats);
+        var stats = new LibraryRowCacheBuildStats();
+        LibraryChartRow firstRow = cache.GetOrCreate(first, stats);
+        LibraryChartRow otherRow = cache.GetOrCreate(other, stats);
+        ChartFile changed = first with { Title = "Changed", Path = @"moved\chart.bmson", Md5 = new string('c', 32), Sha256 = new string('d', 64) };
+        int notifications = 0;
+        firstRow.PropertyChanged += (_, _) => notifications++;
 
-        Assert.AreSame(firstA, secondA);
-        Assert.AreEqual(0, firstStats.HitCount);
-        Assert.AreEqual(2, firstStats.MissCount);
-        Assert.AreEqual(1, secondStats.HitCount);
-        Assert.AreEqual(0, secondStats.MissCount);
-        Assert.AreEqual(1, cache.PruneBmsFiles([fileA]));
+        cache.ApplyChanges([changed], [], null);
+
+        Assert.AreEqual("Changed", firstRow.Title);
+        Assert.AreEqual(changed.Path, firstRow.path);
+        Assert.AreEqual("Other", otherRow.Title);
+        Assert.AreSame(firstRow, cache.GetOrCreate(changed, stats));
+        Assert.AreSame(otherRow, cache.GetOrCreate(other, stats));
+        Assert.IsTrue(notifications > 0);
+        Assert.AreEqual(2, cache.Count);
+        Assert.AreEqual(2, stats.MissCount);
+        Assert.AreEqual(2, stats.HitCount);
+        Assert.AreEqual(0, cache.GetRowsForScoreKeys([first.Md5], []).Count);
+        Assert.AreSame(firstRow, cache.GetRowsForScoreKeys([], [changed.Sha256]).Single());
+    }
+
+    [TestMethod]
+    public void NormalLibraryRowCache_SamePathAndHashReplacementRequiresDifferentToken()
+    {
+        ChartFile first = (CreateBmsonCacheSong(@"folder\chart.bmson", "First"))
+            with
+        { Token = new OwnedChartToken() };
+        ChartFile replacement = first with { Token = new OwnedChartToken() };
+        var cache = new NormalLibraryRowCache();
+        LibraryChartRow firstRow = cache.GetOrCreate(first, null);
+        LibraryChartRow replacementRow = cache.GetOrCreate(replacement, null);
+
+        cache.ApplyChanges([], [first.Token], null);
+
+        Assert.AreNotSame(firstRow, replacementRow);
         Assert.AreEqual(1, cache.Count);
-        fileB.SetTitle("B2");
-        fileA.SetTitle("A2");
-        Assert.AreSame(firstA, cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), new LibraryRowCacheBuildStats()));
+        Assert.AreSame(replacementRow, cache.SnapshotRows().Single());
+        Assert.AreSame(replacementRow, cache.GetRowsForScoreKeys([replacement.Md5], []).Single());
     }
 
     [TestMethod]
-    public void NormalLibraryRowCache_RemoveBmsFilesPrunesOnlyRemovedReferences()
-    {
-        var fileA = new TestableBmsFile();
-        fileA.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
-        var fileB = new TestableBmsFile();
-        fileB.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
-        var cache = new NormalLibraryRowCache();
-        LibraryChartRow rowA = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), new LibraryRowCacheBuildStats());
-        LibraryChartRow rowB = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileB), new LibraryRowCacheBuildStats());
-
-        Assert.AreEqual(1, cache.RemoveBmsFiles([fileA]));
-        Assert.AreEqual(1, cache.Count);
-        Assert.AreSame(rowB, cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileB), new LibraryRowCacheBuildStats()));
-        Assert.AreNotSame(rowA, cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), new LibraryRowCacheBuildStats()));
-    }
-
-    [TestMethod]
-    public void NormalLibraryRowCache_RemoveBmsFilesPrunesByStaleInputPath()
-    {
-        var current = new TestableBmsFile();
-        current.path = @"folder\chart.bms";
-        current.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
-        var staleSamePath = new TestableBmsFile();
-        staleSamePath.path = @"folder\chart.bms";
-        staleSamePath.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
-        var kept = new TestableBmsFile();
-        kept.path = @"folder\kept.bms";
-        kept.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
-        var cache = new NormalLibraryRowCache();
-        LibraryChartRow removedRow = cache.GetOrCreate(ChartFileProjection.FromBmsFile(current), new LibraryRowCacheBuildStats());
-        LibraryChartRow keptRow = cache.GetOrCreate(ChartFileProjection.FromBmsFile(kept), new LibraryRowCacheBuildStats());
-
-        Assert.AreEqual(1, cache.RemoveBmsFiles([staleSamePath]));
-
-        Assert.AreEqual(1, cache.Count);
-        Assert.AreSame(keptRow, cache.GetOrCreate(ChartFileProjection.FromBmsFile(kept), new LibraryRowCacheBuildStats()));
-        Assert.AreNotSame(removedRow, cache.GetOrCreate(ChartFileProjection.FromBmsFile(current), new LibraryRowCacheBuildStats()));
-    }
-
-    [TestMethod]
-    public void NormalLibraryRowCache_ReusesSyncedBmsonRowsByReferenceAndPath()
-    {
-        var cache = new NormalLibraryRowCache();
-        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
-
-        BmsonLibraryRowCacheSyncResult firstResult = cache.SyncBmsonRows([original], null);
-        LibraryChartRow firstRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats());
-
-        Assert.IsTrue(firstResult.MembershipChanged);
-        Assert.IsTrue(firstResult.SortKeyChanged);
-        Assert.IsFalse(firstResult.SourceReferenceChanged);
-        Assert.AreEqual(1, cache.Count);
-        Assert.AreEqual(1, cache.SnapshotRows().Count);
-
-        LR2SongDBExtended.bmson_song samePathNext = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
-        BmsonLibraryRowCacheSyncResult secondResult = cache.SyncBmsonRows([samePathNext], null);
-        LibraryChartRow secondRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(samePathNext), new LibraryRowCacheBuildStats());
-
-        Assert.AreSame(firstRow, secondRow);
-        Assert.IsFalse(secondResult.MembershipChanged);
-        Assert.IsFalse(secondResult.SortKeyChanged);
-        Assert.IsFalse(secondResult.SourceIdentityChanged);
-        Assert.IsTrue(secondResult.SourceReferenceChanged);
-        Assert.AreSame(secondRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats()));
-    }
-
-    [TestMethod]
-    public void NormalLibraryRowCache_DetectsBmsonSortKeyAndMembershipChanges()
-    {
-        var cache = new NormalLibraryRowCache();
-        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
-        cache.SyncBmsonRows([original], null);
-        LibraryChartRow row = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats());
-
-        LR2SongDBExtended.bmson_song changed = CreateBmsonCacheSong(@"folder\chart.bmson", "Changed");
-        BmsonLibraryRowCacheSyncResult changedResult = cache.SyncBmsonRows([changed], null);
-
-        Assert.AreSame(row, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(changed), new LibraryRowCacheBuildStats()));
-        Assert.IsFalse(changedResult.MembershipChanged);
-        Assert.IsTrue(changedResult.SortKeyChanged);
-        Assert.IsTrue(changedResult.SourceIdentityChanged);
-        Assert.IsTrue(changedResult.SourceReferenceChanged);
-        Assert.AreEqual("Changed", row.Title);
-
-        BmsonLibraryRowCacheSyncResult removedResult = cache.SyncBmsonRows([], null);
-
-        Assert.IsTrue(removedResult.MembershipChanged);
-        Assert.IsTrue(removedResult.SortKeyChanged);
-        Assert.IsTrue(removedResult.SourceIdentityChanged);
-        Assert.IsFalse(removedResult.SourceReferenceChanged);
-        Assert.AreEqual(0, cache.Count);
-    }
-
-    [TestMethod]
-    public void NormalLibraryRowCache_DoesNotReportSourceChangeForSameReferenceProjectionOnlyBmsonChange()
-    {
-        var cache = new NormalLibraryRowCache();
-        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
-        LR2SongDBExtended.chart_info projectedChartInfo = CreateChartInfo(original.sha256, original.md5, level: 4, notes: 1000, total: 250);
-        cache.SyncBmsonRows([original], row => row.SetChartInfoProjectionProvider(_ => projectedChartInfo));
-
-        projectedChartInfo = CreateChartInfo(original.sha256, original.md5, level: 12, notes: 3000, total: 700);
-        BmsonLibraryRowCacheSyncResult result = cache.SyncBmsonRows([original], row => row.SetChartInfoProjectionProvider(_ => projectedChartInfo));
-
-        Assert.IsFalse(result.MembershipChanged);
-        Assert.IsFalse(result.SortKeyChanged);
-        Assert.IsFalse(result.SourceIdentityChanged);
-        Assert.IsFalse(result.SourceReferenceChanged);
-        Assert.IsFalse(result.SourceChanged);
-    }
-
-    [TestMethod]
-    public void NormalLibraryRowCache_RemoveBmsonSongsPrunesByReferenceAndPath()
-    {
-        var cache = new NormalLibraryRowCache();
-        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
-        LR2SongDBExtended.bmson_song other = CreateBmsonCacheSong(@"folder\other.bmson", "Other");
-        cache.SyncBmsonRows([original, other], null);
-        LibraryChartRow originalRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats());
-        LibraryChartRow otherRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(other), new LibraryRowCacheBuildStats());
-
-        LR2SongDBExtended.bmson_song staleSamePath = CreateBmsonCacheSong(@"folder\chart.bmson", "Stale");
-        BmsonLibraryRowCacheSyncResult result = cache.RemoveBmsonSongs([staleSamePath]);
-
-        Assert.IsTrue(result.MembershipChanged);
-        Assert.IsTrue(result.SortKeyChanged);
-        Assert.IsTrue(result.SourceIdentityChanged);
-        Assert.AreEqual(1, cache.Count);
-        Assert.AreSame(otherRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(other), new LibraryRowCacheBuildStats()));
-        Assert.AreNotSame(originalRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats()));
-    }
-
-    [TestMethod]
-    public void NormalLibraryRowCache_DoesNotAttachUnsyncedBmsonRows()
+    public void NormalLibraryRowCache_DoesNotOwnDetachedCharts()
     {
         var cache = new NormalLibraryRowCache();
         var stats = new LibraryRowCacheBuildStats();
-
-        LibraryChartRow row = cache.GetOrCreate(
-            ChartFileProjection.FromBmsonSong(CreateBmsonCacheSong(@"folder\detached.bmson", "Detached")),
-            stats);
-
-        Assert.IsNotNull(row);
+        ChartFile detached = (CreateBmsonCacheSong(@"folder\detached.bmson", "Detached"));
+        Assert.IsNull(cache.GetOrCreate(detached, stats));
         Assert.AreEqual(0, cache.Count);
-        Assert.AreEqual(0, cache.SnapshotRows().Count);
-        Assert.AreEqual(0, stats.HitCount);
         Assert.AreEqual(0, stats.MissCount);
     }
 
-    [TestMethod]
-    public void LibraryChartRowSourceNotificationMapper_MapsBmsStorageNotificationsToDisplayGroups()
+    private static ChartFile CreateBmsonCacheSong(string path, string title)
     {
-        LibraryChartRowSourceNotificationGroups allGroups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(string.Empty);
-        LibraryChartRowSourceNotificationGroups nullGroups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(null);
-
-        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.WarningPresentation));
-        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.ScoreDisplay));
-        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.MaintenanceDisplay));
-        Assert.AreEqual(allGroups, nullGroups);
-        Assert.AreEqual(
-            LibraryChartRowSourceNotificationGroups.WarningPresentation,
-            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.Warnings)));
-        Assert.AreEqual(
-            LibraryChartRowSourceNotificationGroups.ScoreDisplay,
-            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.bmsScore)));
-        Assert.AreEqual(
-            LibraryChartRowSourceNotificationGroups.MaintenanceDisplay,
-            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.maintenanceInfo)));
-        Assert.AreEqual(
-            LibraryChartRowSourceNotificationGroups.None,
-            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.path)));
-    }
-
-    private static LR2SongDBExtended.bmson_song CreateBmsonCacheSong(string path, string title)
-    {
-        return new LR2SongDBExtended.bmson_song
+        return ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = path,
-            folder = Path.GetDirectoryName(path) ?? string.Empty,
-            title = title,
-            artist = "Artist",
-            genre = "Genre",
-            mode_hint = "beat-7k",
-            level = 7,
-            md5 = "22222222222222222222222222222222",
-            sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+            Path = path,
+            Folder = Path.GetDirectoryName(path) ?? string.Empty,
+            RawTitle = title,
+            Title = title,
+            RawArtist = "Artist",
+            Artist = "Artist",
+            Genre = "Genre",
+            ModeHint = "beat-7k",
+            Mode = 7,
+            Level = 7,
+            LevelText = "7",
+            Md5 = "22222222222222222222222222222222",
+            Sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
         };
     }
 
@@ -4674,11 +4509,11 @@ public sealed class PlaylistViewPipelineTests
 
     private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null, string? sha256 = null)
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot(hash, title, mode);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = hash, Path = title + ".bms", Title = title, RawTitle = title, Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = mode };
         if (sha256 != null)
         {
-            file.SetSha256(sha256);
+            file = file with { Sha256 = sha256 };
         }
         var entry = new TestablePlaylistEntry(file)
         {
@@ -4690,28 +4525,28 @@ public sealed class PlaylistViewPipelineTests
         {
             entry.SetSha256(sha256);
         }
-        return new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
+        return new PlaylistDetailSourceRow(entry, (file));
     }
 
     private static PlaylistDetailSourceRow CreateOwnedBmsSourceRow(
         string hash,
         string title,
         int? mode,
-        out TestableBmsFile file)
+        out ChartFile file)
     {
-        file = new TestableBmsFile();
-        file.ApplySnapshot(hash, title, mode);
-        file.bmsScore = new BMSScore
+        file = ChartTestValues.Empty();
+        file = file with { Md5 = hash, Path = title + ".bms", Title = title, RawTitle = title, Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = mode };
+        file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(new BMSScore
         {
             hash = hash,
             perfect = 100,
             great = 12,
             totalnotes = 200,
             IsLr2IrScoreUnsent = true
-        };
+        }, file.Path));
         return new PlaylistDetailSourceRow(
             new TestablePlaylistEntry(file),
-            ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true));
+            (file));
     }
 
     private static void AssertPlaylistRowFileDeletePolicy(PlaylistDetailRow row, bool expectedRemoveFromLibrary)
@@ -4724,25 +4559,8 @@ public sealed class PlaylistViewPipelineTests
 
     private static ChartOperationTarget CreateDeleteTarget(ChartOperationSourceScope sourceScope, ChartOperationCapabilities capabilities)
     {
-        // Path-only target: used by delete-policy tests that do not need a backing BMSFile adapter.
-        var chart = new ChartFile(
-            ChartFileKind.Bms,
-            "C:\\Library\\Song\\chart.bms",
-            "abababababababababababababababab",
-            null,
-            "Title",
-            "Title",
-            "Artist",
-            string.Empty,
-            "Song",
-            string.Empty,
-            "7",
-            7,
-            7,
-            null,
-            null,
-            null,
-            null);
+        // Path-only target: used by delete-policy tests that do not need a backing ChartFile adapter.
+        var chart = new ChartFile(ChartFileKind.Bms, "C:\\Library\\Song\\chart.bms", "abababababababababababababababab", null, "Title", "Title", "Artist", string.Empty, "Song", string.Empty, "7", 7, 7, null, null);
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
         bool isPlaylistMissing = sourceScope == ChartOperationSourceScope.PlaylistMissing;
         return new ChartOperationTarget(
@@ -4755,7 +4573,7 @@ public sealed class PlaylistViewPipelineTests
             capabilities);
     }
 
-    private static PlaylistDetailSourceRow CreateMissingSourceRow(string title, LR2SongDBExtended.chart_info chartInfo)
+    private static PlaylistDetailSourceRow CreateMissingSourceRow(string title, BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         var entry = new TestablePlaylistEntry();
         entry.SetTitle(title);
@@ -4764,16 +4582,16 @@ public sealed class PlaylistViewPipelineTests
         return new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: chartInfo);
     }
 
-    private static BMSFile CreateBmsFile(string path, string title, string artist, string hash)
+    private static ChartFile CreateBmsFile(string path, string title, string artist, string hash)
     {
-        var file = new TestableBmsFile();
-        file.Apply(path, title, artist, hash);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Path = path, Title = title, RawTitle = title, Artist = artist, RawArtist = artist, Md5 = hash, Folder = System.IO.Path.GetDirectoryName(path) };
         return file;
     }
 
-    private static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int? level = 12, int notes = 2500, double total = 500)
+    private static BeMusicSeeker.Models.ChartDetails CreateChartInfo(string sha256, string md5, int? level = 12, int notes = 2500, double total = 500)
     {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = sha256,
             md5 = md5,
@@ -4807,7 +4625,7 @@ public sealed class PlaylistViewPipelineTests
         };
     }
 
-    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info[] rows)
+    private static Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateChartInfoProvider(params BeMusicSeeker.Models.ChartDetails[] rows)
     {
         return chart =>
         {
@@ -4851,10 +4669,10 @@ public sealed class PlaylistViewPipelineTests
     {
         const string hash = "dddddddddddddddddddddddddddddddd";
         const string sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
-        var file = new TestableBmsFile();
-        file.Apply(@"C:\BMS\play-history-resolved.bms", "Resolved Play History", "Artist", hash);
-        file.SetSha256(sha256);
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Path = @"C:\BMS\play-history-resolved.bms", Title = "Resolved Play History", RawTitle = "Resolved Play History", Artist = "Artist", RawArtist = "Artist", Md5 = hash, Folder = System.IO.Path.GetDirectoryName(@"C:\BMS\play-history-resolved.bms") };
+        file = file with { Sha256 = sha256 };
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
         var projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
@@ -4997,7 +4815,7 @@ public sealed class PlaylistViewPipelineTests
         {
         }
 
-        public TestablePlaylistEntry(BMSFile bmsFile)
+        public TestablePlaylistEntry(ChartFile bmsFile)
             : base(bmsFile)
         {
         }
@@ -5044,45 +4862,4 @@ public sealed class PlaylistViewPipelineTests
         }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        public void Apply(string filePath, string title, string artist, string md5)
-        {
-            path = filePath;
-            hash = md5;
-            Title = title;
-            Artist = artist;
-            folder = System.IO.Path.GetDirectoryName(filePath);
-        }
-
-        public void ApplySnapshot(string snapshotHash, string snapshotTitle, int? snapshotMode)
-        {
-            hash = snapshotHash;
-            path = snapshotTitle + ".bms";
-            Title = snapshotTitle;
-            Artist = "TestArtist";
-            genre = "TestGenre";
-            mode = snapshotMode;
-        }
-
-        public void SetSha256(string value)
-        {
-            sha256 = value;
-        }
-
-        public void SetTitle(string value)
-        {
-            Title = value;
-        }
-
-        public void SetArtist(string value)
-        {
-            Artist = value;
-        }
-
-        public void SetSubtitle(string value)
-        {
-            typeof(BMSFile).GetField("_subtitle", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(this, value);
-        }
-    }
 }

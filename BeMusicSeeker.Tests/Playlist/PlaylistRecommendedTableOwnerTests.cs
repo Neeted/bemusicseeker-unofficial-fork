@@ -263,8 +263,8 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 db.RunInTransaction(() =>
                 {
                     db.CreateTable<LR2SongDBExtended.chart_info>();
-                    db.Insert(new LR2SongDBExtended.chart_info { md5 = entries[0].Md5, sha256 = new string('a', 64) });
-                    db.Insert(new LR2SongDBExtended.chart_info { md5 = entries[1].Md5, sha256 = new string('b', 64) });
+                    db.Insert(ChartInfoStorageMapping.ToStorage(new BeMusicSeeker.Models.ChartDetails { md5 = entries[0].Md5, sha256 = new string('a', 64) }), typeof(LR2SongDBExtended.chart_info));
+                    db.Insert(ChartInfoStorageMapping.ToStorage(new BeMusicSeeker.Models.ChartDetails { md5 = entries[1].Md5, sha256 = new string('b', 64) }), typeof(LR2SongDBExtended.chart_info));
                 });
             }
 

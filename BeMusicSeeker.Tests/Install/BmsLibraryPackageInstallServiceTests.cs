@@ -60,13 +60,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 var entries = new List<PackageChartEntry>
                 {
                     ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                        BMSFile.CreateBMSFileFromFile(path), destination)
+                        BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)), destination)
                 };
                 if (i == 0)
                 {
                     string alternate = CreateBmsFile(sources[i], "alternate.bms", "#TITLE P0Alternate\r\n" + body);
                     entries.Add(ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                        BMSFile.CreateBMSFileFromFile(alternate), destination));
+                        BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(alternate)), destination));
                 }
                 ChartPackage package = ChartPackageTestExtensions.CreatePackage(entries.ToArray());
                 package.path = sources[i];
@@ -80,10 +80,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 File.Copy(Path.Combine(sources[0], names[0]), existingPath, overwrite: true);
             }
             File.WriteAllBytes(Path.Combine(existingDirectory, "shared.wav"), [1, 2, 3]);
-            var existing = BMSFile.CreateBMSFileFromFile(existingPath);
+            ChartFile existing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existingPath));
             using (var db = new LR2SongDBExtended(songDbPath))
             {
-                db.InsertOrReplace(existing.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song));
             }
             var fileMutations = new RealFileMutationService();
             var library = new TestBmsLibrary(songDbPath, null, null, fileMutations,
@@ -98,11 +98,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [existing],
-                BmsonSongs = [],
+                BmsCharts = [existing],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection(packages),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
+            OwnedChartToken existingToken = library.BmsCharts.Single().Token;
             uint shared = ChartResourceKeyHash.GetLookupHash("shared");
             uint image = ChartResourceKeyHash.GetLookupHash("picture");
             uint movie = ChartResourceKeyHash.GetLookupHash("clip");
@@ -154,12 +155,19 @@ public sealed class BmsLibraryPackageInstallServiceTests
             }, sessionReceipt.ApplyCounts);
             Assert.IsFalse(sessionReceipt.HasRequiredFailure);
             Assert.IsFalse(sessionReceipt.HasDurableFinalizationFailure);
+            foreach (PackageChartEntry entry in packages.SelectMany(package => package.ChartEntries))
+            {
+                ChartFile ownedChart = library.BmsCharts.Single(chart => chart.Path == entry.Chart.Path);
+                Assert.IsNotNull(entry.Chart.Token);
+                Assert.AreSame(ownedChart.Token, entry.Chart.Token);
+            }
 
-            string[] installedPaths = names.Select(name => library.BMSFiles.Single(file =>
-                Path.GetFileName(file.path) == name).path).ToArray();
+
+            string[] installedPaths = names.Select(name => library.BmsCharts.Single(file =>
+                Path.GetFileName(file.Path) == name).Path).ToArray();
             string[] destinations = installedPaths.Select(path => Path.GetDirectoryName(path)!).ToArray();
             Assert.AreEqual(2, destinations.Distinct(StringComparer.OrdinalIgnoreCase).Count());
-            Assert.IsTrue(library.BMSFiles.Any(file => Path.GetFileName(file.path) == "alternate.bms"));
+            Assert.IsTrue(library.BmsCharts.Any(file => Path.GetFileName(file.Path) == "alternate.bms"));
             foreach (string destination in destinations)
             {
                 CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(destination, "shared.wav")));
@@ -198,8 +206,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedPath));
             }
-            Assert.AreSame(existing, library.BMSFiles.Single(file =>
-                string.Equals(file.path, existingPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreSame(existingToken, library.BmsCharts.Single(file =>
+                string.Equals(file.Path, existingPath, StringComparison.OrdinalIgnoreCase)).Token);
         });
     }
 
@@ -306,7 +314,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourceDirectoryPath = Path.Combine(tempRootPath, "pending-invalid-extension");
             string sourceChartPath = CreateBmsFile(sourceDirectoryPath, "chart.bms", "#TITLE Pending rename");
             string destinationChartPath = Path.Combine(sourceDirectoryPath, "chart.bme");
-            var sourceChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            ChartFile sourceChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([sourceChart]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -338,7 +346,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
 
             library.RenamePendingBmsFormatChartFileExtensions(
-                [ChartFileProjection.FromBmsFile(sourceChart)],
+                [(sourceChart)],
                 ".bme");
 
             Assert.AreEqual(1, publicationCount);
@@ -361,9 +369,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string secondChartPath = CreateBmsFile(secondDirectoryPath, "second.bms", "#TITLE Second failure");
             string thirdChartPath = CreateBmsFile(thirdDirectoryPath, "third.bms", "#TITLE Durable rename");
             string thirdDestinationChartPath = Path.Combine(thirdDirectoryPath, "third.bme");
-            var firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
-            var secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
-            var thirdChart = BMSFile.CreateBMSFileFromFile(thirdChartPath);
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
+            ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath));
+            ChartFile thirdChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(thirdChartPath));
             ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstChart]);
             firstPackage.path = firstDirectoryPath;
             firstPackage.delete_parent = false;
@@ -390,9 +398,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             SQLite.SQLiteException primaryFailure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
                 library.RenamePendingBmsFormatChartFileExtensions(
                     [
-                        ChartFileProjection.FromBmsFile(firstChart),
-                        ChartFileProjection.FromBmsFile(secondChart),
-                        ChartFileProjection.FromBmsFile(thirdChart)
+                        (firstChart),
+                        (secondChart),
+                        (thirdChart)
                     ],
                     ".bme"));
 
@@ -417,8 +425,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstChartPath = CreateBmsFile(sourceDirectoryPath, "first.bms", "#TITLE First failure");
             string secondChartPath = CreateBmsFile(sourceDirectoryPath, "second.bms", "#TITLE Durable rename");
             string secondDestinationChartPath = Path.Combine(sourceDirectoryPath, "second.bme");
-            var firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
-            var secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
+            ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath));
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             var library = new TestBmsLibrary(
                 songDbPath,
@@ -445,8 +453,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             SQLite.SQLiteException primaryFailure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
                 library.RenameBMSFilesExtensions(
                     [
-                        ChartFileProjection.FromBmsFile(firstChart),
-                        ChartFileProjection.FromBmsFile(secondChart)
+                        (firstChart),
+                        (secondChart)
                     ],
                     ".bme",
                     unregister: false));
@@ -471,7 +479,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string lr2RootPath = Path.Combine(tempRootPath, "LR2beta3");
             string sourceChartPath = CreateBmsFile(sourceDirectoryPath, "chart.bms", "#TITLE Durable failure");
             string destinationChartPath = Path.Combine(sourceDirectoryPath, "chart.bme");
-            var chart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
             LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, sourceDirectoryPath);
             var library = new TestBmsLibrary(
                 songDbPath,
@@ -496,15 +504,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             SQLite.SQLiteException durableFailure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
                 library.RenameBMSFilesExtensions(
-                    [ChartFileProjection.FromBmsFile(chart)],
+                    [(chart)],
                     ".bme",
                     unregister: false));
 
             Assert.IsNotNull(durableFailure);
             Assert.IsFalse(File.Exists(sourceChartPath));
             Assert.IsTrue(File.Exists(destinationChartPath));
-            Assert.AreEqual(0, library.BMSFiles.Count(file => string.Equals(file.path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.AreEqual(1, library.BMSFiles.Count(file => string.Equals(file.path, destinationChartPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(0, library.BmsCharts.Count(file => string.Equals(file.Path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(1, library.BmsCharts.Count(file => string.Equals(file.Path, destinationChartPath, StringComparison.OrdinalIgnoreCase)));
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourceChartPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", destinationChartPath));
@@ -536,17 +544,17 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string failedDestinationPath = Path.Combine(failedDirectoryPath, "failed.bme");
             string selectedSharedDestinationPath = Path.Combine(selectedSharedDirectoryPath, "selected-shared.bme");
             string lastOwnerDestinationPath = Path.Combine(lastOwnerDirectoryPath, "last-owner.bme");
-            var failed = BMSFile.CreateBMSFileFromFile(failedSourcePath);
-            var selectedShared = BMSFile.CreateBMSFileFromFile(selectedSharedSourcePath);
-            var survivingShared = BMSFile.CreateBMSFileFromFile(survivingSharedSourcePath);
-            var lastOwner = BMSFile.CreateBMSFileFromFile(lastOwnerSourcePath);
-            Assert.AreEqual(selectedShared.hash, survivingShared.hash);
+            ChartFile failed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(failedSourcePath));
+            ChartFile selectedShared = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(selectedSharedSourcePath));
+            ChartFile survivingShared = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(survivingSharedSourcePath));
+            ChartFile lastOwner = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(lastOwnerSourcePath));
+            Assert.AreEqual(selectedShared.Md5, survivingShared.Md5);
 
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
-                foreach (BMSFile file in new[] { failed, selectedShared, survivingShared, lastOwner })
+                foreach (ChartFile file in new[] { failed, selectedShared, survivingShared, lastOwner })
                 {
-                    seedSongDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 }
             });
 
@@ -573,19 +581,19 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 out int initialPlaylistStaleRetries);
             Assert.IsFalse(initialPlaylistCacheHit);
             Assert.AreEqual(0, initialPlaylistStaleRetries);
-            Assert.IsTrue(initialHash.ContainsMd5(failed.hash));
-            Assert.IsTrue(initialHash.ContainsMd5(selectedShared.hash));
-            Assert.IsTrue(initialHash.ContainsMd5(lastOwner.hash));
-            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(failed.hash));
-            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(selectedShared.hash));
-            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(lastOwner.hash));
+            Assert.IsTrue(initialHash.ContainsMd5(failed.Md5));
+            Assert.IsTrue(initialHash.ContainsMd5(selectedShared.Md5));
+            Assert.IsTrue(initialHash.ContainsMd5(lastOwner.Md5));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(failed.Md5));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(selectedShared.Md5));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(lastOwner.Md5));
             CollectionAssert.AreEquivalent(
                 new[] { survivingSharedDirectoryPath, selectedSharedDirectoryPath },
-                initialInstalled.GetDistinctDirectoriesByPrimaryHash(selectedShared.hash).ToArray());
-            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, failedSourcePath));
-            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, selectedSharedSourcePath));
-            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, survivingSharedSourcePath));
-            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, lastOwnerSourcePath));
+                initialInstalled.GetDistinctDirectoriesByPrimaryHash(selectedShared.Md5).ToArray());
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(ChartFileKind.Bms, failedSourcePath));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(ChartFileKind.Bms, selectedSharedSourcePath));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(ChartFileKind.Bms, survivingSharedSourcePath));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(ChartFileKind.Bms, lastOwnerSourcePath));
 
             List<string> hashWork = [];
             List<string> playlistWork = [];
@@ -596,9 +604,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             library.RenameBMSFilesExtensions(
                 [
-                    ChartFileProjection.FromBmsFile(failed),
-                    ChartFileProjection.FromBmsFile(selectedShared),
-                    ChartFileProjection.FromBmsFile(lastOwner)
+                    (failed),
+                    (selectedShared),
+                    (lastOwner)
                 ],
                 ".bme",
                 unregister: true);
@@ -612,14 +620,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(lastOwnerDestinationPath));
             Assert.IsTrue(File.Exists(survivingSharedSourcePath));
 
-            Assert.IsTrue(library.BMSFiles.Any(file =>
-                string.Equals(file.path, failedSourcePath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(library.BMSFiles.Any(file =>
-                string.Equals(file.path, survivingSharedSourcePath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsFalse(library.BMSFiles.Any(file =>
-                string.Equals(file.path, selectedSharedSourcePath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsFalse(library.BMSFiles.Any(file =>
-                string.Equals(file.path, lastOwnerSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.BmsCharts.Any(file =>
+                string.Equals(file.Path, failedSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.BmsCharts.Any(file =>
+                string.Equals(file.Path, survivingSharedSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(library.BmsCharts.Any(file =>
+                string.Equals(file.Path, selectedSharedSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(library.BmsCharts.Any(file =>
+                string.Equals(file.Path, lastOwnerSourcePath, StringComparison.OrdinalIgnoreCase)));
 
             using (var verifySongDb = new LR2SongDBExtended(songDbPath))
             {
@@ -650,28 +658,28 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreSame(updatedInstalled, cachedInstalled);
             Assert.AreEqual("cached", updatedPrimary.Status);
             Assert.AreEqual(0L, updatedPrimary.BuildMs);
-            Assert.IsTrue(updatedPlaylistCacheHit);
+            Assert.IsTrue(updatedPlaylistCacheHit, string.Join(";", playlistWork));
             Assert.AreEqual(0, updatedPlaylistStaleRetries);
             Assert.IsTrue(cachedPlaylistCacheHit);
             Assert.AreEqual(0, cachedPlaylistStaleRetries);
             Assert.AreSame(updatedPlaylist, cachedPlaylist);
-            Assert.IsTrue(updatedHash.ContainsMd5(failed.hash));
-            Assert.IsTrue(updatedHash.ContainsMd5(selectedShared.hash));
-            Assert.IsFalse(updatedHash.ContainsMd5(lastOwner.hash));
-            Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(failed.hash));
-            Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(selectedShared.hash));
-            Assert.IsFalse(updatedInstalled.ContainsPrimaryHash(lastOwner.hash));
+            Assert.IsTrue(updatedHash.ContainsMd5(failed.Md5));
+            Assert.IsTrue(updatedHash.ContainsMd5(selectedShared.Md5));
+            Assert.IsFalse(updatedHash.ContainsMd5(lastOwner.Md5));
+            Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(failed.Md5));
+            Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(selectedShared.Md5));
+            Assert.IsFalse(updatedInstalled.ContainsPrimaryHash(lastOwner.Md5));
             CollectionAssert.AreEquivalent(
                 new[] { survivingSharedDirectoryPath },
-                updatedInstalled.GetDistinctDirectoriesByPrimaryHash(selectedShared.hash).ToArray());
-            Assert.AreEqual(0, updatedInstalled.GetDistinctDirectoriesByPrimaryHash(lastOwner.hash).Count);
-            Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, failedSourcePath));
-            Assert.IsFalse(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, selectedSharedSourcePath));
-            Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, survivingSharedSourcePath));
-            Assert.IsFalse(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, lastOwnerSourcePath));
-            Assert.IsTrue(initialHash.ContainsMd5(lastOwner.hash));
-            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(lastOwner.hash));
-            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, lastOwnerSourcePath));
+                updatedInstalled.GetDistinctDirectoriesByPrimaryHash(selectedShared.Md5).ToArray());
+            Assert.AreEqual(0, updatedInstalled.GetDistinctDirectoriesByPrimaryHash(lastOwner.Md5).Count);
+            Assert.IsTrue(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, failedSourcePath));
+            Assert.IsFalse(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, selectedSharedSourcePath));
+            Assert.IsTrue(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, survivingSharedSourcePath));
+            Assert.IsFalse(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, lastOwnerSourcePath));
+            Assert.IsTrue(initialHash.ContainsMd5(lastOwner.Md5));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(lastOwner.Md5));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(ChartFileKind.Bms, lastOwnerSourcePath));
             Assert.AreEqual(0, hashWork.Count(operation => operation == "owned_hash_source_enumeration"));
             Assert.AreEqual(
                 0,
@@ -718,14 +726,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, "{\"info\":{\"title\":\"Song\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}");
-            LR2SongDBExtended.bmson_song installedBmson = BmsonSongParser.Parse(bmsonPath);
+            ChartFile installedBmson = ChartTestValues.ReadBmson(bmsonPath);
             var pendingPackage = new ChartPackage
             {
                 path = packageDirectoryPath
             };
             var library = new TestBmsLibrary(songDbPath)
             {
-                BmsonSongs = [installedBmson],
+                BmsonCharts = [installedBmson],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage])
             };
 
@@ -755,14 +763,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string installedChartPath = CreateBmsFile(destinationDirectoryPath, "owned.bms", "#TITLE R5-01 Owned");
             string sourceOwnedChartPath = CreateBmsFile(sourceDirectoryPath, "owned.bms", "#TITLE R5-01 Owned");
             string sourceNewChartPath = CreateBmsFile(sourceDirectoryPath, "new.bms", "#TITLE R5-01 New");
-            var installedChart = BMSFile.CreateBMSFileFromFile(installedChartPath);
-            var sourceOwnedChart = BMSFile.CreateBMSFileFromFile(sourceOwnedChartPath);
-            var sourceNewChart = BMSFile.CreateBMSFileFromFile(sourceNewChartPath);
-            Assert.AreEqual(installedChart.hash, sourceOwnedChart.hash);
+            ChartFile installedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(installedChartPath));
+            ChartFile sourceOwnedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceOwnedChartPath));
+            ChartFile sourceNewChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceNewChartPath));
+            Assert.AreEqual(installedChart.Md5, sourceOwnedChart.Md5);
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
-                    installedChart.CreateSongRowPersistenceCopy(),
+                    ChartSongStorageMapping.ToBmsRow(installedChart),
                     typeof(LR2SongDB.song));
             }
 
@@ -789,8 +797,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [installedChart],
-                BmsonSongs = [],
+                BmsCharts = [installedChart],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -826,9 +834,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string installedDirectory = Path.Combine(root, "installed");
             string firstSource = Path.Combine(root, "pending-first");
             string secondSource = Path.Combine(root, "pending-second");
-            var installed = BMSFile.CreateBMSFileFromFile(CreateBmsFile(installedDirectory, "chart.bms", "#TITLE AlreadyInstalled"));
-            var firstChart = BMSFile.CreateBMSFileFromFile(CreateBmsFile(firstSource, "chart.bms", "#TITLE AlreadyInstalled"));
-            var secondChart = BMSFile.CreateBMSFileFromFile(CreateBmsFile(secondSource, "chart.bms", "#TITLE AlreadyInstalled"));
+            ChartFile installed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(CreateBmsFile(installedDirectory, "chart.bms", "#TITLE AlreadyInstalled")));
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(CreateBmsFile(firstSource, "chart.bms", "#TITLE AlreadyInstalled")));
+            ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(CreateBmsFile(secondSource, "chart.bms", "#TITLE AlreadyInstalled")));
             ChartPackage first = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(firstChart, installedDirectory));
             ChartPackage second = ChartPackageTestExtensions.CreatePackage(
@@ -849,7 +857,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     DeletePendingPackageSourceAfterInstall = true
                 })
             {
-                BMSFiles = [installed],
+                BmsCharts = [installed],
                 ChartPackagesPending = CreatePackageCollection([first, second]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -882,10 +890,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "shared.bms", "#TITLE Shared");
             string secondSharedChartPath = CreateBmsFile(secondSourceDirectoryPath, "shared.bms", "#TITLE Shared");
             string secondUniqueChartPath = CreateBmsFile(secondSourceDirectoryPath, "unique.bms", "#TITLE Unique");
-            var firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
-            var secondSharedChart = BMSFile.CreateBMSFileFromFile(secondSharedChartPath);
-            var secondUniqueChart = BMSFile.CreateBMSFileFromFile(secondUniqueChartPath);
-            Assert.AreEqual(firstChart.hash, secondSharedChart.hash);
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
+            ChartFile secondSharedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondSharedChartPath));
+            ChartFile secondUniqueChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondUniqueChartPath));
+            Assert.AreEqual(firstChart.Md5, secondSharedChart.Md5);
 
             ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstChart]);
             firstPackage.path = firstSourceDirectoryPath;
@@ -918,8 +926,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -939,8 +947,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             string installedSharedPath = Path.Combine(destinationDirectoryPath, "shared.bms");
             string installedUniquePath = Path.Combine(destinationDirectoryPath, "unique.bms");
-            Assert.IsTrue(library.BMSFiles.Any(file => string.Equals(file.path, installedSharedPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(library.BMSFiles.Any(file => string.Equals(file.path, installedUniquePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.BmsCharts.Any(file => string.Equals(file.Path, installedSharedPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.BmsCharts.Any(file => string.Equals(file.Path, installedUniquePath, StringComparison.OrdinalIgnoreCase)));
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedSharedPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedUniquePath));
@@ -985,15 +993,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BMSFile.CreateBMSFileFromFile(firstChartPath),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath)),
                     firstDestinationDirectoryPath));
             ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BMSFile.CreateBMSFileFromFile(secondChartPath),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath)),
                     secondDestinationDirectoryPath));
             ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BMSFile.CreateBMSFileFromFile(thirdChartPath),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(thirdChartPath)),
                     thirdDestinationDirectoryPath));
             firstPackage.path = firstSourceDirectoryPath;
             secondPackage.path = secondSourceDirectoryPath;
@@ -1017,8 +1025,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -1105,9 +1113,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string secondSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-retry-second");
             string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Retry");
             string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Retry");
-            var firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
-            var secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
-            Assert.AreEqual(firstChart.hash, secondChart.hash);
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
+            ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath));
+            Assert.AreEqual(firstChart.Md5, secondChart.Md5);
             string firstDestinationChartPath = Path.Combine(destinationDirectoryPath, "first.bms");
             string secondDestinationChartPath = Path.Combine(destinationDirectoryPath, "second.bms");
 
@@ -1145,8 +1153,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -1189,36 +1197,34 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(installedBmsonPath, "{}");
             File.WriteAllText(pendingBmsonPath, "{}");
             File.WriteAllText(pendingResourcePath, "resource");
-            var installedBmson = new LR2SongDBExtended.bmson_song
+            ChartFile installedBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = installedBmsonPath,
-                folder = destinationDirectoryPath,
-                title = "Installed",
-                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                sha256 = new string('b', 64)
+                Path = installedBmsonPath,
+                Folder = destinationDirectoryPath,
+                RawTitle = "Installed",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Sha256 = new string('b', 64)
             };
-            var pendingBmson = new LR2SongDBExtended.bmson_song
+            ChartFile pendingBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = pendingBmsonPath,
-                folder = pendingDirectoryPath,
-                title = "Pending",
-                md5 = installedBmson.md5,
-                sha256 = installedBmson.sha256
+                Path = pendingBmsonPath,
+                Folder = pendingDirectoryPath,
+                RawTitle = "Pending",
+                Md5 = installedBmson.Md5,
+                Sha256 = installedBmson.Sha256
             };
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
-                seedSongDb.InsertOrReplace(
-                    CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(installedBmson),
-                    typeof(LR2SongDBExtended.bmson_song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(installedBmson), typeof(LR2SongDBExtended.bmson_song));
             }
-            var pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson, includeWarningSnapshot: false, includeResourceReferences: false));
+            var pendingEntry = PackageChartEntry.FromChart((pendingBmson));
             pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = null,
-                BmsonSongs = [installedBmson],
+                BmsCharts = null,
+                BmsonCharts = [installedBmson],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -1258,7 +1264,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             ChartPackage displayPackage = library.ChartPackagesInstalled.Single();
             Assert.AreEqual(destinationDirectoryPath, displayPackage.path);
             ChartFile displayChart = displayPackage.ChartEntries.Single().Chart;
-            Assert.AreSame(installedBmson, displayChart.GetBmsonStorageOwner());
+            Assert.AreSame(library.BmsonCharts.Single().Token, displayChart.Token);
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
         });
     }
@@ -1301,15 +1307,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 File.WriteAllText(secondResourcePath, "resource");
             }
 
-            ChartFile firstSourceChart = ChartFileProjection.FromBmsonSong(
-                BmsonSongParser.Parse(firstBmsonPath),
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
+            ChartFile firstSourceChart = (ChartTestValues.ReadBmson(firstBmsonPath));
             ChartFile? uniqueSourceChart = includeUniqueChart
-                ? ChartFileProjection.FromBmsonSong(
-                    BmsonSongParser.Parse(secondUniqueBmsonPath),
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false)
+                ? (ChartTestValues.ReadBmson(secondUniqueBmsonPath))
                 : null;
             Assert.IsFalse(string.IsNullOrWhiteSpace(firstSourceChart?.Md5));
             if (includeUniqueChart)
@@ -1318,50 +1318,41 @@ public sealed class BmsLibraryPackageInstallServiceTests
             }
             string sharedMd5 = firstSourceChart.Md5;
             string sharedSha256 = firstSourceChart.Sha256;
-            var firstBmson = new LR2SongDBExtended.bmson_song
+            ChartFile firstBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = firstBmsonPath,
-                folder = firstPendingDirectoryPath,
-                title = "Shared",
-                artist = "Artist",
-                md5 = sharedMd5,
-                sha256 = sharedSha256
+                Path = firstBmsonPath,
+                Folder = firstPendingDirectoryPath,
+                RawTitle = "Shared",
+                RawArtist = "Artist",
+                Md5 = sharedMd5,
+                Sha256 = sharedSha256
             };
-            var secondBmson = new LR2SongDBExtended.bmson_song
+            ChartFile secondBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = secondBmsonPath,
-                folder = secondPendingDirectoryPath,
-                title = "Shared",
-                artist = "Artist",
-                md5 = sharedMd5,
-                sha256 = sharedSha256
+                Path = secondBmsonPath,
+                Folder = secondPendingDirectoryPath,
+                RawTitle = "Shared",
+                RawArtist = "Artist",
+                Md5 = sharedMd5,
+                Sha256 = sharedSha256
             };
-            var secondUniqueBmson = new LR2SongDBExtended.bmson_song
+            ChartFile secondUniqueBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = secondUniqueBmsonPath,
-                folder = secondPendingDirectoryPath,
-                title = "Unique",
-                artist = "Artist",
-                md5 = uniqueSourceChart?.Md5 ?? "abcdefabcdefabcdefabcdefabcdefab",
-                sha256 = uniqueSourceChart?.Sha256 ?? "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+                Path = secondUniqueBmsonPath,
+                Folder = secondPendingDirectoryPath,
+                RawTitle = "Unique",
+                RawArtist = "Artist",
+                Md5 = uniqueSourceChart?.Md5 ?? "abcdefabcdefabcdefabcdefabcdefab",
+                Sha256 = uniqueSourceChart?.Sha256 ?? "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
             };
             var firstEntry = PackageChartEntry.FromChart(
-                ChartFileProjection.FromBmsonSong(
-                    firstBmson,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
+                (firstBmson));
             firstEntry.ApplyInstallDestination(destinationDirectoryPath, "Shared", "Artist");
             var secondEntry = PackageChartEntry.FromChart(
-                ChartFileProjection.FromBmsonSong(
-                    secondBmson,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
+                (secondBmson));
             secondEntry.ApplyInstallDestination(destinationDirectoryPath, "Shared", "Artist");
             var secondUniqueEntry = PackageChartEntry.FromChart(
-                ChartFileProjection.FromBmsonSong(
-                    secondUniqueBmson,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
+                (secondUniqueBmson));
             secondUniqueEntry.ApplyInstallDestination(destinationDirectoryPath, "Unique", "Artist");
             var firstPackage = ChartPackage.FromChartEntries([firstEntry]);
             firstPackage.path = firstPendingDirectoryPath;
@@ -1390,8 +1381,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -1461,8 +1452,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             const string chartBody = "#TITLE Resource Overwrite Failure";
             string installedChartPath = CreateBmsFile(installedDirectory, "chart.bms", chartBody);
             string pendingChartPath = CreateBmsFile(pendingDirectory, "chart.bms", chartBody);
-            var installedChart = BMSFile.CreateBMSFileFromFile(installedChartPath);
-            var pendingChart = BMSFile.CreateBMSFileFromFile(pendingChartPath);
+            ChartFile installedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(installedChartPath));
+            ChartFile pendingChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingChartPath));
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingChart]);
             pendingPackage.path = pendingDirectory;
             pendingPackage.delete_parent = false;
@@ -1475,7 +1466,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
                 seedSongDb.CreateTable<LR2SongDBExtended.install>();
-                seedSongDb.InsertOrReplace(installedChart, typeof(LR2SongDB.song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(installedChart), typeof(LR2SongDB.song));
                 seedSongDb.InsertOrReplace(pendingPackage, typeof(LR2SongDBExtended.install));
                 seedSongDb.Execute(
                     "CREATE TRIGGER fail_resource_overwrite_install_delete BEFORE DELETE ON install "
@@ -1494,7 +1485,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     DeletePendingPackageSourceAfterInstall = true
                 })
             {
-                BMSFiles = [installedChart],
+                BmsCharts = [installedChart],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -1551,42 +1542,38 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(installedBmsonPath, "{}");
             File.WriteAllText(pendingBmsonPath, "{}");
             File.WriteAllText(pendingResourcePath, "resource");
-            var installedBmson = new LR2SongDBExtended.bmson_song
+            ChartFile installedBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = installedBmsonPath,
-                folder = destinationDirectoryPath,
-                title = "Installed",
-                md5 = "cccccccccccccccccccccccccccccccc",
-                sha256 = new string('d', 64)
+                Path = installedBmsonPath,
+                Folder = destinationDirectoryPath,
+                RawTitle = "Installed",
+                Md5 = "cccccccccccccccccccccccccccccccc",
+                Sha256 = new string('d', 64)
             };
-            var pendingBmson = new LR2SongDBExtended.bmson_song
+            ChartFile pendingBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = pendingBmsonPath,
-                folder = pendingDirectoryPath,
-                title = "Pending",
-                md5 = installedBmson.md5,
-                sha256 = installedBmson.sha256
+                Path = pendingBmsonPath,
+                Folder = pendingDirectoryPath,
+                RawTitle = "Pending",
+                Md5 = installedBmson.Md5,
+                Sha256 = installedBmson.Sha256
             };
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
-                seedSongDb.InsertOrReplace(
-                    CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(installedBmson),
-                    typeof(LR2SongDBExtended.bmson_song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(installedBmson), typeof(LR2SongDBExtended.bmson_song));
             }
             var pendingEntry = PackageChartEntry.FromChart(
-                ChartFileProjection.FromBmsonSong(
-                    pendingBmson,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
+                (pendingBmson));
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = null,
-                BmsonSongs = [installedBmson],
+                BmsCharts = null,
+                BmsonCharts = [installedBmson],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
+            installedBmson = library.BmsonCharts.Single();
             bool packageEntryNotificationObserved = false;
             Exception? packageEntryInspectionFailure = null;
             pendingEntry.PropertyChanged += (_, _) =>
@@ -1601,7 +1588,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsNotNull(lease, "DST 通知中に outer file mutation lease が保持されています。");
                     Assert.AreEqual(0, library.ChartPackagesPending.Count);
                     Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
-                    Assert.AreSame(installedBmson, library.BmsonSongs.Single());
+                    Assert.AreSame(installedBmson.Token, library.BmsonCharts.Single().Token);
                     using var notifiedSongDb = new LR2SongDBExtended(songDbPath);
                     Assert.AreEqual(
                         1,
@@ -1637,8 +1624,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
-            Assert.AreSame(installedBmson, library.BmsonSongs.Single());
-            Assert.AreEqual(installedBmsonPath, library.BmsonSongs.Single().path);
+            Assert.AreSame(installedBmson.Token, library.BmsonCharts.Single().Token);
+            Assert.AreEqual(installedBmsonPath, library.BmsonCharts.Single().Path);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(
                 1,
@@ -1673,8 +1660,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 string FirstInstalledPath, string SecondInstalledPath,
                 string FirstPendingPath, string SecondPendingPath,
                 string FirstResourceName, string SecondResourceName,
-                LR2SongDBExtended.bmson_song FirstInstalled,
-                LR2SongDBExtended.bmson_song SecondInstalled,
+                ChartFile FirstInstalled,
+                ChartFile SecondInstalled,
                 ChartPackage Package) CreateResourceStep(int step)
             {
                 string destinationDirectoryPath = Path.Combine(
@@ -1705,24 +1692,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, firstMissingName)));
                 Assert.IsFalse(File.Exists(Path.Combine(pendingDirectoryPath, firstMissingName)));
 
-                LR2SongDBExtended.bmson_song installedFirst = BmsonSongParser.Parse(firstInstalledPath);
-                LR2SongDBExtended.bmson_song installedSecond = BmsonSongParser.Parse(secondInstalledPath);
-                LR2SongDBExtended.bmson_song pendingFirst = BmsonSongParser.Parse(firstPendingPath);
-                LR2SongDBExtended.bmson_song pendingSecond = BmsonSongParser.Parse(secondPendingPath);
-                Assert.AreEqual(installedFirst.md5, pendingFirst.md5);
-                Assert.AreEqual(installedFirst.sha256, pendingFirst.sha256);
-                Assert.AreEqual(installedSecond.md5, pendingSecond.md5);
-                Assert.AreEqual(installedSecond.sha256, pendingSecond.sha256);
+                ChartFile installedFirst = ChartTestValues.ReadBmson(firstInstalledPath);
+                ChartFile installedSecond = ChartTestValues.ReadBmson(secondInstalledPath);
+                ChartFile pendingFirst = ChartTestValues.ReadBmson(firstPendingPath);
+                ChartFile pendingSecond = ChartTestValues.ReadBmson(secondPendingPath);
+                Assert.AreEqual(installedFirst.Md5, pendingFirst.Md5);
+                Assert.AreEqual(installedFirst.Sha256, pendingFirst.Sha256);
+                Assert.AreEqual(installedSecond.Md5, pendingSecond.Md5);
+                Assert.AreEqual(installedSecond.Sha256, pendingSecond.Sha256);
                 var firstEntry = PackageChartEntry.FromChart(
-                    ChartFileProjection.FromBmsonSong(
-                        pendingFirst,
-                        includeWarningSnapshot: false,
-                        includeResourceReferences: false));
+                    (pendingFirst));
                 var secondEntry = PackageChartEntry.FromChart(
-                    ChartFileProjection.FromBmsonSong(
-                        pendingSecond,
-                        includeWarningSnapshot: false,
-                        includeResourceReferences: false));
+                    (pendingSecond));
                 BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries([firstEntry, secondEntry]);
                 Assert.AreEqual(0, firstEntry.Chart.WAVHealth);
                 Assert.AreEqual(0, secondEntry.Chart.WAVHealth);
@@ -1745,49 +1726,39 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     package);
             }
 
-            (string DestinationDirectoryPath, string PendingDirectoryPath, string FirstInstalledPath, string SecondInstalledPath, string FirstPendingPath, string SecondPendingPath, string FirstResourceName, string SecondResourceName, LR2SongDBExtended.bmson_song FirstInstalled, LR2SongDBExtended.bmson_song SecondInstalled, ChartPackage Package) firstStep = CreateResourceStep(1);
-            (string DestinationDirectoryPath, string PendingDirectoryPath, string FirstInstalledPath, string SecondInstalledPath, string FirstPendingPath, string SecondPendingPath, string FirstResourceName, string SecondResourceName, LR2SongDBExtended.bmson_song FirstInstalled, LR2SongDBExtended.bmson_song SecondInstalled, ChartPackage Package) secondStep = CreateResourceStep(2);
-            var backgroundSongs = new List<LR2SongDBExtended.bmson_song>(backgroundCount);
+            (string DestinationDirectoryPath, string PendingDirectoryPath, string FirstInstalledPath, string SecondInstalledPath, string FirstPendingPath, string SecondPendingPath, string FirstResourceName, string SecondResourceName, ChartFile FirstInstalled, ChartFile SecondInstalled, ChartPackage Package) firstStep = CreateResourceStep(1);
+            (string DestinationDirectoryPath, string PendingDirectoryPath, string FirstInstalledPath, string SecondInstalledPath, string FirstPendingPath, string SecondPendingPath, string FirstResourceName, string SecondResourceName, ChartFile FirstInstalled, ChartFile SecondInstalled, ChartPackage Package) secondStep = CreateResourceStep(2);
+            var backgroundSongs = new List<ChartFile>(backgroundCount);
             for (int index = 0; index < backgroundCount; index++)
             {
                 string path = Path.Combine(backgroundDirectoryPath, "background-" + index + ".bmson");
                 File.WriteAllText(path, "{}");
                 string hash = (index + 1).ToString("x8") + new string('e', 24);
-                backgroundSongs.Add(new LR2SongDBExtended.bmson_song
+                backgroundSongs.Add(ChartTestValues.Empty(ChartFileKind.Bmson) with
                 {
-                    path = path,
-                    folder = backgroundDirectoryPath,
-                    title = "Background " + index,
-                    md5 = hash,
-                    sha256 = (index + 1).ToString("x8") + new string('f', 56)
+                    Path = path,
+                    Folder = backgroundDirectoryPath,
+                    RawTitle = "Background " + index,
+                    Md5 = hash,
+                    Sha256 = (index + 1).ToString("x8") + new string('f', 56)
                 });
             }
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
-                seedSongDb.InsertOrReplace(
-                    CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(firstStep.FirstInstalled),
-                    typeof(LR2SongDBExtended.bmson_song));
-                seedSongDb.InsertOrReplace(
-                    CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(firstStep.SecondInstalled),
-                    typeof(LR2SongDBExtended.bmson_song));
-                seedSongDb.InsertOrReplace(
-                    CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(secondStep.FirstInstalled),
-                    typeof(LR2SongDBExtended.bmson_song));
-                seedSongDb.InsertOrReplace(
-                    CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(secondStep.SecondInstalled),
-                    typeof(LR2SongDBExtended.bmson_song));
-                foreach (LR2SongDBExtended.bmson_song backgroundSong in backgroundSongs)
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(firstStep.FirstInstalled), typeof(LR2SongDBExtended.bmson_song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(firstStep.SecondInstalled), typeof(LR2SongDBExtended.bmson_song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(secondStep.FirstInstalled), typeof(LR2SongDBExtended.bmson_song));
+                seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(secondStep.SecondInstalled), typeof(LR2SongDBExtended.bmson_song));
+                foreach (ChartFile backgroundSong in backgroundSongs)
                 {
-                    seedSongDb.InsertOrReplace(
-                        CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy(backgroundSong),
-                    typeof(LR2SongDBExtended.bmson_song));
+                    seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(backgroundSong), typeof(LR2SongDBExtended.bmson_song));
                 }
             });
 
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = null,
-                BmsonSongs = [
+                BmsCharts = null,
+                BmsonCharts = [
                     firstStep.FirstInstalled,
                     firstStep.SecondInstalled,
                     secondStep.FirstInstalled,
@@ -1839,7 +1810,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 out int oldPlaylistStaleRetries);
             Assert.IsFalse(oldPlaylistCacheHit);
             Assert.AreEqual(0, oldPlaylistStaleRetries);
-            Assert.AreEqual(backgroundCount + 4, library.BmsonSongs.Count);
+            Assert.AreEqual(backgroundCount + 4, library.BmsonCharts.Count);
 
             List<string> hashWork = [];
             List<string> playlistWork = [];
@@ -1852,7 +1823,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PlaylistLibraryResolveIndexSnapshot? snapshotAfterFirstPlaylist = null;
             for (int stepIndex = 0; stepIndex < 2; stepIndex++)
             {
-                (string DestinationDirectoryPath, string PendingDirectoryPath, string FirstInstalledPath, string SecondInstalledPath, string FirstPendingPath, string SecondPendingPath, string FirstResourceName, string SecondResourceName, LR2SongDBExtended.bmson_song FirstInstalled, LR2SongDBExtended.bmson_song SecondInstalled, ChartPackage Package) step = stepIndex == 0 ? firstStep : secondStep;
+                (string DestinationDirectoryPath, string PendingDirectoryPath, string FirstInstalledPath, string SecondInstalledPath, string FirstPendingPath, string SecondPendingPath, string FirstResourceName, string SecondResourceName, ChartFile FirstInstalled, ChartFile SecondInstalled, ChartPackage Package) step = stepIndex == 0 ? firstStep : secondStep;
                 if (stepIndex > 0)
                 {
                     library.ChartPackagesPending = CreatePackageCollection([step.Package]);
@@ -1908,23 +1879,23 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 CollectionAssert.AreEqual(
                     new byte[] { 4, 5, 6 },
                     File.ReadAllBytes(Path.Combine(step.DestinationDirectoryPath, step.SecondResourceName)));
-                Assert.AreSame(
-                    step.FirstInstalled,
-                    library.BmsonSongs.Single(song => song.path == step.FirstInstalledPath));
-                Assert.AreSame(
-                    step.SecondInstalled,
-                    library.BmsonSongs.Single(song => song.path == step.SecondInstalledPath));
+                Assert.AreEqual(
+                    step.FirstInstalled.Md5,
+                    library.BmsonCharts.Single(song => song.Path == step.FirstInstalledPath).Md5);
+                Assert.AreEqual(
+                    step.SecondInstalled.Md5,
+                    library.BmsonCharts.Single(song => song.Path == step.SecondInstalledPath).Md5);
 
                 PackageChartEntry installedFirstEntry = library.ChartPackagesInstalled
                     .SelectMany(package => package.ChartEntries)
-                    .Single(entry => entry.Chart.Md5 == step.FirstInstalled.md5);
+                    .Single(entry => entry.Chart.Md5 == step.FirstInstalled.Md5);
                 PackageChartEntry installedSecondEntry = library.ChartPackagesInstalled
                     .SelectMany(package => package.ChartEntries)
-                    .Single(entry => entry.Chart.Md5 == step.SecondInstalled.md5);
+                    .Single(entry => entry.Chart.Md5 == step.SecondInstalled.Md5);
                 Assert.AreEqual(step.FirstInstalledPath, installedFirstEntry.Chart.Path);
                 Assert.AreEqual(step.SecondInstalledPath, installedSecondEntry.Chart.Path);
-                Assert.AreSame(step.FirstInstalled, installedFirstEntry.Chart.GetBmsonStorageOwner());
-                Assert.AreSame(step.SecondInstalled, installedSecondEntry.Chart.GetBmsonStorageOwner());
+                Assert.AreSame(library.BmsonCharts.Single(chart => chart.Path == step.FirstInstalledPath).Token, installedFirstEntry.Chart.Token);
+                Assert.AreSame(library.BmsonCharts.Single(chart => chart.Path == step.SecondInstalledPath).Token, installedSecondEntry.Chart.Token);
                 Assert.AreEqual(100, installedFirstEntry.Chart.WAVHealth);
                 Assert.AreEqual(0, installedSecondEntry.Chart.WAVHealth);
                 Assert.IsFalse(installedFirstEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -1939,8 +1910,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM bmson_song WHERE path = ?;", step.SecondPendingPath));
                     LR2SongDBExtended.bmson_song persisted = verifySongDb.Table<LR2SongDBExtended.bmson_song>()
                         .Single(song => song.path == step.FirstInstalledPath);
-                    Assert.AreEqual(step.FirstInstalled.md5, persisted.md5);
-                    Assert.AreEqual(step.FirstInstalled.sha256, persisted.sha256);
+                    Assert.AreEqual(step.FirstInstalled.Md5, persisted.md5);
+                    Assert.AreEqual(step.FirstInstalled.Sha256, persisted.sha256);
                 }
 
                 OwnedChartHashIndexVersionedSnapshot updatedHash = library.GetOwnedChartHashIndexSnapshot();
@@ -1963,13 +1934,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.AreSame(updatedInstalled, cachedInstalled);
                 Assert.AreSame(oldPlaylist, updatedPlaylist);
                 Assert.AreSame(updatedPlaylist, cachedPlaylist);
-                Assert.IsTrue(updatedPlaylistCacheHit);
+                Assert.IsTrue(updatedPlaylistCacheHit, string.Join(";", playlistWork));
                 Assert.AreEqual(0, updatedPlaylistStaleRetries);
                 Assert.IsTrue(cachedPlaylistCacheHit);
                 Assert.AreEqual(0, cachedPlaylistStaleRetries);
-                Assert.IsTrue(oldHash.ContainsMd5(backgroundSongs[0].md5));
-                Assert.IsTrue(oldInstalled.ContainsPrimaryHash(backgroundSongs[0].md5));
-                Assert.IsTrue(oldPlaylist.ContainsCandidate(LibraryChartKind.Bmson, backgroundSongs[0].path));
+                Assert.IsTrue(oldHash.ContainsMd5(backgroundSongs[0].Md5));
+                Assert.IsTrue(oldInstalled.ContainsPrimaryHash(backgroundSongs[0].Md5));
+                Assert.IsTrue(oldPlaylist.ContainsCandidate(ChartFileKind.Bmson, backgroundSongs[0].Path));
                 if (stepIndex == 0)
                 {
                     snapshotAfterFirstHash = updatedHash;
@@ -2013,27 +1984,24 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string pendingBmsonPath = Path.Combine(pendingDirectoryPath, "chart.bmson");
             File.WriteAllText(installedBmsonPath, "{}");
             File.WriteAllText(pendingBmsonPath, "{}");
-            var installedBmson = new LR2SongDBExtended.bmson_song
+            ChartFile installedBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = installedBmsonPath,
-                folder = destinationDirectoryPath,
-                title = "Installed cleanup-only",
-                md5 = "11111111111111111111111111111111",
-                sha256 = new string('2', 64)
+                Path = installedBmsonPath,
+                Folder = destinationDirectoryPath,
+                RawTitle = "Installed cleanup-only",
+                Md5 = "11111111111111111111111111111111",
+                Sha256 = new string('2', 64)
             };
-            var pendingBmson = new LR2SongDBExtended.bmson_song
+            ChartFile pendingBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = pendingBmsonPath,
-                folder = pendingDirectoryPath,
-                title = "Pending cleanup-only",
-                md5 = installedBmson.md5,
-                sha256 = installedBmson.sha256
+                Path = pendingBmsonPath,
+                Folder = pendingDirectoryPath,
+                RawTitle = "Pending cleanup-only",
+                Md5 = installedBmson.Md5,
+                Sha256 = installedBmson.Sha256
             };
             var pendingEntry = PackageChartEntry.FromChart(
-                ChartFileProjection.FromBmsonSong(
-                    pendingBmson,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
+                (pendingBmson));
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -2056,8 +2024,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     FolderNameFormat = "%TITLE%",
                     BMSInstallDir = Path.Combine(tempRootPath, "auto-install")
                 });
-            library.BMSFiles = null;
-            library.BmsonSongs = [installedBmson];
+            library.BmsCharts = null;
+            library.BmsonCharts = [installedBmson];
             library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
             fileMutationService.Configure(library, reentryPackage);
 
@@ -2101,34 +2069,31 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(installedBmsonPath, "{}");
             File.WriteAllText(pendingBmsonPath, "{}");
             File.WriteAllText(pendingResourcePath, "resource");
-            var installedBmson = new LR2SongDBExtended.bmson_song
+            ChartFile installedBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = installedBmsonPath,
-                folder = destinationDirectoryPath,
-                title = "Installed",
-                md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                sha256 = new string('f', 64)
+                Path = installedBmsonPath,
+                Folder = destinationDirectoryPath,
+                RawTitle = "Installed",
+                Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                Sha256 = new string('f', 64)
             };
-            var pendingBmson = new LR2SongDBExtended.bmson_song
+            ChartFile pendingBmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = pendingBmsonPath,
-                folder = pendingDirectoryPath,
-                title = "Pending",
-                md5 = installedBmson.md5,
-                sha256 = installedBmson.sha256
+                Path = pendingBmsonPath,
+                Folder = pendingDirectoryPath,
+                RawTitle = "Pending",
+                Md5 = installedBmson.Md5,
+                Sha256 = installedBmson.Sha256
             };
             var pendingEntry = PackageChartEntry.FromChart(
-                ChartFileProjection.FromBmsonSong(
-                    pendingBmson,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
+                (pendingBmson));
             pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles = null,
-                BmsonSongs = [installedBmson],
+                BmsCharts = null,
+                BmsonCharts = [installedBmson],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -2179,7 +2144,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(destinationDirectoryPath);
             Directory.CreateDirectory(pendingDirectoryPath);
             string chartPath = CreateBmsFile(pendingDirectoryPath, "chart.bms", "#TITLE Pending");
-            var chart = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([chart]);
             pendingPackage.path = pendingDirectoryPath;
             pendingPackage.ChartEntries.Single().ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
@@ -2198,7 +2163,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 fileMutationService,
                 new RecordingDialogService());
-            library.BMSFiles = null;
+            library.BmsCharts = null;
             library.ChartPackagesPending = CreatePackageCollection([pendingPackage, reentryPackage]);
             fileMutationService.Configure(library, reentryPackage);
 
@@ -2318,7 +2283,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     OperationModeLR2DB = useLr2,
                     KeepInstallablePackagesPending = true
                 });
-            library.BMSFiles = [];
+            library.BmsCharts = [];
             library.SearchTargets = useLr2 ? [] : [registeredRoot];
             string sourcePath = sourceKind switch
             {
@@ -2353,12 +2318,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourceDirectoryPath = Path.Combine(tempRootPath, "PrimaryOnlySource");
             string existingPath = CreateBmsFile(existingDirectoryPath, "existing.bms", "#TITLE Existing");
             string sourcePath = CreateBmsFile(sourceDirectoryPath, "added.bms", "#TITLE Primary Only Added");
-            var existing = BMSFile.CreateBMSFileFromFile(existingPath);
-            var source = BMSFile.CreateBMSFileFromFile(sourcePath);
+            ChartFile existing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existingPath));
+            ChartFile source = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
-                    existing.CreateSongRowPersistenceCopy(),
+                    ChartSongStorageMapping.ToBmsRow(existing),
                     typeof(LR2SongDB.song));
             }
 
@@ -2382,8 +2347,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [existing],
-                BmsonSongs = [],
+                BmsCharts = [existing],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -2396,8 +2361,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
             IPrimaryHashLookup oldPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
-            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.hash));
-            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.hash));
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.Md5));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.Md5));
 
             LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
@@ -2409,10 +2374,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(receipt.HasDurableFinalizationFailure);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
-            BMSFile installed = library.BMSFiles.Single(file => file.hash == source.hash);
-            Assert.AreNotEqual(sourcePath, installed.path);
-            StringAssert.StartsWith(installed.path, installRootPath);
-            Assert.IsTrue(File.Exists(installed.path));
+            ChartFile installed = library.BmsCharts.Single(file => file.Md5 == source.Md5);
+            Assert.AreNotEqual(sourcePath, installed.Path);
+            StringAssert.StartsWith(installed.Path, installRootPath);
+            Assert.IsTrue(File.Exists(installed.Path));
             Assert.IsTrue(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
 
             // 実導入後のprimary所有と、導入前に捕捉したsnapshotの不変性を確認します。
@@ -2421,15 +2386,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.AreEqual(2, updatedPrimary.PrimaryHashCount);
-            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(existing.hash));
-            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(source.hash));
-            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.hash));
-            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.hash));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(existing.Md5));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(source.Md5));
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.Md5));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.Md5));
             using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
-                    installed.path));
+                    installed.Path));
                 Assert.AreEqual(0, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
                     sourcePath));
@@ -2437,12 +2402,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             InstalledChartLookupIndexSnapshot installedLookup =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsTrue(installedLookup.ContainsPrimaryHash(existing.hash));
-            Assert.IsTrue(installedLookup.ContainsPrimaryHash(source.hash));
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(existing.Md5));
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(source.Md5));
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
-                installed.path));
+                installed.Path));
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 sourcePath));
@@ -2465,13 +2430,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string oldDirectoryPath = Path.Combine(installRootPath, "Existing");
             string oldPath = CreateBmsFile(oldDirectoryPath, "chart.bms", "#TITLE Original");
             string addedPath = CreateBmsFile(sourceDirectoryPath, "added.bms", "#TITLE Replacement");
-            var oldChart = BMSFile.CreateBMSFileFromFile(oldPath);
-            var addedChart = BMSFile.CreateBMSFileFromFile(addedPath);
-            Assert.AreNotEqual(oldChart.hash, addedChart.hash);
+            ChartFile oldChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(oldPath));
+            ChartFile addedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(addedPath));
+            Assert.AreNotEqual(oldChart.Md5, addedChart.Md5);
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
-                    oldChart.CreateSongRowPersistenceCopy(),
+                    ChartSongStorageMapping.ToBmsRow(oldChart),
                     typeof(LR2SongDB.song));
             }
 
@@ -2498,8 +2463,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [oldChart],
-                BmsonSongs = [],
+                BmsCharts = [oldChart],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -2510,8 +2475,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
             IPrimaryHashLookup oldPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
-            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.hash));
-            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.hash));
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.Md5));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.Md5));
 
             PendingInstallBatchResult result =
                 library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
@@ -2522,24 +2487,24 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.FailedPackages.Count);
             Assert.AreEqual(
                 2,
-                library.BMSFiles.Count,
-                string.Join("|", library.BMSFiles.Select(file => file.path + ":" + file.hash)));
-            BMSFile installed = library.BMSFiles.Single(file => file.hash == addedChart.hash);
+                library.BmsCharts.Count,
+                string.Join("|", library.BmsCharts.Select(file => file.Path + ":" + file.Md5)));
+            ChartFile installed = library.BmsCharts.Single(file => file.Md5 == addedChart.Md5);
             string expectedInstalledPath = Path.Combine(destinationDirectoryPath, "added.bms");
-            Assert.AreEqual(expectedInstalledPath, installed.path);
-            Assert.AreEqual(addedChart.hash, installed.hash);
+            Assert.AreEqual(expectedInstalledPath, installed.Path);
+            Assert.AreEqual(addedChart.Md5, installed.Md5);
             Assert.IsTrue(File.Exists(expectedInstalledPath));
-            Assert.IsTrue(library.BMSFiles.Any(file => file.path == oldPath && file.hash == oldChart.hash));
+            Assert.IsTrue(library.BmsCharts.Any(file => file.Path == oldPath && file.Md5 == oldChart.Md5));
             // 推定先導入の確定結果をprimary lookupとDBから確認します。
             BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
                 library.WarmInstalledPrimaryHashLookup("exact_target_after_install");
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.AreEqual(2, updatedPrimary.PrimaryHashCount);
-            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(oldChart.hash));
-            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(addedChart.hash));
-            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.hash));
-            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.hash));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(oldChart.Md5));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(addedChart.Md5));
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.Md5));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.Md5));
             using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
@@ -2551,8 +2516,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             }
             InstalledChartLookupIndexSnapshot installedLookup =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsTrue(installedLookup.ContainsPrimaryHash(oldChart.hash));
-            Assert.IsTrue(installedLookup.ContainsPrimaryHash(addedChart.hash));
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(oldChart.Md5));
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(addedChart.Md5));
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
@@ -2582,14 +2547,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourcePath = Path.Combine(sourceDirectoryPath, "chart.bms");
             Directory.CreateDirectory(sourceDirectoryPath);
             File.Copy(initialPath, sourcePath, overwrite: true);
-            var initialChart = BMSFile.CreateBMSFileFromFile(initialPath);
-            var sourceChart = BMSFile.CreateBMSFileFromFile(sourcePath);
-            Assert.AreEqual(initialChart.hash, sourceChart.hash);
-            Assert.AreEqual(initialChart.sha256, sourceChart.sha256);
+            ChartFile initialChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(initialPath));
+            ChartFile sourceChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
+            Assert.AreEqual(initialChart.Md5, sourceChart.Md5);
+            Assert.AreEqual(initialChart.Sha256, sourceChart.Sha256);
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
-                    initialChart.CreateSongRowPersistenceCopy(),
+                    ChartSongStorageMapping.ToBmsRow(initialChart),
                     typeof(LR2SongDB.song));
             }
 
@@ -2613,20 +2578,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [initialChart],
-                BmsonSongs = [],
+                BmsCharts = [initialChart],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
             OwnedChartHashIndexVersionedSnapshot initialHashes = library.GetOwnedChartHashIndexSnapshot();
-            Assert.AreEqual(1, initialHashes.GetMd5OwnerCount(initialChart.hash));
-            Assert.AreEqual(1, initialHashes.GetSha256OwnerCount(initialChart.sha256));
+            Assert.AreEqual(1, initialHashes.GetMd5OwnerCount(initialChart.Md5));
+            Assert.AreEqual(1, initialHashes.GetSha256OwnerCount(initialChart.Sha256));
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
 
             var table = new BMSTable { playlist_id = 42 };
-            table.entries = [PlaylistSummaryAggregationTestSupport.CreateEntry(initialChart.hash, initialChart.sha256)];
+            table.entries = [PlaylistSummaryAggregationTestSupport.CreateEntry(initialChart.Md5, initialChart.Sha256)];
             var summaryOwner = new PlaylistCatalogSummaryOwner();
             PlaylistSummaryCountResult initialSummary = summaryOwner.GetOrBuildTableCount(
                 table,
@@ -2658,14 +2623,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(receipt.HasDurableFinalizationFailure);
             Assert.AreEqual(
                 2,
-                library.BMSFiles.Count,
-                string.Join("|", library.BMSFiles.Select(file => file.path + ":" + file.hash)));
-            BMSFile installed = library.BMSFiles.Single(file =>
-                !string.Equals(initialPath, file.path, StringComparison.OrdinalIgnoreCase));
-            Assert.AreEqual(initialChart.hash, installed.hash);
-            Assert.AreNotEqual(initialPath, installed.path);
-            StringAssert.StartsWith(installed.path, installRootPath);
-            Assert.IsTrue(File.Exists(installed.path));
+                library.BmsCharts.Count,
+                string.Join("|", library.BmsCharts.Select(file => file.Path + ":" + file.Md5)));
+            ChartFile installed = library.BmsCharts.Single(file =>
+                !string.Equals(initialPath, file.Path, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(initialChart.Md5, installed.Md5);
+            Assert.AreNotEqual(initialPath, installed.Path);
+            StringAssert.StartsWith(installed.Path, installRootPath);
+            Assert.IsTrue(File.Exists(installed.Path));
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
 
             // 同digestを別配置へ導入した後もprimary所有が維持されることを確認します。
@@ -2674,7 +2639,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, updatedPrimary.PrimaryHashCount);
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
-            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(initialChart.hash));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(initialChart.Md5));
             using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(2, verifySongDbBeforeFull.Table<LR2SongDB.song>().Count());
@@ -2683,7 +2648,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     initialPath));
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
-                    installed.path));
+                    installed.Path));
             }
 
             OwnedChartHashIndexVersionedSnapshot updatedHashes = library.GetOwnedChartHashIndexSnapshot();
@@ -2693,12 +2658,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 CancellationToken.None,
                 out bool updatedCacheHit);
             Assert.AreEqual(initialHashes.Version, updatedHashes.Version);
-            Assert.AreEqual(2, updatedHashes.GetMd5OwnerCount(initialChart.hash));
-            Assert.AreEqual(2, updatedHashes.GetSha256OwnerCount(initialChart.sha256));
+            Assert.AreEqual(2, updatedHashes.GetMd5OwnerCount(initialChart.Md5));
+            Assert.AreEqual(2, updatedHashes.GetSha256OwnerCount(initialChart.Sha256));
             Assert.IsTrue(updatedCacheHit);
             Assert.AreEqual(1, updatedSummary.TotalCharts);
             Assert.AreEqual(1, updatedSummary.OwnedCharts);
-            Assert.AreEqual(installed.path, package.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(installed.Path, package.ChartEntries.Single().Chart.Path);
         });
     }
 
@@ -2776,11 +2741,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 File.WriteAllBytes(Path.Combine(installedDirectoryPath, "missing.wav"), [1, 2, 3]);
             }
             ChartFile sourceChart = bmson
-                ? ChartFileProjection.FromBmsonSong(
-                    BmsonSongParser.Parse(chartPath),
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: true)
-                : ChartFileProjection.FromBmsFile(BMSFile.CreateBMSFileFromFile(chartPath));
+                ? (ChartTestValues.ReadBmson(chartPath))
+                : (BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)));
             var pendingEntry = PackageChartEntry.FromChart(
                 ChartFileProjection.WithPackageState(
                     sourceChart,
@@ -2814,8 +2776,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -2835,8 +2797,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 try
                 {
                     ChartFile installed = bmson
-                        ? ChartFileProjection.FromBmsonSong(library.BmsonSongs.Single())
-                        : ChartFileProjection.FromBmsFile(library.BMSFiles.Single());
+                        ? (library.BmsonCharts.Single())
+                        : (library.BmsCharts.Single());
                     ResourceHealthIndexSnapshot snapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                     if (resourceHealthIndexStartsWarm)
                     {
@@ -2890,8 +2852,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(notificationObservedReleasedLease);
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
                 ChartFile installed = bmson
-                    ? ChartFileProjection.FromBmsonSong(library.BmsonSongs.Single())
-                    : ChartFileProjection.FromBmsFile(library.BMSFiles.Single());
+                    ? (library.BmsonCharts.Single())
+                    : (library.BmsCharts.Single());
                 Assert.AreEqual(
                     resourceAlreadyExistsAtDestination,
                     File.Exists(Path.Combine(installedDirectoryPath, "missing.wav")));
@@ -2907,7 +2869,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 }
                 using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
-                    BMSFileMaintenanceInfo maintenance = verifySongDb.Table<BMSFileMaintenanceInfo>()
+                    LR2SongDBExtended.maintenance maintenance = verifySongDb.Table<LR2SongDBExtended.maintenance>()
                         .Single(info => string.Equals(info.path, installed.Path, StringComparison.OrdinalIgnoreCase));
                     Assert.AreEqual(1, maintenance.wav_files_defined);
                     Assert.AreEqual(resourceAlreadyExistsAtDestination ? 1 : 0, maintenance.wav_files_existing);
@@ -3017,8 +2979,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(installRootPath);
 
             (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath,
-                string FirstResourceName, string SecondResourceName, BMSFile FirstSource,
-                BMSFile SecondSource, ChartPackage Package) CreateInstallStep(int step)
+                string FirstResourceName, string SecondResourceName, ChartFile FirstSource,
+                ChartFile SecondSource, ChartPackage Package) CreateInstallStep(int step)
             {
                 string sourceDirectoryPath = Path.Combine(tempRootPath, "AutoSource" + step);
                 string explicitDestinationDirectoryPath = Path.Combine(
@@ -3036,8 +2998,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     "second.bms",
                     "#TITLE Auto " + step + " Second",
                     secondResourceName);
-                var firstSource = BMSFile.CreateBMSFileFromFile(firstSourcePath);
-                var secondSource = BMSFile.CreateBMSFileFromFile(secondSourcePath);
+                ChartFile firstSource = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstSourcePath));
+                ChartFile secondSource = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondSourcePath));
                 var package = ChartPackage.FromChartEntries([
                     ChartPackageTestExtensions.CreateEntryWithInstallDestination(
                         firstSource,
@@ -3059,24 +3021,24 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     package);
             }
 
-            (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath, string FirstResourceName, string SecondResourceName, BMSFile FirstSource, BMSFile SecondSource, ChartPackage Package) firstStep = CreateInstallStep(1);
-            (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath, string FirstResourceName, string SecondResourceName, BMSFile FirstSource, BMSFile SecondSource, ChartPackage Package) secondStep = CreateInstallStep(2);
+            (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath, string FirstResourceName, string SecondResourceName, ChartFile FirstSource, ChartFile SecondSource, ChartPackage Package) firstStep = CreateInstallStep(1);
+            (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath, string FirstResourceName, string SecondResourceName, ChartFile FirstSource, ChartFile SecondSource, ChartPackage Package) secondStep = CreateInstallStep(2);
             string backgroundDirectoryPath = Path.Combine(tempRootPath, "Background");
-            var backgroundFiles = new List<BMSFile>(backgroundCount);
+            var backgroundFiles = new List<ChartFile>(backgroundCount);
             for (int index = 0; index < backgroundCount; index++)
             {
                 string backgroundPath = CreateBmsFile(
                     backgroundDirectoryPath,
                     "background-" + index + ".bms",
                     "#TITLE Background " + index);
-                backgroundFiles.Add(BMSFile.CreateBMSFileFromFile(backgroundPath));
+                backgroundFiles.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(backgroundPath)));
             }
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
             {
-                foreach (BMSFile backgroundFile in backgroundFiles)
+                foreach (ChartFile backgroundFile in backgroundFiles)
                 {
                     seedSongDb.InsertOrReplace(
-                        backgroundFile.CreateSongRowPersistenceCopy(),
+                        ChartSongStorageMapping.ToBmsRow(backgroundFile),
                         typeof(LR2SongDB.song));
                 }
             });
@@ -3138,7 +3100,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 out int oldPlaylistStaleRetries);
             Assert.IsFalse(oldPlaylistCacheHit);
             Assert.AreEqual(0, oldPlaylistStaleRetries);
-            Assert.AreEqual(backgroundCount, library.BMSFiles.Count);
+            Assert.AreEqual(backgroundCount, library.BmsCharts.Count);
             IPrimaryHashLookup oldPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
 
@@ -3166,14 +3128,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 notificationCount++;
                 try
                 {
-                    BMSFile notifiedFirst = library.BMSFiles.Single(file => file.hash == expectedSourceHash);
-                    Assert.IsFalse(string.Equals(notifiedFirst.path, expectedSourcePath, StringComparison.OrdinalIgnoreCase));
+                    ChartFile notifiedFirst = library.BmsCharts.Single(file => file.Md5 == expectedSourceHash);
+                    Assert.IsFalse(string.Equals(notifiedFirst.Path, expectedSourcePath, StringComparison.OrdinalIgnoreCase));
                     // 構築しない取得で、公開後の遅延反映を見逃さず現在性を検査します。
                     ResourceHealthIndexSnapshot notifiedResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                     Assert.AreNotSame(ResourceHealthIndexSnapshot.Empty, notifiedResourceHealth);
                     Assert.AreEqual(resourceHealthSnapshot.TargetCount + 2, notifiedResourceHealth.TargetCount);
                     Assert.IsTrue(notifiedResourceHealth.Version > resourceHealthSnapshot.Version);
-                    Assert.IsFalse(notifiedResourceHealth.GetProjection(ChartFileProjection.FromBmsFile(notifiedFirst)).HasIssues);
+                    Assert.IsFalse(notifiedResourceHealth.GetProjection((notifiedFirst)).HasIssues);
                     using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
                         "warm_install_notification_lease_probe",
                         showMessage: false);
@@ -3184,7 +3146,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         1,
                         notifiedSongDb.ExecuteScalar<int>(
                             "SELECT COUNT(1) FROM song WHERE path = ?;",
-                            notifiedFirst.path));
+                            notifiedFirst.Path));
                 }
                 catch (Exception exception)
                 {
@@ -3200,14 +3162,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 for (int stepIndex = 0; stepIndex < 2; stepIndex++)
                 {
-                    (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath, string FirstResourceName, string SecondResourceName, BMSFile FirstSource, BMSFile SecondSource, ChartPackage Package) step = stepIndex == 0 ? firstStep : secondStep;
+                    (string SourceDirectoryPath, string FirstSourcePath, string SecondSourcePath, string FirstResourceName, string SecondResourceName, ChartFile FirstSource, ChartFile SecondSource, ChartPackage Package) step = stepIndex == 0 ? firstStep : secondStep;
                     if (stepIndex > 0 && !isAutoRoute)
                     {
                         library.ChartPackagesPending = CreatePackageCollection([step.Package]);
                     }
 
                     expectedSourcePath = step.FirstSourcePath;
-                    expectedSourceHash = step.FirstSource.hash;
+                    expectedSourceHash = step.FirstSource.Md5;
                     int previousNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
                     int previousHashWorkCount = hashWork.Count;
                     int previousInstalledWorkCount = installedWork.Count;
@@ -3248,10 +3210,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsFalse(sessionReceipt.HasDurableFinalizationFailure);
                     Assert.AreEqual(stepIndex + 1, library.ChartPackagesInstalled.Count);
                     Assert.AreEqual(0, library.ChartPackagesPending.Count);
-                    BMSFile firstInstalled = library.BMSFiles.Single(file => file.hash == step.FirstSource.hash);
-                    BMSFile secondInstalled = library.BMSFiles.Single(file => file.hash == step.SecondSource.hash);
-                    string firstDestinationPath = firstInstalled.path;
-                    string secondDestinationPath = secondInstalled.path;
+                    ChartFile firstInstalled = library.BmsCharts.Single(file => file.Md5 == step.FirstSource.Md5);
+                    ChartFile secondInstalled = library.BmsCharts.Single(file => file.Md5 == step.SecondSource.Md5);
+                    string firstDestinationPath = firstInstalled.Path;
+                    string secondDestinationPath = secondInstalled.Path;
                     Assert.IsFalse(string.Equals(firstDestinationPath, step.FirstSourcePath, StringComparison.OrdinalIgnoreCase));
                     Assert.IsFalse(string.Equals(secondDestinationPath, step.SecondSourcePath, StringComparison.OrdinalIgnoreCase));
                     StringAssert.StartsWith(firstDestinationPath, installRootPath);
@@ -3280,7 +3242,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(secondDestinationPath)!, step.SecondResourceName + ".wav")));
                     PackageChartEntry installedEntry = library.ChartPackagesInstalled
                         .SelectMany(package => package.ChartEntries)
-                        .Single(entry => entry.Chart.Md5 == step.FirstSource.hash);
+                        .Single(entry => entry.Chart.Md5 == step.FirstSource.Md5);
                     Assert.AreEqual(firstDestinationPath, installedEntry.Chart.Path);
 
                     // 結果検証もSELECTだけなので、writer接続を使わず同じread-only経路を使います。
@@ -3299,9 +3261,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     IPrimaryHashLookup currentPrimary =
                         OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
                     Assert.AreEqual(backgroundCount + ((stepIndex + 1) * 2), updatedPrimary.PrimaryHashCount);
-                    Assert.IsTrue(currentPrimary.ContainsPrimaryHash(backgroundFiles[0].hash));
-                    Assert.IsTrue(currentPrimary.ContainsPrimaryHash(firstInstalled.hash));
-                    Assert.IsTrue(currentPrimary.ContainsPrimaryHash(secondInstalled.hash));
+                    Assert.IsTrue(currentPrimary.ContainsPrimaryHash(backgroundFiles[0].Md5));
+                    Assert.IsTrue(currentPrimary.ContainsPrimaryHash(firstInstalled.Md5));
+                    Assert.IsTrue(currentPrimary.ContainsPrimaryHash(secondInstalled.Md5));
                     InstalledChartLookupIndexSnapshot updatedInstalled =
                         OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
                     InstalledChartLookupIndexSnapshot cachedInstalled =
@@ -3317,22 +3279,24 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.AreSame(updatedHash, cachedHash);
                     Assert.AreSame(updatedInstalled, cachedInstalled);
                     Assert.AreSame(updatedPlaylist, cachedPlaylist);
-                    Assert.IsTrue(updatedPlaylistCacheHit);
+                    Assert.IsTrue(updatedPlaylistCacheHit, string.Join(";", playlistWork));
                     Assert.AreEqual(0, updatedPlaylistStaleRetries);
                     Assert.IsTrue(cachedPlaylistCacheHit);
                     Assert.AreEqual(0, cachedPlaylistStaleRetries);
-                    Assert.IsTrue(oldHash.ContainsMd5(backgroundFiles[0].hash));
-                    Assert.IsTrue(oldInstalled.ContainsPrimaryHash(backgroundFiles[0].hash));
-                    Assert.IsTrue(oldPrimary.ContainsPrimaryHash(backgroundFiles[0].hash));
-                    Assert.IsFalse(oldPrimary.ContainsPrimaryHash(firstStep.FirstSource.hash));
-                    Assert.IsTrue(oldPlaylist.ContainsCandidate(LibraryChartKind.Bms, backgroundFiles[0].path));
-                    Assert.IsTrue(updatedHash.ContainsMd5(backgroundFiles[0].hash));
-                    Assert.IsTrue(updatedHash.ContainsMd5(firstInstalled.hash));
-                    Assert.IsTrue(updatedHash.ContainsMd5(secondInstalled.hash));
-                    Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(firstInstalled.hash));
-                    Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(secondInstalled.hash));
-                    Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, firstDestinationPath));
-                    Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, secondDestinationPath));
+                    Assert.IsTrue(oldHash.ContainsMd5(backgroundFiles[0].Md5));
+                    Assert.IsTrue(oldInstalled.ContainsPrimaryHash(backgroundFiles[0].Md5));
+                    Assert.IsTrue(oldPrimary.ContainsPrimaryHash(backgroundFiles[0].Md5));
+                    Assert.IsFalse(oldPrimary.ContainsPrimaryHash(firstStep.FirstSource.Md5));
+                    Assert.IsTrue(oldPlaylist.ContainsCandidate(ChartFileKind.Bms, backgroundFiles[0].Path));
+                    Assert.IsTrue(updatedHash.ContainsMd5(backgroundFiles[0].Md5));
+                    Assert.IsTrue(updatedHash.ContainsMd5(firstInstalled.Md5));
+                    Assert.IsTrue(updatedHash.ContainsMd5(secondInstalled.Md5));
+                    Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(firstInstalled.Md5));
+                    Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(secondInstalled.Md5));
+                    Assert.IsTrue(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, firstDestinationPath));
+                    Assert.IsTrue(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, secondDestinationPath));
+                    Assert.AreEqual(firstInstalled.Mode, updatedPlaylist.ResolveChartSnapshot(LibraryChartRef.FromChartFile(firstInstalled)).Mode);
+                    Assert.AreEqual(firstInstalled.Level, updatedPlaylist.ResolveChartSnapshot(LibraryChartRef.FromChartFile(firstInstalled)).Level);
 
                     if (stepIndex == 0)
                     {
@@ -3343,11 +3307,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     else
                     {
                         // 2回目のroot更新後も、1回目のimmutable snapshotはその内容を保持します。
-                        Assert.IsTrue(snapshotAfterFirstHash!.ContainsMd5(firstStep.FirstSource.hash));
-                        Assert.IsTrue(snapshotAfterFirstInstalled!.ContainsPrimaryHash(firstStep.FirstSource.hash));
+                        Assert.IsTrue(snapshotAfterFirstHash!.ContainsMd5(firstStep.FirstSource.Md5));
+                        Assert.IsTrue(snapshotAfterFirstInstalled!.ContainsPrimaryHash(firstStep.FirstSource.Md5));
                         Assert.IsTrue(snapshotAfterFirstPlaylist!.ContainsCandidate(
-                            LibraryChartKind.Bms,
-                            library.BMSFiles.Single(file => file.hash == firstStep.FirstSource.hash).path));
+                            ChartFileKind.Bms,
+                            library.BmsCharts.Single(file => file.Md5 == firstStep.FirstSource.Md5).Path));
                     }
 
                     NormalLibraryRefreshNotificationBatch notificationBatch =
@@ -3355,8 +3319,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsTrue(notificationCount > previousNotificationCount);
                     Assert.IsNull(notificationInspectionFailure, notificationInspectionFailure?.ToString());
                     Assert.IsTrue(notificationBatch.HasRefreshNotification);
-                    Assert.IsTrue(notificationBatch.NotifiesStorageRows);
-                    Assert.IsTrue(notificationBatch.NotifiesBmsFiles);
+                    Assert.IsTrue((notificationBatch.ChangedCharts.Count > 0 || notificationBatch.DeletedTokens.Count > 0 || notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)));
+                    Assert.IsTrue(notificationBatch.ChangedCharts.Any(chart => chart.Kind == ChartFileKind.Bms));
                     Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
 
                     ResourceHealthIndexSnapshot updatedResourceHealth =
@@ -3364,9 +3328,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(previousResourceHealthTargetCount + 2, updatedResourceHealth.TargetCount);
                     Assert.IsTrue(updatedResourceHealth.Version > previousResourceHealthVersion);
                     Assert.IsFalse(updatedResourceHealth.GetProjection(
-                        ChartFileProjection.FromBmsFile(firstInstalled)).HasIssues);
+                        (firstInstalled)).HasIssues);
                     Assert.IsFalse(updatedResourceHealth.GetProjection(
-                        ChartFileProjection.FromBmsFile(secondInstalled)).HasIssues);
+                        (secondInstalled)).HasIssues);
                     string[] operationResourceHealthWork =
                         [.. resourceHealthWork.Skip(previousResourceHealthWorkCount)];
                     Assert.IsTrue(operationResourceHealthWork.Contains("entry_lookup"));
@@ -3434,8 +3398,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     PendingInstallEstimateMaxParallelPackages = 1
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 SearchTargets = [installRoot],
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
@@ -3524,15 +3488,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstPath = CreateBmsFile(hasBaseline ? Path.Combine(root, "Owned") : source,
                 "first.bms", "#TITLE First");
             string secondPath = CreateBmsFile(source, "second.bms", duplicate ? "#TITLE First" : "#TITLE Second");
-            var first = BMSFile.CreateBMSFileFromFile(firstPath);
-            var second = BMSFile.CreateBMSFileFromFile(secondPath);
+            ChartFile first = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstPath));
+            ChartFile second = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondPath));
             if (scenario == "different_md5_same_sha256")
             {
                 // 同一 SHA256 を明示し、BMS の primary identity が MD5 である契約を分離します。
-                TestableBmsFile firstWithSharedSha = CreateFile(first.hash, firstPath);
-                TestableBmsFile secondWithSharedSha = CreateFile(second.hash, secondPath);
-                firstWithSharedSha.SetSha256(new string('a', 64));
-                secondWithSharedSha.SetSha256(new string('a', 64));
+                ChartFile firstWithSharedSha = CreateFile(first.Md5, firstPath);
+                ChartFile secondWithSharedSha = CreateFile(second.Md5, secondPath);
+                firstWithSharedSha = firstWithSharedSha with { Sha256 = new string('a', 64) };
+                secondWithSharedSha = secondWithSharedSha with { Sha256 = new string('a', 64) };
                 first = firstWithSharedSha;
                 second = secondWithSharedSha;
             }
@@ -3547,7 +3511,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             if (hasBaseline)
             {
                 using var seed = new LR2SongDBExtended(songDbPath);
-                seed.InsertOrReplace(first.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                seed.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(first), typeof(LR2SongDB.song));
             }
             var library = new TestBmsLibrary(songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
@@ -3559,8 +3523,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = false
                 })
             {
-                BMSFiles = hasBaseline ? [first] : [],
-                BmsonSongs = [],
+                BmsCharts = hasBaseline ? [first] : [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -3613,7 +3577,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourcePath = Path.Combine(source, "chart.bmson");
             File.WriteAllText(sourcePath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllBytes(Path.Combine(source, "sound.wav"), [1, 2, 3]);
-            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(sourcePath)));
+            var entry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(sourcePath)));
             entry.ApplyInstallDestination(target, "Target", "Artist");
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
@@ -3622,8 +3586,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -3633,13 +3597,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
             Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.InstalledTargetApplyCount);
-            Assert.AreEqual(0, library.BMSFiles.Count);
-            Assert.AreEqual(1, library.BmsonSongs.Count);
+            Assert.AreEqual(0, library.BmsCharts.Count);
+            Assert.AreEqual(1, library.BmsonCharts.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
-            Assert.IsNull(entry.GetBmsOwnerForTest());
+            Assert.IsNull(entry.GetBmsChartForTest());
             Assert.IsTrue(string.IsNullOrEmpty(entry.Chart.InstallDestination));
             string installedPath = Path.Combine(target, "chart.bmson");
-            Assert.AreEqual(installedPath, library.BmsonSongs.Single().path);
+            Assert.AreEqual(installedPath, library.BmsonCharts.Single().Path);
             Assert.IsTrue(File.Exists(installedPath));
             using var readback = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
@@ -3678,8 +3642,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepInstallablePackagesPending = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 SearchTargets = [installed],
                 ChartPackagesPending = CreatePackageCollection([]),
                 ChartPackagesInstalled = CreatePackageCollection([])
@@ -3721,7 +3685,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(source);
             string sourcePath = Path.Combine(source, "chart.bmson");
             File.WriteAllText(sourcePath, CreateBmsonJsonWithSound("sound.wav"));
-            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(sourcePath)));
+            var entry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(sourcePath)));
             if (hasDestination)
             {
                 entry.ApplyInstallDestination(target, "Target", "Artist");
@@ -3732,8 +3696,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target, ShowNewPackageInstallConfirmMsg = showNewConfirmation })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -3752,7 +3716,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
             }
-            Assert.IsNull(entry.GetBmsOwnerForTest());
+            Assert.IsNull(entry.GetBmsChartForTest());
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.IsFalse(Directory.Exists(target));
             using var readback = new LR2SongDBExtended(songDbPath);
@@ -3781,8 +3745,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string explicitDestination = Path.Combine(root, "Explicit");
             Directory.CreateDirectory(installationRoot);
             string sourcePath = CreateBmsFileWithResources(source, "chart.bms", "#TITLE PublicForceTarget", "pending-resource");
-            var sourceChart = BMSFile.CreateBMSFileFromFile(sourcePath);
-            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceChart));
+            ChartFile sourceChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
+            var entry = PackageChartEntry.FromChart((sourceChart));
             if (hasDestination)
             {
                 entry.ApplyInstallDestination(explicitDestination, "Existing", "Artist");
@@ -3791,9 +3755,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             package.path = source;
             package.delete_parent = false;
             string existingPath = CreateBmsFile(explicitDestination, "existing.bms", "#TITLE Existing");
-            var existingChart = BMSFile.CreateBMSFileFromFile(existingPath);
+            ChartFile existingChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existingPath));
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
-                db.InsertOrReplace(existingChart.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song)));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingChart), typeof(LR2SongDB.song)));
             Dictionary<string, byte[]> sourceBytes = Directory.GetFiles(source)
                 .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
             byte[] existingBytes = File.ReadAllBytes(existingPath);
@@ -3811,13 +3775,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [existingChart],
-                BmsonSongs = [],
+                BmsCharts = [existingChart],
+                BmsonCharts = [],
                 SearchTargets = [installationRoot, explicitDestination],
                 ChartPackagesPending = CreatePackageCollection([package]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
+            existingChart = library.BmsCharts.Single();
             library.ForceInstallPendingPackages([package]);
 
             bool confirmationRequired = hasDestination || showNewConfirmation;
@@ -3832,7 +3797,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEqual(new[] { existingPath }, Directory.GetFiles(explicitDestination));
             bool accepted = !confirmationRequired || response == MessageBoxResult.Yes;
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ? AND hash = ?;", existingPath, existingChart.hash));
+            Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ? AND hash = ?;", existingPath, existingChart.Md5));
             Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourcePath));
             if (!accepted)
             {
@@ -3841,7 +3806,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(sourcePath, entry.Chart.Path);
                 Assert.AreEqual(hasDestination ? explicitDestination : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
                 Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
-                Assert.AreSame(existingChart, library.BMSFiles.Single());
+                Assert.AreSame(existingChart.Token, library.BmsCharts.Single().Token);
                 CollectionAssert.AreEquivalent(sourceBytes.Keys.ToArray(), Directory.GetFiles(source));
                 foreach ((string path, byte[] bytes) in sourceBytes)
                 {
@@ -3857,18 +3822,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
-            BMSFile installed = library.BMSFiles.Single(chart => chart.hash == sourceChart.hash);
-            StringAssert.StartsWith(installed.path, installationRoot + Path.DirectorySeparatorChar);
-            Assert.IsFalse(string.Equals(Path.GetDirectoryName(installed.path), explicitDestination, StringComparison.OrdinalIgnoreCase));
-            CollectionAssert.AreEqual(sourceBytes[sourcePath], File.ReadAllBytes(installed.path));
+            ChartFile installed = library.BmsCharts.Single(chart => chart.Md5 == sourceChart.Md5);
+            StringAssert.StartsWith(installed.Path, installationRoot + Path.DirectorySeparatorChar);
+            Assert.IsFalse(string.Equals(Path.GetDirectoryName(installed.Path), explicitDestination, StringComparison.OrdinalIgnoreCase));
+            CollectionAssert.AreEqual(sourceBytes[sourcePath], File.ReadAllBytes(installed.Path));
             foreach (string resourcePath in sourceBytes.Keys.Where(path => !string.Equals(path, sourcePath, StringComparison.OrdinalIgnoreCase)))
             {
                 CollectionAssert.AreEqual(sourceBytes[resourcePath],
-                    File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(installed.path)!, Path.GetFileName(resourcePath))));
+                    File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(installed.Path)!, Path.GetFileName(resourcePath))));
             }
-            Assert.AreEqual(installed.path, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(installed.Path, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
             Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
-            Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installed.path));
+            Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installed.Path));
         });
     }
 
@@ -3922,9 +3887,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
-        TestableBmsFile keepFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\keep.bms");
-        TestableBmsFile removeFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\remove.bms");
-        TestableBmsFile removeWholePackageFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\only.bms");
+        ChartFile keepFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\keep.bms");
+        ChartFile removeFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\remove.bms");
+        ChartFile removeWholePackageFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\only.bms");
         ChartPackage keepPackage = ChartPackageTestExtensions.CreatePackage([keepFile, removeFile]);
         keepPackage.path = "C:\\Pending\\Pkg1";
         keepPackage.delete_parent = false;
@@ -3934,15 +3899,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         PendingPackageMutationDelta delta = service.BuildPendingPackageMutationDelta(
             [keepPackage, removePackage],
-            chartPathsToRemove: [removeFile.path, removeWholePackageFile.path]);
+            chartPathsToRemove: [removeFile.Path, removeWholePackageFile.Path]);
 
         Assert.IsTrue(delta.HasChanges);
         Assert.AreEqual(1, delta.RemainingPackages.Count);
         Assert.AreSame(keepPackage, delta.RemainingPackages[0]);
-        CollectionAssert.AreEqual(new[] { keepFile, removeFile }, keepPackage.GetBmsOwnersForTest());
+        CollectionAssert.AreEqual(new[] { keepFile, removeFile }, keepPackage.GetBmsChartsForTest());
         Assert.AreEqual(1, delta.EntryMutations.Count);
         Assert.AreSame(keepPackage, delta.EntryMutations[0].Package);
-        CollectionAssert.AreEqual(new[] { keepFile }, delta.EntryMutations[0].RemainingEntries.Select(entry => entry.Chart.GetBmsStorageOwner()).Where(owner => owner != null).ToArray());
+        CollectionAssert.AreEqual(new[] { keepFile.Path }, delta.EntryMutations[0].RemainingEntries.Select(entry => entry.Chart.Path).ToArray());
         CollectionAssert.AreEquivalent(new[] { "C:\\Pending\\Pkg2" }, delta.InstallPathsToDelete);
     }
 
@@ -3951,17 +3916,17 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
-        var keepEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var keepEntry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Pkg\\keep.bmson",
-            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            sha256 = new string('a', 64)
+            Path = "C:\\Pending\\Pkg\\keep.bmson",
+            Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Sha256 = new string('a', 64)
         }));
-        var removeEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var removeEntry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Pkg\\remove.bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = new string('b', 64)
+            Path = "C:\\Pending\\Pkg\\remove.bmson",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = new string('b', 64)
         }));
         var package = ChartPackage.FromChartEntries([keepEntry, removeEntry]);
         package.path = "C:\\Pending\\Pkg";
@@ -3973,13 +3938,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(delta.HasChanges);
         Assert.AreEqual(1, delta.RemainingPackages.Count);
         Assert.AreSame(package, delta.RemainingPackages[0]);
-        Assert.IsNull(keepEntry.GetBmsOwnerForTest());
-        Assert.IsNull(removeEntry.GetBmsOwnerForTest());
+        Assert.IsNull(keepEntry.GetBmsChartForTest());
+        Assert.IsNull(removeEntry.GetBmsChartForTest());
         Assert.AreEqual(2, package.ChartEntries.Count);
         Assert.AreEqual(1, delta.EntryMutations.Count);
         Assert.AreSame(package, delta.EntryMutations[0].Package);
         Assert.AreEqual(keepEntry.Chart.Path, delta.EntryMutations[0].RemainingEntries.Single().Chart.Path);
-        Assert.IsNull(package.ChartEntries[0].GetBmsOwnerForTest());
+        Assert.IsNull(package.ChartEntries[0].GetBmsChartForTest());
         Assert.AreEqual(0, delta.InstallPathsToDelete.Count);
     }
 
@@ -3989,11 +3954,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
         string destinationDirectory = "C:\\Installed\\Target";
-        TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\a.bms");
-        TestableBmsFile cleanupInstalledFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Lib\\c.bms");
-        TestableBmsFile alreadyInstalledInPackage = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
-        TestableBmsFile newFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\b.bms");
-        TestableBmsFile cleanupOnlyFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\c.bms");
+        ChartFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\a.bms");
+        ChartFile cleanupInstalledFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Lib\\c.bms");
+        ChartFile alreadyInstalledInPackage = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
+        ChartFile newFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\b.bms");
+        ChartFile cleanupOnlyFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\c.bms");
         ChartPackage mixedPackage = ChartPackageTestExtensions.CreatePackage(
             ChartPackageTestExtensions.CreateEntryWithInstallDestination(alreadyInstalledInPackage, destinationDirectory),
             ChartPackageTestExtensions.CreateEntryWithInstallDestination(newFile, destinationDirectory));
@@ -4011,9 +3976,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         Assert.AreEqual(2, plan.SelectedPendingPackages.Count);
         Assert.AreEqual(0, plan.CleanupOnlyCandidates.Count);
-        Assert.IsTrue(plan.MoveGuardLookup.ContainsPrimaryHash(installedFile.hash));
-        Assert.IsFalse(plan.MoveGuardLookup.ContainsPrimaryHash(newFile.hash));
-        PackageChartEntry alreadyInstalledEntry = mixedPackage.ChartEntries.Single(entry => ReferenceEquals(entry.Chart.GetBmsStorageOwner(), alreadyInstalledInPackage));
+        Assert.IsTrue(plan.MoveGuardLookup.ContainsPrimaryHash(installedFile.Md5));
+        Assert.IsFalse(plan.MoveGuardLookup.ContainsPrimaryHash(newFile.Md5));
+        PackageChartEntry alreadyInstalledEntry = mixedPackage.ChartEntries.Single(entry => entry.Chart.Path == alreadyInstalledInPackage.Path);
         Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(alreadyInstalledEntry));
         Assert.IsTrue(plan.FilterMs >= 0);
         Assert.IsTrue(plan.PlanBuildMs >= 0);
@@ -4026,7 +3991,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
-        TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
+        ChartFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
         ChartPackage deferredPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
         deferredPackage.path = "C:\\Pending\\Pkg1";
         deferredPackage.delete_parent = false;
@@ -4039,17 +4004,17 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         Assert.AreEqual(0, plan.SelectedPendingPackages.Count);
         Assert.AreEqual(1, plan.DeferredManualHoldCount);
-        Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
+        Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(pendingFile.Warnings, pendingFile.InstallDestination));
     }
 
     [TestMethod]
     public void ChartPackage_ClearEntryInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
     {
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg\\a.bms");
-        var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg\\a.bms");
+        var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = "C:\\Pending\\Pkg\\adapterless.bmson",
-            md5 = "cccccccccccccccccccccccccccccccc"
+            Path = "C:\\Pending\\Pkg\\adapterless.bmson",
+            Md5 = "cccccccccccccccccccccccccccccccc"
         }), "C:\\Installed\\Target", "Installed", "Artist", []));
         PackageChartEntry bmsEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(bmsFile, "C:\\Installed\\Target");
         var package = ChartPackage.FromChartEntries(
@@ -4064,7 +4029,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
 
         Assert.AreEqual(string.Empty, bmsEntry.Chart.InstallDestination);
-        Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+        Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
     }
 
@@ -4074,21 +4039,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
-            var song = new LR2SongDBExtended.bmson_song
+            ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = chartPath,
-                folder = tempDirectoryPath,
-                title = "BMSON",
-                artist = "Artist",
-                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Path = chartPath,
+                Folder = tempDirectoryPath,
+                RawTitle = "BMSON",
+                RawArtist = "Artist",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 Resources = TestChartResources.Create(["missing.wav"])
             };
-            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+            var entry = PackageChartEntry.FromChart((song));
 
             IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
 
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsNull(entry.GetBmsOwnerForTest());
+            Assert.IsNull(entry.GetBmsChartForTest());
         });
     }
 
@@ -4099,16 +4064,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
-            var song = new LR2SongDBExtended.bmson_song
+            ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = chartPath,
-                folder = tempDirectoryPath,
-                title = "BMSON",
-                artist = "Artist",
-                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Path = chartPath,
+                Folder = tempDirectoryPath,
+                RawTitle = "BMSON",
+                RawArtist = "Artist",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 Resources = TestChartResources.Create(["missing.wav"], ["missing.png"])
             };
-            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+            var entry = PackageChartEntry.FromChart((song));
 
             IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
 
@@ -4116,7 +4081,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
             Assert.IsTrue(entry.Chart.WAVHealth.HasValue);
             Assert.IsTrue(entry.Chart.BGAHealth.HasValue);
-            Assert.IsNull(entry.GetBmsOwnerForTest());
+            Assert.IsNull(entry.GetBmsChartForTest());
         });
     }
 
@@ -4133,14 +4098,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 + "#TITLE BMS\r\n"
                 + "#WAVAA missing.wav\r\n"
                 + "#00111:AA\r\n");
-            var file = BMSFile.CreateBMSFileFromFile(chartPath);
-            var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+            var entry = PackageChartEntry.FromChart((file));
 
             IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
 
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
-            Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse((file.ResourceHealthMaintenanceSnapshot?.Origin is MaintenanceInfoOrigin.DbHydrated or MaintenanceInfoOrigin.Calculated));
+            Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         });
     }
 
@@ -4212,9 +4177,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
-            BMSFile file = chartEntry.Chart.GetBmsStorageOwner();
+            ChartFile file = chartEntry.Chart;
             Assert.IsNotNull(file);
-            Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
+            Assert.IsFalse((file.ResourceHealthMaintenanceSnapshot?.Origin is MaintenanceInfoOrigin.DbHydrated or MaintenanceInfoOrigin.Calculated));
             Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         });
     }
@@ -4300,7 +4265,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg1");
             Directory.CreateDirectory(packageDirectoryPath);
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bms"), "#PLAYER 1");
-            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<ChartFile>());
             pendingPackage.path = packageDirectoryPath;
             pendingPackage.delete_parent = false;
 
@@ -4395,7 +4360,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Packages.Count);
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
             Assert.AreEqual(1, result.Packages[0].ChartEntries.Count(entry => entry?.Chart?.Kind == ChartFileKind.Bmson));
-            Assert.IsTrue(result.Packages[0].ChartEntries.All(entry => entry.GetBmsOwnerForTest() == null));
+            Assert.IsTrue(result.Packages[0].ChartEntries.All(entry => entry.GetBmsChartForTest() == null));
         });
     }
 
@@ -4418,7 +4383,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
             CollectionAssert.AreEquivalent(
                 new[] { "root.bms", "another.bms" },
-                result.Packages[0].GetBmsOwnersForTest().Select(file => Path.GetFileName(file.path)).ToArray());
+                result.Packages[0].GetBmsChartsForTest().Select(file => Path.GetFileName(file.Path)).ToArray());
         });
     }
 
@@ -4435,20 +4400,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string nestedBmsonPath = Path.Combine(nestedDirectoryPath, "nested.bmson");
             File.WriteAllText(rootBmsonPath, CreateBmsonJsonWithSound("root.wav"));
             File.WriteAllText(nestedBmsonPath, CreateBmsonJsonWithSound("nested.wav"));
-            var rootEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(rootBmsonPath)));
-            var nestedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(nestedBmsonPath)));
+            var rootEntry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(rootBmsonPath)));
+            var nestedEntry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(nestedBmsonPath)));
             var package = ChartPackage.FromChartEntries([rootEntry, nestedEntry]);
             package.path = packageDirectoryPath;
 
             bool applied = BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
 
             Assert.IsTrue(applied);
-            Assert.IsNull(rootEntry.GetBmsOwnerForTest());
-            Assert.IsNull(nestedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(rootEntry.GetBmsChartForTest());
+            Assert.IsNull(nestedEntry.GetBmsChartForTest());
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             StringAssert.Contains(ChartWarningCollection.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
             var normalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
-            Assert.IsNull(normalizedNestedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(normalizedNestedEntry.GetBmsChartForTest());
             Assert.IsTrue(normalizedNestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             var clearedNormalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
             clearedNormalizedNestedEntry.ClearStructuredWarnings();
@@ -4507,7 +4472,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
-            Assert.IsNull(chartEntry.GetBmsOwnerForTest());
+            Assert.IsNull(chartEntry.GetBmsChartForTest());
             Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
             Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             StringAssert.Contains(chartEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
@@ -4543,9 +4508,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageChartEntry unmatchedEntry = result.DiscoveredPackages
                 .SelectMany(package => package.ChartEntries)
                 .First(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
-            Assert.IsNull(installedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(installedEntry.GetBmsChartForTest());
             Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsNull(unmatchedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(unmatchedEntry.GetBmsChartForTest());
         });
     }
 
@@ -4564,11 +4529,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 + "#STAGEFILE stage.png\r\n"
                 + "#00111:01\r\n"
                 + "#00104:01\r\n");
-            var bmsFile = BMSFile.CreateBMSFileFromFile(chartPath);
-            ChartFile lightweightChart = ChartFileProjection.FromBmsFile(
-                bmsFile,
-                includeWarningSnapshot: false,
-                includeResourceReferences: true);
+            ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+            ChartFile lightweightChart = (bmsFile);
             var entry = PackageChartEntry.FromChart(ChartFileProjection.ToImmutableSnapshot(lightweightChart));
 
             Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
@@ -4580,18 +4542,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PackageChartEntry_ResourceSnapshotUsesAcquiredBmsonResourcesWithoutOwner()
     {
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"D:\BMS\pkg\chart.bmson",
-            md5 = "11111111111111111111111111111111",
-            title = "Resource Owner",
+            Path = @"D:\BMS\pkg\chart.bmson",
+            Md5 = "11111111111111111111111111111111",
+            RawTitle = "Resource Owner",
             Resources = TestChartResources.Create(["audio.wav"], ["movie.mpg"], stagefile: "stage.png"),
-            stagefile = "stage.png"
+            Stagefile = "stage.png"
         };
-        ChartFile lightweightChart = ChartFileProjection.FromBmsonSong(
-            song,
-            includeWarningSnapshot: false,
-            includeResourceReferences: true);
+        ChartFile lightweightChart = (song);
         var entry = PackageChartEntry.FromChart(ChartFileProjection.ToImmutableSnapshot(lightweightChart));
 
         Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
@@ -4631,7 +4590,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
-            BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
+            ChartFile chart = chartEntry.Chart;
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
@@ -4672,7 +4631,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
-            BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
+            ChartFile chart = chartEntry.Chart;
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
@@ -4714,7 +4673,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
-            BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
+            ChartFile chart = chartEntry.Chart;
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
@@ -4781,7 +4740,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.AutoInstallCandidates[0].path, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries.Single();
-            Assert.IsNull(chartEntry.GetBmsOwnerForTest());
+            Assert.IsNull(chartEntry.GetBmsChartForTest());
             Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(0, chartEntry.Chart.Warnings.Count);
@@ -4819,7 +4778,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
             Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
             Assert.IsTrue(result.AutoInstallCandidates.Any(package => package.path.Equals(filePackageDirectoryPath, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(result.DiscoveredPackages.All(package => package.GetBmsOwnersForTest().Count > 0));
+            Assert.IsTrue(result.DiscoveredPackages.All(package => package.GetBmsChartsForTest().Count > 0));
             Assert.IsTrue(result.DiscoveryMs >= 0);
             Assert.IsTrue(result.ClassificationMs >= 0);
             Assert.IsTrue(result.TotalMs >= 0);
@@ -4854,7 +4813,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(2, result.DiscoveredPackages.Count);
                 foreach (ChartPackage package in result.DiscoveredPackages)
                 {
-                    List<BMSFile> discoveredCharts = [.. package.GetBmsOwnersForTest()];
+                    List<ChartFile> discoveredCharts = [.. package.GetBmsChartsForTest()];
                     PackageInstallEstimationSnapshot firstSnapshot = BuildPackageSnapshot(package, discoveredCharts);
                     PackageInstallEstimationSnapshot secondSnapshot = BuildPackageSnapshot(package, discoveredCharts);
 
@@ -4887,10 +4846,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
     public void PackageChartEntry_FromBmsChartProjection_ProjectsBmsMode()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        TestableBmsFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
-        source.SetMode(7);
+        ChartFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
+        source = source with { Mode = 7 };
 
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(source));
+        var entry = PackageChartEntry.FromChart((source));
 
         Assert.AreEqual(7, entry.Chart.Mode);
     }
@@ -4937,49 +4896,66 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(sourceDirectoryPath);
             string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Receipt\r\n");
-            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
             var service = new BmsLibraryPackageInstallService();
             bool callbackSawSource = false;
             bool callbackSawDestination = false;
+            PackageChartEntry liveEntry = package.ChartEntries.Single();
+            int liveNotifications = 0;
+            System.ComponentModel.PropertyChangedEventHandler liveChanged = (_, _) => liveNotifications++;
+            liveEntry.PropertyChanged += liveChanged;
 
-            FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
-                package,
-                destinationDirectoryPath,
-                new BmsLibraryOptionsSnapshot
-                {
-                    EnableSmartComponentOverwrite = false,
-                    KeepSmartOverwriteProtectedFilesByRenaming = false
-                },
-                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
-                exception => exception.Message,
-                new RealFileMutationService(),
-                null,
-                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
-                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
-                _ => { },
-                installResult =>
-                {
-                    callbackSawSource = Directory.Exists(sourceDirectoryPath) && File.Exists(chartPath);
-                    callbackSawDestination = File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms"));
-                    Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), installResult.AddedCharts.Single().Path);
-                    return FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt"));
-                },
-                sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
-                showMessageBoxOnInstallFail: false);
+            try
+            {
+                FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
+                    package,
+                    destinationDirectoryPath,
+                    new BmsLibraryOptionsSnapshot
+                    {
+                        EnableSmartComponentOverwrite = false,
+                        KeepSmartOverwriteProtectedFilesByRenaming = false
+                    },
+                    (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                    exception => exception.Message,
+                    new RealFileMutationService(),
+                    null,
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                    _ => { },
+                    installResult =>
+                    {
+                        Assert.AreNotSame(liveEntry, installResult.AddedEntries.Single(), "mutableな準備entryをlive項目と共有しません。");
+                        Assert.AreEqual(chartPath, liveEntry.Chart.Path);
+                        Assert.AreEqual(0, liveNotifications);
+                        callbackSawSource = Directory.Exists(sourceDirectoryPath) && File.Exists(chartPath);
+                        callbackSawDestination = File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms"));
+                        Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), installResult.AddedCharts.Single().Path);
+                        return FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt"));
+                    },
+                    sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                    showMessageBoxOnInstallFail: false);
 
-            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
-            Assert.IsFalse(receipt.DurableCommit);
-            Assert.AreEqual(1, receipt.CompensationAttemptCount);
-            Assert.IsTrue(callbackSawSource);
-            Assert.IsTrue(callbackSawDestination);
-            Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
-            Assert.IsTrue(File.Exists(chartPath));
-            Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
-            Assert.AreEqual(sourceDirectoryPath, package.path);
-            Assert.AreEqual(chartPath, chart.path);
+                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+                Assert.IsFalse(receipt.DurableCommit);
+                Assert.AreEqual(1, receipt.CompensationAttemptCount);
+                Assert.IsTrue(callbackSawSource);
+                Assert.IsTrue(callbackSawDestination);
+                Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+                Assert.IsTrue(File.Exists(chartPath));
+                Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
+                Assert.AreEqual(sourceDirectoryPath, package.path);
+                Assert.AreEqual(chartPath, chart.Path);
+                Assert.AreSame(liveEntry, package.ChartEntries.Single());
+                Assert.AreEqual(chartPath, liveEntry.Chart.Path);
+                Assert.AreEqual(0, liveNotifications);
+            }
+            finally
+            {
+                liveEntry.PropertyChanged -= liveChanged;
+            }
         });
     }
 
@@ -5058,7 +5034,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             byte[] sourceBytes = File.ReadAllBytes(sourcePath);
             byte[] collisionBytes = File.ReadAllBytes(collisionPath);
 
-            var chart = BMSFile.CreateBMSFileFromFile(sourcePath);
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourcePath;
             package.delete_parent = false;
@@ -5134,8 +5110,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 sourceBytesByPath[sourcePath] = File.ReadAllBytes(sourcePath);
                 collisionBytesByPath[collisionPath] = File.ReadAllBytes(collisionPath);
                 entries.Add(PackageChartEntry.FromChart(
-                    ChartFileProjection.FromBmsFile(
-                        BMSFile.CreateBMSFileFromFile(sourcePath))));
+                    (
+                        BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath)))));
             }
 
             void AddBmsonChart(string relativePath, string soundName, string md5)
@@ -5151,16 +5127,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 sourceBytesByPath[sourcePath] = File.ReadAllBytes(sourcePath);
                 collisionBytesByPath[collisionPath] = File.ReadAllBytes(collisionPath);
                 entries.Add(PackageChartEntry.FromChart(
-                    ChartFileProjection.FromBmsonSong(
-                        new LR2SongDBExtended.bmson_song
-                        {
-                            path = sourcePath,
-                            folder = Path.GetDirectoryName(sourcePath),
-                            title = "Bmson " + soundName,
-                            md5 = md5
-                        },
-                        includeWarningSnapshot: false,
-                        includeResourceReferences: false)));
+                    (ChartTestValues.Empty(ChartFileKind.Bmson) with
+                    {
+                        Path = sourcePath,
+                        Folder = Path.GetDirectoryName(sourcePath),
+                        RawTitle = "Bmson " + soundName,
+                        Md5 = md5
+                    })));
             }
 
             if (string.Equals(shape, "single-bms", StringComparison.Ordinal))
@@ -5200,6 +5173,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                  _ => { },
                  installResult =>
                  {
+                     foreach (PackageChartEntry prepared in installResult.AddedEntries)
+                     {
+                         Assert.IsFalse(package.ChartEntries.Contains(prepared));
+                     }
+                     CollectionAssert.AreEquivalent(sourcePaths, package.ChartEntries.Select(entry => entry.Chart.Path).ToList());
                      detachedProjectionPaths.AddRange(installResult.AddedCharts.Select(chart => chart.Path));
                      return FileDbMutationCommitResult.Durable();
                  },
@@ -5259,7 +5237,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             byte[] firstSentinelBytes = File.ReadAllBytes(firstSentinelPath);
             byte[] secondSentinelBytes = File.ReadAllBytes(secondSentinelPath);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([
-                BMSFile.CreateBMSFileFromFile(sourceChartPath)]);
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath))]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
             int durableCallbackCount = 0;
@@ -5334,15 +5312,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BMSFile.CreateBMSFileFromFile(firstChartPath),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath)),
                     firstDestinationDirectoryPath));
             ChartPackage conflictPackage = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BMSFile.CreateBMSFileFromFile(conflictChartPath),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(conflictChartPath)),
                     conflictDestinationDirectoryPath));
             ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                    BMSFile.CreateBMSFileFromFile(thirdChartPath),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(thirdChartPath)),
                     thirdDestinationDirectoryPath));
             firstPackage.path = firstSourceDirectoryPath;
             conflictPackage.path = conflictSourceDirectoryPath;
@@ -5366,8 +5344,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection([firstPackage, conflictPackage, thirdPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -5440,7 +5418,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 string chartPath = CreateBmsFile(sources[i], "chart.bms", "#TITLE " + titles[i]);
                 ChartPackage package = ChartPackageTestExtensions.CreatePackage(
                     ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                        BMSFile.CreateBMSFileFromFile(chartPath),
+                        BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)),
                         Path.Combine(installationRoot, titles[i])));
                 package.path = sources[i];
                 package.delete_parent = false;
@@ -5471,8 +5449,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 })
             {
-                BMSFiles = [],
-                BmsonSongs = [],
+                BmsCharts = [],
+                BmsonCharts = [],
                 ChartPackagesPending = CreatePackageCollection(packages),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
@@ -5536,7 +5514,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             byte[] sourceBytes = File.ReadAllBytes(sourceChartPath);
             int durableCallbackCount = 0;
             ChartPackage package = ChartPackageTestExtensions.CreatePackage(
-                BMSFile.CreateBMSFileFromFile(sourceChartPath));
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath)));
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
@@ -5669,7 +5647,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(sourceDirectoryPath);
             string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Receipt success\r\n");
-            TestableBmsFile chart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", chartPath);
+            ChartFile chart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", chartPath);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
@@ -5707,7 +5685,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(durableFinalizerSawSource);
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
-            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), chart.path);
+            Assert.AreEqual(chartPath, chart.Path);
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), package.ChartEntries.Single().Chart.Path);
         });
     }
 
@@ -5732,8 +5711,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 sourceDirectoryPath,
                 "second.bms",
                 "#TITLE Notification Package");
-            var firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
-            var secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
+            ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath));
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([firstChart, secondChart]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
@@ -5751,7 +5730,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     FolderNameFormat = "%TITLE%",
                     BMSInstallDir = installRootPath
                 });
-            library.BMSFiles = [firstChart, secondChart];
+            library.BmsCharts = [firstChart, secondChart];
             library.ChartPackagesPending = CreatePackageCollection([package]);
             library.ChartPackagesInstalled = CreatePackageCollection([]);
 
@@ -5882,7 +5861,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     BMSInstallDir = installRootPath,
                     KeepInstallablePackagesPending = false
                 });
-            library.BMSFiles = [];
+            library.BmsCharts = [];
             Directory.CreateDirectory(installRootPath);
             library.SearchTargets = [installRootPath];
 
@@ -5958,9 +5937,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 secondSourceDirectoryPath, "second.bms", "#TITLE Prefix Second", "second-resource");
             string thirdChartPath = CreateBmsFileWithResources(
                 thirdSourceDirectoryPath, "third.bms", "#TITLE Prefix Third", "third-resource");
-            var firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
-            var secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
-            var thirdChart = BMSFile.CreateBMSFileFromFile(thirdChartPath);
+            ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
+            ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath));
+            ChartFile thirdChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(thirdChartPath));
             ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstChart]);
             ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage([secondChart]);
             ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage([thirdChart]);
@@ -6006,7 +5985,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     FolderNameFormat = "%TITLE%",
                     BMSInstallDir = installRootPath
                 });
-            library.BMSFiles = [firstChart, secondChart, thirdChart];
+            library.BmsCharts = [firstChart, secondChart, thirdChart];
             library.ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]);
             library.ChartPackagesInstalled = CreatePackageCollection([]);
 
@@ -6101,7 +6080,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(sourcePath, "same-content");
             File.WriteAllText(destinationPath, "same-content");
             File.SetLastWriteTimeUtc(destinationPath, File.GetLastWriteTimeUtc(sourcePath));
-            ChartPackage package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<ChartFile>());
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
             var service = new BmsLibraryPackageInstallService();
@@ -6151,7 +6130,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourcePath = Path.Combine(tempDirectoryPath, "single.bms");
             string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledSingle");
             File.WriteAllText(sourcePath, "#PLAYER 1\r\n#TITLE Single");
-            TestableBmsFile chart = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", sourcePath);
+            ChartFile chart = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", sourcePath);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourcePath;
             package.delete_parent = false;
@@ -6180,7 +6159,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsFalse(File.Exists(sourcePath));
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "single.bms")));
-            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "single.bms"), chart.path);
+            Assert.AreEqual(sourcePath, chart.Path);
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "single.bms"), package.ChartEntries.Single().Chart.Path);
         });
     }
 
@@ -6208,13 +6188,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string resourceDirectoryPath = Path.Combine(packageDirectoryPath, "images");
             Directory.CreateDirectory(resourceDirectoryPath);
             File.WriteAllText(Path.Combine(resourceDirectoryPath, "stage.png"), "image");
-            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = packageDirectoryPath;
             package.delete_parent = false;
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
-                [ChartFileProjection.FromBmsFile(chart)],
+                [(chart)],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -6244,8 +6224,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
-            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
-            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonPath);
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart((bmsonSong));
             var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             package.path = packageDirectoryPath;
 
@@ -6264,7 +6244,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
         });
     }
@@ -6281,8 +6261,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
-            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
-            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonPath);
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart((bmsonSong));
             var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             package.path = packageDirectoryPath;
 
@@ -6301,7 +6281,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsFalse(File.Exists(bmsonPath));
         });
     }
@@ -6318,8 +6298,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
-            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
-            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonPath);
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart((bmsonSong));
             var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             package.path = packageDirectoryPath;
 
@@ -6338,7 +6318,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
         });
     }
@@ -6355,8 +6335,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
-            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
-            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonPath);
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart((bmsonSong));
             var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             package.path = packageDirectoryPath;
 
@@ -6378,7 +6358,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(packageDirectoryPath, result.Failures[0].Path);
             Assert.AreEqual(0, result.Skipped);
             Assert.AreEqual(0, result.ChartPathsToRemove.Count);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsTrue(File.Exists(bmsonPath));
             Assert.IsTrue(File.Exists(Path.Combine(packageDirectoryPath, "sound.wav")));
             Assert.IsTrue(Directory.Exists(packageDirectoryPath));
@@ -6393,35 +6373,35 @@ public sealed class BmsLibraryPackageInstallServiceTests
             var service = new BmsLibraryPackageInstallService();
             string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
-            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectoryPath, "chart.bms"));
-            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
-            var plainBmsonPathEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectoryPath, "chart.bms"));
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(bmsonPath)));
+            var plainBmsonPathEntry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = Path.Combine(tempDirectoryPath, "plain.bmson"),
-                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                Path = Path.Combine(tempDirectoryPath, "plain.bmson"),
+                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }));
-            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile)), adapterlessBmsonEntry, plainBmsonPathEntry]);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((bmsFile)), adapterlessBmsonEntry, plainBmsonPathEntry]);
             var adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
             List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
 
-            CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.GetBmsStorageOwner()).ToArray());
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+            CollectionAssert.AreEqual(new[] { bmsFile }, result.ToArray());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         });
     }
 
     [TestMethod]
-    public void GetPendingBmsFormatChartFilesSnapshot_UsesBmsStorageOwnerFromChartFile()
+    public void GetPendingBmsFormatChartFilesSnapshot_PreservesCapturedCommonValue()
     {
         var service = new BmsLibraryPackageInstallService();
-        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
-        var bmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile));
+        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
+        var bmsEntry = PackageChartEntry.FromChart((bmsFile));
         var package = ChartPackage.FromChartEntries([bmsEntry]);
 
         List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
 
-        CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.GetBmsStorageOwner()).ToArray());
-        Assert.AreSame(bmsFile, bmsEntry.GetBmsOwnerForTest());
+        CollectionAssert.AreEqual(new[] { bmsFile }, result.ToArray());
+        Assert.AreSame(bmsFile, bmsEntry.GetBmsChartForTest());
     }
 
     [TestMethod]
@@ -6471,19 +6451,19 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(duplicateDestinationPath, "same");
             File.WriteAllText(failureSourcePath, "failure");
             File.WriteAllText(bmsonSourcePath, "{}");
-            TestableBmsFile renameFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renameSourcePath);
-            TestableBmsFile duplicateFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicateSourcePath);
-            TestableBmsFile failureFile = CreateFile("cccccccccccccccccccccccccccccccc", failureSourcePath);
-            duplicateFile.SetHash(fileOperationService.TryComputeFileMd5ForPath(duplicateSourcePath));
+            ChartFile renameFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renameSourcePath);
+            ChartFile duplicateFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicateSourcePath);
+            ChartFile failureFile = CreateFile("cccccccccccccccccccccccccccccccc", failureSourcePath);
+            duplicateFile = duplicateFile with { Md5 = fileOperationService.TryComputeFileMd5ForPath(duplicateSourcePath) };
 
             PendingExtensionRenameResult result = service.RenamePendingBmsFormatChartFileExtensions(
                 [
-                    ChartFileProjection.FromBmsFile(renameFile),
-                    ChartFileProjection.FromBmsFile(duplicateFile),
-                    ChartFileProjection.FromBmsFile(failureFile)
+                    (renameFile),
+                    (duplicateFile),
+                    (failureFile)
                 ],
                 ".bme",
-                delegate (BMSFile file, string requestedPath)
+                delegate (ChartFile file, string requestedPath)
                 {
                     if (ReferenceEquals(file, failureFile))
                     {
@@ -6502,7 +6482,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.DuplicateDeleted);
             Assert.AreEqual(1, result.Skipped);
             Assert.AreEqual(1, result.Failed);
-            CollectionAssert.AreEquivalent(new[] { renameFile.path, duplicateFile.path }, result.ChartPathsToRemove);
+            CollectionAssert.AreEquivalent(new[] { renameFile.Path, duplicateFile.Path }, result.ChartPathsToRemove);
             Assert.AreEqual(1, result.Failures.Count);
             Assert.AreSame(failureFile, result.Failures[0].File);
             Assert.IsTrue(File.Exists(bmsonSourcePath));
@@ -6557,7 +6537,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.Copy(remainingChartPath, independentlyOwnedPath);
             bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(
                 setup,
-                CreateInstalledChartLookup([BMSFile.CreateBMSFileFromFile(independentlyOwnedPath)]));
+                CreateInstalledChartLookup([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(independentlyOwnedPath))]));
 
             Assert.IsTrue(moved);
             Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
@@ -6582,8 +6562,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(
                 setup,
                 CreateInstalledChartLookup([
-                    BMSFile.CreateBMSFileFromFile(insideOwnedPath),
-                    BMSFile.CreateBMSFileFromFile(outsideOwnedPath)]));
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(insideOwnedPath)),
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(outsideOwnedPath))]));
 
             Assert.IsTrue(moved);
             Assert.IsTrue(Directory.Exists(setup.ParentDirectoryPath));
@@ -6616,7 +6596,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(
                 setup,
-                CreateInstalledChartLookup([BMSFile.CreateBMSFileFromFile(safeResidualOwnedPath)]));
+                CreateInstalledChartLookup([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(safeResidualOwnedPath))]));
 
             Assert.IsTrue(moved);
             Assert.IsTrue(Directory.Exists(setup.ParentDirectoryPath));
@@ -6669,7 +6649,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(
                 setup,
-                CreateInstalledChartLookup([BMSFile.CreateBMSFileFromFile(safeResidualOwnedPath)]));
+                CreateInstalledChartLookup([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(safeResidualOwnedPath))]));
 
             Assert.IsTrue(moved);
             Assert.IsTrue(Directory.Exists(setup.ParentDirectoryPath));
@@ -6696,7 +6676,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(
                 setup,
-                CreateInstalledChartLookup([BMSFile.CreateBMSFileFromFile(independentlyOwnedPath)]));
+                CreateInstalledChartLookup([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(independentlyOwnedPath))]));
 
             Assert.IsTrue(moved);
             Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
@@ -6721,7 +6701,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 setup,
                 CreateInstalledChartLookup(
                     [],
-                    [BmsonSongParser.Parse(independentlyOwnedPath)]));
+                    [ChartTestValues.ReadBmson(independentlyOwnedPath)]));
 
             Assert.IsTrue(moved);
             Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
@@ -6944,93 +6924,89 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    private static TestableBmsFile CreateFile(string hash, string path)
+    private static ChartFile CreateFile(string hash, string path)
     {
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = path
+            Path = path
         };
-        file.SetHash(hash);
+        file = file with { Md5 = hash };
         return file;
     }
 
-    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(IEnumerable<BMSFile> installedFiles)
+    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(IEnumerable<ChartFile> installedFiles)
     {
         return CreateInstalledChartLookup(installedFiles, []);
     }
 
     private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(
-        IEnumerable<BMSFile> installedFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
+        IEnumerable<ChartFile> installedFiles,
+        IEnumerable<ChartFile> installedBmsonSongs)
     {
         var state = new InstalledChartLookupIndexState();
-        foreach (BMSFile file in installedFiles ?? [])
+        foreach (ChartFile file in installedFiles ?? [])
         {
             if (file != null)
             {
-                state.AddChart(file.path, file.hash, file.sha256);
+                state.AddChart(file.Path, file.Md5, file.Sha256);
             }
         }
-        foreach (LR2SongDBExtended.bmson_song song in installedBmsonSongs ?? [])
+        foreach (ChartFile song in installedBmsonSongs ?? [])
         {
             if (song != null)
             {
-                state.AddChart(song.path, song.md5, song.sha256);
+                state.AddChart(song.Path, song.Md5, song.Sha256);
             }
         }
         return state.CreateSnapshot();
     }
 
-    private static List<BMSFile> GetAddedBmsFiles(PackageInstallExecutionResult result)
+    private static List<ChartFile> GetAddedBmsFiles(PackageInstallExecutionResult result)
     {
         return [.. (result?.AddedCharts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner())
-            .OfType<BMSFile>()
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
-    private static List<LR2SongDBExtended.bmson_song> GetAddedBmsonSongs(PackageInstallExecutionResult result)
+    private static List<ChartFile> GetAddedBmsonSongs(PackageInstallExecutionResult result)
     {
         return [.. (result?.AddedCharts ?? [])
-            .Select(chart => chart?.GetBmsonStorageOwner())
-            .OfType<LR2SongDBExtended.bmson_song>()
-            .Where(song => !string.IsNullOrWhiteSpace(song.path))];
+            .Where(song => song?.Kind == ChartFileKind.Bmson && !string.IsNullOrWhiteSpace(song.Path))];
     }
 
-    private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)
+    private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<ChartFile> targetFiles)
     {
-        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
+        List<ChartFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
         List<PackageChartEntry> targetEntries = targetFileList.Count == 0
             ? package.ChartEntries
             : ResolvePackageEntries(package, targetFileList);
         return package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntries);
     }
 
-    private static List<PackageChartEntry> ResolvePackageEntries(ChartPackage package, IEnumerable<BMSFile> targetFiles)
+    private static List<PackageChartEntry> ResolvePackageEntries(ChartPackage package, IEnumerable<ChartFile> targetFiles)
     {
         List<PackageChartEntry> packageEntries = package.ChartEntries;
         var result = new List<PackageChartEntry>();
-        foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
+        foreach (ChartFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
             PackageChartEntry? packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
-            result.Add(packageEntry ?? PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(targetFile)));
+            result.Add(packageEntry ?? PackageChartEntry.FromChart((targetFile)));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
     }
 
-    private static bool IsSamePackageChartTarget(PackageChartEntry entry, BMSFile targetFile)
+    private static bool IsSamePackageChartTarget(PackageChartEntry entry, ChartFile targetFile)
     {
         if (entry?.Chart == null || targetFile == null)
         {
             return false;
         }
-        if (ReferenceEquals(entry.GetBmsOwnerForTest(), targetFile))
+        if (ReferenceEquals(entry.GetBmsChartForTest(), targetFile))
         {
             return true;
         }
         return !string.IsNullOrWhiteSpace(entry.Chart.Path)
-            && !string.IsNullOrWhiteSpace(targetFile.path)
-            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
+            && !string.IsNullOrWhiteSpace(targetFile.Path)
+            && entry.Chart.Path.Equals(targetFile.Path, StringComparison.OrdinalIgnoreCase);
     }
 
     private static SafeDeleteMoveSetup CreateSingleChartParentDeleteSetup(string tempDirectoryPath, string chartBaseName, string chartBody)
@@ -7039,7 +7015,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Package");
         Directory.CreateDirectory(parentDirectoryPath);
         string sourceChartPath = CreateBmsFile(parentDirectoryPath, chartBaseName + ".bms", chartBody);
-        var sourceChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+        ChartFile sourceChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
         ChartPackage package = ChartPackageTestExtensions.CreatePackage([sourceChart]);
         package.path = sourceChartPath;
         package.delete_parent = true;
@@ -7248,23 +7224,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            sha256 = value;
-        }
-
-        public void SetMode(int? value)
-        {
-            mode = value;
-        }
-    }
 
     private sealed class TestFileMutationService : IFileMutationService
     {

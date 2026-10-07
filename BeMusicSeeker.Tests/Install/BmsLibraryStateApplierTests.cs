@@ -83,13 +83,13 @@ public sealed class BmsLibraryStateApplierTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = @"C:\Library\chart.bms"
+                Path = @"C:\Library\chart.bms"
             };
-            file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
-            List<BMSFile> libraryFiles = [file];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
+            List<ChartFile> libraryFiles = [file];
+            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
@@ -97,12 +97,12 @@ public sealed class BmsLibraryStateApplierTests
             LibraryInstallDestinationChange installDestinationChange = new()
             {
                 Chart = ChartFileProjection.WithPackageState(
-                    ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                    (file),
                     @"C:\Deleted",
                     "Deleted title",
                     "Deleted artist",
                     [@"C:\Deleted", @"C:\Other"],
-                    file.Warnings.ToStructuredList()),
+                    file.Warnings),
                 NewInstallDestination = null,
                 ClearInstallDestinationState = true
             };
@@ -110,9 +110,9 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(applier, LibraryCatalogMutationFacts.Empty, packageFacts);
 
-            Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.IsTrue(file.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
-            Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
+            Assert.AreSame(file.Token, appliedChart.Token);
             Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
             Assert.AreEqual(string.Empty, appliedChart.InstallDestinationTitle);
             Assert.AreEqual(string.Empty, appliedChart.InstallDestinationArtist);
@@ -127,13 +127,13 @@ public sealed class BmsLibraryStateApplierTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = @"C:\Library\chart.bms"
+                Path = @"C:\Library\chart.bms"
             };
-            file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
-            List<BMSFile> libraryFiles = [file];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
+            List<ChartFile> libraryFiles = [file];
+            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
@@ -141,12 +141,12 @@ public sealed class BmsLibraryStateApplierTests
             LibraryInstallDestinationChange installDestinationChange = new()
             {
                 Chart = ChartFileProjection.WithPackageState(
-                    ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                    (file),
                     @"C:\Installed",
                     "Candidate title",
                     "Candidate artist",
                     [@"C:\Installed", @"C:\Other"],
-                    file.Warnings.ToStructuredList()),
+                    file.Warnings),
                 NewInstallDestination = null,
                 ClearInstallDestinationState = false
             };
@@ -154,9 +154,9 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(applier, LibraryCatalogMutationFacts.Empty, packageFacts);
 
-            Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.IsTrue(file.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
-            Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
+            Assert.AreSame(file.Token, appliedChart.Token);
             Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
             Assert.AreEqual("Candidate title", appliedChart.InstallDestinationTitle);
             Assert.AreEqual("Candidate artist", appliedChart.InstallDestinationArtist);
@@ -167,15 +167,15 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void LibraryPackageReferenceFacts_CreateAppliedSnapshotsDoesNotRequireStateApplierWriteback()
     {
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = @"C:\Library\chart.bms"
+            Path = @"C:\Library\chart.bms"
         };
-        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
         LibraryInstallDestinationChange installDestinationChange = new()
         {
             Chart = ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                (file),
                 @"C:\Old",
                 string.Empty,
                 string.Empty,
@@ -194,16 +194,18 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedFile = new TestableBmsFile
+            ChartFile removedFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Library\\remove.bms"
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\remove.bms"
             };
-            removedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var keptFile = new TestableBmsFile
+            removedFile = removedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            ChartFile keptFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Library\\keep.bms"
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\keep.bms"
             };
-            keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            keptFile = keptFile with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
             ChartPackage removedPackage = ChartPackageTestExtensions.CreatePackage([removedFile]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
@@ -214,14 +216,14 @@ public sealed class BmsLibraryStateApplierTests
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(keptFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = removedFile.path }, typeof(LR2SongDBExtended.maintenance));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = keptFile.path }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptFile), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = removedFile.Path }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = keptFile.Path }, typeof(LR2SongDBExtended.maintenance));
             }
 
-            List<BMSFile> libraryFiles = [removedFile, keptFile];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            List<ChartFile> libraryFiles = [removedFile, keptFile];
+            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage, keptPackage]);
             var callbacks = new TrackingCallbacks();
@@ -229,7 +231,7 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(
                 applier,
-                CreateUnregisterFacts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
+                CreateUnregisterFacts([(removedFile)]));
 
             Assert.AreEqual(2, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -261,30 +263,31 @@ public sealed class BmsLibraryStateApplierTests
             string root = Path.GetDirectoryName(songDbPath)!;
             string keptBmsPath = Path.Combine(root, "chart.bms");
             string keptBmsonPath = Path.Combine(root, "chart.bmson");
-            var keptBms = new TestableBmsFile
+            ChartFile keptBms = ChartTestValues.Empty() with
             {
-                path = relocate ? Path.Combine(root, "old.bms") : keptBmsPath,
-                favorite = 7,
-                tag = "kept-user-tag",
-                adddate = 12345
+                Token = new OwnedChartToken(),
+                Path = relocate ? Path.Combine(root, "old.bms") : keptBmsPath,
+                Favorite = 7,
+                Tag = "kept-user-tag",
+                AddDate = 12345
             };
-            keptBms.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var removedBms = new TestableBmsFile { path = Path.Combine(root, removedName + ".bms") };
-            removedBms.SetHash("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-            var keptBmson = new LR2SongDBExtended.bmson_song
+            keptBms = keptBms with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            ChartFile removedBms = (ChartTestValues.Empty() with { Token = new OwnedChartToken(), Path = Path.Combine(root, removedName + ".bms") });
+            removedBms = removedBms with { Md5 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" };
+            ChartFile keptBmson = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = relocate ? Path.Combine(root, "old.bmson") : keptBmsonPath,
-                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                title = "kept-bmson"
+                Path = relocate ? Path.Combine(root, "old.bmson") : keptBmsonPath,
+                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                RawTitle = "kept-bmson"
             };
-            var removedBmson = new LR2SongDBExtended.bmson_song
+            ChartFile removedBmson = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = Path.Combine(root, removedName + ".bmson"),
-                md5 = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-                title = "removed-bmson"
+                Path = Path.Combine(root, removedName + ".bmson"),
+                Md5 = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                RawTitle = "removed-bmson"
             };
-            keptBms.SetMaintenanceInfo(new BMSFileMaintenanceInfo { path = keptBms.path, hash = keptBms.hash }, suppressPropertyChanged: true);
-            keptBmson.MaintenanceInfo = new BMSFileMaintenanceInfo { path = keptBmson.path, hash = keptBmson.md5 };
+            keptBms = ChartFileProjection.WithMaintenance(keptBms, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = keptBms.Path, hash = keptBms.Md5 }));
+            keptBmson = keptBmson with { ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = keptBmson.Path, hash = keptBmson.Md5 }) };
             File.WriteAllText(keptBmsPath, "#PLAYER 1\r\n#TITLE exact\r\n");
             File.WriteAllText(keptBmsonPath, "{}");
             string missingPath = Path.Combine(root, "missing.bms");
@@ -294,96 +297,107 @@ public sealed class BmsLibraryStateApplierTests
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDBExtended.bmson_song>();
                 db.CreateTable<LR2SongDBExtended.maintenance>();
-                db.InsertOrReplace(keptBms, typeof(LR2SongDB.song));
-                db.InsertOrReplace(removedBms, typeof(LR2SongDB.song));
-                db.InsertOrReplace(keptBmson, typeof(LR2SongDBExtended.bmson_song));
-                db.InsertOrReplace(removedBmson, typeof(LR2SongDBExtended.bmson_song));
-                foreach (string path in new[] { keptBms.path, removedBms.path, keptBmson.path, removedBmson.path, missingPath, keptMissingPath })
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptBms), typeof(LR2SongDB.song));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptBmson), typeof(LR2SongDBExtended.bmson_song));
+                db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedBmson), typeof(LR2SongDBExtended.bmson_song));
+                foreach (string path in new[] { keptBms.Path, removedBms.Path, keptBmson.Path, removedBmson.Path, missingPath, keptMissingPath })
                 {
-                    db.InsertOrReplace(new BMSFileMaintenanceInfo { path = path }, typeof(LR2SongDBExtended.maintenance));
+                    db.InsertOrReplace(new LR2SongDBExtended.maintenance { path = path }, typeof(LR2SongDBExtended.maintenance));
                 }
             }
 
-            var storage = new CatalogStorageRowsOwner();
-            CatalogStorageRowsSnapshot initial = storage.ReplaceRowsAndCaptureSnapshot([keptBms, removedBms], [keptBmson, removedBmson]);
-            var owned = new CatalogOwnedCollectionOwner();
-            Assert.IsTrue(owned.ApplyBuiltCollection(
-                OwnedChartCollectionState.FromStorageRows([keptBms, removedBms], [keptBmson, removedBmson]),
-                initial.BmsRowsVersion, initial.BmsonRowsVersion));
+            var storage = new CatalogOwnedCollectionOwner();
+            CatalogChartCollectionSnapshot initial = storage.ReplaceChartsAndCaptureSnapshot([keptBms, removedBms], [keptBmson, removedBmson]);
+            CatalogOwnedCollectionOwner owned = storage;
             Assert.AreEqual(4, owned.Collection.CreatePathSnapshot().Count, "旧DBの別exact keyをloaded ownerで取り落とさない。");
             var keptPackage = ChartPackage.FromChartEntries(
             [
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(keptBms)),
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptBmson))
+                PackageChartEntry.FromChart((keptBms)),
+                PackageChartEntry.FromChart((keptBmson))
             ]);
             var removedPackage = ChartPackage.FromChartEntries(
             [
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(removedBms)),
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedBmson))
+                PackageChartEntry.FromChart((removedBms)),
+                PackageChartEntry.FromChart((removedBmson))
             ]);
-            ObservableCollection<ChartPackage> pending = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installed = CreatePackageCollection([keptPackage, removedPackage]);
-            PackageStateMutationApplier applier = CreateStateApplier(songDbPath, new TrackingCallbacks(),
-                () => pending, value => pending = value, () => installed, value => installed = value);
-            var removeRequests = new List<OwnedChartRemoveRequest>();
-            removeRequests.Add(ownerReference
-                ? OwnedChartRemoveRequest.FromOwnerReference(removedBms)
-                : OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, removedBms.path));
-            removeRequests.Add(ownerReference
-                ? OwnedChartRemoveRequest.FromOwnerReference(removedBmson)
-                : OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, removedBmson.path));
-            removeRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, missingPath));
-            if (removeBoth || relocate)
+            PackageChartEntry[] stableEntries = [.. keptPackage.ChartEntries];
+            var lifecycle = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
+            lifecycle.SetInstalledPackages(installed);
+            try
             {
-                removeRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, keptBmsPath));
-                removeRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, keptBmsonPath));
-            }
-            var pathChanges = new List<LibraryChartPathChange>();
-            if (relocate)
-            {
-                pathChanges.Add(new LibraryChartPathChange
+                var removeRequests = new List<OwnedChartRemoveRequest>();
+                removeRequests.Add(ownerReference
+                    ? OwnedChartRemoveRequest.FromChart(removedBms)
+                    : OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, removedBms.Path));
+                removeRequests.Add(ownerReference
+                    ? OwnedChartRemoveRequest.FromChart(removedBmson)
+                    : OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, removedBmson.Path));
+                removeRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, missingPath));
+                if (removeBoth || relocate)
                 {
-                    Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(keptBms),
-                    OldPath = keptBms.path,
-                    NewPath = keptBmsPath
-                });
-                pathChanges.Add(new LibraryChartPathChange
+                    removeRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, keptBmsPath));
+                    removeRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, keptBmsonPath));
+                }
+                var pathChanges = new List<LibraryChartPathChange>();
+                if (relocate)
                 {
-                    Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(keptBmson),
-                    OldPath = keptBmson.path,
-                    NewPath = keptBmsonPath
-                });
+                    pathChanges.Add(new LibraryChartPathChange
+                    {
+                        Chart = (keptBms),
+                        OldPath = keptBms.Path,
+                        NewPath = keptBmsPath
+                    });
+                    pathChanges.Add(new LibraryChartPathChange
+                    {
+                        Chart = (keptBmson),
+                        OldPath = keptBmson.Path,
+                        NewPath = keptBmsonPath
+                    });
+                }
+                LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
+
+                CatalogMutationReceipt receipt = new CatalogMutationOwner(storage, new BmsLibraryDbGateway(songDbPath))
+                    .ApplyCatalogMutation(catalogFacts);
+                lifecycle.ApplyPackageReferenceFacts(
+                    LibraryPackageReferenceFacts.Empty,
+                    receipt.RemovedCharts,
+                    receipt.PathFacts);
+                lifecycle.PrepareCommittedChartApplication(storage.BmsRows.Concat(storage.BmsonRows))();
+                installed = lifecycle.InstalledPackages;
+
+                string[] expectedBms = removeBoth ? [] : [keptBmsPath];
+                string[] expectedBmson = removeBoth ? [] : [keptBmsonPath];
+                CollectionAssert.AreEquivalent(expectedBms, storage.BmsRows.Select(row => row.Path).ToArray());
+                CollectionAssert.AreEquivalent(expectedBmson, storage.BmsonRows.Select(row => row.Path).ToArray());
+                CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(), owned.Collection.CreatePathSnapshot());
+                CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(),
+                    installed.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+                using var readback = new LR2SongDBExtended(songDbPath);
+                CollectionAssert.AreEquivalent(expectedBms, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                CollectionAssert.AreEquivalent(expectedBmson, readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
+                CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).Append(keptMissingPath).ToArray(),
+                    readback.Table<LR2SongDBExtended.maintenance>().Select(row => row.path).ToArray());
+                if (!removeBoth)
+                {
+                    CollectionAssert.AreEqual(stableEntries, keptPackage.ChartEntries.ToArray(), "剪定した後も残存entryの同一性を維持します。");
+                    Assert.AreSame(keptBms.Token, storage.BmsRows.Single().Token);
+                    Assert.AreSame(keptBmson.Token, storage.BmsonRows.Single().Token);
+                    Assert.AreEqual(relocate ? Path.Combine(root, "old.bms") : keptBmsPath, keptBms.Path);
+                    Assert.AreEqual(relocate ? Path.Combine(root, "old.bmson") : keptBmsonPath, keptBmson.Path);
+                    LR2SongDB.song kept = readback.Find<LR2SongDB.song>(keptBmsPath);
+                    Assert.AreEqual(7, kept.favorite);
+                    Assert.AreEqual(12345, kept.adddate);
+                    Assert.AreEqual("kept-user-tag", kept.tag);
+                    Assert.AreEqual("kept-bmson", readback.Find<LR2SongDBExtended.bmson_song>(keptBmsonPath).title);
+                }
             }
-            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
-
-            CatalogMutationReceipt receipt = new CatalogMutationOwner(storage, owned, new BmsLibraryDbGateway(songDbPath))
-                .ApplyCatalogMutation(catalogFacts);
-            applier.ApplyPackageReferenceFacts(
-                LibraryPackageReferenceFacts.Empty,
-                receipt.RemovedCharts,
-                receipt.PathFacts);
-
-            string[] expectedBms = removeBoth ? [] : [keptBmsPath];
-            string[] expectedBmson = removeBoth ? [] : [keptBmsonPath];
-            CollectionAssert.AreEquivalent(expectedBms, storage.BmsRows.Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBmson, storage.BmsonRows.Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(), owned.Collection.CreatePathSnapshot());
-            CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(),
-                installed.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
-            using var readback = new LR2SongDBExtended(songDbPath);
-            CollectionAssert.AreEquivalent(expectedBms, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBmson, readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).Append(keptMissingPath).ToArray(),
-                readback.Table<LR2SongDBExtended.maintenance>().Select(row => row.path).ToArray());
-            if (!removeBoth)
+            finally
             {
-                Assert.AreSame(keptBms, storage.BmsRows.Single());
-                Assert.AreSame(keptBmson, storage.BmsonRows.Single());
-                LR2SongDB.song kept = readback.Find<LR2SongDB.song>(keptBmsPath);
-                Assert.AreEqual(7, kept.favorite);
-                Assert.AreEqual(12345, kept.adddate);
-                Assert.AreEqual("kept-user-tag", kept.tag);
-                Assert.AreEqual("kept-bmson", readback.Find<LR2SongDBExtended.bmson_song>(keptBmsonPath).title);
+                lifecycle.ClearInstalledPackages();
             }
         });
     }
@@ -393,16 +407,18 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var canonicalFile = new TestableBmsFile
+            ChartFile canonicalFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Library\\remove.bms"
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\remove.bms"
             };
-            canonicalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var keptFile = new TestableBmsFile
+            canonicalFile = canonicalFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            ChartFile keptFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Library\\keep.bms"
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\keep.bms"
             };
-            keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            keptFile = keptFile with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
             ChartPackage removedPackage = ChartPackageTestExtensions.CreatePackage([canonicalFile]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
@@ -410,20 +426,20 @@ public sealed class BmsLibraryStateApplierTests
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(canonicalFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(keptFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = canonicalFile.path }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonicalFile), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptFile), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = canonicalFile.Path }, typeof(LR2SongDBExtended.maintenance));
             }
 
-            List<BMSFile> libraryFiles = [canonicalFile, keptFile];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            List<ChartFile> libraryFiles = [canonicalFile, keptFile];
+            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage]);
             var callbacks = new TrackingCallbacks();
             PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
             LibraryCatalogMutationFacts catalogFacts = new(
-                [OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, canonicalFile.path)],
+                [OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, canonicalFile.Path)],
                 [],
                 []);
             ApplyCommittedMutation(applier, catalogFacts);
@@ -438,11 +454,12 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var relocatedFile = new TestableBmsFile
+            ChartFile relocatedFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Library\\new.bms"
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\new.bms"
             };
-            relocatedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            relocatedFile = relocatedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
             ChartPackage relocatedPackage = ChartPackageTestExtensions.CreatePackage([relocatedFile]);
             relocatedPackage.path = "C:\\Installed\\RelocatedPkg";
             relocatedPackage.delete_parent = false;
@@ -450,7 +467,7 @@ public sealed class BmsLibraryStateApplierTests
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(relocatedFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(relocatedFile), typeof(LR2SongDB.song));
             }
 
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
@@ -466,7 +483,7 @@ public sealed class BmsLibraryStateApplierTests
             LibraryCatalogMutationFacts catalogFacts = new(
                 [OwnedChartRemoveRequest.FromPathCleanup(
                     ChartFileKind.Bms,
-                    relocatedFile.path)],
+                    relocatedFile.Path)],
                 [],
                 []);
 
@@ -476,7 +493,7 @@ public sealed class BmsLibraryStateApplierTests
                 protectedPathFacts: [new CatalogRelocationPathFact(
                     ChartFileKind.Bms,
                     "C:\\Library\\old.bms",
-                    relocatedFile.path)]);
+                    relocatedFile.Path)]);
 
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(relocatedPackage, installedPackages.Single());
@@ -489,27 +506,28 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedFile = new TestableBmsFile
+            ChartFile removedFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Library\\remove.bms"
+                Token = new OwnedChartToken(),
+                Path = "C:\\Library\\remove.bms"
             };
-            removedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var unmatchedBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            removedFile = removedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            var unmatchedBmsonEntry = PackageChartEntry.FromChart(((ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\keep.bmson",
-                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                Path = "C:\\Library\\keep.bmson",
+                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }));
-            var mixedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(removedFile)), unmatchedBmsonEntry]);
+            var mixedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((removedFile)), unmatchedBmsonEntry]);
             mixedPackage.path = "C:\\Installed\\MixedPkg";
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
             }
 
-            List<BMSFile> libraryFiles = [removedFile];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            List<ChartFile> libraryFiles = [removedFile];
+            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([mixedPackage]);
             var callbacks = new TrackingCallbacks();
@@ -517,14 +535,14 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(
                 applier,
-                CreateUnregisterFacts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
+                CreateUnregisterFacts([(removedFile)]));
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(mixedPackage, installedPackages.Single());
             Assert.AreEqual(1, mixedPackage.ChartEntries.Count);
             Assert.AreEqual(unmatchedBmsonEntry.Chart.Path, mixedPackage.ChartEntries.Single().Chart.Path);
-            Assert.IsNull(unmatchedBmsonEntry.GetBmsOwnerForTest());
+            Assert.IsNull(unmatchedBmsonEntry.GetBmsChartForTest());
         });
     }
 
@@ -533,25 +551,25 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedSong = new LR2SongDBExtended.bmson_song
+            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\remove.bmson",
-                folder = "C:\\Library"
+                Path = "C:\\Library\\remove.bmson",
+                Folder = "C:\\Library"
             };
-            var keptSong = new LR2SongDBExtended.bmson_song
+            ChartFile keptSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\keep.bmson",
-                folder = "C:\\Library"
+                Path = "C:\\Library\\keep.bmson",
+                Folder = "C:\\Library"
             };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(keptSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptSong), typeof(LR2SongDBExtended.bmson_song));
             }
 
-            List<BMSFile> libraryFiles = [];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [removedSong, keptSong];
+            List<ChartFile> libraryFiles = [];
+            List<ChartFile> bmsonSongs = [removedSong, keptSong];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
@@ -559,7 +577,7 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(
                 applier,
-                CreateUnregisterFacts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
+                CreateUnregisterFacts([(removedSong)]));
 
             Assert.AreEqual(2, bmsonSongs.Count);
         });
@@ -570,33 +588,33 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedSong = new LR2SongDBExtended.bmson_song
+            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\remove.bmson",
-                folder = "C:\\Library",
-                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                Path = "C:\\Library\\remove.bmson",
+                Folder = "C:\\Library",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             };
-            var keptSong = new LR2SongDBExtended.bmson_song
+            ChartFile keptSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\keep.bmson",
-                folder = "C:\\Library",
-                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                Path = "C:\\Library\\keep.bmson",
+                Folder = "C:\\Library",
+                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             };
-            var removedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedSong))]);
+            var removedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((removedSong))]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
-            var keptPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptSong))]);
+            var keptPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((keptSong))]);
             keptPackage.path = "C:\\Installed\\KeepPkg";
             keptPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(keptSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptSong), typeof(LR2SongDBExtended.bmson_song));
             }
 
-            List<BMSFile> libraryFiles = [];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [removedSong, keptSong];
+            List<ChartFile> libraryFiles = [];
+            List<ChartFile> bmsonSongs = [removedSong, keptSong];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage, keptPackage]);
             var callbacks = new TrackingCallbacks();
@@ -604,7 +622,7 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(
                 applier,
-                CreateUnregisterFacts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
+                CreateUnregisterFacts([(removedSong)]));
 
             Assert.AreEqual(2, bmsonSongs.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -619,31 +637,31 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedSong = new LR2SongDBExtended.bmson_song
+            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\remove.bmson",
-                folder = "C:\\Library",
-                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                Path = "C:\\Library\\remove.bmson",
+                Folder = "C:\\Library",
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             };
-            var keptSong = new LR2SongDBExtended.bmson_song
+            ChartFile keptSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\keep.bmson",
-                folder = "C:\\Library",
-                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                Path = "C:\\Library\\keep.bmson",
+                Folder = "C:\\Library",
+                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             };
-            var removedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedSong));
-            var keptEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptSong));
+            var removedEntry = PackageChartEntry.FromChart((removedSong));
+            var keptEntry = PackageChartEntry.FromChart((keptSong));
             var package = ChartPackage.FromChartEntries([removedEntry, keptEntry]);
             package.path = "C:\\Installed\\MixedPkg";
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(keptSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptSong), typeof(LR2SongDBExtended.bmson_song));
             }
 
-            List<BMSFile> libraryFiles = [];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [removedSong, keptSong];
+            List<ChartFile> libraryFiles = [];
+            List<ChartFile> bmsonSongs = [removedSong, keptSong];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([package]);
             var callbacks = new TrackingCallbacks();
@@ -651,15 +669,15 @@ public sealed class BmsLibraryStateApplierTests
 
             ApplyCommittedMutation(
                 applier,
-                CreateUnregisterFacts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
+                CreateUnregisterFacts([(removedSong)]));
 
             Assert.AreEqual(2, bmsonSongs.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(package, installedPackages.Single());
             Assert.AreEqual(1, package.ChartEntries.Count);
-            Assert.AreEqual(keptSong.path, package.ChartEntries.Single().Chart.Path);
-            Assert.IsNull(removedEntry.GetBmsOwnerForTest());
-            Assert.IsNull(keptEntry.GetBmsOwnerForTest());
+            Assert.AreEqual(keptSong.Path, package.ChartEntries.Single().Chart.Path);
+            Assert.IsNull(removedEntry.GetBmsChartForTest());
+            Assert.IsNull(keptEntry.GetBmsChartForTest());
             Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
         });
     }
@@ -669,25 +687,25 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedSong = new LR2SongDBExtended.bmson_song
+            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
-                path = "C:\\Library\\remove.bmson",
-                folder = "C:\\Library"
+                Path = "C:\\Library\\remove.bmson",
+                Folder = "C:\\Library"
             };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
             }
 
-            List<BMSFile> libraryFiles = [];
-            List<LR2SongDBExtended.bmson_song> bmsonSongs = [removedSong];
+            List<ChartFile> libraryFiles = [];
+            List<ChartFile> bmsonSongs = [removedSong];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
             PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
             LibraryCatalogMutationFacts catalogFacts = new(
-                [OwnedChartRemoveRequest.FromOwnerReference(removedSong)],
+                [OwnedChartRemoveRequest.FromChart(removedSong)],
                 [],
                 []);
 
@@ -714,28 +732,28 @@ public sealed class BmsLibraryStateApplierTests
                 File.WriteAllText(newBmsPath, "#PLAYER 1");
                 File.WriteAllText(oldBmsonPath, "{}");
                 File.WriteAllText(newBmsonPath, "{}");
-                var bmsFile = new TestableBmsFile { path = oldBmsPath };
-                bmsFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                var bmsonSong = new LR2SongDBExtended.bmson_song
+                ChartFile bmsFile = (ChartTestValues.Empty() with { Token = new OwnedChartToken(), Path = oldBmsPath });
+                bmsFile = bmsFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                ChartFile bmsonSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
                 {
-                    path = oldBmsonPath,
-                    folder = tempRootPath,
-                    md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                    sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    Path = oldBmsonPath,
+                    Folder = tempRootPath,
+                    Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    Sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
                     songDb.CreateTable<LR2SongDBExtended.bmson_song>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
-                    songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(bmsFile), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(bmsonSong), typeof(LR2SongDBExtended.bmson_song));
                 }
 
                 ChartPackage bmsPackage = ChartPackageTestExtensions.CreatePackage(bmsFile);
                 var bmsonPackage = ChartPackage.FromChartEntries(
                 [
-                    PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
+                    PackageChartEntry.FromChart((bmsonSong))
                 ]);
                 ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
                 ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([bmsPackage, bmsonPackage]);
@@ -751,27 +769,26 @@ public sealed class BmsLibraryStateApplierTests
                 var pathChanges = new List<LibraryChartPathChange>();
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                    Chart = (bmsFile),
                     OldPath = oldBmsPath,
                     NewPath = newBmsPath
                 });
                 pathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
+                    Chart = (bmsonSong),
                     OldPath = oldBmsonPath,
                     NewPath = newBmsonPath
                 });
                 var removeRequests = new List<OwnedChartRemoveRequest>
                 {
-                    OwnedChartRemoveRequest.FromOwnerReference(bmsFile),
-                    OwnedChartRemoveRequest.FromOwnerReference(bmsonSong)
+                    OwnedChartRemoveRequest.FromChart(bmsFile),
+                    OwnedChartRemoveRequest.FromChart(bmsonSong)
                 };
                 LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-                var catalogOwner = new CatalogMutationOwner(
-                    new CatalogStorageRowsOwner(),
-                    new CatalogOwnedCollectionOwner(),
-                    new BmsLibraryDbGateway(songDbPath));
+                var currentOwner = new CatalogOwnedCollectionOwner();
+                currentOwner.ReplaceCharts([bmsFile], [bmsonSong]);
+                var catalogOwner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(songDbPath));
                 CatalogMutationReceipt receipt = catalogOwner.ApplyCatalogMutation(
                     catalogFacts);
 
@@ -779,7 +796,7 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(2, receipt.RemovedCharts.Count);
                 Assert.AreEqual(2, receipt.MovedCharts.Count);
                 Assert.AreEqual(
-                    bmsonSong.sha256,
+                    bmsonSong.Sha256,
                     receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bmson).Sha256);
 
                 applier.ApplyPackageReferenceFacts(
@@ -837,22 +854,40 @@ internal static class BmsLibraryStateApplierTestSupport
             mutation => mutation());
     }
 
+    /// <summary>実DBと正式な共通現在値の適用を接続し、捕捉済み入力を変更せずに返します。</summary>
     internal static CatalogMutationReceipt ApplyCatalogRelocation(
         string songDbPath,
         LibraryCatalogMutationFacts catalogFacts,
         TrackingCallbacks callbacks)
+        => ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out _);
+
+    /// <summary>確定後の共通現在値を観測するため、同じ局所カタログ所有者も返します。</summary>
+    internal static CatalogMutationReceipt ApplyCatalogRelocation(
+        string songDbPath,
+        LibraryCatalogMutationFacts catalogFacts,
+        TrackingCallbacks callbacks,
+        out CatalogOwnedCollectionOwner currentOwner)
     {
-        var owner = new CatalogMutationOwner(
-            new CatalogStorageRowsOwner(),
-            new CatalogOwnedCollectionOwner(),
-            new BmsLibraryDbGateway(songDbPath));
+        currentOwner = new CatalogOwnedCollectionOwner();
+        currentOwner.ReplaceCharts(catalogFacts.ChartPathChanges.Select(change => change.Chart with
+        { Path = change.OldPath, Token = change.Chart.Token ?? new OwnedChartToken() }), []);
+        var normalizedChanges = new List<LibraryChartPathChange>();
+        foreach (LibraryChartPathChange change in catalogFacts.ChartPathChanges)
+        {
+            ChartFile current = currentOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromPath(
+                change.Chart.Kind, change.OldPath, change.Chart.Md5, change.Chart.Sha256));
+            normalizedChanges.Add(new LibraryChartPathChange
+            { Chart = current, OldPath = change.OldPath, NewPath = change.NewPath });
+        }
+        var normalizedFacts = new LibraryCatalogMutationFacts(catalogFacts.ChartRemoveRequests, normalizedChanges, catalogFacts.FolderPathChanges);
+        var owner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(songDbPath));
         owner.CatalogWriteFailurePublished += delegate (object? sender, CatalogWriteFailureFact fact)
         {
             callbacks.SongDbWriteFailureCount++;
             callbacks.LastSongDbWriteFailureStage = fact.Stage;
             callbacks.LastSongDbWriteFailure = fact.Exception;
         };
-        return owner.ApplyCatalogMutation(catalogFacts);
+        return owner.ApplyCatalogMutation(normalizedFacts);
     }
 
     internal static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
@@ -863,7 +898,7 @@ internal static class BmsLibraryStateApplierTestSupport
     internal static LibraryCatalogMutationFacts CreateUnregisterFacts(IEnumerable<ChartFile> charts)
     {
         List<OwnedChartRemoveRequest> removeRequests = [.. (charts ?? [])
-            .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
+            .Select(OwnedChartRemoveRequest.FromChart)
             .Where(request => request != null)];
         return new LibraryCatalogMutationFacts(removeRequests, [], []);
     }
@@ -1021,16 +1056,4 @@ internal static class BmsLibraryStateApplierTestSupport
         }
     }
 
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            sha256 = value;
-        }
-    }
 }

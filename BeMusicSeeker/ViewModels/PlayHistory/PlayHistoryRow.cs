@@ -292,11 +292,11 @@ internal sealed class PlayHistoryRow
             }
 
             string digestSha256 = safeIndex.ResolveSha256(md5, null);
-            LibraryChartRef chartRef = safeIndex.ResolveChartByMd5(md5, digestSha256);
+            ChartFile chart = safeIndex.ResolveChartByMd5(md5, digestSha256);
+            var chartRef = LibraryChartRef.FromChartFile(chart);
             string resolvedSha256 = safeIndex.ResolveSha256(md5, chartRef?.Sha256 ?? digestSha256);
-            LR2SongDBExtended.chart_info chartInfo = safeIndex.ResolveChartInfo(resolvedSha256, md5);
+            BeMusicSeeker.Models.ChartDetails chartInfo = safeIndex.ResolveChartInfo(resolvedSha256, md5);
             resolvedSha256 = safeIndex.ResolveSha256(md5, FirstNonEmpty(resolvedSha256, chartInfo?.sha256));
-            ChartFile chart = chartRef?.ToChartFileIdentity() ?? chartRef?.ToChartFile();
             PlaylistReferenceDisplay playlistReference = safeIndex.ResolvePlaylistReference(md5, resolvedSha256);
             rows.Add(new PlayHistoryRow(
                 record,
@@ -331,10 +331,10 @@ internal sealed class PlayHistoryRow
                     sourceProfile.SourcePath));
             }
 
-            LibraryChartRef chartRef = safeIndex.ResolveChartByMd5(string.Empty, sha256);
-            LR2SongDBExtended.chart_info chartInfo = safeIndex.ResolveChartInfo(sha256, string.Empty);
+            ChartFile chart = safeIndex.ResolveChartByMd5(string.Empty, sha256);
+            var chartRef = LibraryChartRef.FromChartFile(chart);
+            BeMusicSeeker.Models.ChartDetails chartInfo = safeIndex.ResolveChartInfo(sha256, string.Empty);
             string resolvedMd5 = FirstNonEmpty(chartRef?.Md5, chartInfo?.md5);
-            ChartFile chart = chartRef?.ToChartFileIdentity() ?? chartRef?.ToChartFile();
             PlaylistReferenceDisplay playlistReference = safeIndex.ResolvePlaylistReference(resolvedMd5, sha256);
             rows.Add(new PlayHistoryRow(
                 record,

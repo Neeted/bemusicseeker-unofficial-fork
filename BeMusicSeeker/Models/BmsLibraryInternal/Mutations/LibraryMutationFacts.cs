@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -144,31 +143,59 @@ internal enum LibraryStorageRowPathNotificationPolicy
     Notify
 }
 
-/// <summary>
-/// One extension family handled inside a single invalid-extension rename user operation.
-/// Multiple batches may share one <see cref="LibraryMutationSessionReceipt"/> without
-/// introducing per-file durable receipts.
-/// </summary>
-internal sealed class LibraryFileExtensionRenameBatch
+/// <summary>確認前に固定した削除対象と、同じ捕捉境界で得た確認候補・未解決結果です。</summary>
+internal sealed class LibraryChartRemovalPreflight
 {
-    /// <summary>Copies one extension-family target set for later session execution.</summary>
-    /// <param name="charts">Charts whose invalid extensions belong to this batch.</param>
-    /// <param name="newExtension">The normalized destination extension for the batch.</param>
-    internal LibraryFileExtensionRenameBatch(
-        IEnumerable<ChartFile> charts,
-        string newExtension)
+    /// <summary>操作単位の捕捉値をコピーし、確認後の実行まで変更不能に保持します。</summary>
+    internal LibraryChartRemovalPreflight(
+        IEnumerable<ChartFile> targets,
+        IEnumerable<string> wholeFolderCandidatePaths,
+        IEnumerable<string> unresolvedPaths,
+        int inputCount,
+        int pathOnlyInputCount)
     {
-        Charts = Array.AsReadOnly((charts ?? [])
-            .Where(chart => chart != null)
-            .ToArray());
-        NewExtension = newExtension ?? string.Empty;
+        Targets = Array.AsReadOnly((targets ?? []).Where(target => target != null).ToArray());
+        WholeFolderCandidatePaths = Array.AsReadOnly((wholeFolderCandidatePaths ?? []).ToArray());
+        UnresolvedPaths = Array.AsReadOnly((unresolvedPaths ?? []).ToArray());
+        InputCount = inputCount;
+        PathOnlyInputCount = pathOnlyInputCount;
     }
 
-    /// <summary>Gets the immutable chart target list for this extension family.</summary>
-    internal IReadOnlyList<ChartFile> Charts { get; }
+    /// <summary>確認前の所持識別・形式・配置を持つ固定共通値です。</summary>
+    internal IReadOnlyList<ChartFile> Targets { get; }
+    /// <summary>固定対象と同じ境界で捕捉したフォルダ削除確認候補です。</summary>
+    internal IReadOnlyList<string> WholeFolderCandidatePaths { get; }
+    /// <summary>事前照合が成立しなかった要求パスです。</summary>
+    internal IReadOnlyList<string> UnresolvedPaths { get; }
+    /// <summary>重複排除前の有効な入力件数です。</summary>
+    internal int InputCount { get; }
+    /// <summary>所持識別がない入力件数です。</summary>
+    internal int PathOnlyInputCount { get; }
+}
 
-    /// <summary>Gets the destination extension used by the filesystem executor.</summary>
+/// <summary>一つの変更セッションで処理する、確認前の固定対象と変更先拡張子です。</summary>
+internal sealed class LibraryFileExtensionRenameBatch
+{
+    /// <summary>固定対象列をコピーし、元選択や並行したpreflight配列を保持しません。</summary>
+    /// <param name="targets">現在の所持識別・形式・配置を持つ不変の共通値。</param>
+    /// <param name="newExtension">変更先拡張子。</param>
+    /// <param name="inputCount">未解決も含む入力件数。省略時は固定対象件数。</param>
+    internal LibraryFileExtensionRenameBatch(
+        IEnumerable<ChartFile> targets,
+        string newExtension,
+        int? inputCount = null)
+    {
+        Targets = Array.AsReadOnly((targets ?? []).Where(target => target != null).ToArray());
+        NewExtension = newExtension ?? string.Empty;
+        InputCount = inputCount ?? Targets.Count;
+    }
+
+    /// <summary>確認後に再確定しない固定対象列です。</summary>
+    internal IReadOnlyList<ChartFile> Targets { get; }
+    /// <summary>filesystem処理に渡す変更先拡張子です。</summary>
     internal string NewExtension { get; }
+    /// <summary>未解決を成功扱いしないための入力件数です。</summary>
+    internal int InputCount { get; }
 }
 
 /// <summary>不正な拡張子の変更処理が確定した不変の結果です。</summary>
@@ -259,13 +286,7 @@ internal sealed class LibraryChartPathChange
     /// <summary>変更前のパス。</summary>
     public string OldPath { get; init; }
 
-    /// <summary>chartが保持するBMS storage ownerを返します。</summary>
-    /// <returns>対応するBMS owner。存在しない場合はnull。</returns>
-    internal BMSFile GetBmsStorageOwner() => Chart?.GetBmsStorageOwner();
 
-    /// <summary>chartが保持するBMSON storage ownerを返します。</summary>
-    /// <returns>対応するBMSON owner。存在しない場合はnull。</returns>
-    internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner() => Chart?.GetBmsonStorageOwner();
 }
 
 /// <summary>カタログのフォルダー行の旧パスと新パスを保持する移動事実。</summary>
@@ -281,8 +302,10 @@ internal sealed class LibraryFolderPathChange
 /// <summary>カタログとパッケージの状態適用に要した結果を保持します。</summary>
 internal sealed class BmsLibraryStateApplyResult
 {
-    /// <summary>状態適用前後の保存行バージョン。</summary>
-    public StorageRowsVersionSnapshot StorageRowsVersion { get; set; }
+    /// <summary>確定パスを受付権とモデル排他の解放後に公開する処理です。</summary>
+    internal Action PublishPackagePaths { get; set; }
+    /// <summary>状態適用前後の共通所持集合版です。独立した保存行版を保持しません。</summary>
+    public OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; set; }
 
     /// <summary>フォルダーDB更新の経過時間。</summary>
     public long FolderDbMs { get; set; }
@@ -326,9 +349,6 @@ internal sealed class LibraryInstallDestinationChange
     internal string GetCurrentInstallDestination() => Entry?.Chart?.InstallDestination
         ?? Chart?.InstallDestination;
 
-    /// <summary>chartが保持するBMS storage ownerを返します。</summary>
-    /// <returns>対応するBMS owner。存在しない場合はnull。</returns>
-    internal BMSFile GetBmsStorageOwner() => Chart?.GetBmsStorageOwner();
 
     /// <summary>
     /// 導入先状態と同時にパス変更を反映した譜面スナップショットを生成します。
@@ -384,8 +404,6 @@ internal sealed class LibraryInstallDestinationChange
             return null;
         }
 
-        BMSFile bmsFile = source.GetBmsStorageOwner();
-        LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
         foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
         {
             ChartFile changedChart = pathChange?.Chart;
@@ -393,9 +411,7 @@ internal sealed class LibraryInstallDestinationChange
             {
                 continue;
             }
-            if (ReferenceEquals(changedChart, source)
-                || (bmsFile != null && ReferenceEquals(changedChart.GetBmsStorageOwner(), bmsFile))
-                || (bmsonSong != null && ReferenceEquals(changedChart.GetBmsonStorageOwner(), bmsonSong)))
+            if (source.Token != null && ReferenceEquals(changedChart.Token, source.Token))
             {
                 return pathChange.NewPath;
             }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -12,7 +11,7 @@ internal sealed class InstallDestinationStateOwner
 {
     private readonly object gate = new();
 
-    private readonly CatalogStorageRowsOwner storageRowsOwner;
+    private readonly CatalogOwnedCollectionOwner collectionOwner;
 
     private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> runtimeStatesByKey = new(StringComparer.Ordinal);
 
@@ -21,10 +20,10 @@ internal sealed class InstallDestinationStateOwner
     private InstallDestinationOverlayChartRefSnapshot overlaySnapshot;
 
     internal InstallDestinationStateOwner(
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner collectionOwner,
         Func<HashSet<string>> currentOwnedRuntimeStateKeySnapshotProvider)
     {
-        this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
+        this.collectionOwner = collectionOwner ?? throw new ArgumentNullException(nameof(collectionOwner));
         this.currentOwnedRuntimeStateKeySnapshotProvider = currentOwnedRuntimeStateKeySnapshotProvider
             ?? throw new ArgumentNullException(nameof(currentOwnedRuntimeStateKeySnapshotProvider));
     }
@@ -166,56 +165,12 @@ internal sealed class InstallDestinationStateOwner
             return null;
         }
 
-        if (chart.Kind == ChartFileKind.Bms)
+        ChartFile current;
+        lock (collectionOwner.Gate)
         {
-            BMSFile bmsOwner = FindCurrentBmsOwner(
-                chart,
-                storageRowsOwner.FindBmsRowsByExactPath(chart.Path));
-            return bmsOwner == null
-                ? null
-                : CreatePackageStateChart(
-                    chart,
-                    ChartFileProjection.FromBmsFile(
-                        bmsOwner,
-                        includeWarningSnapshot: false,
-                        includeResourceReferences: false));
+            current = collectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart));
         }
-
-        LR2SongDBExtended.bmson_song bmsonOwner = FindCurrentBmsonOwner(
-            chart,
-            storageRowsOwner.FindBmsonRowsByExactPath(chart.Path));
-        return bmsonOwner == null
-            ? null
-            : CreatePackageStateChart(
-                chart,
-                ChartFileProjection.FromBmsonSong(
-                    bmsonOwner,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false));
-    }
-
-    private static BMSFile FindCurrentBmsOwner(
-        ChartFile chart,
-        IEnumerable<BMSFile> rows)
-    {
-        List<BMSFile> candidates = [.. (rows ?? []).Where(file => file != null)];
-        return candidates.FirstOrDefault(file =>
-                !string.IsNullOrWhiteSpace(file.hash)
-                && !string.IsNullOrWhiteSpace(chart.Md5)
-                && string.Equals(file.hash, chart.Md5, StringComparison.OrdinalIgnoreCase))
-            ?? (candidates.Count == 1 ? candidates[0] : null);
-    }
-
-    private static LR2SongDBExtended.bmson_song FindCurrentBmsonOwner(
-        ChartFile chart,
-        IEnumerable<LR2SongDBExtended.bmson_song> rows)
-    {
-        List<LR2SongDBExtended.bmson_song> candidates = [.. (rows ?? []).Where(song => song != null)];
-        return candidates.FirstOrDefault(song =>
-                !string.IsNullOrWhiteSpace(song.md5)
-                && !string.IsNullOrWhiteSpace(chart.Md5)
-                && string.Equals(song.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
-            ?? (candidates.Count == 1 ? candidates[0] : null);
+        return current == null ? null : CreatePackageStateChart(chart, current);
     }
 
     private static ChartFile CreatePackageStateChart(ChartFile source, ChartFile ownerProjection)
@@ -264,30 +219,6 @@ internal sealed class InstallDestinationStateOwner
             }
         }
 
-        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            foreach (InstallDestinationRuntimeStateKey ownerKey in EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)))
-            {
-                if (seenKeys.Add(ownerKey.Key))
-                {
-                    yield return ownerKey.Key;
-                }
-            }
-            yield break;
-        }
-
-        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
-        if (bmsonOwner != null)
-        {
-            foreach (InstallDestinationRuntimeStateKey ownerKey in EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)))
-            {
-                if (seenKeys.Add(ownerKey.Key))
-                {
-                    yield return ownerKey.Key;
-                }
-            }
-        }
     }
 
     private static IEnumerable<InstallDestinationRuntimeStateKey> EnumerateChartRuntimeStateLookupKeys(ChartFile chart)
@@ -298,9 +229,7 @@ internal sealed class InstallDestinationStateOwner
             yield return new InstallDestinationRuntimeStateKey(primaryKey, requireOwnerMatch: false);
         }
 
-        // Maintenance can recalculate a BMS hash after a runtime state is published.
-        // Keep an owner-guarded path key so the overlay survives that owner refresh
-        // without leaking to a different chart later installed at the same path.
+        // ハッシュが更新されても同じ所持識別へ投影するため、tokenを照合するパスキーを併用します。
         string pathKey = ChartFileRuntimeStateKey.CreatePathKey(chart);
         if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.Ordinal))
         {
@@ -413,20 +342,11 @@ internal sealed class InstallDestinationStateOwner
 
     private sealed class InstallDestinationRuntimeStateEntry
     {
-        private readonly BMSFile bmsOwner;
-        private readonly LR2SongDBExtended.bmson_song bmsonOwner;
-
         private readonly ChartFile chartSnapshot;
 
-        private InstallDestinationRuntimeStateEntry(
-            ChartFileTransientState state,
-            BMSFile bmsOwner,
-            LR2SongDBExtended.bmson_song bmsonOwner,
-            ChartFile chartSnapshot)
+        private InstallDestinationRuntimeStateEntry(ChartFileTransientState state, ChartFile chartSnapshot)
         {
             State = state ?? ChartFileTransientState.Empty;
-            this.bmsOwner = bmsOwner;
-            this.bmsonOwner = bmsonOwner;
             this.chartSnapshot = chartSnapshot;
         }
 
@@ -434,68 +354,27 @@ internal sealed class InstallDestinationStateOwner
 
         internal static InstallDestinationRuntimeStateEntry FromChart(ChartFile chart, ChartFileTransientState state)
         {
-            return new InstallDestinationRuntimeStateEntry(
-                state,
-                chart?.GetBmsStorageOwner(),
-                chart?.GetBmsonStorageOwner(),
-                ChartFileProjection.ToImmutableSnapshot(chart));
+            return new InstallDestinationRuntimeStateEntry(state, chart);
         }
 
         internal bool CanApplyTo(ChartFile chart, bool requireOwnerMatch)
         {
-            return CanApplyTo(chart?.GetBmsStorageOwner(), chart?.GetBmsonStorageOwner(), requireOwnerMatch);
-        }
-
-        private bool CanApplyTo(
-            BMSFile currentBmsOwner,
-            LR2SongDBExtended.bmson_song currentBmsonOwner,
-            bool requireOwnerMatch)
-        {
-            if (State?.HasState != true)
+            if (State?.HasState != true || chart == null)
             {
                 return false;
             }
-            if (!requireOwnerMatch)
+            if (chartSnapshot?.Token != null || chart.Token != null)
             {
-                return true;
+                return ReferenceEquals(chartSnapshot?.Token, chart.Token);
             }
-
-            if (bmsOwner != null || currentBmsOwner != null)
-            {
-                return ReferenceEquals(bmsOwner, currentBmsOwner);
-            }
-
-            // Scan residual events carry immutable snapshots only. The facade
-            // reattaches the current storage owner before applying them when a
-            // row is available; an ownerless snapshot must never satisfy the
-            // guarded path fallback because that would leak state to another
-            // chart later installed at the same path.
-            if (bmsonOwner == null && currentBmsonOwner == null)
-            {
-                return false;
-            }
-
-            return (bmsonOwner != null || currentBmsonOwner != null)
-                && ReferenceEquals(bmsonOwner, currentBmsonOwner);
+            return !requireOwnerMatch;
         }
 
         internal ChartFile CreateChartSnapshot()
         {
-            if (State?.HasInstallDestinationState != true)
-            {
-                return null;
-            }
-
-            ChartFile source = bmsOwner != null
-                ? ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)
-                : bmsonOwner != null
-                    ? ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)
-                    : chartSnapshot;
-            if (source == null)
-            {
-                return null;
-            }
-            return ChartFileProjection.WithTransientState(source, State, includeWarningSnapshot: false);
+            return State?.HasInstallDestinationState == true && chartSnapshot != null
+                ? ChartFileProjection.WithTransientState(chartSnapshot, State, includeWarningSnapshot: false)
+                : null;
         }
     }
 }

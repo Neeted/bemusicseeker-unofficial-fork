@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -17,7 +16,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     internal BMSLibrary.PlaylistLibraryResolveIndexRuntimeState RuntimeState { get; set; } = new();
 
-    internal LR2SongDBExtended.chart_info ChartInfo { get; set; } = null!;
+    internal BeMusicSeeker.Models.ChartDetails ChartInfo { get; set; } = null!;
 
     internal BMSLibrary.ScoreSnapshot ScoreSnapshot { get; set; } = null!;
 
@@ -27,7 +26,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     public int ScoreSnapshotVersion => 1;
 
-    public long OwnedChartCollectionVersion => 1;
+    public long OwnedCollectionVersion => 1;
 
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {
@@ -56,7 +55,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         return RuntimeState;
     }
 
-    public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    public BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return ChartInfo;
     }
@@ -65,7 +64,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore score,
-        LR2SongDBExtended.chart_info chartInfo,
+        BeMusicSeeker.Models.ChartDetails chartInfo,
         LibraryChartRef resolvedChartRef)
     {
         return new PlaylistDetailSourceRow(

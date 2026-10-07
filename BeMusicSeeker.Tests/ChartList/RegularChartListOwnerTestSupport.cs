@@ -56,9 +56,10 @@ internal static class RegularChartListOwnerTestSupport
     internal static ReaderWriterLockSlimWrapper GetCatalogStorageRowsWriteGate(BMSLibrary library)
     {
         FieldInfo storageOwnerField = typeof(BMSLibrary).GetField(
-            "catalogStorageRowsOwner",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var storageOwner = (CatalogStorageRowsOwner)storageOwnerField.GetValue(library)!;
+            "catalogOwnedCollectionOwner",
+            BindingFlags.Instance | BindingFlags.NonPublic) ?? throw new InvalidOperationException("Owned collection field was not found.");
+        CatalogOwnedCollectionOwner storageOwner = storageOwnerField.GetValue(library) as CatalogOwnedCollectionOwner
+            ?? throw new InvalidOperationException("Owned collection was not initialized.");
         return storageOwner.WriteGate;
     }
 
@@ -146,16 +147,16 @@ internal static class RegularChartListOwnerTestSupport
             (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
-    internal static TestableBmsFile CreateTestableBmsFile(string path)
+    internal static ChartFile CreateTestableBmsFile(string path)
     {
-        var file = new TestableBmsFile { path = path };
-        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ChartFile file = (ChartTestValues.Empty() with { Path = path });
+        file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
         return file;
     }
 
-    internal static RenameChartFolderRequest CreateRenameRequest(BMSFile file)
+    internal static RenameChartFolderRequest CreateRenameRequest(ChartFile file)
     {
-        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        ChartFile chart = (file);
         var target = new ChartOperationTarget(
             chart,
             playlistEntry: null,
@@ -193,18 +194,6 @@ internal static class RegularChartListOwnerTestSupport
         }
     }
 
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        internal void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        internal void SetMaintenanceInfo(BMSFileMaintenanceInfo value)
-        {
-            SetMaintenanceInfo(value, suppressPropertyChanged: true);
-        }
-    }
 
     internal static RegularChartListEntryRequest CreateEntryRequest(
         MainViewUpdateMode mode,
@@ -227,23 +216,7 @@ internal static class RegularChartListOwnerTestSupport
         string path = string.IsNullOrEmpty(folder)
             ? fileName
             : System.IO.Path.Combine(@"C:\Charts", folder, fileName);
-        var chart = new ChartFile(
-            ChartFileKind.Bms,
-            path,
-            md5: fileName,
-            sha256: null,
-            title: fileName,
-            rawTitle: fileName,
-            artist: string.Empty,
-            genre: string.Empty,
-            folder: folder,
-            tag: string.Empty,
-            levelText: string.Empty,
-            level: null,
-            mode: mode,
-            chartInfo: null,
-            bmsFile: null,
-            bmsonSong: null);
+        var chart = new ChartFile(ChartFileKind.Bms, path, md5: fileName, sha256: null, title: fileName, rawTitle: fileName, artist: string.Empty, genre: string.Empty, folder: folder, tag: string.Empty, levelText: string.Empty, level: null, mode: mode, chartInfo: null);
         return ChartListSourceRow.FromChartFile(chart);
     }
 

@@ -2826,4 +2826,7 @@ public class Resources
 
     /// <summary>サマリーから実行するプレイリスト外部プロパティ初期化の進捗名です。</summary>
     public static string Statusbar_progress_task_playlist_external_property_initialization => ResourceManager.GetString("Statusbar_progress_task_playlist_external_property_initialization", resourceCulture);
+
+    /// <summary>準備済み譜面対象の所持識別・形式・配置が一致せず、変更を実行しなかった原因を示します。</summary>
+    public static string Error_PreparedChartTargetMismatch => ResourceManager.GetString("Error_PreparedChartTargetMismatch", resourceCulture);
 }

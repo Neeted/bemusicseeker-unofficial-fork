@@ -55,7 +55,7 @@ internal static class ChartInfoMetadataTestSupport
         Assert.AreEqual(expectedHexBits, JavaDoubleParserJdk17.ParseDoubleBits(value).ToString("x16", CultureInfo.InvariantCulture), value);
     }
 
-    internal static void AssertChartInfoEquivalent(LR2SongDBExtended.chart_info expected, LR2SongDBExtended.chart_info actual)
+    internal static void AssertChartInfoEquivalent(BeMusicSeeker.Models.ChartDetails expected, BeMusicSeeker.Models.ChartDetails actual)
     {
         Assert.AreEqual(expected.sha256, actual.sha256);
         Assert.AreEqual(expected.md5, actual.md5);
@@ -89,7 +89,7 @@ internal static class ChartInfoMetadataTestSupport
         Assert.AreEqual(expected.parser_version, actual.parser_version);
     }
 
-    internal static void AssertChartInfoDisplayProjectionEquivalent(LR2SongDBExtended.chart_info expected, LR2SongDBExtended.chart_info actual)
+    internal static void AssertChartInfoDisplayProjectionEquivalent(BeMusicSeeker.Models.ChartDetails expected, BeMusicSeeker.Models.ChartDetails actual)
     {
         Assert.AreEqual(expected.sha256, actual.sha256);
         Assert.AreEqual(expected.md5, actual.md5);
@@ -177,9 +177,9 @@ internal static class ChartInfoMetadataTestSupport
         return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
     }
 
-    internal static LR2SongDBExtended.chart_info CreateChartInfoRow(string sha256, string md5, int parserVersion)
+    internal static BeMusicSeeker.Models.ChartDetails CreateChartInfoRow(string sha256, string md5, int parserVersion)
     {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = sha256,
             md5 = md5,
@@ -226,17 +226,17 @@ internal static class ChartInfoMetadataTestSupport
 
     internal static void InsertSongForSummary(LR2SongDBExtended songDb, string path, string md5)
     {
-        var file = new TestableBmsFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = path
+            Path = path
         };
-        file.SetHash(md5);
-        songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
+        file = file with { Md5 = md5 };
+        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
     }
 
-    internal static LR2SongDBExtended.chart_info_parse_failure CreateChartInfoParseFailureRow(string md5, string sha256, string path, int parserVersion, string failureKind, string exceptionType, string message, int? parseTimeoutMs)
+    internal static BeMusicSeeker.Models.ChartParseFailure CreateChartInfoParseFailureRow(string md5, string sha256, string path, int parserVersion, string failureKind, string exceptionType, string message, int? parseTimeoutMs)
     {
-        return new LR2SongDBExtended.chart_info_parse_failure
+        return new BeMusicSeeker.Models.ChartParseFailure
         {
             md5 = md5,
             sha256 = sha256,
@@ -333,7 +333,7 @@ internal static class ChartInfoMetadataTestSupport
 
     internal static string CreateChartInfoMetadataBundle(
         string tempRootPath,
-        IEnumerable<LR2SongDBExtended.chart_info> chartInfos,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> chartInfos,
         IEnumerable<LR2SongDBExtended.chart_digest_map>? chartDigests = null)
     {
         string sourceDirectoryPath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-source");
@@ -344,9 +344,9 @@ internal static class ChartInfoMetadataTestSupport
         {
             BmsLibraryDbGateway.EnsureBmsonSchema(sourceDb);
             BmsLibraryDbGateway.EnsureChartInfoSchema(sourceDb);
-            foreach (LR2SongDBExtended.chart_info row in chartInfos ?? [])
+            foreach (BeMusicSeeker.Models.ChartDetails row in chartInfos ?? [])
             {
-                sourceDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
+                sourceDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
             }
             foreach (LR2SongDBExtended.chart_digest_map row in chartDigests ?? [])
             {
@@ -477,18 +477,15 @@ internal static class ChartInfoMetadataTestSupport
     internal static ChartInfoBackfillResult BackfillChartInfos(
         ChartInfoBuildService service,
         BmsLibraryDbGateway gateway,
-        IEnumerable<BMSFile>? currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song>? currentBmsonSongs,
+        IEnumerable<ChartFile>? currentFiles,
+        IEnumerable<ChartFile>? currentBmsonSongs,
         Action<int, int, string>? reportProgress = null,
         Action<string>? logInstallPerformance = null,
         Action<string>? logInstallPerformanceWarn = null,
         Action<ChartInfoStorageCommitPublication>? storageCommitPublished = null,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info>? existingRowsSnapshot = null)
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails>? existingRowsSnapshot = null)
     {
-        var mutationOwner = new CatalogMutationOwner(
-            new CatalogStorageRowsOwner(),
-            new CatalogOwnedCollectionOwner(),
-            gateway);
+        var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
         return service.BackfillChartInfos(
             gateway,
             CreateChartSnapshot(currentFiles, currentBmsonSongs),
@@ -501,12 +498,12 @@ internal static class ChartInfoMetadataTestSupport
     }
 
     internal static List<ChartFile> CreateChartSnapshot(
-        IEnumerable<BMSFile>? currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song>? currentBmsonSongs)
+        IEnumerable<ChartFile>? currentFiles,
+        IEnumerable<ChartFile>? currentBmsonSongs)
     {
         List<ChartFile> charts = [];
-        charts.AddRange(ChartFileProjection.FromBmsFiles(currentFiles, includeWarningSnapshot: false));
-        charts.AddRange(ChartFileProjection.FromBmsonSongs(currentBmsonSongs, includeWarningSnapshot: false));
+        charts.AddRange(currentFiles ?? []);
+        charts.AddRange(currentBmsonSongs ?? []);
         return charts;
     }
 
@@ -532,18 +529,6 @@ internal static class ChartInfoMetadataTestSupport
         public int chart_digest_count { get; set; }
     }
 
-    internal sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            ApplySha256(value);
-        }
-    }
 
     internal sealed class RecordingDialogService : IBmsLibraryDialogService
     {
@@ -651,7 +636,7 @@ internal static class ChartInfoMetadataTestSupport
 
         public int MainBpmDiffs { get; internal set; }
 
-        public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString)
+        public void Add(RealChartInfoExpectedRow expected, BeMusicSeeker.Models.ChartDetails actual, string chartString)
         {
             CoreDiffs += CountCoreDiffs(expected, actual);
             if (!string.Equals(expected.charthash, actual.charthash, StringComparison.OrdinalIgnoreCase))
@@ -749,7 +734,7 @@ internal static class ChartInfoMetadataTestSupport
             return artifactPath;
         }
 
-        internal static int CountCoreDiffs(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)
+        internal static int CountCoreDiffs(RealChartInfoExpectedRow expected, BeMusicSeeker.Models.ChartDetails actual)
         {
             int count = 0;
             count += string.Equals(expected.sha256, actual.sha256, StringComparison.OrdinalIgnoreCase) ? 0 : 1;
@@ -857,7 +842,7 @@ internal static class ChartInfoMetadataTestSupport
             return Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoProductionDiff");
         }
 
-        public void AddParsed(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString, long elapsedMilliseconds)
+        public void AddParsed(RealChartInfoExpectedRow expected, BeMusicSeeker.Models.ChartDetails actual, string chartString, long elapsedMilliseconds)
         {
             ParsedCount++;
             RecordParse(expected, elapsedMilliseconds, "success");
@@ -878,7 +863,7 @@ internal static class ChartInfoMetadataTestSupport
             AddSkippedSample("failed", expected, elapsedMilliseconds, exception);
         }
 
-        public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString)
+        public void Add(RealChartInfoExpectedRow expected, BeMusicSeeker.Models.ChartDetails actual, string chartString)
         {
             if (IsRandomFeature(expected.feature) || IsRandomFeature(actual.feature))
             {
@@ -1012,7 +997,7 @@ internal static class ChartInfoMetadataTestSupport
                 + (parseRecords.Count == 0 ? string.Empty : " slowTop=" + string.Join(" | ", GetSlowTopRecords()));
         }
 
-        internal void AddCoreDiffs(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)
+        internal void AddCoreDiffs(RealChartInfoExpectedRow expected, BeMusicSeeker.Models.ChartDetails actual)
         {
             CompareCoreField("level", expected, FormatValue(expected.level), FormatValue(actual.level), LevelEqualsBeatoraja(expected.level, actual.level));
             CompareCoreField("difficulty", expected, FormatValue(expected.difficulty), FormatValue(actual.difficulty), expected.difficulty == actual.difficulty);

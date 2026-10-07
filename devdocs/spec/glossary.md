@@ -6,10 +6,10 @@
 
 | 用語 | 意味 | 対応する表記・コード |
 | --- | --- | --- |
-| BMS | テキスト形式の譜面と、その形式固有の処理。BME・BML・PMSを含む範囲は各仕様で示す。 | BMS、`BMSFile`、LR2 `song` |
+| BMS | テキスト形式の譜面と、その形式固有の処理。BME・BML・PMSを含む範囲は各仕様で示す。 | BMS、`ChartFileKind.Bms`、再生解析用 `Ribbit.BMS.BMSFile` |
 | BMSON | JSON形式の譜面。BMSの保存行へ偽装せず扱う。 | BMSON、`bmson_song` |
 | 譜面共通モデル | 保存形式の違いを越えて、参照・表示・操作に使う譜面モデル。 | `ChartFile` |
-| 保存モデル | DBの保存行と形式固有の値を保持するモデル。 | storage model、`BMSFile`、`bmson_song` |
+| 保存モデル | DB入出力の境界で既存列を表現するDTO。アプリの現在値・解析結果・スコア購読は保持しない。 | `LR2SongDB.song`、`bmson_song` |
 | 読取りモデル | 表示や判定に必要な値を、書込み用の内部状態から分けて提供するモデル。 | read model、projection |
 | 投影 | 元データから、特定の用途に必要な値を取り出した表現。 | projection、`ChartFileProjection` |
 | カタログ | 管理対象の譜面とフォルダの正本。ファイルの実在確認やリソース逆引きとは別の役割。 | catalog、`OwnedChartCollectionState` |
@@ -24,7 +24,7 @@
 | クリア状況 | スコアのうち、譜面をどの条件でクリアしたかを表す状態。FAILED・EASY・NORMAL・HARD・FULLCOMBOなどを含む。 | clear status、clear |
 | クリアランプ | クリア状況をランプの区分として表示・集計する表現。 | clear lamp |
 | DJレベル | スコアを `AAA`、`AA`、`A`～`F`、`NP` などへ分類する区分。DBやコードの `rank` / `RankType` がこの区分を表す場合も、利用者向け表示と仕様ではDJレベルと呼ぶ。 | LR2 DJ level、`RankType`、`rank` |
-| 譜面形式別の保存主体 | 形式固有の保存行を保持し、値の変更に責任を持つ対象。 | storage owner |
+| 所持項目の識別 | 内容・パス・順序・保存行を持たず、現在の所持項目と捕捉値の寿命だけを結ぶ識別。 | `OwnedChartToken` |
 
 関連仕様: [譜面モデル](library/chart-model.md)、[データと索引](core/data-and-indexes.md)。
 

@@ -6,11 +6,6 @@ namespace BeMusicSeeker.Tests;
 
 internal static class ChartWarningTestHelpers
 {
-    internal static bool ContainsLowConfidenceInstallEstimationWarning(BMSFile file)
-    {
-        return file?.Warnings.ToStructuredList().Any(IsLowConfidenceInstallEstimationWarning) == true;
-    }
-
     internal static bool ContainsLowConfidenceInstallEstimationWarning(ChartFile? chart)
     {
         return chart?.Warnings.Any(IsLowConfidenceInstallEstimationWarning) == true;

@@ -375,7 +375,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (modelState?.IsCached == true
             && dataSource != null
-            && modelState.OwnedCollectionVersion == dataSource.OwnedChartCollectionVersion)
+            && modelState.OwnedCollectionVersion == dataSource.OwnedCollectionVersion)
         {
             return new PlaylistLibraryIndexReadinessSnapshot
             {

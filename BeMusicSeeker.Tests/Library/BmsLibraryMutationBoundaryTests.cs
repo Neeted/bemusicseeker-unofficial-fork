@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -48,9 +49,9 @@ public sealed class BmsLibraryMutationBoundaryTests
                 ResultToReturn = MessageBoxResult.Yes
             };
             var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
-            var pendingFile = new TestableBmsFile
+            ChartFile pendingFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Pending\\Pkg\\chart.bms"
+                Path = "C:\\Pending\\Pkg\\chart.bms"
             };
             var pendingPackage = ChartPackage.FromChartEntries(
                 [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
@@ -66,6 +67,51 @@ public sealed class BmsLibraryMutationBoundaryTests
         });
     }
 
+    /// <summary>direct preparedの未承認候補をscope内へ持ち込んでも、従来の非OK拒否を緩めません。</summary>
+    [TestMethod]
+    public void OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        OwnedChartCollectionTestSupport.WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string folder = Path.Combine(root, "Pack");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "chart.bms");
+            File.WriteAllText(path, "#PLAYER 1");
+            var filesystem = new OwnedChartCollectionTestSupport.TestFileMutationService();
+            var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [OwnedChartCollectionTestSupport.CreateFile(new string('a', 32), path)], BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            try
+            {
+                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(
+                    library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
+                Assert.AreEqual(1, prepared.WholeFolderCandidatePaths.Count);
+                using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
+
+                Assert.ThrowsException<InvalidOperationException>(() => library.RemoveLibraryCharts(prepared, sendToRecycleBin: false));
+
+                Assert.AreEqual(0, dialogs.CallCount);
+                Assert.AreEqual(0, scope.Messages.Count);
+                Assert.AreEqual(0, filesystem.FileDeleteCalls);
+                Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
+                Assert.IsTrue(File.Exists(path));
+                using var readback = new LR2SongDBExtended(songDbPath);
+                Assert.AreEqual(path, readback.Table<LR2SongDB.song>().Single().path);
+                Assert.AreEqual(1, library.BmsCharts.Count);
+            }
+            finally
+            {
+                library.RequestShutdown("prepared-dialog-boundary-test");
+                TestUiDispatcherHost.Drain();
+            }
+        });
+    }
+
     [TestMethod]
     public void ForceInstallPendingPackages_WithExplicitOverrideDecisionDoesNotPromptInsideMutationScope()
     {
@@ -74,9 +120,9 @@ public sealed class BmsLibraryMutationBoundaryTests
         {
             var dialogService = new RecordingDialogService();
             var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
-            var pendingFile = new TestableBmsFile
+            ChartFile pendingFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Pending\\Pkg\\chart.bms"
+                Path = "C:\\Pending\\Pkg\\chart.bms"
             };
             var pendingPackage = ChartPackage.FromChartEntries(
                 [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
@@ -174,7 +220,4 @@ public sealed class BmsLibraryMutationBoundaryTests
         public MessageBoxResult DefaultResult { get; set; }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-    }
 }

@@ -213,23 +213,7 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
 
     private static ChartOperationTarget CreateTarget(ChartOperationCapabilities capabilities, string md5)
     {
-        var chart = new ChartFile(
-            ChartFileKind.Bms,
-            "C:\\charts\\target.bms",
-            md5,
-            null,
-            "title",
-            "title",
-            "artist",
-            "genre",
-            "folder",
-            string.Empty,
-            string.Empty,
-            null,
-            null,
-            null,
-            null,
-            null);
+        var chart = new ChartFile(ChartFileKind.Bms, "C:\\charts\\target.bms", md5, null, "title", "title", "artist", "genre", "folder", string.Empty, string.Empty, null, null, null);
         return new ChartOperationTarget(
             chart,
             null,

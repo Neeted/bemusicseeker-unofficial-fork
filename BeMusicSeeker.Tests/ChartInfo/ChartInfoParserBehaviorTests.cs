@@ -7,7 +7,6 @@ using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
@@ -44,14 +43,14 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00251:0101\r\n"
                     + "#003D1:01\r\n",
                 Encoding.ASCII);
-            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath, digest.hash, digest.sha256);
-            LR2SongDBExtended.chart_info bytesRow = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, digest.hash, digest.sha256);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath, digest.Md5, digest.Sha256);
+            BeMusicSeeker.Models.ChartDetails bytesRow = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, digest.Md5, digest.Sha256);
 
             AssertChartInfoEquivalent(row, bytesRow);
-            Assert.AreEqual(digest.hash, row.md5);
-            Assert.AreEqual(digest.sha256, row.sha256);
+            Assert.AreEqual(digest.Md5, row.md5);
+            Assert.AreEqual(digest.Sha256, row.sha256);
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, row.parser_version);
             Assert.AreEqual(12, row.level);
             Assert.AreEqual(3, row.difficulty);
@@ -93,9 +92,9 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#DEFEXRANK 120\r\n"
                     + "#00111:01\r\n",
                 Encoding.ASCII);
-            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath, digest.hash, digest.sha256);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath, digest.Md5, digest.Sha256);
 
             Assert.AreEqual(0, row.exlevel);
         });
@@ -117,7 +116,7 @@ public sealed class ChartInfoParserBehaviorTests
             chart.Append("#08711:0001\r\n");
             File.WriteAllText(chartPath, chart.ToString(), Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(104600, row.length);
             Assert.AreEqual("180.0,0.0,180.0,104600.0", row.speedchange);
@@ -138,7 +137,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00108:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             StringAssert.Contains(row.speedchange, "1.0E-4");
             Assert.IsFalse(row.speedchange.Contains("0.0001E0"));
@@ -256,7 +255,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#187???\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(2352, row.length);
             Assert.AreEqual("102.0,0.0,102.0,439999.0", row.speedchange);
@@ -282,14 +281,14 @@ public sealed class ChartInfoParserBehaviorTests
                     + "\"mine_channels\":[{\"notes\":[{\"x\":3,\"y\":960,\"damage\":1.0}]}]"
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath, digest.hash, digest.sha256);
-            LR2SongDBExtended.chart_info bytesRow = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, digest.hash, digest.sha256);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath, digest.Md5, digest.Sha256);
+            BeMusicSeeker.Models.ChartDetails bytesRow = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, digest.Md5, digest.Sha256);
 
             AssertChartInfoEquivalent(row, bytesRow);
-            Assert.AreEqual(digest.hash, row.md5);
-            Assert.AreEqual(digest.sha256, row.sha256);
+            Assert.AreEqual(digest.Md5, row.md5);
+            Assert.AreEqual(digest.Sha256, row.sha256);
             Assert.AreEqual(10, row.level);
             Assert.AreEqual(1, row.difficulty);
             Assert.IsFalse(row.difficulty_defined);
@@ -332,7 +331,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual("120.0,0.0,240.0,500.0,120.0,1000.0", row.speedchange);
             Assert.AreEqual(2, row.speedchange_count);
@@ -392,7 +391,7 @@ public sealed class ChartInfoParserBehaviorTests
                 "{\"info\":{\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            LR2SongDBExtended.chart_info missing = ChartInfoParser.Parse(missingPath);
+            BeMusicSeeker.Models.ChartDetails missing = ChartInfoParser.Parse(missingPath);
 
             Assert.IsFalse(missing.level.HasValue);
             Assert.AreEqual(1, missing.difficulty);
@@ -404,7 +403,7 @@ public sealed class ChartInfoParserBehaviorTests
                 "{\"info\":{\"level\":0,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            LR2SongDBExtended.chart_info zero = ChartInfoParser.Parse(zeroPath);
+            BeMusicSeeker.Models.ChartDetails zero = ChartInfoParser.Parse(zeroPath);
 
             Assert.AreEqual(0, zero.level);
 
@@ -414,7 +413,7 @@ public sealed class ChartInfoParserBehaviorTests
                 "{\"info\":{\"level\":12.9,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240.9},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            LR2SongDBExtended.chart_info floatLevel = ChartInfoParser.Parse(floatPath);
+            BeMusicSeeker.Models.ChartDetails floatLevel = ChartInfoParser.Parse(floatPath);
 
             Assert.AreEqual(12, floatLevel.level);
         });
@@ -434,9 +433,9 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00108:a0\r\n"
                     + "#00111:a0\r\n",
                 Encoding.ASCII);
-            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath, digest.hash, digest.sha256);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath, digest.Md5, digest.Sha256);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(1, row.n);
@@ -462,7 +461,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(120.0, row.minbpm.GetValueOrDefault(), 0.0001);
@@ -485,7 +484,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(160.0, row.minbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(180.0, row.maxbpm.GetValueOrDefault(), 0.0001);
@@ -512,7 +511,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#ENDRANDOM\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(1, row.n);
@@ -556,7 +555,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#99911:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.IsTrue(row.length.GetValueOrDefault() > 86400 * 1000);
@@ -625,7 +624,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#ENDRANDOM\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(2000, row.length.GetValueOrDefault());
@@ -648,7 +647,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.IsFalse(row.total_defined);
@@ -670,7 +669,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info valid = ChartInfoParser.Parse(validPath);
+            BeMusicSeeker.Models.ChartDetails valid = ChartInfoParser.Parse(validPath);
 
             Assert.AreEqual(12, valid.level);
             Assert.AreEqual(4, valid.difficulty);
@@ -687,7 +686,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info inferred = ChartInfoParser.Parse(inferredPath);
+            BeMusicSeeker.Models.ChartDetails inferred = ChartInfoParser.Parse(inferredPath);
 
             Assert.IsFalse(inferred.level.HasValue);
             Assert.AreEqual(3, inferred.difficulty);
@@ -703,7 +702,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info invalidAfterValid = ChartInfoParser.Parse(invalidAfterValidPath);
+            BeMusicSeeker.Models.ChartDetails invalidAfterValid = ChartInfoParser.Parse(invalidAfterValidPath);
 
             Assert.IsFalse(invalidAfterValid.level.HasValue);
             Assert.AreEqual(4, invalidAfterValid.difficulty);
@@ -727,7 +726,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.GetEncoding(932));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(28, row.level.GetValueOrDefault());
             Assert.AreEqual(2, row.difficulty);
@@ -744,14 +743,14 @@ public sealed class ChartInfoParserBehaviorTests
             string invalidPath = Path.Combine(tempRootPath, "total-invalid.bms");
             File.WriteAllText(invalidPath, "#BPM 120\r\n#TOTAL 100abc\r\n#00111:01\r\n", Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info invalid = ChartInfoParser.Parse(invalidPath);
+            BeMusicSeeker.Models.ChartDetails invalid = ChartInfoParser.Parse(invalidPath);
 
             Assert.IsFalse(invalid.total_defined);
 
             string decimalPath = Path.Combine(tempRootPath, "total-decimal.bms");
             File.WriteAllText(decimalPath, "#BPM 120\r\n#TOTAL 100.5\r\n#00111:01\r\n", Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info decimalTotal = ChartInfoParser.Parse(decimalPath);
+            BeMusicSeeker.Models.ChartDetails decimalTotal = ChartInfoParser.Parse(decimalPath);
 
             Assert.IsTrue(decimalTotal.total_defined);
             Assert.AreEqual(100.5, decimalTotal.total.GetValueOrDefault(), 0.000001);
@@ -783,7 +782,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(0.0, row.minbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(150.0, row.maxbpm.GetValueOrDefault(), 0.0001);
@@ -804,7 +803,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(0.0, row.minbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(150.0, row.maxbpm.GetValueOrDefault(), 0.0001);
@@ -855,7 +854,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#ENDRANDOM\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(150.0, row.mainbpm.GetValueOrDefault(), 0.0001);
@@ -883,7 +882,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#ENDRANDOM\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.IsTrue(row.length.GetValueOrDefault() < 86400 * 1000);
@@ -910,7 +909,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00211:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.IsTrue(row.length.GetValueOrDefault() > 0);
@@ -935,7 +934,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00211:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.IsTrue((row.feature & FeatureRandom) != 0);
@@ -957,7 +956,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(7, row.mode);
             Assert.AreEqual(1, row.notes);
@@ -977,7 +976,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00151:0101\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual("c903e9b613077c6540374617cd9f5fd1916bcc77ba8e3e8770d30bea10b30319", row.charthash);
             Assert.AreEqual(1, row.notes);
@@ -999,7 +998,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111:01\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(1, row.n);
@@ -1025,7 +1024,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00151:010001\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(1, row.notes);
             Assert.AreEqual(0, row.n);
@@ -1047,7 +1046,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#00111;00001800\r\n",
                 Encoding.ASCII);
 
-            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+            BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath);
 
             Assert.AreEqual(4, row.notes);
             Assert.AreEqual(4, row.n);
@@ -1089,8 +1088,8 @@ public sealed class ChartInfoParserBehaviorTests
             File.WriteAllText(firstPath, CreateBmsonLongNoteWithContinuation(240), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             File.WriteAllText(secondPath, CreateBmsonLongNoteWithContinuation(360), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            LR2SongDBExtended.chart_info first = ChartInfoParser.Parse(firstPath);
-            LR2SongDBExtended.chart_info second = ChartInfoParser.Parse(secondPath);
+            BeMusicSeeker.Models.ChartDetails first = ChartInfoParser.Parse(firstPath);
+            BeMusicSeeker.Models.ChartDetails second = ChartInfoParser.Parse(secondPath);
 
             Assert.AreEqual(first.notes, second.notes);
             Assert.AreEqual(first.ln, second.ln);
@@ -1176,7 +1175,7 @@ public sealed class ChartInfoParserBehaviorTests
         {
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
 
             Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
             Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
@@ -1212,7 +1211,7 @@ public sealed class ChartInfoParserBehaviorTests
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
             Assert.IsTrue(File.Exists(chartPath), "Missing bmson chart fixture: " + expected.fixture_path);
 
-            LR2SongDBExtended.chart_info actual;
+            BeMusicSeeker.Models.ChartDetails actual;
             ChartInfoParser.ChartInfoParseResult fromBytesResult;
             try
             {
@@ -1229,7 +1228,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + " message=" + ex.Message);
                 throw;
             }
-            LR2SongDBExtended.chart_info fromBytes = fromBytesResult.Row;
+            BeMusicSeeker.Models.ChartDetails fromBytes = fromBytesResult.Row;
             AssertChartInfoEquivalent(actual, fromBytes);
             diffs.Add(expected, actual, fromBytesResult.ChartString);
         }
@@ -1411,8 +1410,8 @@ public sealed class ChartInfoParserBehaviorTests
                 sha256).Single();
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            LR2SongDBExtended.chart_info fromPath = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
-            LR2SongDBExtended.chart_info fromBytes = ChartInfoParser.ParseBytesDetailed(
+            BeMusicSeeker.Models.ChartDetails fromPath = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            BeMusicSeeker.Models.ChartDetails fromBytes = ChartInfoParser.ParseBytesDetailed(
                 File.ReadAllBytes(chartPath),
                 chartPath,
                 expected.md5,
@@ -1480,7 +1479,7 @@ public sealed class ChartInfoParserBehaviorTests
                 sha256).Single();
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
 
             Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
             Assert.AreEqual(expected.n, actual.n, expected.sha256);
@@ -1551,7 +1550,7 @@ public sealed class ChartInfoParserBehaviorTests
                 expected.sha256,
                 timeout: TimeSpan.FromSeconds(60));
 
-            LR2SongDBExtended.chart_info actual = result.Row;
+            BeMusicSeeker.Models.ChartDetails actual = result.Row;
             Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
             Assert.AreEqual(expected.length, actual.length, expected.sha256);
             Assert.AreEqual(expected.distribution, actual.distribution, expected.sha256);
@@ -1566,8 +1565,8 @@ public sealed class ChartInfoParserBehaviorTests
     public void CompatibilityDiffCounts_RecordsSkippedProductionDiffRowsWithoutCountingDiffs()
     {
         RealChartInfoExpectedRow expected = CreateExpectedCompatibilityRow(new string('a', 64), new string('c', 64));
-        LR2SongDBExtended.chart_info actual = CreateChartInfoRow(expected.sha256, expected.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-        actual.charthash = new string('d', 64);
+        BeMusicSeeker.Models.ChartDetails actual = CreateChartInfoRow(expected.sha256, expected.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+        actual = actual with { charthash = new string('d', 64) };
 
         var diffs = new CompatibilityDiffCounts();
         diffs.AddTimeout(expected, 10001, new ChartInfoParser.ChartInfoParseTimeoutException(10000, "test"));
@@ -1609,7 +1608,7 @@ public sealed class ChartInfoParserBehaviorTests
                 + "WHERE sc.reason = 'initial_bpm_success';").Single();
         string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-        LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+        BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
 
         Assert.AreEqual(expected.charthash, actual.charthash);
         Assert.AreEqual(expected.notes, actual.notes);
@@ -1645,7 +1644,7 @@ public sealed class ChartInfoParserBehaviorTests
         {
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
 
             Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
             Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
@@ -1677,7 +1676,7 @@ public sealed class ChartInfoParserBehaviorTests
         {
             string chartPath = Path.Combine(fixtureRootPath, sample.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            LR2SongDBExtended.chart_info actual;
+            BeMusicSeeker.Models.ChartDetails actual;
             try
             {
                 actual = ChartInfoParser.Parse(chartPath, sample.md5, sample.sha256);
@@ -1708,7 +1707,7 @@ public sealed class ChartInfoParserBehaviorTests
         string chartPath = Path.Combine(fixtureRootPath, "charts", "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01.bms");
         Assert.IsTrue(File.Exists(chartPath), "random_endif_scope_reference fixture is missing.");
 
-        LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(
+        BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(
             chartPath,
             "a0dfd7d70a53e4752d39e09b23877cff",
             "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01");

@@ -1,288 +1,56 @@
-using BeMusicSeeker.Models.LR2;
-
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal enum LibraryChartKind
-{
-    Bms,
-    Bmson
-}
-
+/// <summary>所持項目の短命な識別と、要求の捕捉時点の配置・ハッシュだけを保持します。</summary>
 internal sealed class LibraryChartRef
 {
-    private readonly BMSFile bmsFile;
-    private readonly LR2SongDBExtended.bmson_song bmsonSong;
-    private readonly ChartFile chartSnapshot;
-    private readonly string path;
-    private readonly string md5;
-    private readonly string sha256;
-    private string directory;
-
-    public LibraryChartKind Kind { get; }
-
-    public string Path => path;
-
-    public string Directory => directory ??= string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
-
-    public string Md5
-    {
-        get
-        {
-            if (chartSnapshot != null)
-            {
-                return NormalizeHash(chartSnapshot.Md5);
-            }
-
-            BMSFile currentBmsFile = GetBmsStorageOwner();
-            if (currentBmsFile != null)
-            {
-                return NormalizeHash(currentBmsFile.hash);
-            }
-
-            LR2SongDBExtended.bmson_song currentBmsonSong = GetBmsonStorageOwner();
-            return currentBmsonSong != null
-                ? NormalizeHash(currentBmsonSong.md5)
-                : md5;
-        }
-    }
-
-    public string Sha256
-    {
-        get
-        {
-            if (chartSnapshot != null)
-            {
-                return NormalizeHash(chartSnapshot.Sha256);
-            }
-
-            BMSFile currentBmsFile = GetBmsStorageOwner();
-            if (currentBmsFile != null)
-            {
-                return NormalizeHash(currentBmsFile.sha256);
-            }
-
-            LR2SongDBExtended.bmson_song currentBmsonSong = GetBmsonStorageOwner();
-            return currentBmsonSong != null
-                ? NormalizeHash(currentBmsonSong.sha256)
-                : sha256;
-        }
-    }
-
-    private LibraryChartRef(
-        LibraryChartKind kind,
-        string path,
-        string md5,
-        string sha256,
-        BMSFile bmsFile,
-        LR2SongDBExtended.bmson_song bmsonSong,
-        ChartFile chartSnapshot = null)
+    private LibraryChartRef(ChartFileKind kind, OwnedChartToken token, string path, string md5, string sha256)
     {
         Kind = kind;
-        this.path = string.IsNullOrWhiteSpace(path) ? null : path;
-        this.md5 = NormalizeHash(md5);
-        this.sha256 = NormalizeHash(sha256);
-        this.bmsFile = bmsFile;
-        this.bmsonSong = bmsonSong;
-        this.chartSnapshot = chartSnapshot;
+        Token = token;
+        Path = string.IsNullOrWhiteSpace(path) ? null : path;
+        Md5 = NormalizeHash(md5);
+        Sha256 = NormalizeHash(sha256);
     }
 
-    public static LibraryChartRef FromBmsFile(BMSFile file)
-    {
-        if (file == null)
-        {
-            return null;
-        }
-        return new LibraryChartRef(
-            LibraryChartKind.Bms,
-            file.path,
-            file.hash,
-            file.sha256,
-            file,
-            null);
-    }
+    /// <summary>捕捉元の所持項目識別です。識別から現在値や保存行へ戻りません。</summary>
+    internal OwnedChartToken Token { get; }
 
-    public static LibraryChartRef FromBmsonSong(LR2SongDBExtended.bmson_song song)
-    {
-        if (song == null)
-        {
-            return null;
-        }
-        return new LibraryChartRef(
-            LibraryChartKind.Bmson,
-            song.path,
-            song.md5,
-            song.sha256,
-            null,
-            song);
-    }
+    /// <summary>捕捉した形式です。共通基本値と同じ形式定義を使います。</summary>
+    public ChartFileKind Kind { get; }
 
-    internal static LibraryChartRef FromChartFile(ChartFile chart)
-    {
-        return FromChartFile(chart, null, preserveOwnerSnapshot: true);
-    }
+    /// <summary>捕捉時点のDB完全一致パスです。</summary>
+    public string Path { get; }
 
-    internal static LibraryChartRef FromStorageOwnerChartFile(ChartFile chart, string pathOverride)
-    {
-        return FromChartFile(chart, pathOverride, preserveOwnerSnapshot: false);
-    }
+    /// <summary>捕捉パスから得る物理的な親フォルダです。</summary>
+    public string Directory => string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
 
-    private static LibraryChartRef FromChartFile(ChartFile chart, string pathOverride, bool preserveOwnerSnapshot)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-        string path = string.IsNullOrWhiteSpace(pathOverride) ? chart.Path : pathOverride;
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return new LibraryChartRef(
-                LibraryChartKind.Bms,
-                path,
-                chart.Md5,
-                chart.Sha256,
-                bmsFile,
-                null,
-                preserveOwnerSnapshot ? chart : null);
-        }
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        if (bmsonSong != null)
-        {
-            return new LibraryChartRef(
-                LibraryChartKind.Bmson,
-                path,
-                chart.Md5,
-                chart.Sha256,
-                null,
-                bmsonSong,
-                preserveOwnerSnapshot ? chart : null);
-        }
-        return new LibraryChartRef(
-            chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
-            path,
-            chart.Md5,
-            chart.Sha256,
-            null,
-            null,
-            preserveOwnerSnapshot ? chart : null);
-    }
+    /// <summary>捕捉時点のMD5です。所持項目の識別には使いません。</summary>
+    public string Md5 { get; }
 
-    internal static LibraryChartRef FromPath(LibraryChartKind kind, string path, string md5, string sha256)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-        return new LibraryChartRef(
-            kind,
-            path,
-            md5,
-            sha256,
-            null,
-            null);
-    }
+    /// <summary>捕捉時点のSHA-256です。所持項目の識別には使いません。</summary>
+    public string Sha256 { get; }
 
-    internal static LibraryChartRef FromImmutableSnapshot(LibraryChartRef source)
-    {
-        if (source == null)
-        {
-            return null;
-        }
+    /// <summary>読取り値が保持する所持識別と捕捉事実を引き継ぎます。</summary>
+    internal static LibraryChartRef FromChartFile(ChartFile chart, string pathOverride = null)
+        => chart == null ? null : new LibraryChartRef(
+            chart.Kind,
+            chart.Token, string.IsNullOrWhiteSpace(pathOverride) ? chart.Path : pathOverride, chart.Md5, chart.Sha256);
 
-        ChartFile sourceChart = source.ToChartFileIdentity() ?? source.ToChartFile();
-        ChartFile immutableSnapshot = ChartFileProjection.ToImmutableSnapshot(sourceChart)
-            ?? ChartFileProjection.FromIdentitySnapshot(
-                source.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
-                source.Path,
-                source.Md5,
-                source.Sha256);
-        if (immutableSnapshot == null)
-        {
-            return null;
-        }
+    /// <summary>所持tokenを持たないパスだけの参照を作成します。</summary>
+    internal static LibraryChartRef FromPath(ChartFileKind kind, string path, string md5, string sha256)
+        => string.IsNullOrWhiteSpace(path) ? null : new LibraryChartRef(kind, null, path, md5, sha256);
 
-        return new LibraryChartRef(
-            source.Kind,
-            immutableSnapshot.Path,
-            immutableSnapshot.Md5,
-            immutableSnapshot.Sha256,
-            source.GetBmsStorageOwner(),
-            source.GetBmsonStorageOwner(),
-            immutableSnapshot);
-    }
+    /// <summary>不変参照を再利用します。現在値や保存行への解決は行いません。</summary>
+    internal static LibraryChartRef FromImmutableSnapshot(LibraryChartRef source) => source;
 
-    internal BMSFile GetBmsStorageOwner()
-    {
-        return Kind == LibraryChartKind.Bms ? bmsFile : null;
-    }
-
-    internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
-    {
-        return Kind == LibraryChartKind.Bmson ? bmsonSong : null;
-    }
-
-    internal ChartFile GetChartSnapshot()
-    {
-        return chartSnapshot;
-    }
-
-    internal ChartFile ToChartFile()
-    {
-        if (chartSnapshot != null)
-        {
-            return chartSnapshot;
-        }
-
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return ChartFileProjection.FromBmsFile(
-                bmsFile,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
-        }
-
-        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonStorageOwner();
-        if (bmsonSong != null)
-        {
-            return ChartFileProjection.FromBmsonSong(
-                bmsonSong,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
-        }
-
-        return null;
-    }
-
+    /// <summary>捕捉した基本識別を共通の要求値へ変換します。現在値の解決はカタログが担当します。</summary>
     internal ChartFile ToChartFileIdentity()
-    {
-        if (chartSnapshot != null)
+        => new ChartFile(Kind,
+            Path, Md5, Sha256, string.Empty, string.Empty, string.Empty, string.Empty,
+            null, string.Empty, string.Empty, null, null, null)
         {
-            return ChartFileProjection.FromStorageOwnerListIdentity(chartSnapshot) ?? chartSnapshot;
-        }
+            Token = Token
+        };
 
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return ChartFileProjection.FromBmsStorageOwnerIdentity(bmsFile);
-        }
-
-        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonStorageOwner();
-        if (bmsonSong != null)
-        {
-            return ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonSong);
-        }
-
-        return ChartFileProjection.FromIdentitySnapshot(
-            Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
-            Path,
-            Md5,
-            Sha256);
-    }
-
-    private static string NormalizeHash(string value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
-
+    private static string NormalizeHash(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

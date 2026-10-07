@@ -2,61 +2,42 @@ using System;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>
-/// Immutable resource-health facts carried by a detached chart projection.
-/// </summary>
-internal sealed class ResourceHealthMaintenanceSnapshot
+/// <summary>共通譜面が捕捉する変更不能な資源健全性と検査の由来です。</summary>
+internal sealed record ResourceHealthMaintenanceSnapshot
 {
-    private ResourceHealthMaintenanceSnapshot(BMSFileMaintenanceInfo source)
-    {
-        Path = source?.path;
-        Hash = source?.hash;
-        Encoding = source?.encoding;
-        WavFilesExisting = source?.wav_files_existing;
-        WavFilesDefined = source?.wav_files_defined;
-        BgaFilesExisting = source?.bga_files_existing;
-        BgaFilesDefined = source?.bga_files_defined;
-        MovieFilesExisting = source?.movie_files_existing;
-        MovieFilesDefined = source?.movie_files_defined;
-        StagefileExisting = source?.is_stagefile_existing;
-        StagefileDefined = source?.is_stagefile_defined;
-        BannerExisting = source?.is_banner_existing;
-        BannerDefined = source?.is_banner_defined;
-        BackbmpExisting = source?.is_backbmp_existing;
-        BackbmpDefined = source?.is_backbmp_defined;
-        FilesWarningIgnored = source?.is_files_warning_ignored == true;
-        Lr2WarningFlags = source?.lr2_warning_flags ?? 0;
-        Lr2ResourceMaxRelativeCp932Bytes = source?.lr2_resource_max_relative_cp932_bytes;
-        Lr2ResourceHasParentTraversal = source?.lr2_resource_has_parent_traversal ?? false;
-    }
+    internal string Path { get; init; }
 
-    internal string Path { get; }
+    internal string Hash { get; init; }
 
-    internal string Hash { get; }
+    internal string Encoding { get; init; }
 
-    internal string Encoding { get; }
+    internal int? WavFilesExisting { get; init; }
+    internal int? WavFilesDefined { get; init; }
+    internal int? BgaFilesExisting { get; init; }
+    internal int? BgaFilesDefined { get; init; }
+    internal int? MovieFilesExisting { get; init; }
+    internal int? MovieFilesDefined { get; init; }
+    internal bool? StagefileExisting { get; init; }
+    internal bool? StagefileDefined { get; init; }
+    internal bool? BannerExisting { get; init; }
+    internal bool? BannerDefined { get; init; }
+    internal bool? BackbmpExisting { get; init; }
+    internal bool? BackbmpDefined { get; init; }
+    internal bool FilesWarningIgnored { get; init; }
+    internal int? Lr2WarningFlags { get; init; }
+    internal int? Lr2ResourceMaxRelativeCp932Bytes { get; init; }
+    internal bool? Lr2ResourceHasParentTraversal { get; init; }
 
-    internal int? WavFilesExisting { get; }
-    internal int? WavFilesDefined { get; }
-    internal int? BgaFilesExisting { get; }
-    internal int? BgaFilesDefined { get; }
-    internal int? MovieFilesExisting { get; }
-    internal int? MovieFilesDefined { get; }
-    internal bool? StagefileExisting { get; }
-    internal bool? StagefileDefined { get; }
-    internal bool? BannerExisting { get; }
-    internal bool? BannerDefined { get; }
-    internal bool? BackbmpExisting { get; }
-    internal bool? BackbmpDefined { get; }
-    internal bool FilesWarningIgnored { get; }
-    internal int Lr2WarningFlags { get; }
-    internal int? Lr2ResourceMaxRelativeCp932Bytes { get; }
-    internal bool Lr2ResourceHasParentTraversal { get; }
+    /// <summary>保守情報がDB読込み、計算、未計算のいずれから得られたかを表します。</summary>
+    internal MaintenanceInfoOrigin Origin { get; init; }
 
-    internal static ResourceHealthMaintenanceSnapshot From(BMSFileMaintenanceInfo source)
-    {
-        return source == null ? null : new ResourceHealthMaintenanceSnapshot(source);
-    }
+    /// <summary>既存の文字コード修正状態を保存時にも保持します。</summary>
+    internal bool EncodingFixed { get; init; }
+
+    /// <summary>資源と画像の検査件数が確定しているかを返します。</summary>
+    internal bool IsInformationChecked => GetWavHealth().HasValue && GetBgaHealth().HasValue
+        && GetMovieHealth().HasValue && GetStagefileHealth().HasValue
+        && GetBannerHealth().HasValue && GetBackbmpHealth().HasValue;
 
     internal int? GetWavHealth() => CalculateCountHealth(WavFilesDefined, WavFilesExisting);
 
@@ -80,7 +61,7 @@ internal sealed class ResourceHealthMaintenanceSnapshot
         {
             return 100;
         }
-        return (int)(100.0 * ((double)existing!.Value - Math.Sqrt(existing.Value)) / defined.Value);
+        return (int)(100.0 * ((double)existing.Value - Math.Sqrt(existing.Value)) / defined.Value);
     }
 
     private static bool? CalculateFlagHealth(bool? defined, bool? existing)
@@ -89,32 +70,7 @@ internal sealed class ResourceHealthMaintenanceSnapshot
         {
             return null;
         }
-        return defined == false || (defined.Value && existing!.Value);
+        return defined == false || (defined.Value && existing.Value);
     }
 
-    internal BMSFileMaintenanceInfo ToMutable()
-    {
-        return new BMSFileMaintenanceInfo
-        {
-            path = Path,
-            hash = Hash,
-            encoding = Encoding,
-            wav_files_existing = WavFilesExisting,
-            wav_files_defined = WavFilesDefined,
-            bga_files_existing = BgaFilesExisting,
-            bga_files_defined = BgaFilesDefined,
-            movie_files_existing = MovieFilesExisting,
-            movie_files_defined = MovieFilesDefined,
-            is_stagefile_existing = StagefileExisting,
-            is_stagefile_defined = StagefileDefined,
-            is_banner_existing = BannerExisting,
-            is_banner_defined = BannerDefined,
-            is_backbmp_existing = BackbmpExisting,
-            is_backbmp_defined = BackbmpDefined,
-            is_files_warning_ignored = FilesWarningIgnored,
-            lr2_warning_flags = Lr2WarningFlags,
-            lr2_resource_max_relative_cp932_bytes = Lr2ResourceMaxRelativeCp932Bytes,
-            lr2_resource_has_parent_traversal = Lr2ResourceHasParentTraversal
-        };
-    }
 }

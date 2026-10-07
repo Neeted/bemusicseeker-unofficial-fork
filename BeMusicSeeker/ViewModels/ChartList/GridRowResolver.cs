@@ -37,46 +37,14 @@ internal static class GridRowResolver
         }
     }
 
-    /// <summary>
-    /// 行から BMS player 用の BMS storage row を取得します。
-    /// BMS保存主体を必要とする既存の外部処理だけで使います。
-    /// </summary>
-    internal static bool TryGetBmsPlayerFile(object row, out BMSFile file)
+    /// <summary>BMS専用操作に使う共通値を取得します。所持識別の有無で形式を判定しません。</summary>
+    internal static bool TryGetBmsChart(object row, out ChartFile chart)
     {
-        if (row is PlaylistDetailRow playlistDetailRow)
-        {
-            file = playlistDetailRow.BmsStorageOwner ?? playlistDetailRow.Chart?.GetBmsStorageOwner();
-        }
-        else if (row is PlaylistDetailSourceRow playlistSourceRow)
-        {
-            file = playlistSourceRow.BmsPlayerFile ?? playlistSourceRow.Chart?.GetBmsStorageOwner();
-        }
-        else if (row is LibraryChartRow libraryChartRow)
-        {
-            file = libraryChartRow.GetBmsStorageOwner();
-        }
-        else
-        {
-            file = row as BMSFile;
-        }
-        return file != null;
+        return TryGetChartFile(row, out chart) && chart.Kind == ChartFileKind.Bms;
     }
 
-    /// <summary>内蔵再生対象を形式共通の譜面として固定します。bmsonのBMS保存行を偽造しません。</summary>
-    internal static bool TryGetPlaybackChart(object row, out ChartFile chart)
-    {
-        if (TryGetChartFile(row, out chart))
-        {
-            return true;
-        }
-
-        if (TryGetBmsPlayerFile(row, out BMSFile bms))
-        {
-            chart = ChartFileProjection.FromBmsFile(bms, includeResourceReferences: false);
-            return chart != null;
-        }
-        return false;
-    }
+    /// <summary>内蔵再生対象を形式共通の捕捉値として固定します。</summary>
+    internal static bool TryGetPlaybackChart(object row, out ChartFile chart) => TryGetChartFile(row, out chart);
 
     internal static bool TryGetChartFile(object row, out ChartFile chart)
     {
@@ -88,6 +56,9 @@ internal static class GridRowResolver
         chart = null;
         switch (row)
         {
+            case ChartFile chartFile:
+                chart = chartFile;
+                return true;
             case PlaylistDetailRow playlistDetailRow:
                 chart = playlistDetailRow.Chart;
                 return chart != null;
@@ -292,24 +263,7 @@ internal static class GridRowResolver
         return row is LibraryChartRow libraryChartRow ? libraryChartRow.PackageEntry : null;
     }
 
-    private static ChartFile ResolveOperationChart(object row, ChartFile chart)
-    {
-        if (chart?.Kind == ChartFileKind.Bms
-            && chart.GetBmsStorageOwner() == null
-            && row is PlaylistDetailRow playlistDetailRow
-            && playlistDetailRow.BmsStorageOwner != null)
-        {
-            return ChartFileProjection.FromBmsStorageOwnerIdentity(playlistDetailRow.BmsStorageOwner) ?? chart;
-        }
-        if (chart?.Kind == ChartFileKind.Bms
-            && chart.GetBmsStorageOwner() == null
-            && row is PlaylistDetailSourceRow playlistSourceRow
-            && playlistSourceRow.BmsPlayerFile != null)
-        {
-            return ChartFileProjection.FromBmsStorageOwnerIdentity(playlistSourceRow.BmsPlayerFile) ?? chart;
-        }
-        return chart;
-    }
+    private static ChartFile ResolveOperationChart(object row, ChartFile chart) => chart;
 
     private static ChartOperationCapabilities BuildCapabilities(
         ChartFile chart,
@@ -447,30 +401,6 @@ internal static class GridRowResolver
 
     /// <summary>
     /// BMS player controls に表示する BMS storage row のタイトルを取得します。
-    /// </summary>
-    internal static string GetBmsPlayerDisplayTitle(BMSFile file)
-    {
-        return file?.GetRawTitleForDisplay() ?? string.Empty;
-    }
-
-    /// <summary>
-    /// BMS player controls に表示する BMS storage row のサブタイトルを取得します。
-    /// </summary>
-    internal static string GetBmsPlayerDisplaySubtitle(BMSFile file)
-    {
-        return file?.subtitle ?? string.Empty;
-    }
-
-    /// <summary>
-    /// BMS player controls に表示する BMS storage row のアーティストを取得します。
-    /// </summary>
-    internal static string GetBmsPlayerDisplayArtist(BMSFile file)
-    {
-        return file?.Artist ?? string.Empty;
-    }
-
-    /// <summary>
-    /// 行が playlist セル編集を許可するかを返します。
     /// </summary>
     internal static bool CanEditPlaylistCell(object row, string propertyName)
     {

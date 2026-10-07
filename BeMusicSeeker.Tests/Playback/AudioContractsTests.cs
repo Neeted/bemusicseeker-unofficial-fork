@@ -221,7 +221,7 @@ public sealed class AudioContractsTests
         };
         var rows = new MainChartListViewModel
         {
-            Rows = new List<object> { new BeMusicSeeker.Models.BMSFile { path = firstPath }, new BeMusicSeeker.Models.BMSFile { path = nextPath } }
+            Rows = new List<object> { ChartTestValues.Empty() with { Path = firstPath }, ChartTestValues.Empty() with { Path = nextPath } }
         };
         var dialogs = new ObservedPlaybackDialogs(events);
         testSettings.FolderSkipPlayMode = false;
@@ -257,7 +257,7 @@ public sealed class AudioContractsTests
                 tickGate.Set();
                 await ObserveSignalOrFailureAsync(preparationCancelled.Task, operation.Completion);
                 stop = panel.StopPlayback(closeProcess: true);
-                Assert.IsNull(panel.NowPlayingBmsFile);
+                Assert.IsNull(panel.NowPlayingChart);
                 Assert.IsFalse(stop.IsCompleted);
                 Assert.IsFalse(operation.Completion.IsCompleted);
                 preparationGate.Set();
@@ -282,7 +282,7 @@ public sealed class AudioContractsTests
             }
             Assert.AreEqual(1, dialogs.Notifications);
             Assert.AreEqual(1, starts);
-            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.IsNull(panel.NowPlayingChart);
             Assert.IsFalse(panel.IsPlaying);
         }
         catch (Exception failure) { failures.Add(failure); }
@@ -567,7 +567,7 @@ public sealed class AudioContractsTests
             });
         var rows = new MainChartListViewModel
         {
-            Rows = new List<object> { new BeMusicSeeker.Models.BMSFile { path = firstPath }, new BeMusicSeeker.Models.BMSFile { path = nextPath } }
+            Rows = new List<object> { ChartTestValues.Empty() with { Path = firstPath }, ChartTestValues.Empty() with { Path = nextPath } }
         };
         var dialogs = new ObservedPlaybackDialogs(events);
         testSettings.FolderSkipPlayMode = false;
@@ -582,7 +582,7 @@ public sealed class AudioContractsTests
             Assert.IsFalse(events.Contains("free"));
             release.Set();
             Exception reported = await dialogs.Failure.Task;
-            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.IsNull(panel.NowPlayingChart);
             Assert.IsFalse(panel.IsPlaying);
             Assert.AreEqual(1, dialogs.Notifications);
             Exception[] causes = reported is AggregateException aggregate ? [.. aggregate.Flatten().InnerExceptions] : [reported];

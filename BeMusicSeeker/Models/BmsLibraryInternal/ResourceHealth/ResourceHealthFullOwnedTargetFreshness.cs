@@ -4,7 +4,7 @@ internal static class ResourceHealthFullOwnedTargetFreshness
 {
     internal static bool IsCurrent(
         ResourceMaintenanceTargetSet targetSet,
-        StorageRowsVersionSnapshot currentStorageRowsVersion,
+        OwnedChartCollectionVersionSnapshot currentStorageRowsVersion,
         int currentOwnedCollectionVersion,
         int currentResourceHealthInputVersion,
         bool currentResourceHealthInputVersionStable)
@@ -14,8 +14,7 @@ internal static class ResourceHealthFullOwnedTargetFreshness
             return false;
         }
 
-        return targetSet.StorageRowsVersion.Value.BmsRowsVersion == currentStorageRowsVersion.BmsRowsVersion
-            && targetSet.StorageRowsVersion.Value.BmsonRowsVersion == currentStorageRowsVersion.BmsonRowsVersion
+        return targetSet.StorageRowsVersion.Value.OwnedCollectionVersion == currentStorageRowsVersion.OwnedCollectionVersion
             && targetSet.OwnedCollectionVersion.Value == currentOwnedCollectionVersion
             && targetSet.ResourceHealthInputVersion.Value == currentResourceHealthInputVersion;
     }

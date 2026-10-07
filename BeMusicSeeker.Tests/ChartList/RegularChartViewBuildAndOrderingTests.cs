@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -251,13 +252,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
             File.WriteAllText(
                 chartPath,
                 "#PLAYER 1\r\n#TITLE Resource health warning\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
-            var file = BMSFile.CreateBMSFileFromFile(chartPath);
-            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
-            {
-                hash = file.hash,
-                wav_files_defined = 1,
-                wav_files_existing = 0
-            }, suppressPropertyChanged: true);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+            file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, wav_files_defined = 1, wav_files_existing = 0 }));
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
@@ -311,20 +307,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
                 healthyPath,
                 "#PLAYER 1\r\n#TITLE Alpha warning-name\r\n#WAV01 present.wav\r\n#00111:01\r\n");
             File.WriteAllBytes(Path.Combine(root, "present.wav"), [1, 2, 3]);
-            var missing = BMSFile.CreateBMSFileFromFile(missingPath);
-            missing.SetMaintenanceInfo(new BMSFileMaintenanceInfo(missing)
-            {
-                hash = missing.hash,
-                wav_files_defined = 1,
-                wav_files_existing = 0
-            }, suppressPropertyChanged: true);
-            var healthy = BMSFile.CreateBMSFileFromFile(healthyPath);
-            healthy.SetMaintenanceInfo(new BMSFileMaintenanceInfo(healthy)
-            {
-                hash = healthy.hash,
-                wav_files_defined = 1,
-                wav_files_existing = 1
-            }, suppressPropertyChanged: true);
+            ChartFile missing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(missingPath));
+            missing = ChartFileProjection.WithMaintenance(missing, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = missing.Path, hash = missing.Md5, wav_files_defined = 1, wav_files_existing = 0 }));
+            ChartFile healthy = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(healthyPath));
+            healthy = ChartFileProjection.WithMaintenance(healthy, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = healthy.Path, hash = healthy.Md5, wav_files_defined = 1, wav_files_existing = 1 }));
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
@@ -370,7 +356,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             ResourceHealthIndexSnapshot firstSnapshot =
                 library.TryGetCurrentResourceHealthIndexSnapshotForView();
             Assert.IsTrue(firstSnapshot.GetProjection(
-                ChartFileProjection.FromBmsFile(missing)).HasIssues);
+                (missing)).HasIssues);
 
             var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
             RegularVirtualNormalLibraryApplyResult second = owner.TryApplyVirtualNormalLibrary(new RegularVirtualNormalLibraryApplyRequest
@@ -680,18 +666,20 @@ public sealed class RegularChartViewBuildAndOrderingTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-        var file = new BMSFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = @"C:\Charts\Owner\chart.bms",
+            Path = @"C:\Charts\Owner\chart.bms",
         };
-        var sourceRow = ChartListSourceRow.FromChartFile(ChartFileProjection.FromBmsFile(file));
+        ChartFile chart = file with { Token = new OwnedChartToken() };
+        var sourceRow = ChartListSourceRow.FromChartFile(chart);
 
         LibraryChartRow first = owner.CreateVirtualRow(null, sourceRow);
         LibraryChartRow second = owner.CreateVirtualRow(null, sourceRow);
 
         Assert.AreSame(first, second);
         Assert.AreEqual(1, owner.SnapshotRows().Count);
-        Assert.AreEqual(1, owner.RemoveBmsRows([file]));
+        owner.ApplyNormalLibraryChartChanges(null, new NormalLibraryRefreshNotificationBatch(1, 1,
+            LibraryChartRefreshEffects.SourceChanged, [], false, deletedTokens: [chart.Token]));
         Assert.AreEqual(0, owner.SnapshotRows().Count);
     }
 
@@ -795,7 +783,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
         owner.TryPublishVirtualSourceRows(currentLookup, rows);
         RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         Assert.IsTrue(cached.CacheHit);
-        Assert.AreSame(rows, cached.Rows);
+        CollectionAssert.AreEqual(rows, cached.Rows.ToList());
+        Assert.AreSame(cached.Rows, owner.LookupVirtualSourceRows(null, includeBmsonRows: false).Rows);
 
         RegularVirtualSourceRowsLookup staleAfterSortChange = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.InvalidateIdentitySortKeys(clearSourceRows: true);
@@ -926,7 +915,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
         RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
         Assert.IsTrue(firstLease.Token.IsCancellationRequested);
         Assert.IsTrue(cached.CacheHit);
-        Assert.AreSame(secondRows, cached.Rows);
+        CollectionAssert.AreEqual(secondRows, cached.Rows.ToList());
+        Assert.AreSame(cached.Rows, owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false).Rows);
         secondLease.Dispose();
     }
 

@@ -74,8 +74,11 @@ internal interface IDuplicateMaintenanceStore
         string destinationDirectory,
         long operationId);
 
-    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
-    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
+    /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
+    LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
+
+    /// <summary>固定対象と全確認後の明示的な承認候補を渡し、モデル内で再確認せず削除します。</summary>
+    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths);
 }
 
 internal sealed class DuplicateMaintenanceMutationResult
@@ -509,6 +512,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
     }
 
+    /// <summary>受付前に確定した削除対象を共通受付内の背景処理で準備し、全UI判断後に同じ要求を実行します。</summary>
     private async Task<DuplicateMaintenanceMutationResult> RunHashCleanupCoreAsync(
         HashCleanupPlan plan)
     {
@@ -519,6 +523,17 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         bool operationGateTransferred = false;
         try
         {
+            LibraryChartRemovalPreflight prepared;
+            try
+            {
+                BMSLibrary library = libraryProvider();
+                ChartFile[] copiedCharts = plan.ChartsToRemove.ToArray();
+                prepared = await Task.Run(() => store.PrepareChartRemoval(library, copiedCharts));
+            }
+            catch (Exception exception)
+            {
+                return DuplicateMaintenanceMutationResult.Failed(plan.SelectionHeader, exception, 0);
+            }
             ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
                 string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, plan.ChartsToRemove.Count),
                 "Duplicate hash cleanup confirmation");
@@ -534,10 +549,26 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
             }
 
+            var approvedFolders = new List<string>();
+            foreach (string folder in prepared.WholeFolderCandidatePaths)
+            {
+                ConfirmationDecision folderConfirmation = await ConfirmAsync(new UiConfirmationRequest(
+                    string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folder),
+                    BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
+                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes),
+                    "Duplicate whole-folder deletion confirmation");
+                if (folderConfirmation.Failure != null)
+                {
+                    return DuplicateMaintenanceMutationResult.Failed(plan.SelectionHeader, folderConfirmation.Failure, 0);
+                }
+                if (folderConfirmation.Accepted) { approvedFolders.Add(folder); }
+            }
+            IReadOnlyList<string> approvedPaths = approvedFolders.AsReadOnly();
+
             LibraryChartRemovalOutcome removalOutcome = null;
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 plan.SelectionHeader,
-                library => removalOutcome = store.RemoveCharts(library, plan.ChartsToRemove),
+                library => removalOutcome = store.RemoveCharts(library, prepared, approvedPaths),
                 refreshPriorityReason: null,
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate));
@@ -560,16 +591,19 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         try
         {
-            if (!showConfirmationProvider())
-            {
-                return ConfirmationDecision.AcceptedResult;
-            }
-            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-                message,
-                BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Question,
-                MessageBoxResult.Cancel));
+            if (!showConfirmationProvider()) { return ConfirmationDecision.AcceptedResult; }
+            return await ConfirmAsync(new UiConfirmationRequest(message, BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel), routeName);
+        }
+        catch (Exception exception) { return ConfirmationDecision.Failed(exception); }
+    }
+
+    /// <summary>件数確認の表示設定とは独立して判断を待ち、表示失敗を非承認へ読み替えません。</summary>
+    private async Task<ConfirmationDecision> ConfirmAsync(UiConfirmationRequest request, string routeName)
+    {
+        try
+        {
+            UiDialogResult result = await dialogs.ConfirmAsync(request);
             if (result == null)
             {
                 return ConfirmationDecision.Failed(
@@ -820,16 +854,14 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
             reportAtTerminal: true);
     }
 
-    /// <summary>Preserves the model deletion outcome for terminal reporting.</summary>
-    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+    /// <summary>件数確認前に、モデルで現在値・安全属性・フォルダ候補を固定します。</summary>
+    public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+        => library.PrepareLibraryChartRemoval((charts ?? []).Select(chart => LibraryChartRef.FromChartFile(chart)));
+
+    /// <summary>全てのUI確認後の承認候補を明示し、固定対象をモデルで再確認せず削除します。</summary>
+    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths)
     {
-        List<LibraryChartRef> chartRefs = [.. (charts ?? [])
-            .Select(LibraryChartRef.FromChartFile)
-            .Where(chart => chart != null)];
-        if (chartRefs.Count > 0)
-        {
-            return library.RemoveLibraryCharts(chartRefs);
-        }
-        return null;
+        ArgumentNullException.ThrowIfNull(approvedWholeFolderPaths);
+        return library.RemoveLibraryCharts(prepared, approvedWholeFolderDeletePaths: approvedWholeFolderPaths);
     }
 }

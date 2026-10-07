@@ -52,7 +52,7 @@ public sealed class ChartInfoInlineHydrationTests
             using var observation = new SqliteStatementObservation();
             var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb);
 
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
                 [],
                 TimeSpan.FromSeconds(60));
             observation.ThrowIfCallbackFailed();
@@ -107,7 +107,7 @@ public sealed class ChartInfoInlineHydrationTests
                     500)
             ]);
 
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
                 [currentMd5, staleParserMd5, shortTimeoutMd5],
                 TimeSpan.FromSeconds(1));
 
@@ -135,8 +135,8 @@ public sealed class ChartInfoInlineHydrationTests
                 CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
             ]);
 
-            Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = gateway.LoadChartInfosBySha256([secondSha]);
-            Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = gateway.LoadChartInfosByMd5([md5]);
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> bySha256 = gateway.LoadChartInfosBySha256([secondSha]);
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> byMd5 = gateway.LoadChartInfosByMd5([md5]);
 
             Assert.AreEqual(1, bySha256.Count);
             Assert.AreEqual(secondSha, bySha256[secondSha].sha256);
@@ -174,7 +174,7 @@ public sealed class ChartInfoInlineHydrationTests
             });
 
             Assert.IsTrue(lockAcquired.Wait(TimeSpan.FromSeconds(5)));
-            Task<Dictionary<string, LR2SongDBExtended.chart_info>> lookupTask = Task.Run(() => gateway.LoadChartInfosBySha256([sha256]));
+            Task<Dictionary<string, BeMusicSeeker.Models.ChartDetails>> lookupTask = Task.Run(() => gateway.LoadChartInfosBySha256([sha256]));
             try
             {
                 Assert.IsTrue(lookupTask.Wait(TimeSpan.FromSeconds(2)), "chart_info lookup should not wait for the writable process lock when schema is current.");
@@ -185,7 +185,7 @@ public sealed class ChartInfoInlineHydrationTests
                 lockHolder.Wait(TimeSpan.FromSeconds(5));
             }
 
-            Dictionary<string, LR2SongDBExtended.chart_info> rows = lookupTask.Result;
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> rows = lookupTask.Result;
             Assert.AreEqual(1, rows.Count);
             Assert.AreEqual(md5, rows[sha256].md5);
         });
@@ -235,26 +235,26 @@ public sealed class ChartInfoInlineHydrationTests
             string untouchedChartPath = Path.Combine(tempRootPath, "untouched.bms");
             File.WriteAllText(targetChartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             File.WriteAllText(untouchedChartPath, "#PLAYER 1\r\n#BPM 150\r\n#00111:01\r\n", Encoding.ASCII);
-            var targetDigest = BMSFile.CreateBMSFileFromFile(targetChartPath);
-            var untouchedDigest = BMSFile.CreateBMSFileFromFile(untouchedChartPath);
-            var targetFile = new TestableBmsFile { path = targetChartPath };
-            var untouchedFile = new TestableBmsFile { path = untouchedChartPath };
-            targetFile.SetHash(targetDigest.hash);
-            untouchedFile.SetHash(untouchedDigest.hash);
+            ChartFile targetDigest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(targetChartPath));
+            ChartFile untouchedDigest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(untouchedChartPath));
+            ChartFile targetFile = (ChartTestValues.Empty() with { Path = targetChartPath });
+            ChartFile untouchedFile = (ChartTestValues.Empty() with { Path = untouchedChartPath });
+            targetFile = targetFile with { Md5 = targetDigest.Md5 };
+            untouchedFile = untouchedFile with { Md5 = untouchedDigest.Md5 };
             var gateway = new BmsLibraryDbGateway(songDbPath);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 gateway,
-                [InlineChartSnapshotTarget.FromBmsFile(targetFile, ChartFileContentReader.ReadSnapshot(targetChartPath))],
-                new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
+                [InlineChartSnapshotTarget.FromChart((targetFile), ChartFileContentReader.ReadSnapshot(targetChartPath))],
+                new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase));
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.SuccessCount);
             Assert.AreEqual(1, result.ChartInfoRows.Count);
             Assert.AreEqual(1, result.AppliedRows.Count);
-            Assert.AreEqual(targetFile.hash, result.AppliedRows[0].md5);
-            Assert.AreEqual(0, untouchedFile.sha256?.Length ?? 0);
+            Assert.AreEqual(targetFile.Md5, result.AppliedRows[0].md5);
+            Assert.AreEqual(0, untouchedFile.Sha256?.Length ?? 0);
         });
     }
 
@@ -270,19 +270,19 @@ public sealed class ChartInfoInlineHydrationTests
             File.WriteAllText(secondPath, content, Encoding.ASCII);
             ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
             ChartFileSnapshot secondSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
-            var firstFile = new TestableBmsFile { path = firstPath };
-            var secondFile = new TestableBmsFile { path = secondPath };
-            firstFile.SetHash(firstSnapshot.Md5);
-            secondFile.SetHash(secondSnapshot.Md5);
+            ChartFile firstFile = (ChartTestValues.Empty() with { Path = firstPath });
+            ChartFile secondFile = (ChartTestValues.Empty() with { Path = secondPath });
+            firstFile = firstFile with { Md5 = firstSnapshot.Md5 };
+            secondFile = secondFile with { Md5 = secondSnapshot.Md5 };
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 new BmsLibraryDbGateway(songDbPath),
                 [
-                    InlineChartSnapshotTarget.FromBmsFile(firstFile, firstSnapshot),
-                    InlineChartSnapshotTarget.FromBmsFile(secondFile, secondSnapshot)
+                    InlineChartSnapshotTarget.FromChart((firstFile), firstSnapshot),
+                    InlineChartSnapshotTarget.FromChart((secondFile), secondSnapshot)
                 ],
-                new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
+                new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase));
 
             Assert.AreEqual(firstSnapshot.Md5, secondSnapshot.Md5);
             Assert.AreEqual(1, result.TargetCount);
@@ -309,10 +309,10 @@ public sealed class ChartInfoInlineHydrationTests
             File.WriteAllText(firstPath, content, Encoding.ASCII);
             File.WriteAllText(secondPath, content, Encoding.ASCII);
             ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
-            var firstFile = new TestableBmsFile { path = firstPath };
-            var secondFile = new TestableBmsFile { path = secondPath };
-            firstFile.SetHash(firstSnapshot.Md5);
-            secondFile.SetHash(firstSnapshot.Md5);
+            ChartFile firstFile = (ChartTestValues.Empty() with { Path = firstPath });
+            ChartFile secondFile = (ChartTestValues.Empty() with { Path = secondPath });
+            firstFile = firstFile with { Md5 = firstSnapshot.Md5 };
+            secondFile = secondFile with { Md5 = firstSnapshot.Md5 };
             var service = new ChartInfoInlineBuildService(
                 new ChartInfoBuildService(),
                 parserDegree: 1,
@@ -321,8 +321,8 @@ public sealed class ChartInfoInlineHydrationTests
             ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
                 new BmsLibraryDbGateway(songDbPath),
                 [
-                    ChartFileProjection.FromBmsFile(firstFile, includeWarningSnapshot: false),
-                    ChartFileProjection.FromBmsFile(secondFile, includeWarningSnapshot: false)
+                    (firstFile),
+                    (secondFile)
                 ]);
 
             Assert.AreEqual(1, result.TargetCount);
@@ -344,21 +344,21 @@ public sealed class ChartInfoInlineHydrationTests
             string chartPath = Path.Combine(tempRootPath, "already-current.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE current\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = chartPath
+                Path = chartPath
             };
-            file.SetHash(snapshot.Md5);
-            file.SetSha256(snapshot.Sha256);
+            file = file with { Md5 = snapshot.Md5 };
+            file = file with { Sha256 = snapshot.Sha256 };
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            LR2SongDBExtended.chart_info expected = CreateChartInfoRow(file.sha256, file.hash, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            BeMusicSeeker.Models.ChartDetails expected = CreateChartInfoRow(file.Sha256, file.Md5, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             gateway.UpsertChartInfos([expected]);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
-            var currentFailures = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase)
+            var currentFailures = new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase)
             {
-                [file.hash] = CreateChartInfoParseFailureRow(
-                    file.hash,
-                    file.sha256,
+                [file.Md5] = CreateChartInfoParseFailureRow(
+                    file.Md5,
+                    file.Sha256,
                     chartPath,
                     BmsLibraryDbGateway.CurrentChartInfoParserVersion,
                     "parse_failed",
@@ -369,7 +369,7 @@ public sealed class ChartInfoInlineHydrationTests
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 gateway,
-                [InlineChartSnapshotTarget.FromBmsFile(file, snapshot)],
+                [InlineChartSnapshotTarget.FromChart((file), snapshot)],
                 currentFailures);
 
             Assert.AreEqual(1, result.TargetCount);
@@ -387,13 +387,13 @@ public sealed class ChartInfoInlineHydrationTests
         string md5 = new('a', 32);
         string sha256 = new('b', 64);
         byte[] bytes = Encoding.ASCII.GetBytes("not a parseable chart");
-        var file = new TestableBmsFile { path = @"C:\Charts\current.bms" };
-        file.SetHash(md5);
-        file.SetSha256(sha256);
-        var snapshot = new ChartFileSnapshot(file.path, bytes, DateTime.UtcNow, md5, sha256);
+        ChartFile file = (ChartTestValues.Empty() with { Path = @"C:\Charts\current.bms" });
+        file = file with { Md5 = md5 };
+        file = file with { Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
         ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
-        LR2SongDBExtended.chart_info currentRow = CreateChartInfoRow(
+            (file));
+        BeMusicSeeker.Models.ChartDetails currentRow = CreateChartInfoRow(
             sha256,
             md5,
             BmsLibraryDbGateway.CurrentChartInfoParserVersion);
@@ -416,13 +416,13 @@ public sealed class ChartInfoInlineHydrationTests
         string md5 = new('c', 32);
         string sha256 = new('d', 64);
         byte[] bytes = Encoding.ASCII.GetBytes("#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n");
-        var file = new TestableBmsFile { path = @"C:\Charts\mismatch.bms" };
-        file.SetHash(md5);
-        file.SetSha256(sha256);
-        var snapshot = new ChartFileSnapshot(file.path, bytes, DateTime.UtcNow, md5, sha256);
+        ChartFile file = (ChartTestValues.Empty() with { Path = @"C:\Charts\mismatch.bms" });
+        file = file with { Md5 = md5 };
+        file = file with { Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
         ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
-        LR2SongDBExtended.chart_info incompatibleRow = CreateChartInfoRow(
+            (file));
+        BeMusicSeeker.Models.ChartDetails incompatibleRow = CreateChartInfoRow(
             sha256,
             new string('e', 32),
             BmsLibraryDbGateway.CurrentChartInfoParserVersion);
@@ -449,10 +449,7 @@ public sealed class ChartInfoInlineHydrationTests
         {
             string chartPath = Path.Combine(tempRootPath, "bad-target.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
-            var file = new TestableBmsFile
-            {
-                path = chartPath
-            };
+            ChartFile captured = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)) with { Sha256 = string.Empty };
             var gateway = new BmsLibraryDbGateway(songDbPath);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -462,36 +459,30 @@ public sealed class ChartInfoInlineHydrationTests
 
             ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
                 gateway,
-                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
+                [captured]);
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.ParseFailedCount);
             Assert.AreEqual(0, result.SuccessCount);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(file.sha256));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(captured.Sha256));
             Assert.AreEqual(1, result.StorageApplications.Count);
-            var mutationOwner = new CatalogMutationOwner(
-                new CatalogStorageRowsOwner(),
-                new CatalogOwnedCollectionOwner(),
-                gateway);
+            var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
             CatalogChartInfoStorageWriteReceipt receipt = mutationOwner.ApplyChartInfoStorageWrite(
                 new CatalogChartInfoStorageWriteRequest(
-                    result.StorageApplications.Select(application => application.CreateBmsPersistenceCopy()),
-                    result.StorageApplications.Select(application => application.CreateBmsonPersistenceCopy()),
+                    result.StorageApplications.Select(application => application.CreateCurrentValue()),
                     new CatalogChartInfoWriteRequest(
                         chartInfoRows: result.ChartInfoRows,
                         parseFailureRows: result.ParseFailureRows,
                         parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
             Assert.IsTrue(receipt.Applied);
-            foreach (ChartInfoStorageApplication application in result.StorageApplications)
-            {
-                application.ApplyCommitted(result.DigestChanges);
-            }
-            Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
+            ChartFile committed = result.StorageApplications.Single().CreateCurrentValue();
+            Assert.IsFalse(string.IsNullOrWhiteSpace(committed.Sha256));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(captured.Sha256));
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + committed.Md5 + "' AND sha256 = '" + committed.Sha256 + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
-            LR2SongDBExtended.chart_info_parse_failure failure = verify.Query<LR2SongDBExtended.chart_info_parse_failure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", file.hash).Single();
-            Assert.AreEqual(file.sha256, failure.sha256);
+            BeMusicSeeker.Models.ChartParseFailure failure = verify.Query<BeMusicSeeker.Models.ChartParseFailure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", committed.Md5).Single();
+            Assert.AreEqual(committed.Sha256, failure.sha256);
             Assert.AreEqual(chartPath, failure.path);
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, failure.parser_version);
             Assert.AreEqual("parse_failed", failure.failure_kind);
@@ -509,26 +500,26 @@ public sealed class ChartInfoInlineHydrationTests
         {
             string bmsSha = new('1', 64);
             string bmsonSha = new('2', 64);
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = Path.Combine(tempRootPath, "hydrated.bms")
+                Path = Path.Combine(tempRootPath, "hydrated.bms")
             };
-            file.SetHash(new string('a', 32));
-            file.SetSha256(bmsSha);
-            var bmsonSong = new LR2SongDBExtended.bmson_song
+            file = file with { Md5 = new string('a', 32) };
+            file = file with { Sha256 = bmsSha };
+            ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
-                path = Path.Combine(tempRootPath, "hydrated.bmson"),
-                md5 = new string('b', 32),
-                sha256 = bmsonSha
+                Path = Path.Combine(tempRootPath, "hydrated.bmson"),
+                Md5 = new string('b', 32),
+                Sha256 = bmsonSha
             };
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            LR2SongDBExtended.chart_info bmsRow = CreateChartInfoRow(bmsSha, file.hash, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            LR2SongDBExtended.chart_info bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            BeMusicSeeker.Models.ChartDetails bmsRow = CreateChartInfoRow(bmsSha, file.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            BeMusicSeeker.Models.ChartDetails bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             gateway.UpsertChartInfos([bmsRow, bmsonRow]);
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
-                BMSFiles = [file],
-                BmsonSongs = [bmsonSong]
+                BmsCharts = [file],
+                BmsonCharts = [bmsonSong]
             };
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
@@ -537,8 +528,8 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.IsFalse(library.ChartInfoHydrationRunning);
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
             Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
-            LR2SongDBExtended.chart_info resolvedBmsRow = library.ResolveChartInfo(file.sha256, file.hash);
-            LR2SongDBExtended.chart_info resolvedBmsonRow = library.ResolveChartInfo(bmsonSong.sha256, bmsonSong.md5);
+            BeMusicSeeker.Models.ChartDetails resolvedBmsRow = library.ResolveChartInfo(file.Sha256, file.Md5);
+            BeMusicSeeker.Models.ChartDetails resolvedBmsonRow = library.ResolveChartInfo(bmsonSong.Sha256, bmsonSong.Md5);
             Assert.IsNotNull(resolvedBmsRow);
             Assert.AreEqual(bmsSha, resolvedBmsRow.sha256);
             Assert.IsNotNull(resolvedBmsonRow);
@@ -565,15 +556,15 @@ public sealed class ChartInfoInlineHydrationTests
             string md5 = new('a', 32);
             string sha = new('1', 64);
             string chartPath = Path.Combine(tempRootPath, "current.bms");
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = chartPath
+                Path = chartPath
             };
-            file.SetHash(md5);
-            file.SetSha256(sha);
-            LR2SongDBExtended.chart_info row = CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            row.speedchange = "120.0,0.0;240.0,1000.0";
-            row.lanenotes = "1,2,3,4";
+            file = file with { Md5 = md5 };
+            file = file with { Sha256 = sha };
+            BeMusicSeeker.Models.ChartDetails row = CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            row = row with { speedchange = "120.0,0.0;240.0,1000.0" };
+            row = row with { lanenotes = "1,2,3,4" };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -581,7 +572,7 @@ public sealed class ChartInfoInlineHydrationTests
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                 InsertSongForSummary(songDb, chartPath, md5);
                 songDb.InsertOrReplace(CreateChartDigestRow(md5, sha), typeof(LR2SongDBExtended.chart_digest_map));
-                songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
             }
             bool originalOperationMode = Settings.Default.OperationModeLR2DB;
             try
@@ -599,7 +590,7 @@ public sealed class ChartInfoInlineHydrationTests
                 }
                 var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
                 {
-                    BMSFiles = [file]
+                    BmsCharts = [file]
                 };
 
                 Assert.IsFalse(library.ChartInfoIndexHydrated);
@@ -615,7 +606,7 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(1, library.ChartInfoBackfillCompletedVersion);
                 Assert.AreEqual(1, library.ChartInfoHydrationTotalCount);
 
-                LR2SongDBExtended.chart_info resolved = library.ResolveChartInfo(sha, md5);
+                BeMusicSeeker.Models.ChartDetails resolved = library.ResolveChartInfo(sha, md5);
 
                 Assert.IsNotNull(resolved);
                 Assert.AreEqual(sha, resolved.sha256);
@@ -638,12 +629,12 @@ public sealed class ChartInfoInlineHydrationTests
             string md5 = new('a', 32);
             string sha256 = new('1', 64);
             string chartPath = Path.Combine(tempRootPath, "current-snapshot.bms");
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = chartPath
+                Path = chartPath
             };
-            file.SetHash(md5);
-            file.SetSha256(sha256);
+            file = file with { Md5 = md5 };
+            file = file with { Sha256 = sha256 };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -651,17 +642,16 @@ public sealed class ChartInfoInlineHydrationTests
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                 InsertSongForSummary(songDb, chartPath, md5);
                 songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
-                songDb.InsertOrReplace(
-                    CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
-                    typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                    CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
 
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            var storageRowsOwner = new CatalogStorageRowsOwner();
-            storageRowsOwner.ReplaceBmsRows([file]);
-            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
-            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            ownedCollectionOwner.ReplaceCharts(storageRowsOwner.BmsRows, storageRowsOwner.BmsonRows);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, gateway);
             var logs = new ConcurrentQueue<string>();
             var events = new ConcurrentQueue<CatalogChartInfoOwnerEvent>();
             var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -692,13 +682,7 @@ public sealed class ChartInfoInlineHydrationTests
                 (_, _) => false,
                 null,
                 logs.Enqueue);
-            owner.ConfigureWorkflow(
-                gateway,
-                mutationOwner,
-                storageRowsOwner,
-                ownedCollectionOwner,
-                logs.Enqueue,
-                events.Enqueue);
+            owner.ConfigureWorkflow(gateway, mutationOwner, ownedCollectionOwner, logs.Enqueue, events.Enqueue);
 
             owner.QueueDeferredHydration("unit_test_all_current", queueFullBackfillAfterHydration: true);
 
@@ -722,20 +706,20 @@ public sealed class ChartInfoInlineHydrationTests
         {
             string chartPath = Path.Combine(tempRootPath, "request-progress.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE progress\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
-            var file = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                InsertSongForSummary(songDb, chartPath, file.hash);
+                InsertSongForSummary(songDb, chartPath, file.Md5);
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            var storageRowsOwner = new CatalogStorageRowsOwner();
-            storageRowsOwner.ReplaceBmsRows([file]);
-            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
-            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            ownedCollectionOwner.ReplaceCharts(storageRowsOwner.BmsRows, storageRowsOwner.BmsonRows);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, gateway);
             long operationToken = 11;
             var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
             var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
@@ -759,9 +743,7 @@ public sealed class ChartInfoInlineHydrationTests
                 _ => { });
             owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
             owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
-            owner.ConfigureWorkflow(
-                gateway, mutationOwner, storageRowsOwner, ownedCollectionOwner, _ => { }, _ => { },
-                beginDigestMutationWindow: () =>
+            owner.ConfigureWorkflow(gateway, mutationOwner, ownedCollectionOwner, _ => { }, _ => { }, beginDigestMutationWindow: () =>
                 {
                     processedRequests.Enqueue(owner.ChartInfoBackfillRequestedVersion);
                     if (Interlocked.Exchange(ref gateUsed, 1) == 0)
@@ -826,9 +808,9 @@ public sealed class ChartInfoInlineHydrationTests
             string md5 = new('a', 32);
             string sha256 = new('1', 64);
             string chartPath = Path.Combine(tempRootPath, "hydration-progress.bms");
-            var file = new TestableBmsFile { path = chartPath };
-            file.SetHash(md5);
-            file.SetSha256(sha256);
+            ChartFile file = (ChartTestValues.Empty() with { Path = chartPath });
+            file = file with { Md5 = md5 };
+            file = file with { Sha256 = sha256 };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -836,15 +818,14 @@ public sealed class ChartInfoInlineHydrationTests
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                 InsertSongForSummary(songDb, chartPath, md5);
                 songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
-                songDb.InsertOrReplace(CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
-                    typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            var storageRowsOwner = new CatalogStorageRowsOwner();
-            storageRowsOwner.ReplaceBmsRows([file]);
-            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
-            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            ownedCollectionOwner.ReplaceCharts(storageRowsOwner.BmsRows, storageRowsOwner.BmsonRows);
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, gateway);
             long operationToken = 11;
             var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
             var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
@@ -881,7 +862,7 @@ public sealed class ChartInfoInlineHydrationTests
                 _ => { });
             owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
             owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
-            owner.ConfigureWorkflow(gateway, mutationOwner, storageRowsOwner, ownedCollectionOwner, _ => { }, _ => { });
+            owner.ConfigureWorkflow(gateway, mutationOwner, ownedCollectionOwner, _ => { }, _ => { });
             owner.QueueDeferredHydration("first", queueFullBackfillAfterHydration: false);
             Assert.IsNotNull(scheduledProcess);
             var worker = Task.Run(scheduledProcess);
@@ -938,9 +919,9 @@ public sealed class ChartInfoInlineHydrationTests
                 chartPath,
                 "#PLAYER 1\r\n#TITLE publication order before\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            var file = BMSFile.CreateBMSFileFromFile(chartPath);
-            string oldMd5 = file.hash;
-            string oldSha256 = file.sha256;
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+            string oldMd5 = file.Md5;
+            string oldSha256 = file.Sha256;
             File.WriteAllText(
                 chartPath,
                 "#PLAYER 1\r\n#TITLE publication order after\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
@@ -962,13 +943,13 @@ public sealed class ChartInfoInlineHydrationTests
                 {
                     publicationOrder.Add("session_index");
                     Assert.IsTrue(library.ChartInfoIndexVersion > 0);
-                    Assert.IsNotNull(library.ResolveChartInfo(file.sha256, file.hash));
+                    Assert.IsNotNull(library.ResolveChartInfo(library.BmsCharts.Single().Sha256, library.BmsCharts.Single().Md5));
                 }
-                else if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                else if (args.PropertyName == nameof(BMSLibrary.OwnedCollectionVersion))
                 {
                     publicationOrder.Add("digest_effects");
-                    Assert.IsNotNull(library.ResolveChartInfo(file.sha256, file.hash));
-                    Assert.IsTrue(library.GetOwnedChartHashIndexSnapshot().ContainsMd5(file.hash));
+                    Assert.IsNotNull(library.ResolveChartInfo(library.BmsCharts.Single().Sha256, library.BmsCharts.Single().Md5));
+                    Assert.IsTrue(library.GetOwnedChartHashIndexSnapshot().ContainsMd5(library.BmsCharts.Single().Md5));
                     PlaylistLibraryResolveIndexSnapshot notificationResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
                         CancellationToken.None,
                         out bool cacheHit,
@@ -978,7 +959,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.IsNull(notificationResolve.ResolveChartForPlaylistHash(oldMd5, null));
                     Assert.AreEqual(
                         chartPath,
-                        notificationResolve.ResolveChartForPlaylistHash(file.hash, null).Path);
+                        notificationResolve.ResolveChartForPlaylistHash(library.BmsCharts.Single().Md5, null).Path);
                     playlistResolvedAtDigestNotification = true;
                 }
             };
@@ -986,7 +967,7 @@ public sealed class ChartInfoInlineHydrationTests
             ChartInfoInlineBuildResult result = OwnedChartCollectionTestSupport.InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
                 library,
                 "publication_order",
-                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
+                [(file)]);
 
             Assert.IsTrue(publicationOrder.IndexOf("session_index") >= 0);
             Assert.IsTrue(publicationOrder.IndexOf("digest_effects") >= 0);
@@ -994,8 +975,10 @@ public sealed class ChartInfoInlineHydrationTests
                 publicationOrder.IndexOf("session_index") < publicationOrder.IndexOf("digest_effects"),
                 "chart-info session index must be observable before digest-dependent collection notification.");
             Assert.IsTrue(playlistResolvedAtDigestNotification);
-            Assert.AreNotEqual(oldMd5, file.hash);
-            Assert.AreNotEqual(oldSha256, file.sha256);
+            Assert.AreEqual(oldMd5, file.Md5);
+            file = library.BmsCharts.Single();
+            Assert.AreNotEqual(oldMd5, file.Md5);
+            Assert.AreNotEqual(oldSha256, file.Sha256);
             Assert.IsTrue(result.DigestChanges.Count > 0);
         });
     }
@@ -1011,20 +994,20 @@ public sealed class ChartInfoInlineHydrationTests
         {
             string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 13\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
-            var file = new TestableBmsFile
+            ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = chartPath
+                Path = chartPath
             };
-            file.SetHash(digest.hash);
-            file.SetSha256(digest.sha256);
+            file = file with { Md5 = digest.Md5 };
+            file = file with { Sha256 = digest.Sha256 };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                InsertSongForSummary(songDb, chartPath, file.hash);
-                songDb.InsertOrReplace(CreateChartDigestRow(file.hash, file.sha256), typeof(LR2SongDBExtended.chart_digest_map));
+                InsertSongForSummary(songDb, chartPath, file.Md5);
+                songDb.InsertOrReplace(CreateChartDigestRow(file.Md5, file.Sha256), typeof(LR2SongDBExtended.chart_digest_map));
                 if (operationModeLr2Db)
                 {
                     string signature = Lr2SongDbSyncSignatureBuilder.Build(new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
@@ -1037,17 +1020,22 @@ public sealed class ChartInfoInlineHydrationTests
                 Settings.Default.OperationModeLR2DB = operationModeLr2Db;
                 var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
                 {
-                    BMSFiles = [file]
+                    BmsCharts = [file]
                 };
 
+                ChartFile captured = library.BmsCharts.Single();
+                int initialOwnedVersion = library.OwnedCollectionVersion;
                 InvokeDeferredChartInfoHydration(library, "unit_test_missing", queueFullBackfillAfterHydration: true);
 
                 await AwaitChartInfoHydrationAsync(library);
                 await AwaitChartInfoBackfillAsync(library);
                 using var verify = new LR2SongDBExtended(songDbPath);
-                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.Sha256));
                 Assert.AreEqual(13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
-                Assert.AreEqual(13, file.level);
+                Assert.AreEqual(13, library.BmsCharts.Single().Level);
+                Assert.AreSame(captured.Token, library.BmsCharts.Single().Token);
+                Assert.AreEqual(initialOwnedVersion + 1, library.OwnedCollectionVersion);
+                Assert.IsNull(file.Level);
             }
             finally
             {
@@ -1093,33 +1081,31 @@ public sealed class ChartInfoInlineHydrationTests
                 string staleSha = new('2', 64);
                 string currentFailureSha = new('3', 64);
                 string staleFailureSha = new('4', 64);
-                LR2SongDBExtended.chart_info currentRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-                currentRow.level = null;
-                currentRow.difficulty = 3;
-                currentRow.difficulty_defined = false;
-                currentRow.mainbpm = 123.5;
-                currentRow.total = null;
-                currentRow.total_defined = true;
-                currentRow.density = 12.25;
-                currentRow.speedchange_count = 2;
-                currentRow.updated_at = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
-                LR2SongDBExtended.chart_info staleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
-                staleRow.charthash = new string('e', 64);
-                staleRow.distribution = "1,2,3";
-                staleRow.speedchange = "120.0,0.0;240.0,1.0";
-                staleRow.lanenotes = "1,2,3,4";
+                BeMusicSeeker.Models.ChartDetails currentRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+                currentRow = currentRow with { level = null };
+                currentRow = currentRow with { difficulty = 3 };
+                currentRow = currentRow with { difficulty_defined = false };
+                currentRow = currentRow with { mainbpm = 123.5 };
+                currentRow = currentRow with { total = null };
+                currentRow = currentRow with { total_defined = true };
+                currentRow = currentRow with { density = 12.25 };
+                currentRow = currentRow with { speedchange_count = 2 };
+                currentRow = currentRow with { updated_at = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc) };
+                BeMusicSeeker.Models.ChartDetails staleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
+                staleRow = staleRow with { charthash = new string('e', 64) };
+                staleRow = staleRow with { distribution = "1,2,3" };
+                staleRow = staleRow with { speedchange = "120.0,0.0;240.0,1.0" };
+                staleRow = staleRow with { lanenotes = "1,2,3,4" };
 
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                    songDb.InsertOrReplace(currentRow, typeof(LR2SongDBExtended.chart_info));
-                    songDb.InsertOrReplace(staleRow, typeof(LR2SongDBExtended.chart_info));
-                    songDb.InsertOrReplace(
-                        CreateChartInfoParseFailureRow(currentFailureMd5, currentFailureSha, Path.Combine(tempRootPath, "current-failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null),
-                        typeof(LR2SongDBExtended.chart_info_parse_failure));
-                    songDb.InsertOrReplace(
-                        CreateChartInfoParseFailureRow(staleFailureMd5, staleFailureSha, Path.Combine(tempRootPath, "stale-timeout.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 500),
-                        typeof(LR2SongDBExtended.chart_info_parse_failure));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentRow), typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(staleRow), typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                        CreateChartInfoParseFailureRow(currentFailureMd5, currentFailureSha, Path.Combine(tempRootPath, "current-failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                        CreateChartInfoParseFailureRow(staleFailureMd5, staleFailureSha, Path.Combine(tempRootPath, "stale-timeout.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 500)), typeof(LR2SongDBExtended.chart_info_parse_failure));
                 }
 
                 ChartInfoHydrationLoadResult result = gateway.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
@@ -1138,7 +1124,7 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
                 Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
 
-                Dictionary<string, LR2SongDBExtended.chart_info> fullRows = gateway.LoadChartInfosBySha256([currentSha, staleSha]);
+                Dictionary<string, BeMusicSeeker.Models.ChartDetails> fullRows = gateway.LoadChartInfosBySha256([currentSha, staleSha]);
 
                 AssertChartInfoEquivalent(currentRow, fullRows[currentSha]);
                 AssertChartInfoEquivalent(staleRow, fullRows[staleSha]);
@@ -1175,11 +1161,10 @@ public sealed class ChartInfoInlineHydrationTests
                 songDb.InsertOrReplace(CreateChartDigestRow(currentMd5, currentSha), typeof(LR2SongDBExtended.chart_digest_map));
                 songDb.InsertOrReplace(CreateChartDigestRow(staleMd5, staleSha), typeof(LR2SongDBExtended.chart_digest_map));
                 songDb.InsertOrReplace(CreateChartDigestRow(failureMd5, failureSha), typeof(LR2SongDBExtended.chart_digest_map));
-                songDb.InsertOrReplace(CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion), typeof(LR2SongDBExtended.chart_info));
-                songDb.InsertOrReplace(CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1), typeof(LR2SongDBExtended.chart_info));
-                songDb.InsertOrReplace(
-                    CreateChartInfoParseFailureRow(failureMd5, failureSha, Path.Combine(tempRootPath, "failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null),
-                    typeof(LR2SongDBExtended.chart_info_parse_failure));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1)), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                    CreateChartInfoParseFailureRow(failureMd5, failureSha, Path.Combine(tempRootPath, "failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
             }
 
             ChartInfoBackfillCandidateSummary summary = gateway.GetChartInfoBackfillCandidateSummary(TimeSpan.FromSeconds(30));
@@ -1231,7 +1216,7 @@ public sealed class ChartInfoInlineHydrationTests
 
             using var observation = new SqliteStatementObservation();
             var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb);
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
                 [targetMd5],
                 TimeSpan.FromSeconds(60));
             observation.ThrowIfCallbackFailed();

@@ -9,7 +9,6 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -122,7 +121,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Assert.AreEqual(1, calls.Count);
                     Assert.AreEqual(1, calls[0].Targets.Count);
                     Assert.AreSame(bmsonRow.Chart, calls[0].Targets[0].Chart);
-                    Assert.IsNull(calls[0].Targets[0].Chart.GetBmsStorageOwner());
+                    Assert.AreSame(bmsonRow.Chart.Token, calls[0].Targets[0].Chart.Token);
 
                     table.SelectRowsByPredicate(_ => true);
                     OpenContextMenu(menu);
@@ -258,8 +257,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 RoutedEventArgs encodingArgs = RaiseMenuClick(encoding);
                 Assert.IsTrue(encodingArgs.Handled);
                 Assert.AreEqual("shift_jis", encodingRequest!.Encoding);
-                Assert.AreEqual(1, encodingRequest!.BmsFiles.Count);
-                Assert.AreSame(row.Chart.GetBmsStorageOwner(), encodingRequest!.BmsFiles[0]);
+                Assert.AreEqual(1, encodingRequest!.Charts.Count);
+                Assert.AreSame(row.Chart.Token, encodingRequest!.Charts[0].Token);
 
                 MenuItem rescan = FindMenuItem(menu, "tableContextMenuItemFullScanCheck").Items
                     .OfType<MenuItem>()
@@ -901,17 +900,6 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
     private static LibraryChartRow CreateChartRow(ChartFileKind kind, string md5, string path)
     {
-        BMSFile? bmsFile = kind == ChartFileKind.Bms
-            ? new BMSFile
-            {
-                path = path,
-                hash = md5,
-                title = "Context chart"
-            }
-            : null;
-        LR2SongDBExtended.bmson_song? bmsonSong = kind == ChartFileKind.Bmson
-            ? new LR2SongDBExtended.bmson_song { path = path }
-            : null;
         ChartFile chart = new(
             kind,
             path,
@@ -926,9 +914,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             "7",
             7,
             1,
-            null,
-            bmsFile,
-            bmsonSong);
+            null)
+        { Token = new OwnedChartToken() };
         return LibraryChartRow.FromChartFile(chart);
     }
 

@@ -1470,8 +1470,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             const string md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-            ChartFile chart = ChartFileProjection.FromBmsFile(
-                BMSFile.FromSongTableRawValues(CreateSongTableRow(md5, @"C:\Library\drop-chart.bms")));
+            ChartFile chart = (
+                ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(md5, @"C:\Library\drop-chart.bms"))));
             var libraryRow = LibraryChartRow.FromChartFile(chart);
             PlaylistReferenceDisplay? displayObservedDuringInvalidation = null;
             workspace.PlaylistReferenceSortInvalidationRequested += (_, _) =>
@@ -1603,15 +1603,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             string mergeDirectory = Path.Combine(tempDirectory, "merge-directory");
             string noPackageDirectory = Path.Combine(tempDirectory, "no-package-directory");
-            BMSFile packageAnchor = CreatePlaylistDropBmsFile(
+            ChartFile packageAnchor = CreatePlaylistDropBmsFile(
                 existingHash,
                 "Package anchor",
                 Path.Combine(mergeDirectory, "anchor.bms"));
-            BMSFile mergedFile = CreatePlaylistDropBmsFile(
+            ChartFile mergedFile = CreatePlaylistDropBmsFile(
                 mergedHash,
                 "Merged song",
                 Path.Combine(mergeDirectory, "merged.bms"));
-            BMSFile sameTitleFile = CreatePlaylistDropBmsFile(
+            ChartFile sameTitleFile = CreatePlaylistDropBmsFile(
                 sameTitleHash,
                 "Existing",
                 Path.Combine(noPackageDirectory, "same-title.bms"));
@@ -1620,8 +1620,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             await workspace.AddRowsToFolderAsync(
                 [
-                    LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(mergedFile)),
-                    LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(sameTitleFile))
+                    LibraryChartRow.FromChartFile((mergedFile)),
+                    LibraryChartRow.FromChartFile((sameTitleFile))
                 ],
                 activeTable);
 
@@ -1707,24 +1707,24 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             historyTable.DisableExternalSync();
 
             string dropDirectory = Path.Combine(tempDirectory, "drop-directory");
-            BMSFile packageAnchor = CreatePlaylistDropBmsFile(
+            ChartFile packageAnchor = CreatePlaylistDropBmsFile(
                 historyHash,
                 "Package anchor",
                 Path.Combine(dropDirectory, "anchor.bms"));
-            BMSFile droppedFile = CreatePlaylistDropBmsFile(
+            ChartFile droppedFile = CreatePlaylistDropBmsFile(
                 historyHash,
                 "New song",
                 Path.Combine(dropDirectory, "new-song.bms"));
             TestBmsLibrary library = new(songDbPath)
             {
-                BMSFiles = [packageAnchor, droppedFile]
+                BmsCharts = [packageAnchor, droppedFile]
             };
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
                 playlist,
                 library);
 
             await workspace.AddRowsToFolderAsync(
-                [LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(droppedFile))],
+                [LibraryChartRow.FromChartFile((droppedFile))],
                 historyTable);
 
             BMSTableEntry? activeEntry = historyTable.entries.SingleOrDefault(
@@ -1920,20 +1920,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 return false;
             };
             const string md5 = "ffffffffffffffffffffffffffffffff";
-            ChartFile chart = ChartFileProjection.FromBmsFile(
-                BMSFile.FromSongTableRawValues(CreateSongTableRow(md5, Path.Combine(tempDirectory, "drop-chart.bms"))));
+            ChartFile chart = (
+                ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(md5, Path.Combine(tempDirectory, "drop-chart.bms")))));
             var libraryRow = LibraryChartRow.FromChartFile(chart);
             const string outputFailureMd5 = "11111111111111111111111111111111";
-            ChartFile outputFailureChart = ChartFileProjection.FromBmsFile(
-                BMSFile.FromSongTableRawValues(CreateSongTableRow(
-                    outputFailureMd5,
-                    Path.Combine(tempDirectory, "drop-output-failure-chart.bms"))));
+            ChartFile outputFailureChart = (
+                ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(outputFailureMd5, Path.Combine(tempDirectory, "drop-output-failure-chart.bms")))));
             var outputFailureLibraryRow = LibraryChartRow.FromChartFile(outputFailureChart);
             const string preparationFailureMd5 = "22222222222222222222222222222222";
-            ChartFile preparationFailureChart = ChartFileProjection.FromBmsFile(
-                BMSFile.FromSongTableRawValues(CreateSongTableRow(
-                    preparationFailureMd5,
-                    Path.Combine(tempDirectory, "drop-preparation-failure-chart.bms"))));
+            ChartFile preparationFailureChart = (
+                ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(preparationFailureMd5, Path.Combine(tempDirectory, "drop-preparation-failure-chart.bms")))));
             var preparationFailureLibraryRow = LibraryChartRow.FromChartFile(preparationFailureChart);
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Imported"));
             workspace.IsPlaylistDetailViewActive = true;
@@ -2101,10 +2097,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                     + "BEGIN SELECT RAISE(ABORT, 'playlist drop DB write failure'); END;");
             }
             const string databaseFailureMd5 = "33333333333333333333333333333333";
-            ChartFile databaseFailureChart = ChartFileProjection.FromBmsFile(
-                BMSFile.FromSongTableRawValues(CreateSongTableRow(
-                    databaseFailureMd5,
-                    Path.Combine(tempDirectory, "drop-database-failure-chart.bms"))));
+            ChartFile databaseFailureChart = (
+                ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(databaseFailureMd5, Path.Combine(tempDirectory, "drop-database-failure-chart.bms")))));
             Exception? databaseFailure = null;
             try
             {
@@ -2202,11 +2196,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 () => outputSettings);
             PlaylistWorkspaceMutationRejectedEventArgs? rejected = null;
             workspace.MutationRejected += (_, request) => rejected = request;
-            ChartFile chart = ChartFileProjection.FromBmsFile(
-                BMSFile.FromSongTableRawValues(
+            ChartFile chart = (
+                ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
                     CreateSongTableRow(
-                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        Path.Combine(tempDirectory, "admission-chart.bms"))));
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectory, "admission-chart.bms")))));
 
             dropTask = workspace.AddRowsToFolderAsync(
                 [LibraryChartRow.FromChartFile(chart)],
@@ -2536,23 +2529,23 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         string directoryA = Path.Combine(tempDirectory, "directory-a");
         string directoryB = Path.Combine(tempDirectory, "directory-b");
         string directoryC = Path.Combine(tempDirectory, "directory-c");
-        BMSFile chartAFile = CreatePlaylistDropBmsFile(
+        ChartFile chartAFile = CreatePlaylistDropBmsFile(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "Zeta",
             Path.Combine(directoryA, "zeta.bms"));
-        BMSFile chartBFile = CreatePlaylistDropBmsFile(
+        ChartFile chartBFile = CreatePlaylistDropBmsFile(
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "Alpha",
             Path.Combine(directoryB, "alpha.bms"));
-        BMSFile chartCFile = CreatePlaylistDropBmsFile(
+        ChartFile chartCFile = CreatePlaylistDropBmsFile(
             "cccccccccccccccccccccccccccccccc",
             "Gamma",
             Path.Combine(directoryC, "gamma.bms"));
-        BMSFile packageAnchorA = CreatePlaylistDropBmsFile(
+        ChartFile packageAnchorA = CreatePlaylistDropBmsFile(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "Package anchor A",
             Path.Combine(directoryC, "package-anchor-a.bms"));
-        BMSFile packageAnchorB = CreatePlaylistDropBmsFile(
+        ChartFile packageAnchorB = CreatePlaylistDropBmsFile(
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "Package anchor B",
             Path.Combine(directoryC, "package-anchor-b.bms"));
@@ -2573,15 +2566,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             library,
             activeTable,
             workspace,
-            ChartFileProjection.FromBmsFile(chartAFile),
-            ChartFileProjection.FromBmsFile(chartBFile),
-            ChartFileProjection.FromBmsFile(chartCFile));
+            (chartAFile),
+            (chartBFile),
+            (chartCFile));
     }
 
     private static (BMSPlaylist Playlist, TestBmsLibrary Library, BMSTable Table, PlaylistWorkspaceViewModel Workspace) CreateRootDropStore(
         string tempDirectory,
         BMSTable table,
-        IEnumerable<BMSFile> libraryFiles)
+        IEnumerable<ChartFile> libraryFiles)
     {
         string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -2599,7 +2592,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         };
         TestBmsLibrary library = new(songDbPath)
         {
-            BMSFiles = [.. libraryFiles ?? []]
+            BmsCharts = [.. libraryFiles ?? []]
         };
         PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
             playlist,
@@ -2608,11 +2601,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         return (playlist, library, table, workspace);
     }
 
-    private static BMSFile CreatePlaylistDropBmsFile(string md5, string title, string path)
+    private static ChartFile CreatePlaylistDropBmsFile(string md5, string title, string path)
     {
         string[] values = CreateSongTableRow(md5, path);
         values[1] = title;
-        return BMSFile.FromSongTableRawValues(values);
+        return ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(values));
     }
 
     private static void AssertPersistedRootDropEntries(

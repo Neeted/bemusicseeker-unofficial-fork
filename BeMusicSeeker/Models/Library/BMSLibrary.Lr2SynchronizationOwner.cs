@@ -312,8 +312,8 @@ public partial class BMSLibrary
             return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
                 config,
                 data.CaptureBmsFilesSnapshot()
-                    .Where(file => !string.IsNullOrWhiteSpace(file.path))
-                    .Select(file => file.adddate),
+                    .Where(file => !string.IsNullOrWhiteSpace(file.Path))
+                    .Select(file => file.AddDate),
                 nowUtc);
         }
 
@@ -1107,29 +1107,14 @@ public partial class BMSLibrary
             }
 
             Lr2SongDbSyncScanSurfaceSnapshot snapshot;
-            StorageRowsVersionSnapshot currentStorageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
+            IReadOnlyDictionary<string, OwnedChartToken> pathMembershipIndex = data.CapturePathMembershipIndex();
             lock (ScanSurfaceGate)
             {
                 int generation = ScanSurfaceGeneration == int.MaxValue
                     ? 1
                     : ScanSurfaceGeneration + 1;
                 ScanSurfaceGeneration = generation;
-                snapshot = new Lr2SongDbSyncScanSurfaceSnapshot(
-                    generation,
-                    roots,
-                    fileCheckResult.Lr2ScanNormalFolderDirectoryPaths,
-                    fileCheckResult.Lr2ScanDirectoryEntries,
-                    fileCheckResult.Lr2ScanNormalFolderDirectoryEntries,
-                    fileCheckResult.Lr2ScanFolderInfoFilePaths,
-                    fileCheckResult.Lr2ScanFolderInfoFileEntries,
-                    fileCheckResult.Lr2ScanTextFileDirectories,
-                    lr2FolderDiscoveryDirectories,
-                    lr2FolderFilePaths,
-                    lr2FolderFileEntries,
-                    lr2FolderFileDiscoveryComplete,
-                    data.OwnedChartCollectionVersion,
-                    currentStorageRowsVersion.BmsRowsVersion,
-                    currentStorageRowsVersion.BmsonRowsVersion);
+                snapshot = new Lr2SongDbSyncScanSurfaceSnapshot(generation, roots, fileCheckResult.Lr2ScanNormalFolderDirectoryPaths, fileCheckResult.Lr2ScanDirectoryEntries, fileCheckResult.Lr2ScanNormalFolderDirectoryEntries, fileCheckResult.Lr2ScanFolderInfoFilePaths, fileCheckResult.Lr2ScanFolderInfoFileEntries, fileCheckResult.Lr2ScanTextFileDirectories, lr2FolderDiscoveryDirectories, lr2FolderFilePaths, lr2FolderFileEntries, lr2FolderFileDiscoveryComplete, pathMembershipIndex);
                 ScanSurfaceSnapshot = snapshot;
                 AppManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
                     fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFileEntries,
@@ -1156,9 +1141,7 @@ public partial class BMSLibrary
                 + " appManagedPhysicalDiscoveryComplete=" + fileCheckResult.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete.ToString().ToLowerInvariant()
                 + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
                 + " textFileDirs=" + snapshot.TextFileDirectories.Count
-                + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
-                + " bmsRowsVersion=" + snapshot.BmsRowsVersion
-                + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
+                + " ownedPathCount=" + snapshot.PathMembershipIndex.Count);
         }
 
         internal bool IsShutdownRequested => runtime.IsShutdownRequested;
@@ -1241,18 +1224,15 @@ public partial class BMSLibrary
                 return;
             }
 
-            StorageRowsVersionSnapshot storageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
-            var receipt = new Lr2SongDbSyncCommittedPathReceipt(
-                storageRowsVersion.BmsRowsVersion,
-                fileCheckResult.CommittedLr2SongDbSyncBmsPaths);
+            var receipt = new Lr2SongDbSyncCommittedPathReceipt(data.CaptureCurrentCharts(
+                fileCheckResult.CommittedLr2SongDbSyncBmsPaths.Select(path => LibraryChartRef.FromPath(ChartFileKind.Bms, path, null, null))));
             lock (CommittedPathReceiptGate)
             {
                 CommittedPathReceipt = receipt;
             }
             LogInstallPerformance("lr2_song_db_sync committed_path_receipt published"
                 + " reason=" + (reason ?? "unknown")
-                + " paths=" + receipt.CommittedBmsPaths.Count
-                + " bmsRowsVersion=" + receipt.BmsRowsVersion);
+                + " paths=" + receipt.CommittedBmsPaths.Count);
         }
 
         internal Lr2SongDbSyncCommittedPathReceipt TakeLr2SongDbSyncCommittedPathReceipt(
@@ -1269,18 +1249,17 @@ public partial class BMSLibrary
             {
                 return null;
             }
-            if (!receipt.Matches(input))
+            IReadOnlyList<ChartFile> currentCharts = data.CaptureCurrentCharts(receipt.CommittedCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
+            // 実行する入力全体の最新性は既存の受付検査で別に確認する。証票は確定対象だけを検査する。
+            if (input == null || !receipt.MatchesTargets(currentCharts))
             {
                 LogInstallPerformance("lr2_song_db_sync committed_path_receipt discarded"
-                    + " reason=version_mismatch_" + (reason ?? "unknown")
-                    + " receiptBmsRowsVersion=" + receipt.BmsRowsVersion
-                    + " inputBmsRowsVersion=" + (input?.BmsRowsVersion ?? 0));
+                    + " reason=target_mismatch_" + (reason ?? "unknown"));
                 return null;
             }
             LogInstallPerformance("lr2_song_db_sync committed_path_receipt taken"
                 + " reason=" + (reason ?? "unknown")
-                + " paths=" + receipt.CommittedBmsPaths.Count
-                + " bmsRowsVersion=" + receipt.BmsRowsVersion);
+                + " paths=" + receipt.CommittedBmsPaths.Count);
             return receipt;
         }
 
@@ -1468,16 +1447,16 @@ public partial class BMSLibrary
         }
 
         private Lr2SongDbSyncInputSettingsSnapshot CreateLr2SongDbSyncInputSettingsSnapshot(
-            IEnumerable<BMSFile> songRows,
+            IEnumerable<ChartFile> songRows,
             DateTime nowUtc,
             IEnumerable<string> rootDirectories)
         {
             BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
             List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
             return new Lr2SongDbSyncInputSettingsSnapshot(
-                Lr2BuiltinCustomFolderSettings.Create(
+                Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
                     data.CreateCurrentLr2ConfigOrNull(),
-                    songRows,
+                    (songRows ?? []).Select(chart => chart?.AddDate),
                     nowUtc),
                 lr2BuiltinFolderSourceDirectories,
                 options.LR2CustomFolderOutputBaseDir,
@@ -1537,25 +1516,25 @@ public partial class BMSLibrary
         internal void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
             projection.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
 
-        internal Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() =>
+        internal Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() =>
             projection.CreateLr2SongDbSyncCompatibilityProjectionIndex();
 
-        internal Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
+        internal Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
             projection.CreateLr2SongDbSyncChartInfoResolverSnapshot();
 
         internal HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason) =>
             projection.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
 
-        internal void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
+        internal void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows) =>
             projection.UpsertLr2SongDbSyncChartInfoIndexRows(rows);
 
         internal void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress) =>
             UpdateProgress(progress);
 
         internal int ApplyLr2SongDbSyncCompatibilityProjection(
-            IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+            IReadOnlyList<ResourceHealthMaintenanceSnapshot> maintenanceInfos,
             string reason,
-            IReadOnlyDictionary<string, BMSFile> bmsByPath,
+            IReadOnlyDictionary<string, ChartFile> bmsByPath,
             bool logSummary,
             bool dispatchPresentation) =>
             projection.ApplyLr2SongDbSyncCompatibilityProjection(
@@ -1565,8 +1544,8 @@ public partial class BMSLibrary
                 logSummary,
                 dispatchPresentation);
 
-        internal void DispatchWarningPresentationChanged(string reason) =>
-            projection.DispatchWarningPresentationChanged(reason);
+        internal void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null) =>
+            projection.DispatchWarningPresentationChanged(reason, md5s);
 
         internal void MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
         {
@@ -1854,22 +1833,7 @@ public partial class BMSLibrary
                             OverlayLr2DirectoryEntrySurface(snapshot.DirectoryEntries, preparedSurface.DirectoryEntries);
                         directoryOverlayStopwatch.Stop();
                         directoryOverlayMs = directoryOverlayStopwatch.ElapsedMilliseconds;
-                        snapshot = new Lr2SongDbSyncScanSurfaceSnapshot(
-                            generation,
-                            snapshot.RootDirectories,
-                            snapshot.NormalFolderDirectoryPaths,
-                            directoryEntries,
-                            snapshot.NormalFolderDirectoryEntries,
-                            mergedFolderInfoPaths,
-                            mergedFolderInfoEntries,
-                            mergedTextFileDirectories,
-                            snapshot.Lr2FolderDiscoveryDirectories,
-                            candidates.Paths,
-                            candidates.EntriesByPath,
-                            candidates.DiscoveryComplete,
-                            snapshot.OwnedCollectionVersion,
-                            snapshot.BmsRowsVersion,
-                            snapshot.BmsonRowsVersion);
+                        snapshot = new Lr2SongDbSyncScanSurfaceSnapshot(generation, snapshot.RootDirectories, snapshot.NormalFolderDirectoryPaths, directoryEntries, snapshot.NormalFolderDirectoryEntries, mergedFolderInfoPaths, mergedFolderInfoEntries, mergedTextFileDirectories, snapshot.Lr2FolderDiscoveryDirectories, candidates.Paths, candidates.EntriesByPath, candidates.DiscoveryComplete, snapshot.PathMembershipIndex);
                         ScanSurfaceSnapshot = snapshot;
                         PreparedDataSurfaceAppliedScanGeneration = generation;
                     }
@@ -1948,14 +1912,9 @@ public partial class BMSLibrary
                 missReason = "row_snapshot";
                 return null;
             }
-            if (snapshot.BmsRowsVersion != rowSnapshot.BmsRowsVersion)
+            if (!ReferenceEquals(snapshot.PathMembershipIndex, rowSnapshot.PathMembershipIndex))
             {
-                missReason = "bms_rows_version";
-                return null;
-            }
-            if (snapshot.BmsonRowsVersion != rowSnapshot.BmsonRowsVersion)
-            {
-                missReason = "bmson_rows_version";
+                missReason = "owned_paths";
                 return null;
             }
             if (!BMSLibrary.ArePathSetsEqual(snapshot.RootDirectories, rootDirectories))
@@ -1985,8 +1944,6 @@ public partial class BMSLibrary
             }
             return snapshot != null
                 && snapshot.Generation == input.ScanSurfaceGeneration
-                && snapshot.BmsRowsVersion == input.BmsRowsVersion
-                && snapshot.BmsonRowsVersion == input.BmsonRowsVersion
                 && BMSLibrary.ArePathSetsEqual(snapshot.RootDirectories, input.RootDirectories)
                 && BMSLibrary.ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, input.Lr2FolderDiscoveryDirectories);
         }
@@ -2005,11 +1962,9 @@ public partial class BMSLibrary
 
         internal bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)
         {
-            StorageRowsVersionSnapshot currentStorageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
+            OwnedChartCollectionVersionSnapshot currentStorageRowsVersion = data.CaptureOwnedChartCollectionVersionSnapshot();
             if (input == null
-                || data.OwnedChartCollectionVersion != input.OwnedChartCollectionVersion
-                || currentStorageRowsVersion.BmsRowsVersion != input.BmsRowsVersion
-                || currentStorageRowsVersion.BmsonRowsVersion != input.BmsonRowsVersion)
+                || currentStorageRowsVersion.OwnedCollectionVersion != input.OwnedCollectionVersion)
             {
                 return false;
             }

@@ -16,37 +16,37 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartList_GlobalKeywordSearchesMetadataPathPlaylistAndHashes()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("genrex").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("abcdef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("1234567890").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("genrex").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("abcdef").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("1234567890").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_UsesAndForMultipleTokens()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx abcdef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha missing").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx abcdef").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha missing").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_FieldQueryLimitsSearchTarget()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:alpha artist:artistx md5:abcdef sha256:123456").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:artistx").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("memo:alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:alpha artist:artistx md5:abcdef sha256:123456").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:artistx").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("memo:alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_PlaylistFieldSearchesReferenceNames()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
         BMSTable[] tables =
         [
             CreateTable("Satellite sl", "★"),
@@ -54,7 +54,7 @@ public sealed class GridKeywordSearchQueryTests
             CreateTable("GENOSIDE", "▽")
         ];
         PlaylistReferenceIndex index = CreatePlaylistReferenceIndex(file, tables);
-        var libraryRow = LibraryChartRow.FromBmsFile(file);
+        var libraryRow = LibraryChartRow.FromChartFile(file);
         libraryRow.SetPlaylistReferenceDisplayProvider(row => index.Find(row.Chart));
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(libraryRow));
@@ -66,7 +66,7 @@ public sealed class GridKeywordSearchQueryTests
 
         var playlistRow = new PlaylistDetailSourceRow(
             new BMSTableEntry(file),
-            ChartFileProjection.FromBmsFile(file),
+            (file),
             playlistReferenceDisplayProvider: chart => index.Find(chart));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(libraryRow));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Second Table\"").MatchesPlaylistDetail(playlistRow));
@@ -75,23 +75,24 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartList_PlaylistFieldSearchesBmsonReferenceProjection()
     {
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Songs\Bmson\chart.bmson",
-            folder = "BmsonFolder",
-            title = "BmsonTitle",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            Path = @"C:\Songs\Bmson\chart.bmson",
+            Folder = "BmsonFolder",
+            Title = "BmsonTitle",
+            RawTitle = "BmsonTitle",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
         var table = new BMSTable
         {
             name = "Bmson Table",
             symbol = "BMSN",
-            entries = [CreateBmsonPlaylistEntry(song.sha256)]
+            entries = [CreateBmsonPlaylistEntry(song.Sha256)]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
         index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
-        var row = LibraryChartRow.FromBmsonSong(song);
+        var row = LibraryChartRow.FromChartFile((song));
         row.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
 
         Assert.AreEqual("BMSN", row.RefTablesSymbols);
@@ -105,7 +106,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartListSourceRow_UsesSafeIdentityFieldsWithoutLibraryChartRow()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
         BMSTable[] tables =
         [
             CreateTable("Satellite sl", "★"),
@@ -113,7 +114,7 @@ public sealed class GridKeywordSearchQueryTests
         ];
         PlaylistReferenceIndex index = CreatePlaylistReferenceIndex(file, tables);
         ChartListSourceRow sourceRow = CreateSourceRow(file, row => index.Find(row.Chart));
-        var libraryRow = LibraryChartRow.FromBmsFile(file);
+        var libraryRow = LibraryChartRow.FromChartFile(file);
         libraryRow.SetPlaylistReferenceDisplayProvider(row => index.Find(row.Chart));
 
         var query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
@@ -133,18 +134,22 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartListSourceRow_UsesBmsonFallbackValues()
     {
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Songs\Bmson\chart.bmson",
-            folder = "BmsonFolder",
-            title = "BmsonTitle",
-            subtitle = "Sub",
-            artist = "BmsonArtist",
-            genre = "BmsonGenre",
-            mode_hint = "beat-7k",
-            level = 7,
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            Path = @"C:\Songs\Bmson\chart.bmson",
+            Folder = "BmsonFolder",
+            Title = "BmsonTitle Sub",
+            RawTitle = "BmsonTitle",
+            Subtitle = "Sub",
+            Artist = "BmsonArtist",
+            RawArtist = "BmsonArtist",
+            Genre = "BmsonGenre",
+            ModeHint = "beat-7k",
+            Mode = 7,
+            Level = 7,
+            LevelText = "7",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
         ChartListSourceRow sourceRow = CreateSourceRow(song);
 
@@ -161,22 +166,25 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(sourceRow.Chart.Md5, sourceRow.Hash);
         Assert.AreEqual(sourceRow.Chart.Sha256, sourceRow.Sha256);
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
-        Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsonSong(song)), query.MatchesChartListSourceRow(sourceRow));
+        Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile((song))), query.MatchesChartListSourceRow(sourceRow));
     }
 
     [TestMethod]
-    public void ChartListSourceRow_StorageOwnerStateAndChartInfoFollowCurrentProvider()
+    public void ChartListSourceRow_AppliesCommonCurrentAndReadsChartInfoProvider()
     {
-        TestableBmsFile file = CreateFile();
-        LR2SongDBExtended.chart_info bmsChartInfo = CreateChartInfo(level: 10, sha256: file.sha256, md5: file.hash);
+        ChartFile file = CreateFile() with { Token = new OwnedChartToken() };
+        ChartFile captured = file;
+        BeMusicSeeker.Models.ChartDetails bmsChartInfo = CreateChartInfo(level: 10, sha256: file.Sha256, md5: file.Md5);
         ChartListSourceRow bmsSourceRow = CreateSourceRow(file, chartInfo: bmsChartInfo);
 
-        file.SetTitleForTest("Changed Title");
-        file.SetGenreForTest("Changed Genre");
-        file.tag = "Changed Tag";
-        file.path = @"C:\Songs\Changed\chart.bms";
-        file.SetHashForTest("ffffffffffffffffffffffffffffffff");
+        file = file with { Title = "Changed Title", RawTitle = "Changed Title" };
+        file = file with { Genre = "Changed Genre" };
+        file = file with { Tag = "Changed Tag" };
+        file = file with { Path = @"C:\Songs\Changed\chart.bms" };
+        file = file with { Md5 = "ffffffffffffffffffffffffffffffff" };
 
+        bmsSourceRow.ApplyCurrentChart(file);
+        Assert.AreEqual("Alpha Title", captured.Title);
         Assert.AreEqual("Changed Title", bmsSourceRow.Title);
         Assert.AreEqual("Changed Genre", bmsSourceRow.Genre);
         Assert.AreEqual("Changed Tag", bmsSourceRow.Tag);
@@ -186,26 +194,32 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreSame(bmsChartInfo, bmsSourceRow.Chart.ChartInfo);
         Assert.AreEqual(10, bmsSourceRow.ChartLevelSortKey);
 
-        var song = new LR2SongDBExtended.bmson_song
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Songs\Bmson\chart.bmson",
-            title = "BmsonTitle",
-            artist = "BmsonArtist",
-            mode_hint = "beat-7k",
-            level = 7,
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            Path = @"C:\Songs\Bmson\chart.bmson",
+            Title = "BmsonTitle",
+            RawTitle = "BmsonTitle",
+            Artist = "BmsonArtist",
+            RawArtist = "BmsonArtist",
+            ModeHint = "beat-7k",
+            Mode = 7,
+            Level = 7,
+            LevelText = "7",
+            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            Sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
-        LR2SongDBExtended.chart_info bmsonChartInfo = CreateChartInfo(level: 11, sha256: song.sha256, md5: song.md5);
+        song = song with { Token = new OwnedChartToken() };
+        BeMusicSeeker.Models.ChartDetails bmsonChartInfo = CreateChartInfo(level: 11, sha256: song.Sha256, md5: song.Md5);
         ChartListSourceRow bmsonSourceRow = CreateSourceRow(song, chartInfo: bmsonChartInfo);
 
-        song.title = "Changed Bmson";
-        song.genre = "Changed Genre";
-        song.level = 9;
-        song.mode_hint = "beat-5k";
-        song.path = @"C:\Songs\Changed\chart.bmson";
-        song.md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        song = song with { Title = "Changed Bmson", RawTitle = "Changed Bmson" };
+        song = song with { Genre = "Changed Genre" };
+        song = song with { Level = 9, LevelText = "9" };
+        song = song with { ModeHint = "beat-5k", Mode = 5 };
+        song = song with { Path = @"C:\Songs\Changed\chart.bmson" };
+        song = song with { Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" };
 
+        bmsonSourceRow.ApplyCurrentChart(song);
         Assert.AreEqual("Changed Bmson", bmsonSourceRow.Title);
         Assert.AreEqual("Changed Genre", bmsonSourceRow.Genre);
         Assert.AreEqual("9", bmsonSourceRow.Level);
@@ -220,11 +234,11 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartListSourceRow_ScoreAndChartInfoFieldsMatchLibraryChartRow()
     {
-        TestableBmsFile file = CreateFile();
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(sha256: file.sha256, md5: file.hash);
-        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
+        ChartFile file = CreateFile();
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(sha256: file.Sha256, md5: file.Md5);
+        file = ChartFileProjection.WithScore(file, ChartTestValues.Score(ClearType.HARD, RankType.AA, 850, 100, 1000, 900, 8, 0, false));
         ChartListSourceRow sourceRow = CreateSourceRow(file, chartInfo: chartInfo);
-        var libraryRow = LibraryChartRow.FromBmsFile(file);
+        var libraryRow = LibraryChartRow.FromChartFile(file);
         libraryRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         var query = GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000 clear:HC rank:AA score:>=1800 bp:<10");
@@ -236,11 +250,11 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartListSourceRow_RegexScoreAndChartInfoFieldsMatchLibraryChartRow()
     {
-        TestableBmsFile file = CreateFile();
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(sha256: file.sha256, md5: file.hash);
-        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
+        ChartFile file = CreateFile();
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(sha256: file.Sha256, md5: file.Md5);
+        file = ChartFileProjection.WithScore(file, ChartTestValues.Score(ClearType.HARD, RankType.AA, 850, 100, 1000, 900, 8, 0, false));
         ChartListSourceRow sourceRow = CreateSourceRow(file, chartInfo: chartInfo);
-        var libraryRow = LibraryChartRow.FromBmsFile(file);
+        var libraryRow = LibraryChartRow.FromChartFile(file);
         libraryRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         var query = GridKeywordSearchQuery.Parse("feature:re:RANDOM judge:re:EASY clear:re:HARD rank:re:^AA$ score:re:^1800$ bp:re:^8$");
@@ -252,26 +266,26 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartList_UnknownOrEmptyFieldQueryDoesNotMatch()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("unknown:alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse(":alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("unknown:alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse(":alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_WindowsDriveLetterTokenIsGlobalKeyword()
     {
-        TestableBmsFile file = CreateFile();
-        file.path = @"D:\BMS\Alpha\chart.bms";
+        ChartFile file = CreateFile();
+        file = file with { Path = @"D:\BMS\Alpha\chart.bms" };
 
         var drivePathQuery = GridKeywordSearchQuery.Parse(@"D:\BMS\");
         var driveRelativeQuery = GridKeywordSearchQuery.Parse("D:");
         var lowerDrivePathQuery = GridKeywordSearchQuery.Parse(@"d:\bms\");
 
-        Assert.IsTrue(drivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(driveRelativeQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(lowerDrivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(drivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(driveRelativeQuery.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(lowerDrivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
         Assert.AreEqual(0, drivePathQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
         Assert.AreEqual(0, driveRelativeQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
         Assert.AreEqual(0, lowerDrivePathQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
@@ -280,50 +294,50 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartList_QuoteSearchTreatsPhraseAsSingleToken()
     {
-        TestableBmsFile file = CreateFile();
-        var quotedFile = new TestableBmsFile();
-        quotedFile.SetTitleForTest("Alpha \"Quoted\"");
+        ChartFile file = CreateFile();
+        ChartFile quotedFile = ChartTestValues.Empty();
+        quotedFile = quotedFile with { Title = "Alpha \"Quoted\"", RawTitle = "Alpha \"Quoted\"" };
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha \\\"Quoted\\\"\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(quotedFile)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("\"Alpha Missing\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha \\\"Quoted\\\"\"").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(quotedFile)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("\"Alpha Missing\"").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_NegationExcludesMatchingRows()
     {
-        TestableBmsFile file = CreateFile();
-        var hyphenatedFile = new TestableBmsFile();
-        hyphenatedFile.SetTitleForTest("foo-bar");
+        ChartFile file = CreateFile();
+        ChartFile hyphenatedFile = ChartTestValues.Empty();
+        hyphenatedFile = hyphenatedFile with { Title = "foo-bar", RawTitle = "foo-bar" };
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha -artist:other").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha -artist:artistx").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("-").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("foo-bar").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(hyphenatedFile)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha -artist:other").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha -artist:artistx").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("-").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("foo-bar").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(hyphenatedFile)));
     }
 
     [TestMethod]
     public void MatchesChartList_OrSearchIsLimitedToTokenAlternatives()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:missing|alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"|missing").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:missing|other").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("|").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:missing|alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"|missing").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:missing|other").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("|").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_RegexSearchSupportsGlobalAndFieldQueries()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:re:^alpha\\s+title$").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("artist:re:^alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:re:^alpha\\s+title$").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("artist:re:^alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
@@ -345,7 +359,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void GetDiagnostics_ReportsInvalidConditionsWithoutChangingMatchSemantics()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
         var query = GridKeywordSearchQuery.Parse("unknown:alpha title: - | title:re:[");
         GridKeywordSearchDiagnosticKind[] kinds = [.. query.GetDiagnostics(GridKeywordSearchContext.ChartList).Select(diagnostic => diagnostic.Kind)];
 
@@ -354,7 +368,7 @@ public sealed class GridKeywordSearchQueryTests
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyNegation);
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyOr);
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.InvalidRegex);
-        Assert.IsFalse(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
@@ -368,7 +382,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void ChartInfoDisplayFormatter_FormatsDisplayValues()
     {
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo();
 
         Assert.AreEqual("180", ChartInfoDisplayFormatter.FormatOptionalDouble(180.0));
         Assert.AreEqual("180.25", ChartInfoDisplayFormatter.FormatOptionalDouble(180.25));
@@ -382,9 +396,9 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartList_ChartInfoNumericRangeAndAliases()
     {
-        TestableBmsFile file = CreateFile();
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(sha256: file.sha256, md5: file.hash);
-        var row = LibraryChartRow.FromBmsFile(file);
+        ChartFile file = CreateFile();
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(sha256: file.Sha256, md5: file.Md5);
+        var row = LibraryChartRow.FromChartFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("level:10..12 notes:>=2000 duration:<124").MatchesLibraryChartRow(row));
@@ -397,73 +411,76 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartList_ChartInfoDefinedUndefinedTerms()
     {
-        TestableBmsFile file = CreateFile();
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(level: null, difficultyDefined: false, totalDefined: false, sha256: file.sha256, md5: file.hash);
-        var row = LibraryChartRow.FromBmsFile(file);
+        ChartFile file = CreateFile();
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo(level: null, difficultyDefined: false, totalDefined: false, sha256: file.Sha256, md5: file.Md5);
+        var row = LibraryChartRow.FromChartFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undefined difficulty:undefined total:undefined").MatchesLibraryChartRow(row));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undef difficulty:null total:undef").MatchesLibraryChartRow(row));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("level:defined").MatchesLibraryChartRow(row));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:defined").MatchesLibraryChartRow(row));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:undefined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(CreateFile())));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:null").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(CreateFile())));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:undefined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(CreateFile())));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:null").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(CreateFile())));
     }
 
     [TestMethod]
     public void MatchesChartList_ScoreFieldsSupportAliasesAndNumericRanges()
     {
-        TestableBmsFile file = CreateFile();
-        file.SetScoreForTest(ClearType.HARD, RankType.AAA, perfect: 900, great: 100, totalnotes: 1000, maxcombo: 1200, minbp: 5);
+        ChartFile file = CreateFile();
+        file = ChartFileProjection.WithScore(file, ChartTestValues.Score(ClearType.HARD, RankType.AAA, 900, 100, 1000, 1200, 5, 0, false));
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:AAA").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("djlevel:AAA").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:0.95").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:>=0.9").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("rate:95").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("score:>=1700 combo:1000.. bp:0..10").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined score:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\"").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:AAA").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("djlevel:AAA").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:0.95").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:>=0.9").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("rate:95").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("score:>=1700 combo:1000.. bp:0..10").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined score:defined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
 
-        file.bmsScore.clear = ClearType.EX_HARD;
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EXH").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        file.bmsScore.clear = ClearType.PA;
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:PF").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        file.bmsScore.clear = ClearType.MAX;
-        file.bmsScore.rank = RankType.MAX;
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.EX_HARD, RankType.AAA));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EXH").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.PA, RankType.AAA));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:PF").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.MAX, RankType.AAA));
+        file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.MAX, RankType.MAX));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
     public void MatchesChartList_ScoreFieldsSupportUndefinedTerms()
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undefined score:undefined rate:undefined combo:undefined bp:undefined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undef score:null rate:undef combo:null bp:undef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("rank:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undefined score:undefined rate:undefined combo:undefined bp:undefined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undef score:null rate:undef combo:null bp:undef").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("rank:defined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
     [TestMethod]
-    public void LibraryChartRow_FromBmsonSong_ExposesChartInfoForDisplayAndSearch()
+    public void LibraryChartRow_FromBmsonChart_ExposesChartInfoForDisplayAndSearch()
     {
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
-        var song = new LR2SongDBExtended.bmson_song
+        BeMusicSeeker.Models.ChartDetails chartInfo = CreateChartInfo();
+        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            path = @"C:\Songs\Alpha\chart.bmson",
-            title = "Alpha Bmson",
-            artist = "ArtistX",
-            genre = "GenreX",
-            folder = "Alpha",
-            mode_hint = "beat-7k",
-            md5 = chartInfo.md5,
-            sha256 = chartInfo.sha256
+            Path = @"C:\Songs\Alpha\chart.bmson",
+            Title = "Alpha Bmson",
+            RawTitle = "Alpha Bmson",
+            Artist = "ArtistX",
+            RawArtist = "ArtistX",
+            Genre = "GenreX",
+            Folder = "Alpha",
+            ModeHint = "beat-7k",
+            Mode = 7,
+            Md5 = chartInfo.md5,
+            Sha256 = chartInfo.sha256
         };
 
-        var row = LibraryChartRow.FromBmsonSong(song);
+        var row = LibraryChartRow.FromChartFile((song));
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         Assert.AreSame(chartInfo, row.ChartInfo);
@@ -476,9 +493,9 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesLibraryChartRow_ScoreFieldsUseBmsFileScore()
     {
-        TestableBmsFile file = CreateFile();
-        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        var row = LibraryChartRow.FromBmsFile(file);
+        ChartFile file = CreateFile();
+        file = ChartFileProjection.WithScore(file, ChartTestValues.Score(ClearType.HARD, RankType.AA, 850, 100, 1000, 900, 8, 0, false));
+        var row = LibraryChartRow.FromChartFile(file);
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC rank:AA score:>=1800 bp:<10").MatchesLibraryChartRow(row));
     }
@@ -486,70 +503,35 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesLibraryChartRow_Lr2AssistClearUsesOptionHistory()
     {
-        TestableBmsFile assistFile = CreateFile();
-        assistFile.SetScoreForTest(
-            ClearType.EASY,
-            RankType.F,
-            perfect: 100,
-            great: 50,
-            totalnotes: 200,
-            maxcombo: 120,
-            minbp: 20,
-            opHistory: ClearTypeStorageConverter.OptionHistoryAssist,
-            useLr2ScoreValue: true);
-        var assistRow = LibraryChartRow.FromBmsFile(assistFile);
+        ChartFile assistFile = CreateFile();
+        assistFile = ChartFileProjection.WithScore(assistFile, ChartTestValues.Score(ClearType.EASY, RankType.F, 100, 50, 200, 120, 20, ClearTypeStorageConverter.OptionHistoryAssist, true));
+        var assistRow = LibraryChartRow.FromChartFile(assistFile);
 
         Assert.AreEqual(ClearType.INVALID, assistRow.clear);
         Assert.AreEqual("ASSIST", assistRow.ClearDisplayText);
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(assistRow));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(assistRow));
 
-        TestableBmsFile forceEasyFile = CreateFile();
-        forceEasyFile.SetScoreForTest(
-            ClearType.EASY,
-            RankType.F,
-            perfect: 100,
-            great: 50,
-            totalnotes: 200,
-            maxcombo: 120,
-            minbp: 20,
-            opHistory: 0,
-            useLr2ScoreValue: true);
-        var forceEasyRow = LibraryChartRow.FromBmsFile(forceEasyFile);
+        ChartFile forceEasyFile = CreateFile();
+        forceEasyFile = ChartFileProjection.WithScore(forceEasyFile, ChartTestValues.Score(ClearType.EASY, RankType.F, 100, 50, 200, 120, 20, 0, true));
+        var forceEasyRow = LibraryChartRow.FromChartFile(forceEasyFile);
 
         Assert.AreEqual(ClearType.INVALID, forceEasyRow.clear);
         Assert.AreEqual("ASSIST", forceEasyRow.ClearDisplayText);
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(forceEasyRow));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(forceEasyRow));
 
-        TestableBmsFile easyFile = CreateFile();
-        easyFile.SetScoreForTest(
-            ClearType.EASY,
-            RankType.F,
-            perfect: 100,
-            great: 50,
-            totalnotes: 200,
-            maxcombo: 120,
-            minbp: 20,
-            opHistory: ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy,
-            useLr2ScoreValue: true);
-        var easyRow = LibraryChartRow.FromBmsFile(easyFile);
+        ChartFile easyFile = CreateFile();
+        easyFile = ChartFileProjection.WithScore(easyFile, ChartTestValues.Score(ClearType.EASY, RankType.F, 100, 50, 200, 120, 20, ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy, true));
+        var easyRow = LibraryChartRow.FromChartFile(easyFile);
 
         Assert.AreEqual(ClearType.EASY, easyRow.clear);
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(easyRow));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(easyRow));
 
-        TestableBmsFile internalEasyFile = CreateFile();
-        internalEasyFile.SetScoreForTest(
-            ClearType.EASY,
-            RankType.F,
-            perfect: 100,
-            great: 50,
-            totalnotes: 200,
-            maxcombo: 120,
-            minbp: 20,
-            opHistory: 0);
-        var internalEasyRow = LibraryChartRow.FromBmsFile(internalEasyFile);
+        ChartFile internalEasyFile = CreateFile();
+        internalEasyFile = ChartFileProjection.WithScore(internalEasyFile, ChartTestValues.Score(ClearType.EASY, RankType.F, 100, 50, 200, 120, 20, 0, false));
+        var internalEasyRow = LibraryChartRow.FromChartFile(internalEasyFile);
 
         Assert.AreEqual(ClearType.EASY, internalEasyRow.clear);
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(internalEasyRow));
@@ -559,9 +541,9 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesPlaylistDetail_ScoreFieldsUseSourceSnapshot()
     {
-        TestableBmsFile file = CreateFile();
-        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        var row = new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true));
+        ChartFile file = CreateFile();
+        file = ChartFileProjection.WithScore(file, ChartTestValues.Score(ClearType.HARD, RankType.AA, 850, 100, 1000, 900, 8, 0, false));
+        var row = new PlaylistDetailSourceRow(new BMSTableEntry(file), (file));
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\" score:>=1800 bp:0..10").MatchesPlaylistDetail(row));
     }
@@ -1002,10 +984,10 @@ public sealed class GridKeywordSearchQueryTests
             $"Expected {{{string.Join(", ", expectedSet)}}}, actual {{{string.Join(", ", actualSet)}}}.");
     }
 
-    private static TestableBmsFile CreateFile()
+    private static ChartFile CreateFile()
     {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot();
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Title = "Alpha Title", RawTitle = "Alpha Title", Artist = "ArtistX", RawArtist = "ArtistX", Genre = "GenreX", Tag = "TagX", Path = @"C:\Songs\Alpha\chart.bms", Md5 = "abcdefabcdefabcdefabcdefabcdefab", Sha256 = "1234567890123456789012345678901234567890123456789012345678901234" };
         return file;
     }
 
@@ -1018,7 +1000,7 @@ public sealed class GridKeywordSearchQueryTests
         };
     }
 
-    private static PlaylistReferenceIndex CreatePlaylistReferenceIndex(BMSFile file, params BMSTable[] tables)
+    private static PlaylistReferenceIndex CreatePlaylistReferenceIndex(ChartFile file, params BMSTable[] tables)
     {
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
         foreach (BMSTable table in tables ?? [])
@@ -1031,12 +1013,12 @@ public sealed class GridKeywordSearchQueryTests
 
     private static PlayHistoryRow CreatePlayHistoryRow(bool finalized, DateTimeOffset? playedAt = null)
     {
-        TestableBmsFile file = CreateFile();
+        ChartFile file = CreateFile();
         BMSTable table = CreateTable("Satellite sl", "SL");
-        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        var resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromCharts([file]);
         var projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [file.hash] = file.sha256 },
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [file.Md5] = file.Sha256 },
             (md5, sha256) => new PlaylistReferenceDisplay(
                 [new PlaylistReferenceTableDisplaySnapshot(table.symbol, table.name)]),
             (sha256, md5) => null);
@@ -1047,7 +1029,7 @@ public sealed class GridKeywordSearchQueryTests
                     new Lr2PlayHistoryRecord
                     {
                         history_id = 1,
-                        hash = file.hash,
+                        hash = file.Md5,
                         played_at = (playedAt ?? new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero)).ToUnixTimeSeconds(),
                         finalized = finalized ? 1 : 0,
                         score_write_type = "update",
@@ -1073,29 +1055,21 @@ public sealed class GridKeywordSearchQueryTests
         return entry;
     }
 
-    private static ChartListSourceRow CreateSourceRow(BMSFile file, Func<ChartListSourceRow, PlaylistReferenceDisplay>? playlistReferenceDisplayProvider = null, LR2SongDBExtended.chart_info? chartInfo = null)
+    private static ChartListSourceRow CreateSourceRow(ChartFile file, Func<ChartListSourceRow, PlaylistReferenceDisplay>? playlistReferenceDisplayProvider = null, BeMusicSeeker.Models.ChartDetails? chartInfo = null)
     {
         return ChartListSourceRow.FromChartFile(
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeScoreSnapshot: true),
+            (file),
             ChartListSourceProjectionMode.OwnerBacked,
             playlistReferenceDisplayProvider: playlistReferenceDisplayProvider,
             chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
     }
 
-    private static ChartListSourceRow CreateSourceRow(LR2SongDBExtended.bmson_song song, LR2SongDBExtended.chart_info? chartInfo = null)
-    {
-        return ChartListSourceRow.FromChartFile(
-            ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false),
-            ChartListSourceProjectionMode.OwnerBacked,
-            chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
-    }
-
-    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info?[] rows)
+    private static Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateChartInfoProvider(params BeMusicSeeker.Models.ChartDetails?[] rows)
     {
         return chart => ResolveChartInfoByIdentity(chart, rows);
     }
 
-    private static LR2SongDBExtended.chart_info ResolveChartInfoByIdentity(ChartFile chart, IEnumerable<LR2SongDBExtended.chart_info?> rows)
+    private static BeMusicSeeker.Models.ChartDetails ResolveChartInfoByIdentity(ChartFile chart, IEnumerable<BeMusicSeeker.Models.ChartDetails?> rows)
     {
         if (chart == null)
         {
@@ -1110,9 +1084,9 @@ public sealed class GridKeywordSearchQueryTests
             ?? null!;
     }
 
-    private static LR2SongDBExtended.chart_info CreateChartInfo(int? level = 12, bool difficultyDefined = true, bool totalDefined = true, string? sha256 = null, string? md5 = null)
+    private static BeMusicSeeker.Models.ChartDetails CreateChartInfo(int? level = 12, bool difficultyDefined = true, bool totalDefined = true, string? sha256 = null, string? md5 = null)
     {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
             sha256 = sha256 ?? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             md5 = md5 ?? "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -1141,52 +1115,4 @@ public sealed class GridKeywordSearchQueryTests
         };
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        internal void ApplySnapshot()
-        {
-            Title = "Alpha Title";
-            Artist = "ArtistX";
-            genre = "GenreX";
-            tag = "TagX";
-            path = @"C:\Songs\Alpha\chart.bms";
-            hash = "abcdefabcdefabcdefabcdefabcdefab";
-            sha256 = "1234567890123456789012345678901234567890123456789012345678901234";
-        }
-
-        internal void SetTitleForTest(string value)
-        {
-            Title = value;
-        }
-
-        internal void SetHashForTest(string value)
-        {
-            hash = value;
-        }
-
-        internal void SetGenreForTest(string value)
-        {
-            genre = value;
-        }
-
-        internal void SetScoreForTest(ClearType clear, RankType rank, int perfect, int great, int totalnotes, int maxcombo, int minbp, int opHistory = 0, bool useLr2ScoreValue = false)
-        {
-            bmsScore = new BMSScore
-            {
-                hash = hash,
-                clear = clear,
-                rank = rank,
-                perfect = perfect,
-                great = great,
-                totalnotes = totalnotes,
-                maxcombo = maxcombo,
-                minbp = minbp,
-                op_history = opHistory
-            };
-            if (useLr2ScoreValue)
-            {
-                bmsScore.clearValue = ClearTypeStorageConverter.ToLr2Value(clear);
-            }
-        }
-    }
 }

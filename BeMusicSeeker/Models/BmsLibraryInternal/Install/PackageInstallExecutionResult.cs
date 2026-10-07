@@ -60,7 +60,7 @@ internal sealed class PackagePhysicalMoveResult
 internal sealed class PackageInstallSessionPhysicalMutation
 {
     private readonly FileDbMutationPreparedCommit preparedCommit;
-    private readonly Action applyLiveState;
+    private readonly Action<IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile>> applyLiveState;
 
     /// <summary>導入・統合の session が durable point 後まで所有する package physical mutation を作成します。</summary>
     /// <param name="preparedCommit">stage/promotion 済み executor state。</param>
@@ -68,7 +68,7 @@ internal sealed class PackageInstallSessionPhysicalMutation
     /// <param name="destinationDirectory">operation-level resource scan に追加する成功 destination root。</param>
     internal PackageInstallSessionPhysicalMutation(
         FileDbMutationPreparedCommit preparedCommit,
-        Action applyLiveState,
+        Action<IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile>> applyLiveState,
         string destinationDirectory)
     {
         this.preparedCommit = preparedCommit ?? throw new ArgumentNullException(nameof(preparedCommit));
@@ -88,16 +88,18 @@ internal sealed class PackageInstallSessionPhysicalMutation
     /// <summary>canonical durable apply 後に必要な live package state と source cleanup を確定します。</summary>
     /// <param name="applyLiveState">canonical internal apply が成功し live state を進めてよいかどうか。</param>
     /// <param name="finalizationFailure">先行する durable finalization failure。</param>
+    /// <param name="committedCharts">DB と所持集合に確定した対象だけの現在値。導入では必須です。</param>
     internal FileDbMutationReceipt CompleteAfterDurableCommit(
         bool applyLiveState,
-        Exception finalizationFailure = null)
+        Exception finalizationFailure = null,
+        IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile> committedCharts = null)
     {
         Exception completionFailure = finalizationFailure;
         if (applyLiveState)
         {
             try
             {
-                this.applyLiveState?.Invoke();
+                this.applyLiveState?.Invoke(committedCharts);
             }
             catch (Exception exception)
             {

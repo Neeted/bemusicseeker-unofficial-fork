@@ -125,7 +125,7 @@ public sealed class CustomTableEditingTests
             using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
             string[] suggestions = new[] { CandidateA, CandidateB }.Take(candidateCount).ToArray();
             ChartFile chart = ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(new BMSFile()), initial, string.Empty, string.Empty, suggestions, []);
+                (ChartTestValues.Empty()), initial, string.Empty, string.Empty, suggestions, []);
             var row = LibraryChartRow.FromChartFile(chart);
             var settings = new CustomTableColumnSettings();
             settings.InstallDst.Visibility = Visibility.Visible;

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -244,10 +243,11 @@ internal static class Lr2SongDbSyncRequestCoordinator
         int projectedCompatibilityWarningCount = 0;
         int committedChartInfoRowCount = 0;
         int committedChartInfoParseFailureChangeCount = 0;
-        var committedCompatibilityFacts = new List<BMSFileMaintenanceInfo>();
+        var committedCompatibilityFacts = new List<ResourceHealthMaintenanceSnapshot>();
         object committedCompatibilityFactsGate = new();
+        var changedChartInfoMd5s = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool compatibilityProjectionCompleted = false;
-        Dictionary<string, BMSFile> compatibilityProjectionIndex = null;
+        Dictionary<string, ChartFile> compatibilityProjectionIndex = null;
         Action applyCommittedCompatibilityProjection = () =>
         {
             if (compatibilityProjectionCompleted)
@@ -255,7 +255,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 return;
             }
 
-            List<BMSFileMaintenanceInfo> compatibilityFactsSnapshot;
+            List<ResourceHealthMaintenanceSnapshot> compatibilityFactsSnapshot;
             lock (committedCompatibilityFactsGate)
             {
                 compatibilityFactsSnapshot = [.. committedCompatibilityFacts];
@@ -306,7 +306,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
 
             host.PublishLr2SongDbSyncPreflightStage("chart_info_resolver_snapshot", reason, runId);
             preflightStageStopwatch.Restart();
-            Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver = host.CreateLr2SongDbSyncChartInfoResolverSnapshot();
+            Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoResolver = host.CreateLr2SongDbSyncChartInfoResolverSnapshot();
             HashSet<string> currentChartInfoParseFailureMd5s = host.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
             host.LogLr2SongDbSyncPreflightStageDone("chart_info_resolver_snapshot", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
             cancellationToken.ThrowIfCancellationRequested();
@@ -344,15 +344,23 @@ internal static class Lr2SongDbSyncRequestCoordinator
                     if (count > 0)
                     {
                         host.UpsertLr2SongDbSyncChartInfoIndexRows(rows);
+                        lock (committedCompatibilityFactsGate)
+                        {
+                            changedChartInfoMd5s.UnionWith(rows.Select(row => row.md5).Where(hash => !string.IsNullOrWhiteSpace(hash)));
+                        }
                         Interlocked.Add(ref committedChartInfoRowCount, count);
                     }
                 },
-                ChartInfoParseFailuresCommitted = (persisted, cleared) =>
+                ChartInfoParseFailuresCommitted = (persisted, cleared, hashes) =>
                 {
                     int count = Math.Max(0, persisted) + Math.Max(0, cleared);
                     if (count > 0)
                     {
                         Interlocked.Add(ref committedChartInfoParseFailureChangeCount, count);
+                        lock (committedCompatibilityFactsGate)
+                        {
+                            changedChartInfoMd5s.UnionWith(hashes ?? []);
+                        }
                     }
                 },
                 StartedAtUtc = DateTime.UtcNow,
@@ -415,11 +423,12 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 + " parseFailureChanges=" + committedChartInfoParseFailureChangeCount);
             if (committedChartInfoRowCount > 0 || committedChartInfoParseFailureChangeCount > 0)
             {
-                host.DispatchWarningPresentationChanged("lr2_song_db_sync_inline_chart_info");
+                host.DispatchWarningPresentationChanged("lr2_song_db_sync_inline_chart_info", [.. changedChartInfoMd5s]);
             }
             if (projectedCompatibilityWarningCount > 0)
             {
-                host.DispatchWarningPresentationChanged("lr2_song_db_sync_compatibility_projection");
+                host.DispatchWarningPresentationChanged("lr2_song_db_sync_compatibility_projection",
+                    [.. committedCompatibilityFacts.Select(value => value.Hash).Where(hash => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase)]);
             }
             if (completed)
             {

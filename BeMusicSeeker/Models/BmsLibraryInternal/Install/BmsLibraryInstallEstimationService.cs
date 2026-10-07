@@ -1063,7 +1063,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     {
         foreach (PackageChartEntry chartEntry in (chartEntries ?? []).Where(entry => entry?.Chart != null))
         {
-            lock (chartEntry.GetStorageMutationSyncRoot())
+            using IDisposable notificationDeferral = chartEntry.DeferPropertyChangedNotifications();
+            lock (chartEntry.GetMutationSyncRoot())
             {
                 ChartFile chart = chartEntry.Chart;
                 if (!string.IsNullOrWhiteSpace(chart.InstallDestination))

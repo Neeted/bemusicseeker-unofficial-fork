@@ -56,13 +56,13 @@ public sealed class RegularChartNavigationTests
         };
         table.CellEditEndedRequested += (_, request) => owner.CompleteCellEdit(request);
 
-        var file = new BMSFile
+        ChartFile file = ChartTestValues.Empty() with
         {
-            path = @"C:\wave6e-owner-chain\pending.bms",
-            hash = "ffffffffffffffffffffffffffffffff",
-            title = "Owner chain chart"
+            Path = @"C:\wave6e-owner-chain\pending.bms",
+            Md5 = "ffffffffffffffffffffffffffffffff",
+            RawTitle = "Owner chain chart"
         };
-        var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        var entry = PackageChartEntry.FromChart((file));
         store.SetResult = entry.Chart;
         var row = LibraryChartRow.FromPackageChartEntry(entry);
         const string destination = @"C:\wave6e-owner-chain\destination";
@@ -259,7 +259,7 @@ public sealed class RegularChartNavigationTests
         {
             var library = new TestBmsLibrary(songDbPath)
             {
-                BMSFiles =
+                BmsCharts =
                 [
                     CreateTestableBmsFile(@"C:\Charts\duplicate-a.bms"),
                     CreateTestableBmsFile(@"C:\Charts\duplicate-b.bms")

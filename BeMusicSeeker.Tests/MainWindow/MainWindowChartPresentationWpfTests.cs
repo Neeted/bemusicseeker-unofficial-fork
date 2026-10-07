@@ -109,13 +109,13 @@ public sealed class MainWindowChartPresentationWpfTests
                     window.Arrange(new Rect(0d, 0d, window.Width, window.Height));
                     window.UpdateLayout();
 
-                    var file = new BMSFile
+                    ChartFile file = ChartTestValues.Empty() with
                     {
-                        path = @"C:\wave6e-cell-edit\pending\chart.bms",
-                        hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                        title = "Pending cell edit"
+                        Path = @"C:\wave6e-cell-edit\pending\chart.bms",
+                        Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                        RawTitle = "Pending cell edit"
                     };
-                    var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+                    var entry = PackageChartEntry.FromChart((file));
                     var row = LibraryChartRow.FromPackageChartEntry(entry);
                     var table = (CustomTableView)window.FindName("customTableView");
                     table.Width = 900d;
@@ -156,7 +156,7 @@ public sealed class MainWindowChartPresentationWpfTests
                     Assert.AreEqual("instl_dst", completed[0].Context.PropertyName);
                     Assert.AreEqual(expectedText, completed[0].Text);
                     Assert.IsTrue(completed[0].Commit);
-                    Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
+                    Assert.AreSame(file.Token, row.Chart.Token);
                 });
         });
     }

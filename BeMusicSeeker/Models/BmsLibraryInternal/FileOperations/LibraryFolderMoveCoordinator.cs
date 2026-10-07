@@ -119,7 +119,7 @@ internal static class LibraryFolderMoveCoordinator
                 }
                 List<LibraryChartRef> chartRefs = host.CreateNonNullChartRefList(charts);
                 List<ChartFile> chartSnapshots = [.. chartRefs
-                    .Select(chart => chart?.ToChartFile())
+                    .Select(chart => chart?.ToChartFileIdentity())
                     .Where(chart => chart != null)];
                 List<FolderAutoRenamePlan> plans = null;
                 host.RunWithFolderMoveSnapshotLocks(

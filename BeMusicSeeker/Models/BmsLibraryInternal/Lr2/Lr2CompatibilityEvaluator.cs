@@ -168,46 +168,31 @@ internal static class Lr2CompatibilityEvaluator
     }
 
     /// <summary>移転先の保守事実を更新します。親参照は呼出元が明示取得した結果で再評価し、取得できない場合は既存の事実を維持します。</summary>
-    internal static void RefreshRelocatedMaintenanceFacts(
-        BMSFileMaintenanceInfo maintenanceInfo,
-        string chartPath,
-        ChartResourceSnapshot resources = null)
+    /// <summary>移転先の経路に依存する保守事実だけを不変共通値へ反映します。</summary>
+    internal static ResourceHealthMaintenanceSnapshot RefreshRelocatedMaintenanceFacts(
+        ResourceHealthMaintenanceSnapshot value, string path, ChartResourceSnapshot resources = null)
     {
-        if (maintenanceInfo == null
-            || (!maintenanceInfo.lr2_warning_flags.HasValue
-                && !maintenanceInfo.lr2_resource_max_relative_cp932_bytes.HasValue
-                && !maintenanceInfo.lr2_resource_has_parent_traversal.HasValue))
+        if (value == null || (!value.Lr2WarningFlags.HasValue && !value.Lr2ResourceMaxRelativeCp932Bytes.HasValue
+            && !value.Lr2ResourceHasParentTraversal.HasValue))
         {
-            return;
+            return value;
         }
 
-        Lr2ChartPathEvaluation pathEvaluation = EvaluateChartPath(chartPath);
-        Lr2ResourceReferenceEvaluation resourceEvaluation;
-        if (maintenanceInfo.lr2_resource_has_parent_traversal == true)
+        Lr2ChartPathEvaluation pathEvaluation = EvaluateChartPath(path);
+        var previousFlags = (Lr2CompatibilityWarningFlags)(value.Lr2WarningFlags ?? 0);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = value.Lr2ResourceHasParentTraversal == true
+            ? resources == null
+                ? new(previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong), value.Lr2ResourceMaxRelativeCp932Bytes, true)
+                : EvaluateResourceReferences(path, resources)
+            : ReevaluateResourceReferencesForRelocatedPath(path, value.Lr2ResourceMaxRelativeCp932Bytes, previousFlags);
+        return value with
         {
-            var previousFlags = (Lr2CompatibilityWarningFlags)(maintenanceInfo.lr2_warning_flags ?? 0);
-            if (resources == null)
-            {
-                resourceEvaluation = new Lr2ResourceReferenceEvaluation(
-                    previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong),
-                    maintenanceInfo.lr2_resource_max_relative_cp932_bytes,
-                    hasParentTraversal: true);
-            }
-            else
-            {
-                resourceEvaluation = EvaluateResourceReferences(chartPath, resources);
-            }
-        }
-        else
-        {
-            var previousFlags = (Lr2CompatibilityWarningFlags)(maintenanceInfo.lr2_warning_flags ?? 0);
-            resourceEvaluation = ReevaluateResourceReferencesForRelocatedPath(
-                chartPath,
-                maintenanceInfo.lr2_resource_max_relative_cp932_bytes,
-                previousFlags);
-        }
-
-        maintenanceInfo.ApplyLr2CompatibilityEvaluation(pathEvaluation, resourceEvaluation);
+            Path = path,
+            Lr2WarningFlags = (int)(pathEvaluation.WarningFlags | resourceEvaluation.WarningFlags),
+            Lr2ResourceMaxRelativeCp932Bytes = resourceEvaluation.MaxRelativeCp932Bytes,
+            Lr2ResourceHasParentTraversal = resourceEvaluation.HasParentTraversal,
+            Origin = MaintenanceInfoOrigin.Calculated
+        };
     }
 
     internal static bool TryGetCp932ByteCount(string value, out int byteCount)

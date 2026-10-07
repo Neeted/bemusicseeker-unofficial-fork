@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
@@ -43,8 +42,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
     internal bool IsOwned { get; }
-
-    internal BMSFile BmsStorageOwner { get; }
 
     internal ChartFile Chart { get; private set; }
 
@@ -130,10 +127,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
     public ChartFileStatus status => (SourceStatus & ~ChartFileStatus.PLAYALL)
         | (playbackStatusProvider?.Invoke(Chart) ?? ChartFileStatus.NONE);
 
-    private ChartFileStatus SourceStatus => BmsStorageOwner == null
-        ? projectedStatus
-        : ChartFileStatusMapper.FromBmsFileStatus(BmsStorageOwner.status)
-            | (projectedStatus & ~ChartFileStatus.PLAYALL);
+    private ChartFileStatus SourceStatus => projectedStatus;
 
     public string lr2_bmsid { get; }
 
@@ -245,14 +239,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
         }
         Entry = source.Entry;
         IsOwned = source.IsOwned;
-        BmsStorageOwner = source.BmsPlayerFile;
-        if (BmsStorageOwner is INotifyPropertyChanged propertyChangedSource)
-        {
-            PropertyChangedEventManager.AddHandler(
-                propertyChangedSource,
-                OnBmsStorageOwnerPropertyChanged,
-                nameof(BMSFile.status));
-        }
         Chart = source.Chart;
         projectedStatus = Chart?.Status ?? ChartFileStatus.NONE;
         EntryLevelSortKey = source.EntryLevelSortKey;
@@ -390,15 +376,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
             Entry?.level,
             mode,
             Chart?.ChartInfo);
-    }
-
-    private void OnBmsStorageOwnerPropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(e.PropertyName)
-            || e.PropertyName == nameof(BMSFile.status))
-        {
-            RaisePropertyChanged(nameof(status));
-        }
     }
 
     public Uri Url

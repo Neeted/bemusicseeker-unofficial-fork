@@ -18,9 +18,7 @@ internal sealed class OwnedHashIndexWarmupResult
 
     internal int OwnedCollectionVersion { get; set; }
 
-    internal int BmsRowsVersion { get; set; }
 
-    internal int BmsonRowsVersion { get; set; }
 
     internal int StaleRetryCount { get; set; }
 }

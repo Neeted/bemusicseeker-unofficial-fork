@@ -1950,11 +1950,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static PlaylistDetailRow CreatePlaylistRow(BMSTable table, string md5, string path)
     {
-        BMSFile file = new() { hash = md5, path = path, title = md5 };
+        ChartFile file = ChartTestValues.Empty(ChartFileKind.Bmson) with { Md5 = md5, Path = path, RawTitle = md5 };
         BMSTableEntry entry = new() { md5 = md5, parent = table };
         return new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: false))
+            (file))
             .CreateViewRow();
     }
 
@@ -1964,11 +1964,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         string url,
         string urlDiff)
     {
-        BMSFile file = new()
+        ChartFile file = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            hash = md5,
-            path = $@"C:\wave6e-playlist-url\{md5}.bms",
-            title = md5
+            Md5 = md5,
+            Path = $@"C:\wave6e-playlist-url\{md5}.bms",
+            RawTitle = md5
         };
         BMSTableEntry entry = new()
         {
@@ -1979,7 +1979,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         };
         return new PlaylistDetailSourceRow(
             entry,
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: false))
+            (file))
             .CreateViewRow();
     }
 

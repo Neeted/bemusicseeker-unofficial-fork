@@ -1151,11 +1151,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
     private static IReadOnlyList<ChartOperationTarget> CreateSelectedTargets()
     {
-        var bmsFile = new TestableBmsFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        ChartFile bmsFile = ChartTestValues.Empty() with
         {
-            path = @"C:\Library\Source\chart.bms"
+            Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Path = @"C:\Library\Source\chart.bms"
         };
-        ChartFile chart = ChartFileProjection.FromBmsFile(bmsFile);
+        ChartFile chart = (bmsFile);
         var target = new ChartOperationTarget(
             chart,
             null,
@@ -1379,11 +1380,4 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        internal TestableBmsFile(string hash)
-        {
-            this.hash = hash;
-        }
-    }
 }

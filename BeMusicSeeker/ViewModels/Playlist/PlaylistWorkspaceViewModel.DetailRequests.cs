@@ -89,7 +89,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         keywordFilter,
                         modeFilter,
                         sortParameters,
-                        dataSource.OwnedChartCollectionVersion,
+                        dataSource.OwnedCollectionVersion,
                         playlistRevision,
                         dataSource.ScoreSnapshotVersion,
                         dataSource.ChartInfoIndexVersion,

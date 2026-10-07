@@ -387,8 +387,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
             nowPlayingBmsFile = value;
             PlaybackStatusChanged?.Invoke();
-            RaisePropertyChanged(nameof(NowPlayingBmsFile));
             RaisePropertyChanged(nameof(NowPlayingChart));
+            RaisePropertyChanged(nameof(HasNowPlayingChart));
             RaisePlaybackStatusPropertiesChanged();
         }
     }
@@ -404,17 +404,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             if (!ReferenceEquals(displayedBmsPlayerFile, value))
             {
                 displayedBmsPlayerFile = value;
-                RaisePropertyChanged(nameof(DisplayedBmsPlayerFile));
                 RaisePropertyChanged(nameof(DisplayedChart));
             }
         }
     }
 
-    /// <summary>BMS保存主体を必要とする既存呼出元向けの明示的な投影です。bmsonではnullです。</summary>
-    public BMSFile? NowPlayingBmsFile => NowPlayingChart?.GetBmsStorageOwner();
-
-    /// <summary>BMSの既存表示呼出元向けの保存主体です。bmsonと対象未設定時はnullです。</summary>
-    public BMSFile? DisplayedBmsPlayerFile => DisplayedChart?.GetBmsStorageOwner();
 #nullable restore annotations
 
     private ChartFileStatus playbackStatus;
@@ -448,6 +442,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 #nullable restore annotations
+
+    /// <summary>外部プレーヤー表示のbindingへ現在の再生対象の有無を公開します。</summary>
+    public bool HasNowPlayingChart => NowPlayingChart != null;
 
     public bool IsPlaying => NowPlayingChart != null && playbackStatus.HasFlag(ChartFileStatus.PLAY);
 
@@ -1702,7 +1699,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>譜面の準備 session を作成する。終了受付後は状態を変更しない。</summary>
-    internal long BeginPlayback(BMSFile bmsFile, int rowIndex) => BeginPlayback(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false), rowIndex);
+
 
     /// <summary>形式共通の譜面だけを現行選曲として所有します。</summary>
     internal long BeginPlayback(ChartFile bmsFile, int rowIndex)
@@ -2044,7 +2041,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// Updates the BMS player header cache from the currently selected or playing BMS file.
     /// </summary>
     /// <param name="bmsFile">BMS file whose metadata should be displayed.</param>
-    internal void SetBmsPlayerHeader(BMSFile bmsFile) => SetBmsPlayerHeader(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false));
+
 
     /// <summary>共通譜面の既存metadataをヘッダーへ接続します。nullは表示対象を解除します。</summary>
 #nullable enable annotations

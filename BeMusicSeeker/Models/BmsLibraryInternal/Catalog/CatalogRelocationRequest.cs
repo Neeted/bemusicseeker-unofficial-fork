@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Immutable catalog relocation command prepared from a library mutation delta.
+/// ライブラリ変更差分から捕捉した不変の移転要求です。保存行を保持しません。
 /// </summary>
 internal sealed class CatalogRelocationRequest
 {
@@ -37,7 +36,7 @@ internal sealed class CatalogRelocationRequest
 }
 
 /// <summary>
-/// Immutable folder-row replacement facts for a catalog relocation transaction.
+/// 移転トランザクションへ渡す不変の旧・新フォルダパスです。
 /// </summary>
 internal sealed class CatalogFolderPathReplacement
 {
@@ -53,15 +52,15 @@ internal sealed class CatalogFolderPathReplacement
 }
 
 /// <summary>
-/// Immutable BMS row replacement facts plus the live owner to update after commit.
+/// 同じ所持識別を継承するBMS移転前後の不変共通値です。
 /// </summary>
 internal sealed class BmsSongPathReplacement
 {
     internal BmsSongPathReplacement(
-        BMSFile song,
-        BMSFile liveOwner,
+        ChartFile song,
+        ChartFile liveOwner,
         string oldPath,
-        BMSFileMaintenanceInfo maintenanceInfo)
+        ResourceHealthMaintenanceSnapshot maintenanceInfo)
     {
         Song = song ?? throw new ArgumentNullException(nameof(song));
         LiveOwner = liveOwner ?? throw new ArgumentNullException(nameof(liveOwner));
@@ -69,23 +68,23 @@ internal sealed class BmsSongPathReplacement
         MaintenanceInfo = maintenanceInfo;
     }
 
-    internal BMSFile Song { get; }
+    internal ChartFile Song { get; }
 
-    internal BMSFile LiveOwner { get; }
+    internal ChartFile LiveOwner { get; }
 
     internal string OldPath { get; }
 
-    internal BMSFileMaintenanceInfo MaintenanceInfo { get; }
+    internal ResourceHealthMaintenanceSnapshot MaintenanceInfo { get; }
 }
 
 /// <summary>
-/// Immutable bmson row replacement facts plus the live owner to update after commit.
+/// 同じ所持識別を継承するBMSON移転前後の不変共通値です。
 /// </summary>
 internal sealed class BmsonSongPathReplacement
 {
     internal BmsonSongPathReplacement(
-        LR2SongDBExtended.bmson_song song,
-        LR2SongDBExtended.bmson_song liveOwner,
+        ChartFile song,
+        ChartFile liveOwner,
         string oldPath)
     {
         Song = song ?? throw new ArgumentNullException(nameof(song));
@@ -93,9 +92,9 @@ internal sealed class BmsonSongPathReplacement
         OldPath = oldPath;
     }
 
-    internal LR2SongDBExtended.bmson_song Song { get; }
+    internal ChartFile Song { get; }
 
-    internal LR2SongDBExtended.bmson_song LiveOwner { get; }
+    internal ChartFile LiveOwner { get; }
 
     internal string OldPath { get; }
 }
@@ -123,15 +122,14 @@ internal sealed class CatalogRelocationDbReceipt
 }
 
 /// <summary>
-/// Immutable facts emitted after one catalog relocation/removal command commits and
-/// updates the live catalog owners.
+/// 一つの移転・削除コマンドの永続確定と共通現在値の適用を終えた結果です。
 /// </summary>
 internal sealed class CatalogMutationReceipt
 {
     internal static CatalogMutationReceipt NotApplied { get; } =
         new(
             applied: false,
-            new StorageRowsVersionSnapshot(0, 0),
+            new OwnedChartCollectionVersionSnapshot(0),
             folderDbMs: 0,
             bmsPathDbMs: 0,
             bmsonPathDbMs: 0,
@@ -151,7 +149,7 @@ internal sealed class CatalogMutationReceipt
     /// </summary>
     internal CatalogMutationReceipt(
         bool applied,
-        StorageRowsVersionSnapshot storageRowsVersion,
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
         long folderDbMs,
         long bmsPathDbMs,
         long bmsonPathDbMs,
@@ -191,7 +189,7 @@ internal sealed class CatalogMutationReceipt
 
     internal bool Applied { get; }
 
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
     /// <summary>確定した folder DB 対象行数。</summary>
     internal int FolderDbTargetRows { get; }
@@ -231,23 +229,35 @@ internal sealed class CatalogMutationReceipt
 }
 
 /// <summary>
-/// Immutable path fact carried by a relocation receipt.
+/// 移転結果に含める不変のパス変更事実です。
 /// </summary>
 internal sealed class CatalogRelocationPathFact
 {
+    /// <summary>内部移転で捕捉した対象識別とパス変更を保持します。保存行や現在値への逆参照は持ちません。</summary>
+    /// <param name="kind">移転した譜面形式。</param>
+    /// <param name="oldPath">移転前のDBパス。</param>
+    /// <param name="newPath">移転後のDBパス。</param>
+    /// <param name="md5">移転対象のMD5。パス保護だけの事実はnull。</param>
+    /// <param name="sha256">移転対象のSHA256。パス保護だけの事実はnull。</param>
+    /// <param name="token">内部移転で継承した所持識別。パス保護だけの事実はnull。</param>
     internal CatalogRelocationPathFact(
         ChartFileKind kind,
         string oldPath,
         string newPath,
         string md5 = null,
-        string sha256 = null)
+        string sha256 = null,
+        OwnedChartToken token = null)
     {
+        Token = token;
         Kind = kind;
         OldPath = oldPath;
         NewPath = newPath;
         Md5 = md5;
         Sha256 = sha256;
     }
+
+    /// <summary>内部移転で継承した所持識別です。パス保護だけの事実はnullです。</summary>
+    internal OwnedChartToken Token { get; }
 
     internal ChartFileKind Kind { get; }
 

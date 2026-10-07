@@ -1,5 +1,3 @@
-using BeMusicSeeker.Models.LR2;
-
 namespace BeMusicSeeker.Models;
 
 internal static class ChartFileRuntimeStateKey
@@ -12,16 +10,6 @@ internal static class ChartFileRuntimeStateKey
         }
 
         return Create(chart.Kind, chart.Path, chart.Md5, chart.Sha256);
-    }
-
-    internal static string Create(BMSFile file)
-    {
-        return file == null ? null : Create(ChartFileKind.Bms, file.path, file.hash, file.sha256);
-    }
-
-    internal static string Create(LR2SongDBExtended.bmson_song song)
-    {
-        return song == null ? null : Create(ChartFileKind.Bmson, song.path, song.md5, song.sha256);
     }
 
     internal static string Create(ChartFileKind kind, string path, string md5, string sha256)

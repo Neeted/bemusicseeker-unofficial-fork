@@ -83,8 +83,14 @@ flowchart TB
 | `StartupBackgroundTaskSchedulerOwner` | 必須・後続処理、依存関係、実行区分、要求の集約、終了時の待機。 |
 | `BMSLibrary` | 所持カタログ、リソース索引、保留・導入済みパッケージ、スコア、変更主体の構成。 |
 | `BMSPlaylist` | 表と項目の保存、編集、URL・外部同期の構成。 |
+| `CatalogOwnedCollectionOwner` | 不変な共通現在値、所持token、集合版、索引と既存の読書き排他。 |
+| `CatalogMutationOwner` | 共通変更事実のDB確定、共通現在値への一回の適用、派生索引と解放後通知の順序。 |
+| `CatalogChartInfoOwner`、`CatalogMaintenanceOwner` | 詳細・失敗、保守の専門状態と寿命。保存行を所持項目の正本にしない。 |
+| `PackageChartEntry` | 導入項目の安定した排他境界、現在の共通譜面と導入状態。 |
 | `BmsLibraryDbGateway` | 楽曲・スコアDBの読取りとトランザクション。 |
 | `EverythingNative` | ネイティブ取得結果の復号とリソース索引への入力。 |
+
+`LR2SongDB.song`、`bmson_song` と詳細・保守のDB行は保存境界のDTOです。共通譜面、所持参照、変更要求・結果、UI、パッケージ、スコアは保存行への逆参照を持ちません。再生解析用の `Ribbit.BMS.BMSFile` は別の責務を維持します。
 
 ### 起動と非同期処理
 

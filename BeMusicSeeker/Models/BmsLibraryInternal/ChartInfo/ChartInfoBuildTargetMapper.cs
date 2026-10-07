@@ -35,12 +35,12 @@ internal static class ChartInfoBuildTargetMapper
 
     internal static bool IsDigestBackfillTarget(ChartFile chart)
     {
-        return ChartStorageOwnerMutator.HasMissingBmsSha256(chart);
+        return chart?.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(chart.Sha256);
     }
 
-    internal static bool HasSingleStorageOwner(ChartFile chart)
+    internal static bool HasChartValue(ChartFile chart)
     {
-        return ChartStorageOwnerMutator.HasSingleStorageOwner(chart);
+        return chart != null;
     }
 
     private static string BuildDefaultKey(string sha256, string md5, string path)

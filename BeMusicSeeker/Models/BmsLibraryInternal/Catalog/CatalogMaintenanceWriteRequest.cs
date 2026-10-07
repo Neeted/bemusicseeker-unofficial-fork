@@ -1,73 +1,27 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>
-/// Immutable durable facts produced by the maintenance evaluator.
-/// The evaluator never opens a database; the catalog mutation owner consumes this request.
-/// </summary>
+/// <summary>保守評価が確定する不変の共通値です。保存行への変換はDB境界で行います。</summary>
 internal sealed class CatalogMaintenanceWriteRequest
 {
-    internal CatalogMaintenanceWriteRequest(
-        IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos = null,
-        IEnumerable<BMSFile> songs = null,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs = null,
-        IEnumerable<string> staleMaintenancePaths = null)
+    internal CatalogMaintenanceWriteRequest(IEnumerable<ResourceHealthMaintenanceSnapshot> maintenanceInfos = null,
+        IEnumerable<ChartFile> songs = null, IEnumerable<string> staleMaintenancePaths = null,
+        IEnumerable<ChartFile> currentValues = null)
     {
-        MaintenanceInfos = Array.AsReadOnly([.. (maintenanceInfos ?? [])
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))
-            .Select(info => info.CreatePersistenceCopy())]);
-        Songs = Array.AsReadOnly([.. (songs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .Select(song => song.CreateSongRowPersistenceCopy())]);
-        BmsonSongs = Array.AsReadOnly([.. (bmsonSongs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .Select(CreateBmsonPersistenceCopy)]);
-        StaleMaintenancePaths = [.. (staleMaintenancePaths ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        MaintenanceInfos = Array.AsReadOnly([.. (maintenanceInfos ?? []).Where(value => value != null && !string.IsNullOrWhiteSpace(value.Path))]);
+        Songs = Array.AsReadOnly([.. (songs ?? []).Where(value => value != null && !string.IsNullOrWhiteSpace(value.Path))]);
+        StaleMaintenancePaths = Array.AsReadOnly([.. (staleMaintenancePaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)]);
+        CurrentValues = Array.AsReadOnly([.. (currentValues ?? []).Where(value => value != null)]);
     }
-
-    internal IReadOnlyList<BMSFileMaintenanceInfo> MaintenanceInfos { get; }
-
-    internal IReadOnlyList<BMSFile> Songs { get; }
-
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
-
+    internal IReadOnlyList<ResourceHealthMaintenanceSnapshot> MaintenanceInfos { get; }
+    internal IReadOnlyList<ChartFile> Songs { get; }
     internal IReadOnlyList<string> StaleMaintenancePaths { get; }
-
-    internal bool HasChanges => MaintenanceInfos.Count > 0
-        || Songs.Count > 0
-        || BmsonSongs.Count > 0
-        || StaleMaintenancePaths.Count > 0;
-
-    internal static LR2SongDBExtended.bmson_song CreateBmsonPersistenceCopy(LR2SongDBExtended.bmson_song source)
-    {
-        var copy = new LR2SongDBExtended.bmson_song
-        {
-            path = source.path,
-            folder = source.folder,
-            title = source.title,
-            subtitle = source.subtitle,
-            artist = source.artist,
-            genre = source.genre,
-            level = source.level,
-            mode_hint = source.mode_hint,
-            md5 = source.md5,
-            sha256 = source.sha256,
-            banner = source.banner,
-            backbmp = source.backbmp,
-            stagefile = source.stagefile,
-            preview_music = source.preview_music,
-            updated_at = source.updated_at
-        };
-        copy.MaintenanceInfo = source.MaintenanceInfo?.CreatePersistenceCopy();
-        return copy;
-    }
+    internal IReadOnlyList<ChartFile> CurrentValues { get; }
+    internal bool HasChanges => MaintenanceInfos.Count > 0 || Songs.Count > 0 || StaleMaintenancePaths.Count > 0;
 }
 
 internal sealed class CatalogMaintenanceWriteReceipt

@@ -240,43 +240,20 @@ internal sealed class OwnedChartHashIndexVersionedSnapshot
 
     private readonly HashCountMapView sha256CountSnapshot;
 
-    internal OwnedChartHashIndexVersionedSnapshot(
-        OwnedChartHashIndexSnapshot source,
-        int version,
-        long buildElapsedMs,
-        int invalidationVersion,
-        int ownedCollectionVersion,
-        int bmsRowsVersion,
-        int bmsonRowsVersion)
-        : this(
-            OwnedChartHashIndexRoot.Create(source),
-            version,
-            buildElapsedMs,
-            invalidationVersion,
-            ownedCollectionVersion,
-            bmsRowsVersion,
-            bmsonRowsVersion,
-            null)
+    internal OwnedChartHashIndexVersionedSnapshot(OwnedChartHashIndexSnapshot source, int version, long buildElapsedMs, int invalidationVersion, int ownedCollectionVersion)
+        : this(OwnedChartHashIndexRoot.Create(source), version, buildElapsedMs, invalidationVersion, ownedCollectionVersion, null)
     {
     }
 
-    private OwnedChartHashIndexVersionedSnapshot(
-        OwnedChartHashIndexRoot root,
-        int version,
-        long buildElapsedMs,
-        int invalidationVersion,
-        int ownedCollectionVersion,
-        int bmsRowsVersion,
-        int bmsonRowsVersion,
-        Action<string> storeWorkObserver)
+    private OwnedChartHashIndexVersionedSnapshot(OwnedChartHashIndexRoot root, int version, long buildElapsedMs, int invalidationVersion, int ownedCollectionVersion, Action<string> storeWorkObserver)
     {
         this.root = root ?? OwnedChartHashIndexRoot.Empty;
         Version = version;
         BuildElapsedMs = buildElapsedMs;
         InvalidationVersion = invalidationVersion;
         OwnedCollectionVersion = ownedCollectionVersion;
-        BmsRowsVersion = bmsRowsVersion;
-        BmsonRowsVersion = bmsonRowsVersion;
+
+
         StoreWorkObserver = storeWorkObserver;
         md5HashSnapshot = new HashKeyCollection(this.root.Md5Counts, () => StoreWorkObserver);
         sha256HashSnapshot = new HashKeyCollection(this.root.Sha256Counts, () => StoreWorkObserver);
@@ -292,29 +269,13 @@ internal sealed class OwnedChartHashIndexVersionedSnapshot
     /// <param name="buildElapsedMs">root build の経過時間。</param>
     /// <param name="invalidationVersion">full invalidation version。</param>
     /// <param name="ownedCollectionVersion">owned collection version。</param>
-    /// <param name="bmsRowsVersion">BMS storage rows version。</param>
-    /// <param name="bmsonRowsVersion">BMSON storage rows version。</param>
+    /// <param name="ownedCollectionVersion">BMS storage rows version。</param>
+    /// <param name="ownedCollectionVersion">BMSON storage rows version。</param>
     /// <param name="storeWorkObserver">実処理を記録する任意の内部 observer。</param>
     /// <returns>rootを共有する versioned snapshot。</returns>
-    internal static OwnedChartHashIndexVersionedSnapshot CreateFromRoot(
-        OwnedChartHashIndexRoot root,
-        int version,
-        long buildElapsedMs,
-        int invalidationVersion,
-        int ownedCollectionVersion,
-        int bmsRowsVersion,
-        int bmsonRowsVersion,
-        Action<string> storeWorkObserver = null)
+    internal static OwnedChartHashIndexVersionedSnapshot CreateFromRoot(OwnedChartHashIndexRoot root, int version, long buildElapsedMs, int invalidationVersion, int ownedCollectionVersion, Action<string> storeWorkObserver = null)
     {
-        return new OwnedChartHashIndexVersionedSnapshot(
-            root,
-            version,
-            buildElapsedMs,
-            invalidationVersion,
-            ownedCollectionVersion,
-            bmsRowsVersion,
-            bmsonRowsVersion,
-            storeWorkObserver);
+        return new OwnedChartHashIndexVersionedSnapshot(root, version, buildElapsedMs, invalidationVersion, ownedCollectionVersion, storeWorkObserver);
     }
 
     /// <summary>distinct hash membershipのcontent version。</summary>
@@ -330,10 +291,10 @@ internal sealed class OwnedChartHashIndexVersionedSnapshot
     internal int OwnedCollectionVersion { get; }
 
     /// <summary>snapshot作成時のBMS storage rows version。</summary>
-    internal int BmsRowsVersion { get; }
+
 
     /// <summary>snapshot作成時のBMSON storage rows version。</summary>
-    internal int BmsonRowsVersion { get; }
+
 
     /// <summary>MD5 membershipのimmutable read-only view。</summary>
     internal IReadOnlyCollection<string> Md5Hashes => md5HashSnapshot;

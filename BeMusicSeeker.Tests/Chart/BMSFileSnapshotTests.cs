@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -13,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BMSFileSnapshotTests
 {
     [TestMethod]
-    public void ReadSnapshot_ComputesHashesAndParsesLikeFileApi()
+    public void CapturedInputKeepsHashesTimeAndRawMetadataAfterFileReplacement()
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
@@ -39,15 +40,31 @@ public sealed class BMSFileSnapshotTests
             File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var expected = BMSFile.CreateBMSFileFromFile(filePath);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            byte[] capturedBytes = File.ReadAllBytes(filePath);
+            string expectedMd5 = Convert.ToHexStringLower(MD5.HashData(capturedBytes));
+            string expectedSha256 = Convert.ToHexStringLower(SHA256.HashData(capturedBytes));
+            File.WriteAllText(filePath, "#TITLE Replacement\n#ARTIST Replacement\n");
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
             Assert.AreEqual(Path.GetFullPath(filePath), snapshot.Path);
-            Assert.AreEqual(new FileInfo(filePath).Length, snapshot.Length);
+            Assert.AreEqual(capturedBytes.LongLength, snapshot.Length);
             Assert.AreEqual(lastWriteTimeUtc, snapshot.LastWriteTimeUtc);
-            Assert.AreEqual(expected.hash, snapshot.Md5);
-            Assert.AreEqual(expected.sha256, snapshot.Sha256);
-            AssertBmsMetadataEqual(expected, actual);
+            Assert.AreEqual(expectedMd5, snapshot.Md5);
+            Assert.AreEqual(expectedSha256, snapshot.Sha256);
+            Assert.AreEqual(expectedMd5, actual.Md5);
+            Assert.AreEqual(expectedSha256, actual.Sha256);
+            Assert.AreEqual(lastWriteTimeUtc, actual.LastWriteTimeUtc);
+            Assert.AreEqual("MainTitle", actual.RawTitle);
+            Assert.AreEqual("SubTitle", actual.RawSubtitle);
+            Assert.AreEqual("MainTitle SubTitle", actual.Title);
+            Assert.AreEqual("MainArtist", actual.RawArtist);
+            Assert.AreEqual("SubArtist", actual.Subartist);
+            Assert.AreEqual("MainArtist SubArtist", actual.Artist);
+            Assert.AreEqual("TestGenre", actual.Genre);
+            Assert.AreEqual(12d, actual.Level);
+            Assert.AreEqual(4, actual.Difficulty);
+            Assert.IsNull(actual.Token);
+            Assert.IsTrue(actual.Resources.Any(reference => reference.RawPath == "keysound.wav"));
         });
     }
 
@@ -142,8 +159,8 @@ public sealed class BMSFileSnapshotTests
                     Encoding.GetEncoding(encodingName));
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                var expected = BMSFile.CreateBMSFileFromFile(filePath, encodingName);
-                var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, encodingName);
+                ChartFile expected = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath), encodingName);
+                ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot, encodingName);
 
                 AssertBmsMetadataEqual(expected, actual);
             });
@@ -162,11 +179,11 @@ public sealed class BMSFileSnapshotTests
 
             File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE After\r\n", Encoding.GetEncoding("shift_jis"));
 
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
             Assert.AreEqual("Before", actual.Title);
-            Assert.AreEqual(originalMd5, actual.hash);
-            Assert.AreNotEqual(BMSFile.CreateBMSFileFromFile(filePath).hash, actual.hash);
+            Assert.AreEqual(originalMd5, actual.Md5);
+            Assert.AreNotEqual(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath)).Md5, actual.Md5);
         });
     }
 
@@ -185,14 +202,14 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n#STAGEFILE " + imageName + "\r\n#BANNER " + imageName + "\r\n#BACKBMP " + imageName + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+            ChartFile shiftJisParsed = BmsChartFileParser.ParseSnapshot(snapshot);
+            BmsEncodingDetectionResult detectionResult = BmsEncodingDetector.Detect((snapshot).Bytes);
 
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot, detectionResult);
 
             Assert.AreEqual("ks_c_5601-1987", detectionResult.EncodingName);
-            Assert.AreEqual(title, actual.title);
-            Assert.AreEqual(artist, actual.artist);
+            Assert.AreEqual(title, actual.RawTitle);
+            Assert.AreEqual(artist, actual.RawArtist);
             Assert.AreEqual(
                 shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
                 actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
@@ -202,11 +219,11 @@ public sealed class BMSFileSnapshotTests
             CollectionAssert.AreEqual(
                 shiftJisParsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray(),
                 actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
-            Assert.AreEqual(shiftJisParsed.stagefile, actual.stagefile);
-            Assert.AreEqual(shiftJisParsed.banner, actual.banner);
-            Assert.AreEqual(shiftJisParsed.backbmp, actual.backbmp);
+            Assert.AreEqual(shiftJisParsed.Stagefile, actual.Stagefile);
+            Assert.AreEqual(shiftJisParsed.Banner, actual.Banner);
+            Assert.AreEqual(shiftJisParsed.Backbmp, actual.Backbmp);
             Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-            Assert.AreNotEqual(imageName, actual.stagefile);
+            Assert.AreNotEqual(imageName, actual.Stagefile);
         });
     }
 
@@ -223,16 +240,16 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#WAV01 " + resourceName + "\r\n",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            var detectionResult = new BMSFile.BmsEncodingDetectionResult(
+            ChartFile shiftJisParsed = BmsChartFileParser.ParseSnapshot(snapshot);
+            var detectionResult = new BmsEncodingDetectionResult(
                 "utf-8",
-                BMSFile.EncodingDetectionOutcome.Utf8,
+                BmsEncodingDetectionOutcome.Utf8,
                 fastAscii: false,
                 decodedText: File.ReadAllText(filePath, Encoding.UTF8));
 
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot, detectionResult);
 
-            Assert.AreEqual(title, actual.title);
+            Assert.AreEqual(title, actual.RawTitle);
             Assert.AreEqual(
                 shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
                 actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
@@ -252,9 +269,9 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile shiftJisSnapshotParsed = BmsChartFileParser.ParseSnapshot(snapshot);
 
-            var actual = BMSFile.CreateBMSFileFromFile(filePath);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
 
             Assert.AreEqual(
                 shiftJisSnapshotParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
@@ -275,12 +292,13 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            actual.ClearResourceReferenceCollections();
-            actual.Resources = TestChartResources.ReplaceAudio(actual.Resources, []);
+            ChartFile shiftJisSnapshotParsed = BmsChartFileParser.ParseSnapshot(snapshot);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
+            actual = actual with { Resources = null };
+            actual = actual with { Resources = TestChartResources.ReplaceAudio(actual.Resources, []) };
 
-            BMSFile.SetBMSComponentFilesFromBMSFile(actual);
+            ChartFile refreshed = BmsChartFileParser.ParseSnapshot(snapshot);
+            actual = actual with { Resources = refreshed.Resources, Md5 = refreshed.Md5, Sha256 = refreshed.Sha256 };
 
             Assert.AreEqual(
                 shiftJisSnapshotParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
@@ -313,10 +331,10 @@ public sealed class BMSFileSnapshotTests
                 File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE Mode\r\n" + channelLine + "\r\n", Encoding.GetEncoding("shift_jis"));
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                var expected = BMSFile.CreateBMSFileFromFile(filePath);
-                var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+                ChartFile expected = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
+                ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
-                Assert.AreEqual(expectedMode, actual.mode, fileName);
+                Assert.AreEqual(expectedMode, actual.Mode, fileName);
                 AssertBmsMetadataEqual(expected, actual);
             });
         }
@@ -353,8 +371,8 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var expected = BMSFile.CreateBMSFileFromFile(filePath);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile expected = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
             AssertBmsMetadataEqual(expected, actual);
             CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "sound.wav");
@@ -363,7 +381,7 @@ public sealed class BMSFileSnapshotTests
             CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "movie.mp4");
             Assert.IsFalse(actual.Resources.Where(reference => reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Any(reference => string.IsNullOrWhiteSpace(reference.NormalizedPath)));
             Assert.IsFalse(actual.Resources.Where(reference => reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Any(reference => reference.NormalizedPath.Contains(":")));
-            Assert.AreEqual(5, actual.mode);
+            Assert.AreEqual(5, actual.Mode);
         });
     }
 
@@ -380,12 +398,12 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
-            Assert.AreEqual(12, actual.level);
-            Assert.AreEqual(-1, actual.difficulty);
-            Assert.AreEqual(5, actual.mode);
-            Assert.AreEqual(0, actual.judge);
+            Assert.AreEqual(12, actual.Level);
+            Assert.AreEqual(-1, actual.Difficulty);
+            Assert.AreEqual(5, actual.Mode);
+            Assert.AreEqual(0, actual.Judge);
         });
     }
 
@@ -413,9 +431,9 @@ public sealed class BMSFileSnapshotTests
                     Encoding.GetEncoding("shift_jis"));
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+                ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
-                Assert.AreEqual(expectedDifficulty, actual.difficulty, caseName);
+                Assert.AreEqual(expectedDifficulty, actual.Difficulty, caseName);
             });
         }
     }
@@ -435,11 +453,11 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
-            Assert.AreEqual(12, actual.level);
-            Assert.AreEqual(5, actual.difficulty);
-            Assert.AreEqual(3, actual.judge);
+            Assert.AreEqual(12, actual.Level);
+            Assert.AreEqual(5, actual.Difficulty);
+            Assert.AreEqual(3, actual.Judge);
         });
     }
 
@@ -455,9 +473,9 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
-            Assert.AreEqual(-1, actual.difficulty);
+            Assert.AreEqual(-1, actual.Difficulty);
         });
     }
 
@@ -472,11 +490,11 @@ public sealed class BMSFileSnapshotTests
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            var titleToken = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(titleTokenPath));
+            ChartFile titleToken = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(titleTokenPath));
 
-            Assert.AreEqual("Token Song [Hyper]", titleToken.title);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(titleToken.subtitle));
-            Assert.AreEqual(3, titleToken.difficulty);
+            Assert.AreEqual("Token Song [Hyper]", titleToken.RawTitle);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(titleToken.RawSubtitle));
+            Assert.AreEqual(3, titleToken.Difficulty);
 
             string titleDashPath = Path.Combine(tempDirectory, "title-dash.bms");
             File.WriteAllText(titleDashPath,
@@ -484,11 +502,11 @@ public sealed class BMSFileSnapshotTests
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            var titleDash = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(titleDashPath));
+            ChartFile titleDash = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(titleDashPath));
 
-            Assert.AreEqual("Dash Song -Hyper-", titleDash.title);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(titleDash.subtitle));
-            Assert.AreEqual(3, titleDash.difficulty);
+            Assert.AreEqual("Dash Song -Hyper-", titleDash.RawTitle);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(titleDash.RawSubtitle));
+            Assert.AreEqual(3, titleDash.Difficulty);
 
             string titleSuffixPath = Path.Combine(tempDirectory, "title-suffix.bms");
             File.WriteAllText(titleSuffixPath,
@@ -496,11 +514,11 @@ public sealed class BMSFileSnapshotTests
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            var titleSuffix = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(titleSuffixPath));
+            ChartFile titleSuffix = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(titleSuffixPath));
 
-            Assert.AreEqual("Suffix Song Easy", titleSuffix.title);
-            Assert.AreEqual(string.Empty, titleSuffix.subtitle);
-            Assert.AreEqual(1, titleSuffix.difficulty);
+            Assert.AreEqual("Suffix Song Easy", titleSuffix.RawTitle);
+            Assert.AreEqual(string.Empty, titleSuffix.RawSubtitle);
+            Assert.AreEqual(1, titleSuffix.Difficulty);
 
             string genreTokenPath = Path.Combine(tempDirectory, "genre-token.bms");
             File.WriteAllText(genreTokenPath,
@@ -509,11 +527,11 @@ public sealed class BMSFileSnapshotTests
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            var genreToken = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(genreTokenPath));
+            ChartFile genreToken = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(genreTokenPath));
 
-            Assert.AreEqual("Style <Another>", genreToken.genre);
-            Assert.AreEqual("Genre Song", genreToken.title);
-            Assert.AreEqual(4, genreToken.difficulty);
+            Assert.AreEqual("Style <Another>", genreToken.Genre);
+            Assert.AreEqual("Genre Song", genreToken.RawTitle);
+            Assert.AreEqual(4, genreToken.Difficulty);
 
             string explicitAfterPath = Path.Combine(tempDirectory, "explicit-after-title.bms");
             File.WriteAllText(explicitAfterPath,
@@ -522,11 +540,11 @@ public sealed class BMSFileSnapshotTests
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            var explicitAfter = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(explicitAfterPath));
+            ChartFile explicitAfter = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(explicitAfterPath));
 
-            Assert.AreEqual("Explicit Song [Hyper]", explicitAfter.title);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(explicitAfter.subtitle));
-            Assert.AreEqual(5, explicitAfter.difficulty);
+            Assert.AreEqual("Explicit Song [Hyper]", explicitAfter.RawTitle);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(explicitAfter.RawSubtitle));
+            Assert.AreEqual(5, explicitAfter.Difficulty);
 
             string explicitSubtitlePath = Path.Combine(tempDirectory, "explicit-subtitle.bms");
             File.WriteAllText(explicitSubtitlePath,
@@ -535,11 +553,11 @@ public sealed class BMSFileSnapshotTests
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            var explicitSubtitle = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(explicitSubtitlePath));
+            ChartFile explicitSubtitle = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(explicitSubtitlePath));
 
-            Assert.AreEqual("Manual Song [Hyper]", explicitSubtitle.title);
-            Assert.AreEqual("[Manual]", explicitSubtitle.subtitle);
-            Assert.AreEqual(3, explicitSubtitle.difficulty);
+            Assert.AreEqual("Manual Song [Hyper]", explicitSubtitle.RawTitle);
+            Assert.AreEqual("[Manual]", explicitSubtitle.RawSubtitle);
+            Assert.AreEqual(3, explicitSubtitle.Difficulty);
         });
     }
 
@@ -560,7 +578,7 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
             Assert.AreEqual(4, actual.Resources.Count);
             AssertResourceReference(actual, ChartResourceKind.Audio, @".\sound\kick.wav", Path.Combine("sound", "kick.wav"));
@@ -592,7 +610,7 @@ public sealed class BMSFileSnapshotTests
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
 
-                Assert.AreEqual(BMSFile.DetectEncodingOfBMSFile(filePath), BMSFile.DetectEncodingOfBMSFile(snapshot), caseName);
+                Assert.AreEqual(BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(filePath).Bytes).EncodingName, BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName, caseName);
             });
         }
     }
@@ -606,12 +624,12 @@ public sealed class BMSFileSnapshotTests
             File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE ASCII\r\n#00111:01\r\n", Encoding.ASCII);
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile.BmsEncodingDetectionResult result = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+            BmsEncodingDetectionResult result = BmsEncodingDetector.Detect((snapshot).Bytes);
 
-            Assert.AreEqual("shift_jis", BMSFile.DetectEncodingOfBMSFile(filePath));
-            Assert.AreEqual("shift_jis", BMSFile.DetectEncodingOfBMSFile(snapshot));
+            Assert.AreEqual("shift_jis", BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(filePath).Bytes).EncodingName);
+            Assert.AreEqual("shift_jis", BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName);
             Assert.AreEqual("shift_jis", result.EncodingName);
-            Assert.AreEqual(BMSFile.EncodingDetectionOutcome.ShiftJis, result.Outcome);
+            Assert.AreEqual(BmsEncodingDetectionOutcome.ShiftJis, result.Outcome);
             Assert.IsTrue(result.FastAscii);
         });
     }
@@ -624,12 +642,12 @@ public sealed class BMSFileSnapshotTests
             string filePath = Path.Combine(tempDirectory, "chart.bms");
             File.WriteAllText(filePath, "#TITLE \uac00\ub098\ub2e4\r\n", Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            string snapshotEncoding = BMSFile.DetectEncodingOfBMSFile(snapshot);
+            string snapshotEncoding = BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName;
 
             File.WriteAllText(filePath, "#TITLE ASCII\r\n", Encoding.GetEncoding("shift_jis"));
 
-            Assert.AreEqual(snapshotEncoding, BMSFile.DetectEncodingOfBMSFile(snapshot));
-            Assert.AreNotEqual(BMSFile.DetectEncodingOfBMSFile(filePath), BMSFile.DetectEncodingOfBMSFile(snapshot));
+            Assert.AreEqual(snapshotEncoding, BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName);
+            Assert.AreNotEqual(BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(filePath).Bytes).EncodingName, BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName);
         });
     }
 
@@ -643,21 +661,21 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE Before\r\n#SUBTITLE SubBefore\r\n#ARTIST ArtistBefore\r\n#SUBARTIST SubArtistBefore\r\n#GENRE GenreBefore\r\n",
                 Encoding.GetEncoding("shift_jis"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var file = BMSFile.CreateBMSFileFromFile(filePath);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
 
             File.WriteAllText(filePath,
                 "#PLAYER 1\r\n#TITLE After\r\n#SUBTITLE SubAfter\r\n#ARTIST ArtistAfter\r\n#SUBARTIST SubArtistAfter\r\n#GENRE GenreAfter\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            BMSFile.ReloadBMSFileWithEncoding(file, snapshot, "shift_jis");
+            file = BmsChartFileParser.ApplyMetadataEncoding(snapshot, file, "shift_jis");
 
-            Assert.AreEqual("Before", file.title);
-            Assert.AreEqual("SubBefore", file.subtitle);
+            Assert.AreEqual("Before", file.RawTitle);
+            Assert.AreEqual("SubBefore", file.RawSubtitle);
             Assert.AreEqual("Before SubBefore", file.Title);
-            Assert.AreEqual("ArtistBefore", file.artist);
-            Assert.AreEqual("SubArtistBefore", file.subartist);
+            Assert.AreEqual("ArtistBefore", file.RawArtist);
+            Assert.AreEqual("SubArtistBefore", file.Subartist);
             Assert.AreEqual("ArtistBefore SubArtistBefore", file.Artist);
-            Assert.AreEqual("GenreBefore", file.genre);
+            Assert.AreEqual("GenreBefore", file.Genre);
         });
     }
 
@@ -675,38 +693,42 @@ public sealed class BMSFileSnapshotTests
             File.WriteAllText(filePath,
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
-            var file = BMSFile.CreateBMSFileFromFile(filePath);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
             Assert.AreNotEqual(title + " " + subtitle, file.Title);
 
-            BMSFile.ReloadBMSFileWithEncoding(file, "ks_c_5601-1987");
+            file = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(file.Path), file, "ks_c_5601-1987");
 
-            Assert.AreEqual(title, file.title);
-            Assert.AreEqual(subtitle, file.subtitle);
+            Assert.AreEqual(title, file.RawTitle);
+            Assert.AreEqual(subtitle, file.RawSubtitle);
             Assert.AreEqual(title + " " + subtitle, file.Title);
-            Assert.AreEqual(artist, file.artist);
-            Assert.AreEqual(subartist, file.subartist);
+            Assert.AreEqual(artist, file.RawArtist);
+            Assert.AreEqual(subartist, file.Subartist);
             Assert.AreEqual(artist + " " + subartist, file.Artist);
-            Assert.AreEqual(genre, file.genre);
+            Assert.AreEqual(genre, file.Genre);
         });
     }
 
     [TestMethod]
-    public void ReloadBMSFileWithEncoding_NormalizesShiftJisQuestionAndClearsDates()
+    public void MetadataEncoding_NormalizesShiftJisQuestionAndPreservesUserColumns()
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
             string filePath = Path.Combine(tempDirectory, "chart.bms");
             File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE ASCII\r\n#ARTIST Artist\r\n", Encoding.GetEncoding("shift_jis"));
-            var file = BMSFile.CreateBMSFileFromFile(filePath);
-            file.date = 123;
-            file.adddate = 456;
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
+            file = file with { Date = 123 };
+            file = file with { AddDate = 456 };
 
-            BMSFile.ReloadBMSFileWithEncoding(file, "shift_jis?");
+            ChartFile captured = file;
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(file.Path);
+            file = BmsChartFileParser.ApplyMetadataEncoding(snapshot, file, "shift_jis?");
 
-            Assert.AreEqual("ASCII", file.title);
-            Assert.AreEqual("Artist", file.artist);
-            Assert.IsNull(file.date);
-            Assert.IsNull(file.adddate);
+            Assert.AreEqual("ASCII", file.RawTitle);
+            Assert.AreEqual("Artist", file.RawArtist);
+            Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc), file.Date);
+            Assert.AreEqual(456, file.AddDate);
+            Assert.AreEqual(123, captured.Date);
+            Assert.AreEqual(456, captured.AddDate);
         });
     }
 
@@ -725,39 +747,39 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n#WAV01 sound.wav\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            var file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
             Assert.AreNotEqual(title, file.Title);
 
-            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
-            BMSFile.ReloadBMSMetadataWithEncodingDetection(file, snapshot, detectionResult);
+            BmsEncodingDetectionResult detectionResult = BmsEncodingDetector.Detect((snapshot).Bytes);
+            file = BmsChartFileParser.ApplyEncodingDetection(snapshot, file, detectionResult);
 
             Assert.AreEqual("ks_c_5601-1987", detectionResult.EncodingName);
-            Assert.AreEqual(title, file.title);
-            Assert.AreEqual(subtitle, file.subtitle);
+            Assert.AreEqual(title, file.RawTitle);
+            Assert.AreEqual(subtitle, file.RawSubtitle);
             Assert.AreEqual(title + " " + subtitle, file.Title);
-            Assert.AreEqual(artist, file.artist);
-            Assert.AreEqual(subartist, file.subartist);
+            Assert.AreEqual(artist, file.RawArtist);
+            Assert.AreEqual(subartist, file.Subartist);
             Assert.AreEqual(artist + " " + subartist, file.Artist);
-            Assert.AreEqual(genre, file.genre);
+            Assert.AreEqual(genre, file.Genre);
             CollectionAssert.Contains(file.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "sound.wav");
         });
     }
 
-    private static void AssertBmsMetadataEqual(BMSFile expected, BMSFile actual)
+    private static void AssertBmsMetadataEqual(ChartFile expected, ChartFile actual)
     {
-        Assert.AreEqual(expected.path, actual.path);
+        Assert.AreEqual(expected.Path, actual.Path);
         Assert.AreEqual(expected.Title, actual.Title);
         Assert.AreEqual(expected.Artist, actual.Artist);
-        Assert.AreEqual(expected.genre, actual.genre);
-        Assert.AreEqual(expected.level, actual.level);
-        Assert.AreEqual(expected.difficulty, actual.difficulty);
-        Assert.AreEqual(expected.judge, actual.judge);
-        Assert.AreEqual(expected.banner, actual.banner);
-        Assert.AreEqual(expected.stagefile, actual.stagefile);
-        Assert.AreEqual(expected.backbmp, actual.backbmp);
-        Assert.AreEqual(expected.mode, actual.mode);
-        Assert.AreEqual(expected.hash, actual.hash);
-        Assert.AreEqual(expected.sha256, actual.sha256);
+        Assert.AreEqual(expected.Genre, actual.Genre);
+        Assert.AreEqual((double?)expected.Level, actual.Level);
+        Assert.AreEqual(expected.Difficulty, actual.Difficulty);
+        Assert.AreEqual(expected.Judge, actual.Judge);
+        Assert.AreEqual(expected.Banner, actual.Banner);
+        Assert.AreEqual(expected.Stagefile, actual.Stagefile);
+        Assert.AreEqual(expected.Backbmp, actual.Backbmp);
+        Assert.AreEqual(expected.Mode, actual.Mode);
+        Assert.AreEqual(expected.Md5, actual.Md5);
+        Assert.AreEqual(expected.Sha256, actual.Sha256);
         CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         CollectionAssert.AreEqual(
@@ -765,7 +787,7 @@ public sealed class BMSFileSnapshotTests
             (actual.Resources ?? []).Select(ToComparableResourceReference).ToArray());
     }
 
-    private static void AssertResourceReference(BMSFile file, ChartResourceKind kind, string rawPath, string normalizedPath)
+    private static void AssertResourceReference(ChartFile file, ChartResourceKind kind, string rawPath, string normalizedPath)
     {
         Assert.IsTrue(
             file.Resources.Any(reference =>

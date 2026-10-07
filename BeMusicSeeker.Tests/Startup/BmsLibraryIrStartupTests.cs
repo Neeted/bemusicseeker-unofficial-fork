@@ -57,6 +57,61 @@ public sealed class BmsLibraryIrStartupTests
         fixture.AssertDatabaseRetained();
     }
 
+    [TestMethod]
+    public async Task ScoreSubscriptions_ReloadAndShutdownDetachPreviousScore()
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false);
+        fixture.Client.Release.TrySetResult();
+        await fixture.InitializeAsync();
+        await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        BMSScore previous = fixture.Library.GetBMSScores().Single();
+        Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
+        Assert.AreEqual(previous.score, fixture.Library.ResolveChartScoreSnapshot(
+            ChartFileKind.Bms, "captured.bms", previous.hash, string.Empty).Score);
+        Assert.IsNull(fixture.Library.ResolveChartScoreSnapshot(
+            ChartFileKind.Bms, "missing.bms", "missing", string.Empty).Score);
+        Assert.IsNull(fixture.Library.ResolveChartScoreSnapshot(
+            ChartFileKind.Bmson, "captured.bmson", previous.hash, string.Empty).Score);
+
+        var reloadCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int rankingVersion = fixture.Library.RankingRefreshCompletedVersion;
+        System.ComponentModel.PropertyChangedEventHandler reloadHandler = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.RankingRefreshCompletedVersion)
+                && fixture.Library.RankingRefreshCompletedVersion > rankingVersion)
+            {
+                reloadCompleted.TrySetResult();
+            }
+        };
+        fixture.Library.PropertyChanged += reloadHandler;
+        int count = 0;
+        ScoreSnapshotChange lastChange = null;
+        Action<ScoreSnapshotChange> scoreHandler = change => { count++; lastChange = change; };
+        try
+        {
+            await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+            await reloadCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            BMSScore current = fixture.Library.GetBMSScores().Single();
+            Assert.AreNotSame(previous, current);
+            Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
+            fixture.Library.ScoreSnapshotChanged += scoreHandler;
+            previous.ranking = 1;
+            current.ranking = 2;
+            Assert.AreEqual(1, count);
+            CollectionAssert.AreEqual(new[] { current.hash }, lastChange.Md5Keys.ToArray());
+            Assert.AreEqual(fixture.Library.ScoreSnapshotVersion, lastChange.Version);
+            fixture.Library.RequestShutdown("score-subscription-test");
+            current.ranking = 3;
+            Assert.AreEqual(1, count);
+            Assert.AreEqual(0, fixture.Library.ScoreSubscriptionCount);
+        }
+        finally
+        {
+            fixture.Library.PropertyChanged -= reloadHandler;
+            fixture.Library.ScoreSnapshotChanged -= scoreHandler;
+        }
+    }
+
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]

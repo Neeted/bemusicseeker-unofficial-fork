@@ -21,6 +21,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
         var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         string path = Path.Combine(scope.DirectoryPath, "committed.bms");
+        library.BmsCharts = [ReceiptChart(path)];
         var result = new SongTableFileCheckResult();
         result.CommittedLr2SongDbSyncBmsPaths.Add(path);
 
@@ -41,13 +42,14 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
         var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        string path = Path.Combine(scope.DirectoryPath, "mismatch.bms");
+        library.BmsCharts = [ReceiptChart(path)];
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
         Lr2SongDbSyncInput ownedChangedInput = WithOwnedCollectionVersion(
             input,
-            input.OwnedChartCollectionVersion + 1);
+            input.OwnedCollectionVersion + 1);
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            input.BmsRowsVersion,
-            [Path.Combine(scope.DirectoryPath, "mismatch.bms")]);
+            library.BmsCharts);
 
         Lr2SongDbSyncCommittedPathReceipt receipt = owner.TakeLr2SongDbSyncCommittedPathReceipt(
             ownedChangedInput,
@@ -64,18 +66,29 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     }
 
     [TestMethod]
-    public void Receipt_BmsRowsVersionMismatchIsDiscardedWithoutReuse()
+    public void Receipt_SamePathAndHashItemReplacementIsDiscardedWithoutReuse()
     {
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
         var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        string path = Path.Combine(scope.DirectoryPath, "mismatch.bms");
+        library.BmsCharts = [ReceiptChart(path)];
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
-        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            input.BmsRowsVersion + 1,
-            [Path.Combine(scope.DirectoryPath, "mismatch.bms")]);
+        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(library.BmsCharts);
+        library.BmsCharts = [ReceiptChart(path)];
 
         Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_bms_version_mismatch"));
         Assert.IsNull(owner.CommittedPathReceipt);
+    }
+
+    [TestMethod]
+    public void Receipt_SameTokenDigestChangeIsDiscardedWithoutReuse()
+    {
+        ChartFile captured = ReceiptChart("C:\\Songs\\changed.bms");
+        var receipt = new Lr2SongDbSyncCommittedPathReceipt([captured]);
+        ChartFile changed = captured with { Md5 = new string('c', 32), Sha256 = new string('d', 64) };
+        Assert.IsFalse(receipt.MatchesTargets([changed]));
+        Assert.IsTrue(receipt.MatchesTargets([captured with { Title = "表示のみ", Score = ChartScoreSnapshot.NoScore(captured.Path) }]));
     }
 
     [TestMethod]
@@ -84,9 +97,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
         var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
-        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            0,
-            [Path.Combine(scope.DirectoryPath, "null-input.bms")]);
+        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt([ReceiptChart(Path.Combine(scope.DirectoryPath, "null-input.bms"))]);
 
         Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(null, "test_null_input"));
         Assert.IsNull(owner.CommittedPathReceipt);
@@ -98,9 +109,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
         var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
-        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            0,
-            [Path.Combine(scope.DirectoryPath, "manual.bms")]);
+        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt([ReceiptChart(Path.Combine(scope.DirectoryPath, "manual.bms"))]);
         library.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
 
         library.QueueLr2SongDbSync("test_manual", force: true);
@@ -114,9 +123,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary firstLibrary = CreateLr2Library(scope.SongDbPath);
         var firstOwner = (BMSLibrary.Lr2SynchronizationOwner)firstLibrary.Lr2Synchronization;
-        firstOwner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            0,
-            [Path.Combine(scope.DirectoryPath, "disposed.bms")]);
+        firstOwner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt([ReceiptChart(Path.Combine(scope.DirectoryPath, "disposed.bms"))]);
 
         firstOwner.DisposeCancellation();
 
@@ -134,15 +141,16 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         string processedPath = Path.Combine(scope.DirectoryPath, "processed.bms");
         File.WriteAllText(processedPath, "#TITLE receipt processed\r\n");
         ChartFileSnapshot processedSnapshot = ChartFileContentReader.ReadSnapshot(processedPath);
-        TestableBmsFile skippedFile = new TestableBmsFile
+        ChartFile skippedFile = ((ChartTestValues.Empty() with
         {
-            path = skippedPath,
-            date = 123456
-        }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", favoriteValue: null);
-        TestableBmsFile processedFile = CreateSyncTestFile(processedPath, processedSnapshot);
+            Path = skippedPath,
+            Date = 123456
+        })) with
+        { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Favorite = null };
+        ChartFile processedFile = CreateSyncTestFile(processedPath, processedSnapshot);
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
-        songDb.InsertOrReplace(processedFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(processedFile), typeof(LR2SongDB.song));
         int skippedReaderCalls = 0;
         int processedReaderCalls = 0;
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -150,7 +158,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
             Signature = "receipt-reader-gate",
             RunId = "receipt-reader-gate",
             SongRows = [skippedFile, processedFile],
-            CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(0, [skippedPath]),
+            CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt([skippedFile]),
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             ChartFileBufferReader = path =>
             {
@@ -187,24 +195,23 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
-        BMSFile[] songRows = [.. Enumerable.Range(0, rowCount).Select(index =>
+        ChartFile[] songRows = [.. Enumerable.Range(0, rowCount).Select(index =>
         {
-            TestableBmsFile file = new TestableBmsFile
-            {
-                path = Path.Combine(scope.DirectoryPath, "committed-" + index + ".bms"),
-                tag = "user-tag",
-                adddate = 123456,
-                date = 234567
-            }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 7);
-            file.SetTitleForTest("receipt committed");
+            ChartFile file = ((ChartTestValues.Empty() with {
+                Path = Path.Combine(scope.DirectoryPath, "committed-" + index + ".bms"),
+                Tag = "user-tag",
+                AddDate = 123456,
+                Date = 234567
+            })) with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Favorite = 7 };
+            file = file with { Title = "receipt committed", RawTitle = "receipt committed" };
             return file;
         })];
         songDb.BeginTransaction();
         try
         {
-            foreach (BMSFile file in songRows)
+            foreach (ChartFile file in songRows)
             {
-                songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
             }
             songDb.Commit();
         }
@@ -227,7 +234,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
             Signature = "receipt-chunk-boundaries",
             RunId = "receipt-chunk-boundaries",
             SongRows = songRows,
-            CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(0, songRows.Select(file => file.path)),
+            CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(songRows),
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             ChartFileBufferReader = _ =>
             {
@@ -278,7 +285,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         Assert.AreEqual(rowCount, completed.total_count);
         Assert.AreEqual(rowCount, completed.processed_cursor);
         LR2SongDB.song[] persisted = [.. songDb.Table<LR2SongDB.song>()];
-        CollectionAssert.AreEquivalent(songRows.Select(file => file.path).ToArray(), persisted.Select(row => row.path).ToArray());
+        CollectionAssert.AreEquivalent(songRows.Select(file => file.Path).ToArray(), persisted.Select(row => row.path).ToArray());
         Assert.IsTrue(persisted.All(row => row.title == "receipt committed"
             && row.hash == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             && row.tag == "user-tag"
@@ -286,6 +293,9 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
             && row.adddate == 123456
             && row.date == 234567));
     }
+
+    private static ChartFile ReceiptChart(string path) => ChartTestValues.Empty() with
+    { Path = path, Md5 = new string('a', 32), Sha256 = new string('b', 64), Token = new OwnedChartToken() };
 
     private static TestBmsLibrary CreateLr2Library(string songDbPath)
     {
@@ -304,29 +314,6 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         Lr2SongDbSyncInput input,
         int ownedCollectionVersion)
     {
-        return new Lr2SongDbSyncInput(
-            input.RootDirectories,
-            input.ChartPaths,
-            input.NormalFolderDirectoryPaths,
-            input.FolderInfoFilePaths,
-            input.FolderInfoFileEntries,
-            input.DirectoryEntries,
-            input.Lr2FolderDiscoveryDirectories,
-            input.Lr2FolderPruneDirectories,
-            input.Lr2RootPath,
-            input.Lr2NormalCustomFolderOutputBaseDir,
-            input.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
-            input.Lr2RootCustomFolderOutputBaseDir,
-            input.Lr2BuiltinFolderSourceDirectories,
-            input.Lr2BuiltinCustomFolderSettings,
-            input.Lr2FolderFilePaths,
-            input.Lr2FolderFileEntries,
-            input.Lr2FolderFileDiscoveryComplete,
-            input.SongRows,
-            input.TextFileDirectories,
-            input.ScanSurfaceGeneration,
-            ownedCollectionVersion,
-            input.BmsRowsVersion,
-            input.BmsonRowsVersion);
+        return new Lr2SongDbSyncInput(input.RootDirectories, input.ChartPaths, input.NormalFolderDirectoryPaths, input.FolderInfoFilePaths, input.FolderInfoFileEntries, input.DirectoryEntries, input.Lr2FolderDiscoveryDirectories, input.Lr2FolderPruneDirectories, input.Lr2RootPath, input.Lr2NormalCustomFolderOutputBaseDir, input.Lr2AdditionalNormalCustomFolderOutputBaseDirs, input.Lr2RootCustomFolderOutputBaseDir, input.Lr2BuiltinFolderSourceDirectories, input.Lr2BuiltinCustomFolderSettings, input.Lr2FolderFilePaths, input.Lr2FolderFileEntries, input.Lr2FolderFileDiscoveryComplete, input.SongRows, input.TextFileDirectories, input.ScanSurfaceGeneration, ownedCollectionVersion);
     }
 }

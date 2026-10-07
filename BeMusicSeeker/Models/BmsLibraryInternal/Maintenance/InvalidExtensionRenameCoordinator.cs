@@ -9,8 +9,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal static class InvalidExtensionRenameCoordinator
 {
     /// <summary>
-    /// Runs one normal invalid-extension rename batch and preserves the legacy throwing contract
-    /// after all post-lease notifications have been released.
+    /// 通常の拡張子変更を事前捕捉して実行し、排他解放後の通知を済ませてから従来どおり失敗を送出します。
     /// </summary>
     internal static void RenameBMSFilesExtensions(
         LibraryMutationOwner host,
@@ -20,7 +19,7 @@ internal static class InvalidExtensionRenameCoordinator
     {
         LibraryMutationSessionReceipt receipt = RenameBMSFilesExtensionsWithReceipt(
             host,
-            [new LibraryFileExtensionRenameBatch(charts, newExt)],
+            [host.PrepareLibraryFileExtensionRenameBatch(charts, newExt)],
             unregister);
         foreach (LibraryMutationSessionItemFailure failure in receipt.ItemFailures)
         {
@@ -37,14 +36,13 @@ internal static class InvalidExtensionRenameCoordinator
     }
 
     /// <summary>
-    /// Executes all normal invalid-extension rename batches inside one operation-scoped mutation
-    /// session. Filesystem work remains batch-oriented, while canonical catalog/state apply occurs
-    /// exactly once for all confirmed rename/delete facts.
+    /// 確認前に固定した通常の拡張子変更を、一つの変更セッションで実行します。
+    /// 受付後に全batchの結び付きを先に検査し、成功した変更だけを一回のカタログ適用へ集約します。
     /// </summary>
-    /// <param name="host">Library mutation owner holding the command boundary.</param>
-    /// <param name="batches">Extension-family batches belonging to one user operation.</param>
-    /// <param name="unregister">Whether successful renamed charts are removed from the catalog.</param>
-    /// <returns>Immutable terminal facts from the single operation-scoped session.</returns>
+    /// <param name="host">処理と受付境界を所有するライブラリ変更主体。</param>
+    /// <param name="batches">一操作で確認する固定対象と変更先拡張子。</param>
+    /// <param name="unregister">変更に成功した譜面をカタログから登録解除するか。</param>
+    /// <returns>一つの変更セッションの変更不能な確定結果。</returns>
     internal static LibraryMutationSessionReceipt RenameBMSFilesExtensionsWithReceipt(
         LibraryMutationOwner host,
         IEnumerable<LibraryFileExtensionRenameBatch> batches,
@@ -52,36 +50,25 @@ internal static class InvalidExtensionRenameCoordinator
     {
         ArgumentNullException.ThrowIfNull(host);
         List<LibraryFileExtensionRenameBatch> targetBatches = [.. (batches ?? [])
-            .Where(batch => batch != null && batch.Charts.Count > 0)
-            .Select(batch => new LibraryFileExtensionRenameBatch(
-                batch.Charts.Where(chart => chart?.GetBmsStorageOwner() != null),
-                batch.NewExtension))
-            .Where(batch => batch.Charts.Count > 0)];
-        if (targetBatches.Count == 0)
-        {
-            return LibraryMutationSessionReceipt.Empty;
-        }
+            .Where(batch => batch != null && (batch.InputCount > 0 || batch.Targets.Count > 0))];
+        if (targetBatches.Count == 0) { return LibraryMutationSessionReceipt.Empty; }
 
-        List<LibraryFileOperationTargetSnapshot>[] preflightTargets = targetBatches
-            .Select(batch => host.CaptureNormalInvalidExtensionRenameTargets(batch.Charts, batch.NewExtension))
-            .ToArray();
         List<Action> postLeaseNotifications = [];
         LibraryMutationSessionReceipt receipt = LibraryMutationSessionReceipt.Empty;
         try
         {
             host.RunWithNormalInvalidExtensionRenameWriteLocks(mutationCapability =>
             {
+                IReadOnlyList<LibraryFileExtensionRenameBatch> resolvedBatches = host.ResolvePreparedLibraryFileExtensionRenameBatches(targetBatches);
                 LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
                     mutationCapability,
                     "invalid_ext_rename",
                     postLeaseNotifications);
-                for (int index = 0; index < targetBatches.Count; index++)
+                for (int index = 0; index < resolvedBatches.Count; index++)
                 {
-                    LibraryFileExtensionRenameBatch batch = targetBatches[index];
+                    LibraryFileExtensionRenameBatch batch = resolvedBatches[index];
                     LibraryFileExtensionRenameResult result = host.RenameLibraryFileExtensionsAfterAdmission(
-                        batch.Charts,
-                        preflightTargets[index],
-                        batch.NewExtension,
+                        batch,
                         unregister == true);
                     session.AppendItemFailures(result.Report.Failures
                         .Where(failure => failure?.Exception != null)
@@ -93,7 +80,7 @@ internal static class InvalidExtensionRenameCoordinator
                         LibraryPackageReferenceFacts.Empty,
                         result.ConfirmedTargets);
                     postLeaseNotifications.Add(() => host.LogInfo(
-                        "invalid_ext_rename summary scope=normal total=" + batch.Charts.Count
+                        "invalid_ext_rename summary scope=normal total=" + batch.InputCount
                         + " renamed=" + result.Report.RenamedCount
                         + " deleted=" + result.Report.DuplicateDeletedCount
                         + " skipped=" + result.Report.SkippedCount));
@@ -117,7 +104,7 @@ internal static class InvalidExtensionRenameCoordinator
         {
             throw new ArgumentNullException(nameof(charts));
         }
-        List<ChartFile> targetCharts = [.. charts.Where(chart => chart?.GetBmsStorageOwner() != null)];
+        List<ChartFile> targetCharts = [.. charts.Where(chart => chart?.Kind == ChartFileKind.Bms)];
         List<Action> postLeaseNotifications = [];
         try
         {

@@ -26,9 +26,9 @@ public sealed class BmsLibraryDialogRoutingTests
                 ResultToReturn = MessageBoxResult.No
             };
             var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
-            var pendingFile = new TestableBmsFile
+            ChartFile pendingFile = ChartTestValues.Empty() with
             {
-                path = "C:\\Pending\\Pkg\\chart.bms"
+                Path = "C:\\Pending\\Pkg\\chart.bms"
             };
             var pendingPackage = ChartPackage.FromChartEntries(
                 [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
@@ -277,7 +277,4 @@ public sealed class BmsLibraryDialogRoutingTests
         public MessageBoxResult DefaultResult { get; set; }
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-    }
 }

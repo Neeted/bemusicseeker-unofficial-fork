@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -15,12 +16,12 @@ public class ResourceHealthIndexOwnerTests
     {
         ChartFile chart = CreateChart();
         var currentVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(2, 2),
+            new OwnedChartCollectionVersionSnapshot(2),
             ownedCollectionVersion: 2,
             inputVersion: 0);
         var staleTarget = ResourceMaintenanceTargetSet.ForFullOwned(
             [chart],
-            new StorageRowsVersionSnapshot(1, 1),
+            new OwnedChartCollectionVersionSnapshot(1),
             ownedCollectionVersion: 1,
             resourceHealthInputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(currentVersion);
@@ -40,11 +41,11 @@ public class ResourceHealthIndexOwnerTests
     {
         ChartFile chart = CreateChart();
         var initialVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(1, 1),
+            new OwnedChartCollectionVersionSnapshot(1),
             ownedCollectionVersion: 1,
             inputVersion: 0);
         var changedVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(2, 1),
+            new OwnedChartCollectionVersionSnapshot(2),
             ownedCollectionVersion: 1,
             inputVersion: 0);
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
@@ -67,7 +68,7 @@ public class ResourceHealthIndexOwnerTests
     {
         ChartFile chart = CreateChart();
         var initialVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(1, 1),
+            new OwnedChartCollectionVersionSnapshot(1),
             ownedCollectionVersion: 1,
             inputVersion: 0);
         ResourceHealthIndexCurrentVersion currentVersion = initialVersion;
@@ -78,7 +79,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexSnapshot initial = owner.EnsureCurrent("initial", target, initialVersion);
         currentVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(2, 1),
+            new OwnedChartCollectionVersionSnapshot(2),
             ownedCollectionVersion: 1,
             inputVersion: 0);
         Assert.IsFalse(owner.IsCurrent());
@@ -97,11 +98,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         ResourceHealthIndexSnapshot initial = owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         ResourceHealthIndexOwner.ResourceHealthInputMutation lease = owner.BeginInputMutation();
         lease.Dispose();
         var mutation = new ResourceHealthIndexMutation();
@@ -112,7 +113,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceHealthIndexDispatchResult result = owner.Apply(
             mutation.ToFacts(),
             "delta",
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 2),
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 2),
             RejectFullOwnedTarget);
 
         Assert.IsTrue(result.DeltaApplied);
@@ -129,7 +130,7 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         var currentVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(1, 1),
+            new OwnedChartCollectionVersionSnapshot(1),
             ownedCollectionVersion: 1,
             inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(currentVersion);
@@ -156,7 +157,7 @@ public class ResourceHealthIndexOwnerTests
     {
         ChartFile chart = CreateChart();
         var currentVersion = new ResourceHealthIndexCurrentVersion(
-            new StorageRowsVersionSnapshot(1, 1),
+            new OwnedChartCollectionVersionSnapshot(1),
             ownedCollectionVersion: 1,
             inputVersion: 0);
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
@@ -185,11 +186,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         var mutation = new ResourceHealthIndexMutation
         {
             Invalidate = true,
@@ -201,7 +202,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceHealthIndexDispatchResult result = owner.Apply(
             mutation.ToFacts(),
             "invalidate",
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0),
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0),
             RejectFullOwnedTarget);
 
         Assert.IsFalse(result.Deferred);
@@ -216,11 +217,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         var mutation = new ResourceHealthIndexMutation
         {
             InvalidateIfDeltaFails = true
@@ -232,7 +233,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceHealthIndexDispatchResult result = owner.Apply(
             mutation.ToFacts(),
             "delta_failed",
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 4),
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 4),
             RejectFullOwnedTarget);
 
         Assert.IsFalse(result.DeltaApplied);
@@ -249,11 +250,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         var mutation = new ResourceHealthIndexMutation
         {
             FullOwnedTargetSet = inputAlreadySupplied ? target : default,
@@ -266,7 +267,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceHealthIndexDispatchResult result = owner.Apply(
             mutation.ToFacts(),
             "delta_fallback",
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0),
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0),
             _ =>
             {
                 captureCount++;
@@ -288,11 +289,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         ResourceHealthIndexSnapshot initial = owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         var mutation = new ResourceHealthIndexMutation
         {
             RebuildFull = true,
@@ -303,7 +304,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceHealthIndexDispatchResult result = owner.Apply(
             mutation.ToFacts(),
             "full",
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0),
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0),
             _ =>
             {
                 captureCount++;
@@ -326,11 +327,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         ResourceHealthIndexSnapshot initial = owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         var mutation = new ResourceHealthIndexMutation
         {
             Defer = true,
@@ -341,7 +342,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceHealthIndexDispatchResult result = owner.Apply(
             mutation.ToFacts(),
             "defer",
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0),
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0),
             RejectFullOwnedTarget);
 
         Assert.IsTrue(result.Deferred);
@@ -355,7 +356,7 @@ public class ResourceHealthIndexOwnerTests
     [DataRow(true)]
     public void Apply_NoChangesLeavesCurrentSnapshotUntouched(bool nullMutation)
     {
-        var currentVersion = new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0);
+        var currentVersion = new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0);
         ResourceHealthIndexOwner owner = CreateOwner(currentVersion);
         ResourceHealthIndexSnapshot initial = owner.EnsureCurrent("initial", CreateTarget(CreateChart(), 0), currentVersion);
 
@@ -375,7 +376,7 @@ public class ResourceHealthIndexOwnerTests
     [TestMethod]
     public void Apply_FullRebuildReadsVersionAfterCapturingInput()
     {
-        var currentVersion = new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0);
+        var currentVersion = new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0);
         ResourceHealthIndexOwner owner = new(new BmsLibraryMaintenanceService(), _ => { }, () => currentVersion);
         int captureCount = 0;
 
@@ -386,10 +387,10 @@ public class ResourceHealthIndexOwnerTests
             _ =>
             {
                 captureCount++;
-                currentVersion = new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 2, 0);
+                currentVersion = new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 2, 0);
                 return ResourceMaintenanceTargetSet.ForFullOwned(
                     [CreateChart(), CreateChart(@"C:\charts\second.bms")],
-                    new StorageRowsVersionSnapshot(1, 1), 2, 0);
+                    new OwnedChartCollectionVersionSnapshot(1), 2, 0);
             });
 
         Assert.AreEqual(1, captureCount);
@@ -402,7 +403,7 @@ public class ResourceHealthIndexOwnerTests
     [TestMethod]
     public void Apply_StaleSuppliedFullInputIsNotRecaptured()
     {
-        var currentVersion = new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(2, 1), 2, 0);
+        var currentVersion = new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(2), 2, 0);
         ResourceHealthIndexOwner owner = CreateOwner(currentVersion);
         var mutation = new ResourceHealthIndexMutation
         {
@@ -424,7 +425,7 @@ public class ResourceHealthIndexOwnerTests
     [DataRow(true)]
     public void Apply_FullInputOverlappingWriterIsNotPublished(bool writerCompletes)
     {
-        var currentVersion = new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0);
+        var currentVersion = new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0);
         ResourceHealthIndexOwner owner = CreateOwner(currentVersion);
         ResourceHealthIndexOwner.ResourceHealthInputMutation? writer = null;
         int captureCount = 0;
@@ -461,18 +462,11 @@ public class ResourceHealthIndexOwnerTests
     [TestMethod]
     public void Apply_LazyFullInputDetachesMaintenanceFromStorageOwner()
     {
-        var file = new BMSFile { path = @"C:\charts\missing.bms", hash = new string('a', 32) };
-        var maintenance = new BMSFileMaintenanceInfo
-        {
-            path = file.path,
-            hash = file.hash,
-            wav_files_defined = 1,
-            wav_files_existing = 0
-        };
-        file.SetMaintenanceInfo(maintenance, suppressPropertyChanged: true);
-        ChartFile chart = ChartFileProjection.FromBmsFile(
-            file, includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
-        var currentVersion = new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0);
+        ChartFile file = (ChartTestValues.Empty() with { Path = @"C:\charts\missing.bms", Md5 = new string('a', 32) });
+        var maintenance = new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, wav_files_defined = 1, wav_files_existing = 0 };
+        file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(maintenance));
+        ChartFile chart = (file);
+        var currentVersion = new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0);
         ResourceHealthIndexOwner owner = CreateOwner(currentVersion);
 
         ResourceHealthIndexDispatchResult result = owner.Apply(
@@ -483,7 +477,7 @@ public class ResourceHealthIndexOwnerTests
 
         Assert.IsTrue(result.FullRebuilt);
         ChartFile published = result.Snapshot.ActiveTargets.Single();
-        Assert.IsNull(published.GetBmsStorageOwner());
+        Assert.IsNull(published.Token);
         Assert.IsNotNull(published.ResourceHealthMaintenanceSnapshot);
         Assert.AreEqual(0, published.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
         Assert.IsFalse(published.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
@@ -494,7 +488,7 @@ public class ResourceHealthIndexOwnerTests
     public void InputMutation_NestedScopesPreserveOuterVersionWindow()
     {
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
 
         ResourceHealthIndexOwner.ResourceHealthInputMutation outer = owner.BeginInputMutation();
         ResourceHealthIndexOwner.ResourceHealthInputMutation inner = owner.BeginInputMutation();
@@ -514,11 +508,11 @@ public class ResourceHealthIndexOwnerTests
         ChartFile chart = CreateChart();
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         ResourceHealthIndexOwner owner = CreateOwner(
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
         ResourceHealthIndexSnapshot snapshot = owner.EnsureCurrent(
             "initial",
             target,
-            new ResourceHealthIndexCurrentVersion(new StorageRowsVersionSnapshot(1, 1), 1, 0));
+            new ResourceHealthIndexCurrentVersion(new OwnedChartCollectionVersionSnapshot(1), 1, 0));
 
         ResourceHealthWarningProjection projection = owner.TryGetCurrentProjection(chart);
 
@@ -556,7 +550,7 @@ public class ResourceHealthIndexOwnerTests
     {
         return ResourceMaintenanceTargetSet.ForFullOwned(
             [chart],
-            new StorageRowsVersionSnapshot(1, 1),
+            new OwnedChartCollectionVersionSnapshot(1),
             ownedCollectionVersion: 1,
             inputVersion);
     }
@@ -568,22 +562,6 @@ public class ResourceHealthIndexOwnerTests
 
     private static ChartFile CreateChart(string path = @"C:\charts\sample.bms")
     {
-        return new ChartFile(
-            kind: ChartFileKind.Bms,
-            path: path,
-            md5: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            sha256: new string('b', 64),
-            title: "Title",
-            rawTitle: "Title",
-            artist: "Artist",
-            genre: string.Empty,
-            folder: "charts",
-            tag: string.Empty,
-            levelText: string.Empty,
-            level: null,
-            mode: null,
-            chartInfo: null,
-            bmsFile: null,
-            bmsonSong: null);
+        return new ChartFile(kind: ChartFileKind.Bms, path: path, md5: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sha256: new string('b', 64), title: "Title", rawTitle: "Title", artist: "Artist", genre: string.Empty, folder: "charts", tag: string.Empty, levelText: string.Empty, level: null, mode: null, chartInfo: null);
     }
 }

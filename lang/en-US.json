@@ -1116,5 +1116,6 @@
   "Statusbar_progress_operation_failed_format": "{0} failed",
   "Statusbar_progress_task_playlist_property_update": "Update playlist properties",
   "Statusbar_progress_task_folder_rename": "Rename folders automatically",
-  "Statusbar_progress_task_playlist_external_property_initialization": "Initializing playlist properties from external sources"
+  "Statusbar_progress_task_playlist_external_property_initialization": "Initializing playlist properties from external sources",
+  "Error_PreparedChartTargetMismatch": "The prepared chart target does not match the currently owned item, format, or location. No changes were made."
 }

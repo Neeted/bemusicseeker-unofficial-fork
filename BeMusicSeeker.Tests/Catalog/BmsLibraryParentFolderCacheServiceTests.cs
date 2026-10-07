@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -100,12 +101,11 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
                 }
             };
 
-            library.BmsonSongs =
+            library.BmsonCharts =
             [
-                new LR2SongDBExtended.bmson_song
-                {
-                    path = Path.Combine(Path.GetTempPath(), "chart.bmson"),
-                    md5 = "0123456789abcdef0123456789abcdef"
+                ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken(),
+                    Path = Path.Combine(Path.GetTempPath(), "chart.bmson"),
+                    Md5 = "0123456789abcdef0123456789abcdef"
                 }
             ];
 

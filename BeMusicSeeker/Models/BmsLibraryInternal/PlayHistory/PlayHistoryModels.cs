@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -522,13 +521,13 @@ internal sealed class PlayHistoryProjectionIndex
 
     private readonly Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver;
 
-    private readonly Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver;
+    private readonly Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver;
 
     private PlayHistoryProjectionIndex(
         PlaylistLibraryResolveIndexSnapshot resolveIndex,
         IReadOnlyDictionary<string, string> sha256ByMd5,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver,
-        Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver)
+        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver)
     {
         ResolveIndex = resolveIndex ?? PlaylistLibraryResolveIndexSnapshot.Empty;
         var sha256Map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -556,14 +555,15 @@ internal sealed class PlayHistoryProjectionIndex
         PlaylistLibraryResolveIndexSnapshot resolveIndex,
         IReadOnlyDictionary<string, string> sha256ByMd5 = null,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceResolver = null,
-        Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver = null)
+        Func<string, string, BeMusicSeeker.Models.ChartDetails> chartInfoResolver = null)
     {
         return new PlayHistoryProjectionIndex(resolveIndex, sha256ByMd5, playlistReferenceResolver, chartInfoResolver);
     }
 
-    internal LibraryChartRef ResolveChartByMd5(string md5, string sha256)
+    /// <summary>プレイリストと同じ代表選択で、索引が捕捉した共通基本値を返します。</summary>
+    internal ChartFile ResolveChartByMd5(string md5, string sha256)
     {
-        return ResolveIndex.ResolveChartForPlaylistHash(md5, sha256);
+        return ResolveIndex.ResolveChartSnapshot(ResolveIndex.ResolveChartForPlaylistHash(md5, sha256));
     }
 
     internal string ResolveSha256(string md5, string currentSha256)
@@ -584,7 +584,7 @@ internal sealed class PlayHistoryProjectionIndex
         return playlistReferenceResolver?.Invoke(md5, sha256) ?? PlaylistReferenceDisplay.Empty;
     }
 
-    internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return chartInfoResolver?.Invoke(sha256, md5);
     }

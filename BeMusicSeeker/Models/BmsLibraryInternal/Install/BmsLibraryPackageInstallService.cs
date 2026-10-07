@@ -461,14 +461,6 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    private static bool IsBmsFormatChartFile(BMSFile file)
-    {
-        string extension = Path.GetExtension(file?.path);
-        return file != null
-            && !string.IsNullOrWhiteSpace(extension)
-            && ChartFileKindResolver.BmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
-    }
-
     private static bool IsBmsFormatChartEntry(PackageChartEntry entry)
     {
         ChartFile chart = entry?.Chart;
@@ -488,7 +480,6 @@ internal sealed class BmsLibraryPackageInstallService
     {
         List<ChartFile> deduplicated = [];
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> references = [];
         foreach (ChartFile chart in charts ?? [])
         {
             if (!IsBmsFormatChartFile(chart))
@@ -502,20 +493,9 @@ internal sealed class BmsLibraryPackageInstallService
                     continue;
                 }
             }
-            else if (!references.Add(chart.GetBmsStorageOwner()))
-            {
-                continue;
-            }
             deduplicated.Add(chart);
         }
         return deduplicated;
-    }
-
-    private static List<BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
-    {
-        return [.. DeduplicateBmsFormatChartsByPathOrBmsReference(charts)
-            .Select(chart => chart.GetBmsStorageOwner())
-            .Where(IsBmsFormatChartFile)];
     }
 
     internal List<ChartFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<ChartPackage> pendingPackages)
@@ -608,30 +588,8 @@ internal sealed class BmsLibraryPackageInstallService
             : directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
-    private static BMSFile CreateBmsChartForDiscovery(string filePath)
-    {
-        try
-        {
-            var entry = BMSFile.CreateBMSFileFromFile(filePath);
-            return entry;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static PackageChartEntry CreatePackageChartEntryForDiscovery(string filePath)
-    {
-        if (ChartFileKindResolver.IsBmsonFilePath(filePath))
-        {
-            return PackageChartEntry.FromPath(filePath);
-        }
-        return PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(
-            CreateBmsChartForDiscovery(filePath),
-            includeWarningSnapshot: true,
-            includeResourceReferences: true));
-    }
+    /// <summary>形式によらず、一回の捕捉snapshotから共通譜面と保留項目を作ります。</summary>
+    private static PackageChartEntry CreatePackageChartEntryForDiscovery(string filePath) => PackageChartEntry.FromPath(filePath);
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)
     {
@@ -639,10 +597,10 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(entry.Chart);
-        return maintenanceInfo?.wav_files_existing > 0
-            || maintenanceInfo?.bga_files_existing > 0
-            || maintenanceInfo?.movie_files_existing > 0;
+        ResourceHealthMaintenanceSnapshot maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart);
+        return maintenanceInfo?.WavFilesExisting > 0
+            || maintenanceInfo?.BgaFilesExisting > 0
+            || maintenanceInfo?.MovieFilesExisting > 0;
     }
 
     private static IEnumerable<string> EnumeratePackageGroupingResourcePaths(PackageChartEntry entry)
@@ -657,20 +615,20 @@ internal sealed class BmsLibraryPackageInstallService
             .Concat(resources.MovieRelativePaths);
     }
 
-    private static BMSFileMaintenanceInfo BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry)
+    private static ResourceHealthMaintenanceSnapshot BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry)
     {
         if (entry?.Chart == null || entry.ResourceSnapshot.TotalReferenceCount <= 0)
         {
             return null;
         }
 
-        return BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(entry.Chart);
+        return BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart);
     }
 
     internal static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry)
     {
         entry?.AcquireResources();
-        BMSFileMaintenanceInfo maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
+        ResourceHealthMaintenanceSnapshot maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
         if (maintenanceInfo == null)
         {
             entry?.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
@@ -1652,13 +1610,8 @@ internal sealed class BmsLibraryPackageInstallService
                 targetOnlyFileMutationOptions,
                 recursiveDirectoryTreeFileMutationOptions);
 
-            // Build detached destination projections before entering the executor.
-            // A ChartFile projection still points at the live storage owner, so
-            // changing its path through PackageChartEntry.ApplyInstalledPath
-            // would mutate the source before the durable receipt.  Keep the
-            // entries source-oriented and carry destination projections
-            // separately; the catalog owner maps storage rows only while its
-            // durable callback is executing.
+            // 導入先の共通値はdetached項目で準備します。DB確定前はlive entryの
+            // 現在値と導入状態を変更せず、既存の変更sessionの確定後に反映します。
             List<PackageChartEntry> detachedInstallEntries = [.. installTargetEntries
                 .Select(entry => entry?.Chart)
                 .Where(chart => chart != null)
@@ -1703,10 +1656,11 @@ internal sealed class BmsLibraryPackageInstallService
                         detachedPackageResult,
                         new PackageInstallSessionPhysicalMutation(
                             preparedCommit,
-                            () => ApplyLivePackageInstallState(
+                            committedCharts => ApplyLivePackageInstallState(
                                 package,
                                 destinationMap,
-                                liveInstallEntrySnapshots),
+                                liveInstallEntrySnapshots,
+                                committedCharts),
                             destinationDirectory));
                     return null;
                 }
@@ -1733,7 +1687,8 @@ internal sealed class BmsLibraryPackageInstallService
                             ApplyLivePackageInstallState(
                                 package,
                                 destinationMap,
-                                liveInstallEntrySnapshots);
+                                liveInstallEntrySnapshots,
+                                detachedPackageResult.AddedCharts.ToDictionary(chart => (chart.Kind, chart.Path)));
                         }
                     },
                     databaseResult.Failure);
@@ -1783,7 +1738,8 @@ internal sealed class BmsLibraryPackageInstallService
     private static void ApplyLivePackageInstallState(
         ChartPackage package,
         PackageInstallDestinationMap destinationMap,
-        IEnumerable<(PackageChartEntry Entry, string SourcePath)> installTargetEntrySnapshots)
+        IEnumerable<(PackageChartEntry Entry, string SourcePath)> installTargetEntrySnapshots,
+        IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile> committedCharts)
     {
         if (package == null || destinationMap == null)
         {
@@ -1801,7 +1757,8 @@ internal sealed class BmsLibraryPackageInstallService
         }
         foreach ((PackageChartEntry Entry, string SourcePath) entry in entries)
         {
-            entry.Entry.ApplyInstalledPath(destinationMap.GetRequiredDestinationPath(entry.SourcePath));
+            string destinationPath = destinationMap.GetRequiredDestinationPath(entry.SourcePath);
+            entry.Entry.ApplyCurrentChart(committedCharts[(entry.Entry.Chart.Kind, destinationPath)]);
         }
         package.path = destinationMap.PackageDestinationPath;
         foreach ((PackageChartEntry Entry, string SourcePath) entry in entries)
@@ -1846,44 +1803,7 @@ internal sealed class BmsLibraryPackageInstallService
             return source;
         }
 
-        return new ChartFile(
-            source.Kind,
-            installedPath,
-            source.Md5,
-            source.Sha256,
-            source.Title,
-            source.RawTitle,
-            source.Artist,
-            source.Genre,
-            source.Folder,
-            source.Tag,
-            source.LevelText,
-            source.Level,
-            source.Mode,
-            source.ChartInfo,
-            source.GetBmsStorageOwner(),
-            source.GetBmsonStorageOwner(),
-            source.Subtitle,
-            source.Resources,
-            source.Stagefile,
-            source.Backbmp,
-            source.Banner,
-            source.InstallDestination,
-            source.InstallDestinationTitle,
-            source.InstallDestinationArtist,
-            source.InstallDestinationSuggestions,
-            source.Warnings,
-            source.WAVHealth,
-            source.BGAHealth,
-            source.MovieHealth,
-            source.StagefileHealth,
-            source.BannerHealth,
-            source.BackbmpHealth,
-            source.EncodingName,
-            source.Score,
-            source.Status,
-            source.ResourceHealthWarningsIgnored,
-            source.ResourceHealthMaintenanceSnapshot);
+        return ChartFileProjection.WithPath(source, installedPath);
     }
 
     private static bool TryBuildVerifiedResidualCleanupFiles(
@@ -2198,10 +2118,7 @@ internal sealed class BmsLibraryPackageInstallService
         try
         {
             lookupKey = ChartFileKindResolver.IsBmsonFilePath(remainingFilePath)
-                ? ChartLookupKey.GetPrimaryHash(ChartFileProjection.FromBmsonSong(
-                    BmsonSongParser.Parse(remainingFilePath),
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false))
+                ? ChartLookupKey.GetPrimaryHash(BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(remainingFilePath)))
                 : ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5;
         }
         catch (Exception ex)
@@ -3435,22 +3352,22 @@ internal sealed class BmsLibraryPackageInstallService
 
     internal PendingZeroNoteRenameResult RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
         IEnumerable<ChartFile> targetCharts,
-        Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename,
+        Func<ChartFile, string, RenameInvalidExtensionOutcome> processRename,
         CancellationToken token = default,
         Action onEachProcessed = null,
         Action<string> logInfo = null)
     {
         var result = new PendingZeroNoteRenameResult();
-        List<BMSFile> files = GetBmsFormatChartFiles(targetCharts);
+        List<ChartFile> files = DeduplicateBmsFormatChartsByPathOrBmsReference(targetCharts);
         result.Total = files.Count;
-        foreach (BMSFile file in files)
+        foreach (ChartFile file in files)
         {
             if (token.IsCancellationRequested)
             {
                 result.Canceled = true;
                 break;
             }
-            string extension = Path.GetExtension(file.path);
+            string extension = Path.GetExtension(file.Path);
             string targetExtension = null;
             if (!string.IsNullOrWhiteSpace(extension))
             {
@@ -3467,14 +3384,14 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 result.Skipped++;
                 result.Processed++;
-                logInfo?.Invoke("advanced_pending_zero_note_rename skip_unsupported_ext path=" + file.path + " ext=" + extension);
+                logInfo?.Invoke("advanced_pending_zero_note_rename skip_unsupported_ext path=" + file.Path + " ext=" + extension);
                 onEachProcessed?.Invoke();
                 continue;
             }
             bool isZeroNote;
             try
             {
-                isZeroNote = BMSFile.IsZeroNoteBMSFile(file.path);
+                isZeroNote = BmsChartFileParser.IsZeroNote(file.Path);
             }
             catch
             {
@@ -3487,21 +3404,21 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 result.Skipped++;
                 result.Processed++;
-                logInfo?.Invoke("advanced_pending_zero_note_rename skip_not_zero path=" + file.path);
+                logInfo?.Invoke("advanced_pending_zero_note_rename skip_not_zero path=" + file.Path);
                 onEachProcessed?.Invoke();
                 continue;
             }
             result.ZeroNote++;
-            string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + targetExtension);
+            string requestedPath = Path.Combine(Path.GetDirectoryName(file.Path), Path.GetFileNameWithoutExtension(file.Path) + targetExtension);
             RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
             switch (renameResult.Action)
             {
                 case RenameInvalidExtensionAction.Renamed:
-                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.Path);
                     result.Renamed++;
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
-                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.Path);
                     result.DuplicateDeleted++;
                     break;
                 default:
@@ -3522,25 +3439,25 @@ internal sealed class BmsLibraryPackageInstallService
     internal PendingExtensionRenameResult RenamePendingBmsFormatChartFileExtensions(
         IEnumerable<ChartFile> targetCharts,
         string newExt,
-        Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
+        Func<ChartFile, string, RenameInvalidExtensionOutcome> processRename)
     {
         var result = new PendingExtensionRenameResult();
         var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> files = [.. GetBmsFormatChartFiles(targetCharts).Where(file => LongPathFileSystem.FileExists(file.path))];
+        List<ChartFile> files = [.. DeduplicateBmsFormatChartsByPathOrBmsReference(targetCharts).Where(file => LongPathFileSystem.FileExists(file.Path))];
         result.Total = files.Count;
-        foreach (BMSFile file in files)
+        foreach (ChartFile file in files)
         {
-            string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
+            string requestedPath = Path.Combine(Path.GetDirectoryName(file.Path), Path.GetFileNameWithoutExtension(file.Path) + newExt);
             RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
             switch (renameResult.Action)
             {
                 case RenameInvalidExtensionAction.Renamed:
                     result.Renamed++;
-                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.Path);
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     result.DuplicateDeleted++;
-                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.Path);
                     break;
                 default:
                     result.Skipped++;

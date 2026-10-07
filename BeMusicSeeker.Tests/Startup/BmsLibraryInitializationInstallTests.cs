@@ -34,21 +34,25 @@ public sealed class BmsLibraryInitializationInstallTests
                 songDbConnection.CreateTable<LR2SongDB.song>();
             }
 
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                folder = null,
-                parent = null
+                Path = bmsPath,
+                Folder = null
             };
-            file.SetHash("cccccccccccccccccccccccccccccccc");
+            file = file with { Md5 = "cccccccccccccccccccccccccccccccc" };
 
             new BmsLibraryDbGateway(songDbPath).UpsertSongs([file]);
 
-            Assert.IsFalse(string.IsNullOrWhiteSpace(file.folder));
-            Assert.IsFalse(string.IsNullOrWhiteSpace(file.parent));
+            Assert.IsNull(file.Folder, "生成列の保存は捕捉済みの共通入力を書き換えません。");
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(file.folder, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
-            Assert.AreEqual(file.parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
+            LR2SongDB.song stored = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(bmsPath, stored.path);
+            Assert.AreEqual(file.Md5, stored.hash);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(chartDirectoryPath), stored.folder);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath), stored.parent);
+            ChartFile projected = ChartSongStorageMapping.FromBmsRow(stored);
+            Assert.AreEqual("Installed", projected.Folder, "表示用FolderはLR2の保存hashから逆算しません。");
+            Assert.IsNull(file.Folder);
         });
     }
 
@@ -67,21 +71,29 @@ public sealed class BmsLibraryInitializationInstallTests
                 songDbConnection.CreateTable<LR2SongDB.song>();
             }
 
-            var file = new TestableBmsFile
+            ChartFile file = ChartTestValues.Empty() with
             {
-                path = bmsPath,
-                folder = null,
-                parent = null
+                Path = bmsPath,
+                Folder = null
             };
-            file.SetHash("dddddddddddddddddddddddddddddddd");
+            file = file with { Md5 = "dddddddddddddddddddddddddddddddd" };
 
             new BmsLibraryDbGateway(songDbPath).UpsertSongs([file]);
 
-            Assert.IsTrue(string.IsNullOrWhiteSpace(file.parent));
-            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+            Assert.IsNull(file.Folder);
+            Assert.AreEqual(0, file.Warnings.Count, "保存による旧入力への警告書戻しを行いません。");
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
-            Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath)));
+            LR2SongDB.song stored = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(bmsPath, stored.path);
+            Assert.AreEqual(file.Md5, stored.hash);
+            Assert.IsNull(stored.parent);
+            var currentOwner = new CatalogOwnedCollectionOwner();
+            currentOwner.ReplaceCharts([ChartSongStorageMapping.FromBmsRow(stored)], []);
+            ChartFile current = currentOwner.BmsRows.Single();
+            Assert.IsTrue(current.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+            Assert.AreEqual(bmsPath, current.Path);
+            Assert.AreEqual(file.Md5, current.Md5);
+            Assert.AreEqual(0, file.Warnings.Count);
         });
     }
 
@@ -97,21 +109,21 @@ public sealed class BmsLibraryInitializationInstallTests
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
                 songDbConnection.CreateTable<LR2SongDB.song>();
-                var existing = new TestableBmsFile
+                ChartFile existing = ChartTestValues.Empty() with
                 {
-                    path = bmsPath,
-                    date = 100,
-                    adddate = 12345,
-                    tag = "user-tag"
+                    Path = bmsPath,
+                    Date = 100,
+                    AddDate = 12345,
+                    Tag = "user-tag"
                 };
-                existing.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                existing.SetFavorite(7);
-                existing.SetTextGroupFlagForTest(1);
-                songDbConnection.InsertOrReplace(existing, typeof(LR2SongDB.song));
+                existing = existing with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                existing = existing with { Favorite = 7 };
+                existing = existing with { Txt = 1 };
+                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song));
             }
 
-            var updated = BMSFile.CreateBMSFileFromFile(bmsPath);
-            updated.date = 200;
+            ChartFile updated = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+            updated = updated with { Date = 200 };
 
             new BmsLibraryDbGateway(songDbPath).UpsertSongs([updated]);
 
@@ -119,7 +131,7 @@ public sealed class BmsLibraryInitializationInstallTests
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(bmsPath, row.path);
             Assert.AreEqual("Updated Title", row.title);
-            Assert.AreEqual(updated.hash, row.hash);
+            Assert.AreEqual(updated.Md5, row.hash);
             Assert.AreEqual(200, row.date);
             Assert.AreEqual(7, row.favorite);
             Assert.AreEqual(1, row.txt);
@@ -211,7 +223,7 @@ public sealed class BmsLibraryInitializationInstallTests
                 }, typeof(LR2SongDBExtended.install));
             }
 
-            string installedHash = BMSFile.CreateBMSFileFromFile(directoryChartPath).hash;
+            string installedHash = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(directoryChartPath)).Md5;
             var service = new BmsLibraryInitializationService();
 
             InstallTableLoadResult result = service.LoadInstallTable(
@@ -540,9 +552,9 @@ public sealed class BmsLibraryInitializationInstallTests
             PackageChartEntry installedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
             PackageChartEntry unmatchedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(1, result.InstalledWarningCount);
-            Assert.IsNull(installedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(installedEntry.GetBmsChartForTest());
             Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsNull(unmatchedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(unmatchedEntry.GetBmsChartForTest());
         });
     }
 
@@ -577,7 +589,7 @@ public sealed class BmsLibraryInitializationInstallTests
             ChartPackage pendingPackage = result.PendingPackages.Single();
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(1, result.StrictWarningCount);
-            Assert.IsNull(entry.GetBmsOwnerForTest());
+            Assert.IsNull(entry.GetBmsChartForTest());
             Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         });
@@ -653,7 +665,7 @@ public sealed class BmsLibraryInitializationInstallTests
                 file => false);
 
             Assert.AreEqual(1, result.PendingPackages.Count);
-            Assert.AreEqual(2, result.PendingPackages[0].GetBmsOwnersForTest().Count);
+            Assert.AreEqual(2, result.PendingPackages[0].GetBmsChartsForTest().Count);
             PackageChartEntry nestedEntry = result.PendingPackages[0].ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));

@@ -11,7 +11,7 @@ internal readonly struct ResourceMaintenanceTargetSet
     private ResourceMaintenanceTargetSet(
         IEnumerable<ChartFile> charts,
         bool isFullOwned,
-        StorageRowsVersionSnapshot? storageRowsVersion,
+        OwnedChartCollectionVersionSnapshot? storageRowsVersion,
         int? ownedCollectionVersion,
         int? resourceHealthInputVersion)
     {
@@ -29,7 +29,7 @@ internal readonly struct ResourceMaintenanceTargetSet
 
     internal bool IsFullOwned { get; }
 
-    internal StorageRowsVersionSnapshot? StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot? StorageRowsVersion { get; }
 
     internal int? OwnedCollectionVersion { get; }
 
@@ -49,7 +49,7 @@ internal readonly struct ResourceMaintenanceTargetSet
 
     internal static ResourceMaintenanceTargetSet ForFullOwned(
         IEnumerable<ChartFile> charts,
-        StorageRowsVersionSnapshot storageRowsVersion,
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
         int ownedCollectionVersion,
         int resourceHealthInputVersion)
     {

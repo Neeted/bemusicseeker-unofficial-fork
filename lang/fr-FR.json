@@ -1116,5 +1116,6 @@
   "Statusbar_progress_operation_failed_format": "Échec de {0}",
   "Statusbar_progress_task_playlist_property_update": "Mise à jour des propriétés des listes de lecture",
   "Statusbar_progress_task_folder_rename": "Renommage automatique des dossiers",
-  "Statusbar_progress_task_playlist_external_property_initialization": "Initialisation des propriétés des playlists depuis les sources externes"
+  "Statusbar_progress_task_playlist_external_property_initialization": "Initialisation des propriétés des playlists depuis les sources externes",
+  "Error_PreparedChartTargetMismatch": "La cible de partition préparée ne correspond pas à l’élément actuellement présent dans la bibliothèque, à son format ou à son emplacement. Aucune modification n’a été effectuée."
 }

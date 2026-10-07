@@ -31,14 +31,13 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(
-                    CreateChartInfoRow(chartInfoSha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
-                    typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                    CreateChartInfoRow(chartInfoSha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
 
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService())
             {
-                BMSFiles = []
+                BmsCharts = []
             };
             InvokeDeferredChartInfoHydration(library, "playlist_lamp_data_source_test", queueFullBackfillAfterHydration: false);
             await AwaitChartInfoHydrationAsync(library);
@@ -85,7 +84,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 new TestFileMutationService(),
                 new ChartInfoMetadataTestSupport.RecordingDialogService())
             {
-                BMSFiles = []
+                BmsCharts = []
             };
             BMSTableEntry entry = CreateEntry(new string('e', 32), null);
             entry.folder = "folder";
@@ -138,14 +137,13 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(
-                    CreateChartInfoRow(chartInfoSha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
-                    typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                    CreateChartInfoRow(chartInfoSha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
 
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService())
             {
-                BMSFiles = []
+                BmsCharts = []
             };
             BMSTableEntry entry = CreateEntry(md5, null);
             entry.folder = "folder";

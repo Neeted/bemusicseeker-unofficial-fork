@@ -983,10 +983,10 @@ public sealed class SettingDialogEditCompletionTests
                     await playingPanel.ReplacePlayerAsync(currentPlayer);
                     string chartPath = Path.Combine(root, "current.bms");
                     File.WriteAllText(chartPath, "#PLAYER 1\n#BPM 120\n#00111:00\n");
-                    var currentChart = new BeMusicSeeker.Models.BMSFile { path = chartPath };
+                    ChartFile currentChart = (ChartTestValues.Empty() with { Path = chartPath });
                     viewModel.MainChartList.Rows = new List<object> { currentChart };
                     await playingPanel.StartAtIndex(0);
-                    Assert.AreSame(currentChart, playingPanel.NowPlayingBmsFile);
+                    Assert.AreSame(currentChart, playingPanel.NowPlayingChart);
                     Assert.IsTrue(playingPanel.IsPlaying);
                     SettingsDialogViewModel dialog = viewModel.SettingDialog;
                     dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
@@ -1005,7 +1005,7 @@ public sealed class SettingDialogEditCompletionTests
                     Assert.AreEqual(0, runtime.NotifyCount);
                     Assert.AreEqual(1, settingsSession.SaveCount);
                     Assert.IsNull(runtime.LastReplacementPlayer);
-                    Assert.AreSame(currentChart, playingPanel.NowPlayingBmsFile);
+                    Assert.AreSame(currentChart, playingPanel.NowPlayingChart);
                     Assert.IsTrue(playingPanel.IsPlaying);
                     Assert.IsFalse(completion.Task.IsCompleted);
                     CollectionAssert.AreEqual(new[] { chartPath }, currentPlayer.Starts.ToArray());

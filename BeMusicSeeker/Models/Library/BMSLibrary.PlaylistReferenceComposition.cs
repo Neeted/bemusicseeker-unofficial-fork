@@ -62,7 +62,7 @@ public partial class BMSLibrary
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
+
             lock (lockOwnedChartCollection)
             {
                 return [.. catalogOwnedCollectionOwner.Collection

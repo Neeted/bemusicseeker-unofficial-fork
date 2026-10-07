@@ -19,7 +19,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         Sha256Only
     }
 
-    protected BMSFile _bmsfile;
 
     private static readonly object bulkLoadParseSuppressionLock = new();
 
@@ -89,23 +88,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     public BMSTable parent { get; set; }
 
-    public BMSFile bmsfile
-    {
-        get
-        {
-            return _bmsfile;
-        }
-        set
-        {
-            if (value == null || md5 == value.hash)
-            {
-                _bmsfile = value;
-                return;
-            }
-            throw new ArgumentException();
-        }
-    }
-
     public override int? playlist_id
     {
         get
@@ -126,18 +108,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     {
         get
         {
-            if (bmsfile == null)
-            {
-                return _md5;
-            }
-            return bmsfile.hash;
+            return _md5;
         }
         set
         {
-            if (bmsfile != null)
-            {
-                throw new InvalidOperationException("bmsfile が null ではないため md5 を変更することが出来ません。");
-            }
             if (string.IsNullOrWhiteSpace(value))
             {
                 _md5 = null;
@@ -185,11 +159,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     {
         get
         {
-            if (bmsfile == null)
-            {
-                return _title;
-            }
-            return bmsfile.Title;
+            return _title;
         }
         set
         {
@@ -201,11 +171,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     {
         get
         {
-            if (bmsfile == null)
-            {
-                return _artist;
-            }
-            return bmsfile.Artist;
+            return _artist;
         }
         set
         {
@@ -386,44 +352,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
-    public BMSTableEntry(BMSFile bmsFile)
-        : this()
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        md5 = bmsFile.hash;
-        sha256 = bmsFile.sha256;
-        bmsfile = bmsFile;
-        base.level = bmsFile.level;
-    }
-
     internal BMSTableEntry(ChartFile chart)
         : this()
     {
         if (chart == null)
         {
             throw new ArgumentNullException(nameof(chart));
-        }
-        if (chart.Kind == ChartFileKind.Bmson)
-        {
-            md5 = chart.Md5;
-            sha256 = chart.Sha256;
-            title = chart.Title;
-            artist = chart.Artist;
-            base.level = chart.Level;
-            base.folder = chart.Folder ?? string.Empty;
-            return;
-        }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            md5 = bmsFile.hash;
-            sha256 = bmsFile.sha256;
-            bmsfile = bmsFile;
-            base.level = bmsFile.level;
-            return;
         }
         md5 = chart.Md5;
         sha256 = chart.Sha256;
@@ -652,7 +586,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             // database write fails.  Detail-cell fields (for example comment,
             // memo, or adddate) are intentionally left untouched because this
             // operation does not own those edits.
-            target._bmsfile = snapshot._bmsfile;
+
             target._md5 = snapshot._md5;
             target.level = snapshot.level;
             target._title = snapshot._title;
@@ -754,9 +688,8 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     internal void MarkAsBmsonPlaylistIdentity(string preferredSha256 = null)
     {
-        materializeCurrentDisplayValues();
         playlistHashIdentityKind = PlaylistHashIdentityKind.Sha256Only;
-        _bmsfile = null;
+
         md5 = null;
         if (!string.IsNullOrWhiteSpace(preferredSha256))
         {
@@ -770,10 +703,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             return;
         }
-        if (_bmsfile == null)
-        {
-            md5 = chart.Md5;
-        }
+        md5 = chart.Md5;
         if (!string.IsNullOrWhiteSpace(chart.Sha256))
         {
             sha256 = chart.Sha256;
@@ -788,8 +718,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         switch (playlistHashIdentityKind)
         {
             case PlaylistHashIdentityKind.Sha256Only:
-                materializeCurrentDisplayValues();
-                _bmsfile = null;
+
                 md5 = null;
                 break;
         }
@@ -889,24 +818,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return [.. (values ?? [])
             .Where(value => !string.IsNullOrWhiteSpace(value) && !string.Equals(value.Trim(), "null", StringComparison.OrdinalIgnoreCase))
             .Select(value => value.Trim())];
-    }
-
-    private void materializeCurrentDisplayValues()
-    {
-        if (_bmsfile == null)
-        {
-            return;
-        }
-        title = title;
-        artist = artist;
-        if (!base.level.HasValue)
-        {
-            base.level = _bmsfile.level;
-        }
-        if (string.IsNullOrWhiteSpace(base.folder))
-        {
-            base.folder = _bmsfile.folder ?? string.Empty;
-        }
     }
 
     public string ToJson()

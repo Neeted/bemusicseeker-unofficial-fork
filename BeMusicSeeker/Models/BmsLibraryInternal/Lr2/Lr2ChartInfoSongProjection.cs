@@ -80,7 +80,7 @@ internal sealed class Lr2ChartInfoSongProjection
     internal static Lr2ChartInfoSongProjection Create(
         string path,
         string md5,
-        LR2SongDBExtended.chart_info chartInfo)
+        BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         if (chartInfo == null || string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(md5))
         {
@@ -111,7 +111,7 @@ internal sealed class Lr2ChartInfoSongProjection
     /// <summary>
     /// Applies only chart-info-derived columns when the target identity still matches.
     /// </summary>
-    internal bool ApplyTo(BMSFile song)
+    internal bool ApplyTo(LR2SongDB.song song)
     {
         if (song == null
             || !string.Equals(song.path, Path, StringComparison.Ordinal)

@@ -14,13 +14,13 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
     public void CreateForCatalogMutation_AddOnly_UsesReceiptFacts()
     {
         string root = Path.Combine("C:\\BMS");
-        var added = new TestableBmsFile
+        ChartFile added = ChartTestValues.Empty() with
         {
-            path = Path.Combine(root, "Package", "chart.bms")
+            Path = Path.Combine(root, "Package", "chart.bms")
         };
         var receipt = new Lr2NormalFolderCatalogMutationReceipt(
             ownedCollectionVersion: 3,
-            addedBmsChartPaths: [added.path],
+            addedBmsChartPaths: [added.Path],
             removedBmsChartPaths: [],
             pathChanges: [],
             currentBmsFacts: null);
@@ -28,7 +28,7 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
             [root],
             receipt);
 
-        CollectionAssert.AreEqual(new[] { added.path }, scope.ChartPaths.ToList());
+        CollectionAssert.AreEqual(new[] { added.Path }, scope.ChartPaths.ToList());
         Assert.AreEqual(0, scope.PruneScopeDirectories.Count);
         Assert.AreEqual(0, scope.PruneExactDirectories.Count);
     }
@@ -140,7 +140,4 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         CollectionAssert.AreEquivalent(new[] { oldDirectory }, scope.PruneExactDirectories.ToList());
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-    }
 }

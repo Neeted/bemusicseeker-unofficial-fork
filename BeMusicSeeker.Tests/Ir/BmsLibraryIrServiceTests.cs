@@ -8,7 +8,6 @@ using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -19,123 +18,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrServiceTests
 {
-    [TestMethod]
-    public void ApplyKnownScoresToFiles_AssignsMatchingScoreOnly()
-    {
-        var service = new BmsLibraryIrService();
-        TestableBmsFile matched = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        TestableBmsFile unmatched = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var score = new BMSScore
-        {
-            hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            perfect = 500,
-            great = 234
-        };
-
-        service.ApplyKnownScoresToFiles([matched, unmatched], [score]);
-
-        Assert.AreSame(score, matched.bmsScore);
-        Assert.IsNull(unmatched.bmsScore);
-    }
-
-    [TestMethod]
-    public void ApplyKnownScoresToFilesAndCount_ReturnsMatchedScoreCount()
-    {
-        var service = new BmsLibraryIrService();
-        TestableBmsFile matched = CreateFile("cccccccccccccccccccccccccccccccc");
-        TestableBmsFile unmatched = CreateFile("dddddddddddddddddddddddddddddddd");
-        var score = new BMSScore
-        {
-            hash = "cccccccccccccccccccccccccccccccc"
-        };
-
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([matched, unmatched], [score]);
-
-        Assert.AreEqual(1, matchedScoreCount);
-        Assert.AreSame(score, matched.bmsScore);
-        Assert.IsNull(unmatched.bmsScore);
-    }
-
-    [TestMethod]
-    public void ApplyKnownScoresToFilesAndCount_ReturnsZeroWhenTargetsAreEmpty()
-    {
-        var service = new BmsLibraryIrService();
-
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([], []);
-
-        Assert.AreEqual(0, matchedScoreCount);
-    }
-
-    [TestMethod]
-    public void ApplyKnownScoresToFilesAndCount_UsesHashIndexSnapshot()
-    {
-        var service = new BmsLibraryIrService();
-        TestableBmsFile matched = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        TestableBmsFile unmatched = CreateFile("ffffffffffffffffffffffffffffffff");
-        var score = new BMSScore
-        {
-            hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            perfect = 321,
-            great = 123
-        };
-        var scoresByHash = new Dictionary<string, BMSScore>(System.StringComparer.OrdinalIgnoreCase)
-        {
-            [score.hash] = score
-        };
-
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([matched, unmatched], scoresByHash);
-
-        Assert.AreEqual(1, matchedScoreCount);
-        Assert.AreSame(score, matched.bmsScore);
-        Assert.IsNull(unmatched.bmsScore);
-    }
-
-    [TestMethod]
-    public void ApplyKnownScoresToFilesAndCount_PrefersSha256ScoreWhenBothIndexesAreProvided()
-    {
-        var service = new BmsLibraryIrService();
-        TestableBmsFile file = CreateFile("12121212121212121212121212121212");
-        file.SetSha256("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var lr2Score = new BMSScore
-        {
-            hash = file.hash,
-            clear = ClearType.FAILED,
-            perfect = 10,
-            great = 20
-        };
-        var beatorajaScore = new BMSScore
-        {
-            hash = file.sha256,
-            clear = ClearType.INVALID,
-            perfect = 400,
-            great = 100,
-            totalnotes = 500,
-            maxcombo = 450,
-            minbp = 12,
-            rank = RankType.AAA
-        };
-        var scoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
-        {
-            [lr2Score.hash] = lr2Score
-        };
-        var scoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
-        {
-            [beatorajaScore.hash] = beatorajaScore
-        };
-
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([file], scoresByHash, scoresBySha256);
-
-        Assert.AreEqual(1, matchedScoreCount);
-        Assert.AreNotSame(beatorajaScore, file.bmsScore);
-        Assert.AreEqual(file.hash, file.bmsScore.hash);
-        Assert.AreEqual(ClearType.INVALID, file.bmsScore.clear);
-        Assert.AreEqual(900, file.bmsScore.score);
-        var row = LibraryChartRow.FromBmsFile(file);
-        Assert.AreEqual("ASSIST", row.ClearDisplayText);
-        Assert.AreEqual(450, row.maxcombo);
-        Assert.AreEqual(12, row.minbp);
-    }
-
     [TestMethod]
     public void BmsScoreOverwriteLr2IrDataAppliesEasyOptionHistoryForIrEasyClear()
     {
@@ -191,7 +73,7 @@ public sealed class BmsLibraryIrServiceTests
         score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
         Assert.AreEqual(ClearType.INVALID, score.clear);
 
-        service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: false);
+        service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(ClearTypeStorageConverter.OptionHistoryEasy, score.op_history);
         Assert.AreEqual(ClearType.EASY, score.clear);
@@ -209,7 +91,7 @@ public sealed class BmsLibraryIrServiceTests
         irScore.option = ClearTypeStorageConverter.OptionHistoryEasy;
         Assert.AreEqual(ClearType.INVALID, score.clear);
 
-        service.UpdateBmsScores([irScore], [score], []);
+        service.UpdateBmsScores([irScore], [score], _ => false);
 
         Assert.AreEqual(ClearTypeStorageConverter.OptionHistoryEasy, score.op_history);
         Assert.AreEqual(ClearType.EASY, score.clear);
@@ -254,16 +136,16 @@ public sealed class BmsLibraryIrServiceTests
     {
         var service = new BmsLibraryIrService();
         string hash = "13131313131313131313131313131313";
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
-        file.bmsScore = score;
+        file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
-        service.UpdateBmsScores([], [score], [file]);
+        service.UpdateBmsScores([], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
 
         Assert.IsTrue(score.IsLr2IrScoreUnsent);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true);
+        ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsTrue(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
-        Assert.AreEqual(BMSFile.BMSFileStatus.NONE, file.status);
+        Assert.AreEqual(ChartFileStatus.NONE, file.Status);
     }
 
     [TestMethod]
@@ -271,15 +153,15 @@ public sealed class BmsLibraryIrServiceTests
     {
         var service = new BmsLibraryIrService();
         string hash = "14141414141414141414141414141414";
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
         score.IsLr2IrScoreUnsent = true;
-        file.bmsScore = score;
+        file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
-        service.UpdateBmsScores([CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12)], [score], [file]);
+        service.UpdateBmsScores([CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12)], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
 
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true);
+        ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 
@@ -288,14 +170,14 @@ public sealed class BmsLibraryIrServiceTests
     {
         var service = new BmsLibraryIrService();
         string hash = "15151515151515151515151515151515";
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
-        file.bmsScore = score;
+        file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
-        service.UpdateBmsScores([], [score], [file], detectUnsentScores: false);
+        service.UpdateBmsScores([], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase), detectUnsentScores: false);
 
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 
@@ -304,17 +186,17 @@ public sealed class BmsLibraryIrServiceTests
     {
         var service = new BmsLibraryIrService();
         string hash = "16161616161616161616161616161616";
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 10, minbp: 50);
         LR2IRScore irScore = CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
-        file.bmsScore = score;
+        file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
-        service.UpdateBmsScores([irScore], [score], [file]);
+        service.UpdateBmsScores([irScore], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
 
         Assert.AreEqual(irScore.score, score.score);
         Assert.AreEqual(12, score.minbp);
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 
@@ -323,11 +205,11 @@ public sealed class BmsLibraryIrServiceTests
     {
         var service = new BmsLibraryIrService();
         string hash = "17171717171717171717171717171717";
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
         BMSScore score = CreateScore(hash, ClearType.PA, pg: 300, gr: 50, minbp: 12);
-        file.bmsScore = score;
+        file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
-        service.UpdateBmsScores([CreateIrScore(hash, ClearType.FC, pg: 300, gr: 50, minbp: 12)], [score], [file]);
+        service.UpdateBmsScores([CreateIrScore(hash, ClearType.FC, pg: 300, gr: 50, minbp: 12)], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
 
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
     }
@@ -534,16 +416,16 @@ public sealed class BmsLibraryIrServiceTests
             }
         ]);
         List<BMSScore> scores = [];
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesScanned);
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.IrDataUpsertCount);
         Assert.AreEqual(1, result.DbFallbackAppliedCount);
         Assert.AreEqual(1, scores.Count);
-        Assert.AreSame(scores[0], file.bmsScore);
+        Assert.AreEqual(hash, scores[0].hash);
         Assert.AreEqual(10, scores[0].ranking);
     }
 
@@ -586,9 +468,9 @@ public sealed class BmsLibraryIrServiceTests
         env.WriteCacheXml(hash, cacheUpdate, cacheUpdate, lr2Id: 123, pg: 700, gr: 100);
         BmsLibraryDbGateway gateway = env.CreateGateway();
         List<BMSScore> scores = [];
-        TestableBmsFile file = CreateFile(hash);
+        ChartFile file = CreateFile(hash);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesScanned);
         Assert.AreEqual(1, result.CacheFilesReloaded);
@@ -601,7 +483,7 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, result.DbFallbackAppliedCount);
         Assert.AreEqual(1, result.XmlAppliedCount);
         Assert.AreEqual(1, scores.Count);
-        Assert.AreSame(scores[0], file.bmsScore);
+        Assert.AreEqual(hash, scores[0].hash);
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
     }
 
@@ -776,7 +658,7 @@ public sealed class BmsLibraryIrServiceTests
         env.WriteCacheXml("27272727272727272727272727272727", cacheUpdate, cacheUpdate, lr2Id: 123, pg: 600, gr: 100);
         BmsLibraryDbGateway gateway = env.CreateGateway();
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(2, result.CacheFilesReloaded);
         Assert.AreEqual(2, result.IrDataUpsertCount);
@@ -802,8 +684,8 @@ public sealed class BmsLibraryIrServiceTests
         envDegree2.WriteCacheXml(hashes[0], cacheUpdate, cacheUpdate, lr2Id: 123, pg: 700, gr: 100);
         envDegree2.WriteCacheXml(hashes[1], cacheUpdate, cacheUpdate, lr2Id: 123, pg: 600, gr: 100);
 
-        IrCacheRefreshResult resultDegree1 = new BmsLibraryIrService(1).RefreshRankingScoresFromCache(123, envDegree1.ScoreDbPath, envDegree1.CreateGateway(), [], [], estimateOfflineScoreRanking: false);
-        IrCacheRefreshResult resultDegree2 = new BmsLibraryIrService(2).RefreshRankingScoresFromCache(123, envDegree2.ScoreDbPath, envDegree2.CreateGateway(), [], [], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult resultDegree1 = new BmsLibraryIrService(1).RefreshRankingScoresFromCache(123, envDegree1.ScoreDbPath, envDegree1.CreateGateway(), [], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult resultDegree2 = new BmsLibraryIrService(2).RefreshRankingScoresFromCache(123, envDegree2.ScoreDbPath, envDegree2.CreateGateway(), [], estimateOfflineScoreRanking: false);
 
         List<LR2IRData> rowsDegree1 = [.. envDegree1.CreateGateway().LoadIrData(123).OrderBy(row => row.hash)];
         List<LR2IRData> rowsDegree2 = [.. envDegree2.CreateGateway().LoadIrData(123).OrderBy(row => row.hash)];
@@ -841,7 +723,7 @@ public sealed class BmsLibraryIrServiceTests
             }
         ]);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesReloaded);
         Assert.AreEqual(1, result.IrDataUpsertCount);
@@ -913,7 +795,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], estimateOfflineScoreRanking: true);
 
         Assert.AreEqual(1, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.OfflineEstimateXmlLoadCount);
@@ -950,7 +832,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], estimateOfflineScoreRanking: true);
 
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(1, result.OfflineEstimateXmlLoadCount);
@@ -1001,13 +883,11 @@ public sealed class BmsLibraryIrServiceTests
                 estimateOfflineScoreRanking: true);
         File.Delete(Path.Combine(env.IrDirectoryPath, hash + ".xml"));
         using (BMSScore.SuppressPropertyChangedScope())
-        using (BMSFile.SuppressPropertyChangedScope())
         {
             service.ApplyPreparedRankingScoresRefreshPlanForLibrary(
                 plan,
                 env.ScoreDbPath,
                 [score],
-                [],
                 estimateOfflineScoreRanking: true);
         }
 
@@ -1051,7 +931,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.OfflineEstimateXmlLoadCount);
@@ -1075,15 +955,8 @@ public sealed class BmsLibraryIrServiceTests
         irClient.SetRankingXml(hash, xml);
         BmsLibraryDbGateway gateway = env.CreateGateway();
         List<BMSScore> scores = [];
-        TestableBmsFile file = CreateFile(hash);
-        int fileScoreNotifications = 0;
-        file.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName == nameof(BMSFile.bmsScore))
-            {
-                fileScoreNotifications++;
-            }
-        };
+        ChartFile file = CreateFile(hash);
+        ChartFile capturedChart = file;
         List<BMSLibrary.IRDataCacheInfo> cacheInfo =
         [
             CreateCacheInfo(hash, lastUpdate)
@@ -1105,28 +978,28 @@ public sealed class BmsLibraryIrServiceTests
         service.PromoteDownloadedRankingCache(applyPlan, env.IrDirectoryPath);
         BmsLibraryIrService.RankingCacheApplyResult applyResult;
         using (BMSScore.SuppressPropertyChangedScope())
-        using (BMSFile.SuppressPropertyChangedScope())
         {
             applyResult = service.ApplyPreparedDownloadedRankingCache(
                 applyPlan,
                 gateway,
                 scores,
-                [file],
                 estimateOfflineScoreRanking: true);
         }
         List<BMSLibrary.IRDataCacheInfo> failed = applyResult.Failed;
 
         Assert.AreEqual(0, failed.Count);
         Assert.AreEqual(1, scores.Count);
-        Assert.AreSame(scores[0], file.bmsScore);
-        Assert.AreEqual(0, fileScoreNotifications);
+        Assert.AreEqual(hash, scores[0].hash);
+        Assert.AreSame(capturedChart, file);
+        Assert.IsFalse(file.Score.IsLr2IrScoreUnsent);
         int scoreNotifications = 0;
         scores[0].PropertyChanged += (_, _) => scoreNotifications++;
 
         scores[0].PublishRankingDataChanged();
 
         Assert.AreEqual(5, scoreNotifications);
-        Assert.IsTrue(fileScoreNotifications > 0);
+        Assert.AreSame(capturedChart, file);
+        Assert.IsFalse(file.Score.IsLr2IrScoreUnsent);
         Assert.AreEqual(1, scores[0].ranking);
         Assert.AreEqual(1, scores[0].rankingNum);
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
@@ -1337,11 +1210,11 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(shutdown ? IrScoreFailure.Cancelled : IrScoreFailure.TimedOut, result.Failure);
     }
 
-    private static TestableBmsFile CreateFile(string hash)
+    private static ChartFile CreateFile(string hash)
     {
-        var file = new TestableBmsFile();
-        file.SetHash(hash);
-        file.path = hash + ".bms";
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Md5 = hash };
+        file = file with { Path = hash + ".bms" };
         return file;
     }
 
@@ -1548,18 +1421,6 @@ public sealed class BmsLibraryIrServiceTests
 
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        public void SetHash(string value)
-        {
-            hash = value;
-        }
-
-        public void SetSha256(string value)
-        {
-            sha256 = value;
-        }
-    }
 
     private sealed class TempIrEnvironment : IDisposable
     {

@@ -764,15 +764,17 @@ public sealed class LibraryChartRowSortEngineTests
     public void RateDouble_ComputesFromScoreAndIgnoresStoredRate()
     {
         LibraryChartRow row = CreateLibraryChartRow("rate.bms", "Rate", level: 1, rateScorePerfect: 91);
-        row.GetBmsStorageOwner().bmsScore.rate = 12;
+        var score = new BMSScore { perfect = 91, totalnotes = 100, rate = 12 };
+        row.UpdateSourceProjection(ChartFileProjection.WithScore(row.Chart,
+            ChartScoreSnapshot.FromBmsScore(score, row.path)));
 
         Assert.AreEqual(0.91, row.rateDouble.GetValueOrDefault(), 0.000001);
 
-        var zeroNotes = new TestableBmsFile();
-        zeroNotes.ApplySnapshot(new SongSnapshotRow { path = "zero.bms", title = "Zero", level = 1, hash = "55555555555555555555555555555555" });
-        zeroNotes.bmsScore = new BMSScore { hash = zeroNotes.hash, perfect = 10, totalnotes = 0 };
+        ChartFile zeroNotes = ChartTestValues.Empty();
+        zeroNotes = zeroNotes with { Path = "zero.bms", Title = "Zero", Level = 1, Md5 = "55555555555555555555555555555555", RawTitle = "Zero", LevelText = (1).ToString() };
+        zeroNotes = zeroNotes with { Score = ChartScoreSnapshot.FromBmsScore(new BMSScore { hash = zeroNotes.Md5, perfect = 10, totalnotes = 0 }, zeroNotes.Path) };
 
-        Assert.IsFalse(LibraryChartRow.FromBmsFile(zeroNotes).rateDouble.HasValue);
+        Assert.IsFalse(LibraryChartRow.FromChartFile(zeroNotes).rateDouble.HasValue);
     }
 
     /// <summary>
@@ -976,13 +978,13 @@ public sealed class LibraryChartRowSortEngineTests
     private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null, ClearType? clear = null)
     {
         string hash = CreateMd5FromPath(path);
-        var file = new TestableBmsFile();
-        file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = level, hash = hash });
-        file.SetFolder(folder);
-        LR2SongDBExtended.chart_info chartInfo = null!;
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Path = path, Title = title, Level = level, Md5 = hash, RawTitle = title, LevelText = (level).ToString() };
+        file = file with { Folder = folder };
+        BeMusicSeeker.Models.ChartDetails chartInfo = null!;
         if (chartNotes.HasValue || chartTotal.HasValue || chartMainBpm.HasValue)
         {
-            chartInfo = new LR2SongDBExtended.chart_info
+            chartInfo = new BeMusicSeeker.Models.ChartDetails
             {
                 sha256 = CreateSha256FromPath(path),
                 md5 = hash,
@@ -995,25 +997,31 @@ public sealed class LibraryChartRowSortEngineTests
         }
         if (rateScorePerfect.HasValue)
         {
-            file.bmsScore = new BMSScore
+            file = file with
             {
-                hash = hash,
-                perfect = rateScorePerfect.Value,
-                totalnotes = 100
+                Score = ChartScoreSnapshot.FromBmsScore(new BMSScore
+                {
+                    hash = hash,
+                    perfect = rateScorePerfect.Value,
+                    totalnotes = 100
+                }, file.Path)
             };
         }
         if (clear.HasValue)
         {
-            file.bmsScore = new BMSScore
+            file = file with
             {
-                hash = hash,
-                clear = clear.Value,
-                rank = RankType.A,
-                perfect = 80,
-                totalnotes = 100
+                Score = ChartScoreSnapshot.FromBmsScore(new BMSScore
+                {
+                    hash = hash,
+                    clear = clear.Value,
+                    rank = RankType.A,
+                    perfect = 80,
+                    totalnotes = 100
+                }, file.Path)
             };
         }
-        var row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromChartFile(file);
         if (chartInfo != null)
         {
             row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
@@ -1021,7 +1029,7 @@ public sealed class LibraryChartRowSortEngineTests
         return row;
     }
 
-    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info[] rows)
+    private static Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateChartInfoProvider(params BeMusicSeeker.Models.ChartDetails[] rows)
     {
         return chart =>
         {
@@ -1042,17 +1050,20 @@ public sealed class LibraryChartRowSortEngineTests
     private static PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(string path, string title, ClearType clear, RankType rank)
     {
         string hash = CreateMd5FromPath(path);
-        var file = new TestableBmsFile();
-        file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = 1, hash = hash });
-        file.bmsScore = new BMSScore
+        ChartFile file = ChartTestValues.Empty();
+        file = file with { Path = path, Title = title, Level = 1, Md5 = hash, RawTitle = title, LevelText = (1).ToString() };
+        file = file with
         {
-            hash = hash,
-            clear = clear,
-            rank = rank,
-            perfect = rank == RankType.AAA ? 95 : 85,
-            totalnotes = 100
+            Score = ChartScoreSnapshot.FromBmsScore(new BMSScore
+            {
+                hash = hash,
+                clear = clear,
+                rank = rank,
+                perfect = rank == RankType.AAA ? 95 : 85,
+                totalnotes = 100
+            }, file.Path)
         };
-        return new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true));
+        return new PlaylistDetailSourceRow(new BMSTableEntry(file), (file));
     }
 
     private static string CreateMd5FromPath(string path)
@@ -1102,33 +1113,4 @@ public sealed class LibraryChartRowSortEngineTests
             sort != null);
     }
 
-    private sealed class TestableBmsFile : BMSFile
-    {
-        private string testFolder = string.Empty;
-
-        public override string Folder
-        {
-            get => string.IsNullOrEmpty(testFolder) ? base.Folder : testFolder;
-        }
-
-        public void SetFolder(string folderName)
-        {
-            testFolder = folderName ?? string.Empty;
-        }
-
-        public void ApplySnapshot(SongSnapshotRow row)
-        {
-            path = row.path ?? string.Empty;
-            hash = row.hash ?? string.Empty;
-            title = row.title ?? string.Empty;
-            subtitle = row.subtitle ?? string.Empty;
-            artist = row.artist ?? string.Empty;
-            subartist = row.subartist ?? string.Empty;
-            genre = row.genre ?? string.Empty;
-            tag = row.tag ?? string.Empty;
-            level = row.level;
-            mode = row.mode;
-            karinotes = row.karinotes;
-        }
-    }
 }
