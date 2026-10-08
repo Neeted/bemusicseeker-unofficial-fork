@@ -9,6 +9,7 @@
 | [LR2同期の確定パスを処理対象から除外する](lr2-song-db-receipt-target-filter-plan.md) | 証票対象の投入前除外、除外後の件数による進捗・状態の統一、不要なパイプライン内スキップの削除。 |
 | [起動・一覧の応答性](ui-responsiveness-plan.md) | 重い画面処理と書込み待機の測定・整理。 |
 | [検証基盤の改善](test-infrastructure-plan.md) | 共有資源・待機の整理、実行結果からの対象調査の改善。 |
+| [chart_infoのBMS解析時間短縮](chart_info_bms_performance_plan.md) | 現行結果と解析時間の基準固定、BMS解析経路の一括再構成、全件互換・性能比較。 |
 
 ## 運用
 
