@@ -163,7 +163,7 @@ public sealed class ChartInfoParserBehaviorTests
 
             StringAssert.Contains(result.Row.speedchange, "114.15384615384616");
             Assert.IsFalse(result.Row.speedchange.Contains("114.15384615384615,"));
-            StringAssert.Contains(result.ChartString, "B(114.15384615384616)");
+            StringAssert.Contains((result.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")), "B(114.15384615384616)");
         });
     }
 
@@ -187,7 +187,7 @@ public sealed class ChartInfoParserBehaviorTests
 
             StringAssert.Contains(result.Row.speedchange, "131.4889812233735");
             Assert.IsFalse(result.Row.speedchange.Contains("131.48898122337351"));
-            StringAssert.Contains(result.ChartString, "B(131.4889812233735)");
+            StringAssert.Contains((result.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")), "B(131.4889812233735)");
         });
     }
 
@@ -1140,7 +1140,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + " message=" + ex.Message);
                 throw;
             }
-            diffs.Add(expected, fromBytesResult.Row, fromBytesResult.ChartString);
+            diffs.Add(expected, fromBytesResult.Row, (fromBytesResult.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")));
         }
 
         Assert.AreEqual(0, diffs.CoreDiffs, diffs.ToString());
@@ -1230,7 +1230,7 @@ public sealed class ChartInfoParserBehaviorTests
             }
             BeMusicSeeker.Models.ChartDetails fromBytes = fromBytesResult.Row;
             AssertChartInfoEquivalent(actual, fromBytes);
-            diffs.Add(expected, actual, fromBytesResult.ChartString);
+            diffs.Add(expected, actual, (fromBytesResult.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")));
         }
 
         Assert.AreEqual(0, diffs.CoreDiffs, diffs.ToString());
@@ -1298,7 +1298,7 @@ public sealed class ChartInfoParserBehaviorTests
                     expected.sha256,
                     timeout: parserTimeout);
                 parseStopwatch.Stop();
-                diffs.AddParsed(expected, result.Row, result.ChartString, parseStopwatch.ElapsedMilliseconds);
+                diffs.AddParsed(expected, result.Row, (result.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")), parseStopwatch.ElapsedMilliseconds);
             }
             catch (ChartInfoParser.ChartInfoParseTimeoutException ex)
             {
@@ -1368,7 +1368,7 @@ public sealed class ChartInfoParserBehaviorTests
                 expected.sha256,
                 timeout: parserTimeout);
             parseStopwatch.Stop();
-            diffs.AddParsed(expected, result.Row, result.ChartString, parseStopwatch.ElapsedMilliseconds);
+            diffs.AddParsed(expected, result.Row, (result.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")), parseStopwatch.ElapsedMilliseconds);
         }
 
         string reportPath = diffs.WriteReport("production_diff_known_timeout");

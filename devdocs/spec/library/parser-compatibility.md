@@ -31,7 +31,7 @@ BMSは `BMSDecoder`、`Section`、`BMSModel`、`TimeLine`、BMSONは `BMSONDecod
 
 予約語は単なる空白区切りではなく、参照実装の位置依存の切出しに合わせます。`#DIFFICULTY 2`、`#DIFFICULTY=2`、古い無空白の `#TITLExxx`、添字付きのBPM・STOP・SCROLLを区別して処理します。
 
-チャンネル行は `#mmmcc\s*:(.*)` の形を許容しますが、コロンの後をトリムしません。後続を二文字ずつ切り、最後の一文字は無視します。例えば `#01301: 100` の先頭は空白と `1` の組であり、空白を取り除いて有効ノートへ変えません。
+チャンネル行は `#mmmcc\s*:(.*)` の形を許容しますが、コロンの後をトリムしません。コロンのない行も従来の切出しで受理し、行全体をチャンネルデータとして扱います。後続を二文字ずつ切り、最後の一文字は無視します。例えば `#01301: 100` の先頭は空白と `1` の組であり、空白を取り除いて有効ノートへ変えません。
 
 ### 整数と浮動小数点数
 
@@ -53,7 +53,7 @@ BMSは `BMSDecoder`、`Section`、`BMSModel`、`TimeLine`、BMSONは `BMSONDecod
 
 ### 基数と条件分岐
 
-`#BASE 62` は添字とデータの値に作用します。チャンネル識別自体の36進解釈と混同しません。短いBPMチャンネル `03` と地雷ダメージでは、62進の値を文字列へ戻して36進で再解釈する参照実装の処理を維持します。
+`#BASE 62` は添字とデータの値に作用します。チャンネル識別自体の36進解釈と混同しません。短いBPMチャンネル `03` は元の二文字を36進で再解釈します。地雷ダメージは最終BASEで解釈した値を保持し、短いBPMと同じ変換へ統一しません。
 
 RANDOMは全て分岐1を最初に試します。使用フラグは行の見た目ではなく、引数が有効な整数として解釈されることを条件にします。`#RANDOM4` は予約語として見つかっても有効な引数がなく、RANDOMの使用フラグを立てません。
 
@@ -78,7 +78,9 @@ RANDOMは全て分岐1を最初に試します。使用フラグは行の見た�
 
 小節開始は前小節の長さを足して求め、その小節内は `小節開始 + 位置 × 当該小節の長さ` とします。小節長を隣接する開始座標の差から逆算せず、解析した元の長さを別に保持します。
 
-イベントの順序は小節座標を基準とし、時刻だけで再並べ替えしません。負のBPM・STOP・SCROLLがある入力でも、参照実装の集計順を維持します。
+各小節は開始線、制御イベント、ノートの順で要求します。制御イベントは小節内Position、SCROLL・BPM・STOPの優先順、入力Sequenceで整列し、ノートは元のチャンネル順・ペア順で処理します。0／負の小節長でも、この要求順を物理座標の昇順へ置き換えません。完成したタイムラインだけを座標順に取り出し、時刻の安定順序へ並べます。
+
+座標は事前に圧縮しますが、時刻は要求時に初めて生成します。生成済みの厳密な前駆を参照し、前駆がなければ生成済み最小座標を使います。未生成の未来座標を計算へ使いません。±0はCompareToで同一キーとし、実際の最初の要求値を生成時のSectionとして保持します。非有限の座標も事前の索引化だけで拒否せず、そのタイムラインを生成する段階で従来の時刻検査を通します。
 
 `#` と三桁数字で始まり7文字以上ある行は、チャンネルとして壊れていても最大小節を更新します。`#187だいすき`、`#0736:bd` などで空の末尾小節が生まれ、演奏長を伸ばさずに速度変化の末尾時刻だけが伸びる場合があります。
 
@@ -86,17 +88,19 @@ RANDOMは全て分岐1を最初に試します。使用フラグは行の見た�
 
 ### ロングノートと地雷
 
-`#LNOBJ` は同じレーンを後ろ向きに探し、直前の通常ノートを始点に置き換えるか、未対応のロングノートに終点を付けます。対応できなければ診断に留めます。
+`#LNOBJ` は同じレーンを後ろ向きに探し、直前の通常ノートを始点に置き換えるか、未対応のロングノートに終点を付けます。直前の非nullノートが地雷または対応済みLNならそこで探索を止め、さらに古い通常ノートへ進みません。対応できなければLNOBJの終端を配置せず、既存ノートを維持します。
 
-ロングノート専用チャンネルは始点と終点を交互に処理します。既存範囲の判定は両端を含みます。始点に通常ノートがあれば置き換え、異なる音の通常ノートは背景音へ移します。終点から始点まで後ろ向きに調べ、途中のノートを除き、通常ノートなら背景音へ移します。始点が実際に見つかった場合だけ対を作り、未閉鎖の始点は最後に除去します。
+ロングノート専用チャンネルは始点と終点を交互に処理します。既存範囲の判定は両端を含みます。始点に通常ノートがあれば置き換え、異なる音の通常ノートは背景音へ移します。終点から始点まで後ろ向きに調べ、途中のノートを除き、通常ノートなら背景音へ移します。生成済みタイムラインのSectionが始点と一致した場合に対を作るため、始点セルが上書き済み・空でも閉鎖できます。始点が終点以上の専用LNでは、終点より前の削除を行っても対を作らずpendingを維持します。未閉鎖の始点は最後にそのOwnerの現在セルを除去します。完成LNの両端を含む被覆は、端点が後から上書き・削除されても残ります。
 
 既存のロングノート内に専用チャンネルが現れた場合は、通常の始点として数えず、参照実装の特別な開始状態を次のチャンネルで解除します。無条件に対を作って未閉鎖ノートを残しません。
 
-地雷は同時刻・同レーンにノートがある場合と、既存ロングノートの範囲内には配置しません。62進のダメージ値は基数の特殊変換に従います。
+地雷は同時刻・同レーンにノートがある場合と、既存ロングノートの範囲内には配置しません。地雷ダメージは最終BASEで解釈した値を使います。
 
 ### 分布・密度・速度・主BPM
 
-分布は `lastTime / 1000 + 2` 個の秒区間と7種の値を持ち、各ノートを参照実装のミリ秒から秒へ変換して数えます。ロングノートは始点から終点の秒まで密度用の区間を埋め、通常LN形式の終点はノート数から除きます。
+ノートとLNの確定後に総数・種別数・タイムライン別ノート数・BPM範囲・feature・BGA・演奏長を一回で要約し、難易度と既定TOTALを確定します。分布と主BPMはこの要約を共有します。
+
+分布は `lastTime / 1000 + 2` 個の秒区間と7種の値を持ち、各ノートを参照実装のミリ秒から秒へ変換して数えます。ロングノートは始点から終点の秒までを差分配列の累積で密度用の区間へ加算し、通常LN形式の終点はノート数から除きます。
 
 境界位置は `totalNotes * (1 - 100 / total)` の通過位置です。`density` は対象となる秒区間の平均、`peakdensity` は演奏ノートの秒間最大、`enddensity` は境界以後の移動区間の最大値です。ノート数、LN、時刻のずれを、別の密度補正で打ち消しません。
 
@@ -107,6 +111,10 @@ RANDOMは全て分岐1を最初に試します。使用フラグは行の見た�
 ### 譜面文字列とハッシュ
 
 `charthash` は `BMSModel.toChartString()` 相当の文字列のSHA-256です。判定幅、TOTAL、LNモード、時刻、BPM・STOP、小節線、レーン状態、地雷、LN記号と音声長が影響します。BPMは入力の元文字列ではなく計算済みdoubleを文字列化します。
+
+譜面文字列相当のUTF-8を一つの連続バッファへ書き、完成領域を一度のSHA-256へ渡します。整数は従来のStringBuilderと同じCurrentCulture、doubleはJava書式を使います。出力不要の行は書込み位置を戻しますが、その行の現在BPMの更新は残します。
+
+`ParseBytesDetailed` は既定で同じUTF-8から検証用文字列を保持します。末尾引数 `retainChartString: false` を指定した結果の `ChartString` はnullです。`Parse`・`ParseBytes`・`ChartInfoBuildService.EvaluateSnapshot` は保持を要求せず、row・診断・hashは保持ありと一致します。
 
 LN記号と音声長は文字列の単純連結ではなく、記号の整数値と長さの加算に対応します。BMSONの音声切出しの開始・長さも反映します。差異の調査では `tools/chartstring-dump` と `ChartInfoParseResult.ChartString` を行単位で比較し、生成に使ったJava版を明示します。
 
@@ -154,10 +162,11 @@ BGA使用は、BMSのBGA・LAYERチャンネルまたはBMSONの `bga_events` �
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 文字コード、構文、条件分岐、LN、BMSON、難易度 | [`ChartInfoParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs) |
+| 生成済み前駆、非単調座標、LN探索・被覆、診断順、文字列保持モード | [`BMS入力と疎な操作`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.BmsTimeline.cs)、[`共通集計とUTF-8出力`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.Output.cs) | [`ChartInfoParserBoundaryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBoundaryTests.cs)。基準版の小入力結果、全rowのdoubleビット、診断・hash・文字列を確認する。 |
 | Java互換の数値読取りと文字列化 | [`JavaDoubleParserJdk17`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleParserJdk17.cs)、[`JavaDoubleToStringJdk21`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleToStringJdk21.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs)、[`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |
 | 参照DBとの値比較、RANDOMと未定義の扱い | [`ChartInfoCompareRunner`](../../../tools/chart-info-compare/ChartInfoCompareCore.cs) | [`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |
 | 時間上限、共通評価、保存と公開の分離 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs)、[`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs) |
 
 ## 関連資料
 
-[譜面情報の保存](chart-info.md)、[ファイル読取り](chart-file-reading.md)、[検証データの利用条件](../../../BeMusicSeeker.Tests/TestData/README.md)、[テスト実行](../development/testing.md)を参照します。
+[詳細解析の座標索引と出力の判断](../../decisions/chart-info-position-index.md)、[譜面情報の保存](chart-info.md)、[ファイル読取り](chart-file-reading.md)、[検証データの利用条件](../../../BeMusicSeeker.Tests/TestData/README.md)、[テスト実行](../development/testing.md)を参照します。

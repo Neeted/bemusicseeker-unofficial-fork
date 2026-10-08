@@ -9,6 +9,7 @@
 | [Everythingの種別別検索](everything-query-boundary.md) | 外部検索の候補生成を暗黙の前提にしない理由。 |
 | [ManagedBassの採用](managedbass-adoption.md) | ラッパーとネイティブDLLの責務、配布条件。 |
 | [音声処理の設計判断](audio-library-boundaries.md) | ライブラリとの責務分担、音源ロードの並列化、音質・発音時刻・終了判定の採用理由と制約。 |
+| [詳細解析の座標索引と出力](chart-info-position-index.md) | 要求順の遅延時刻生成、現存ノートと完成LN被覆の分離、Java数値互換、UTF-8一括hash。 |
 | [bmson再生の時刻と音声区間を分ける判断](bmson-playback-boundaries.md) | 整数pulseと全曲時刻の分離、実譜面の分母肥大化、固定刻みの誤差と音声区間の独立性。 |
 | [厳密な有理数によるBMS時刻計算の採用](ribbit-exact-timing-adoption.md) | 実譜面の受理互換性・性能・最大7.2µsの時刻差を根拠とする本番採用、分数復元より入力の厳密値を選ぶ理由、局所退行の受容。 |
 | [更新プログラムへのNative AOT採用](updater-distribution-size.md) | 配布サイズと実行時の依存。 |

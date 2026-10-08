@@ -134,7 +134,8 @@ internal sealed class ChartInfoBuildService
                 md5,
                 sha256,
                 encodingName: null,
-                timeout: resolvedParseTimeout);
+                timeout: resolvedParseTimeout,
+                retainChartString: false);
             stopwatch.Stop();
             LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
             BeMusicSeeker.Models.ChartDetails row = parseResult.Row;
