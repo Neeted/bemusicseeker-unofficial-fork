@@ -109,8 +109,8 @@ internal sealed class PackageInstallFailure : EventArgs
 }
 
 /// <summary>
-/// Owns every package-install ingress and keeps queue, live-library generation,
-/// completion, and failure ordering outside the shell ViewModel.
+/// パッケージ導入の全入口を所有し、一要求の受付、ライブラリ世代、
+/// 入力確保・回収と実処理の終端、完了・失敗通知の順序を管理します。
 /// </summary>
 internal sealed class PackageInstallWorkflowOwner
 {
@@ -199,7 +199,7 @@ internal sealed class PackageInstallWorkflowOwner
                     return false;
                 }
                 QueueProcessorContext current = queueProcessors[queueProcessors.Count - 1];
-                return !current.Processor.IsIdle;
+                return current.OperationLease != null || !current.Processor.IsIdle;
             }
         }
     }
@@ -211,7 +211,7 @@ internal sealed class PackageInstallWorkflowOwner
             lock (syncRoot)
             {
                 PruneIdleRetiredQueuesUnsafe();
-                return queueProcessors.All(queue => queue.Processor.IsIdle);
+                return queueProcessors.All(queue => queue.OperationLease == null && queue.Processor.IsIdle);
             }
         }
     }
@@ -224,7 +224,9 @@ internal sealed class PackageInstallWorkflowOwner
         Task[] idleTasks;
         lock (syncRoot)
         {
-            idleTasks = [.. queueProcessors.Select(queue => queue.Processor.WaitForIdleAsync())];
+            idleTasks = [.. queueProcessors.Select(queue => queue.InputAcquisitionCompletion == null
+                ? queue.Processor.WaitForIdleAsync()
+                : WaitForAcquisitionAndIdleAsync(queue.InputAcquisitionCompletion.Task, queue.Processor))];
             PruneIdleRetiredQueuesUnsafe();
         }
 
@@ -234,6 +236,13 @@ internal sealed class PackageInstallWorkflowOwner
             1 => idleTasks[0],
             _ => Task.WhenAll(idleTasks)
         };
+    }
+
+    /// <summary>受理済み入力の確保・回収と、その後に開始する導入処理の実終端を待ちます。</summary>
+    private static async Task WaitForAcquisitionAndIdleAsync(Task acquisition, DropInstallQueueProcessor processor)
+    {
+        await acquisition.ConfigureAwait(false);
+        await processor.WaitForIdleAsync().ConfigureAwait(false);
     }
 
     internal void AttachLibrary(BMSLibrary nextLibrary)
@@ -270,75 +279,111 @@ internal sealed class PackageInstallWorkflowOwner
     }
 
     /// <summary>
-    /// 現行 generation の最初の drop は、queue へ挿入する前に共通の変更受付を取得します。
-    /// 同じ queue への追加 drop は既存の ownership で受理し、拒否時の入力回収は lock 外で行います。
+    /// 共通の変更受付を取得できた要求だけを受理します。
+    /// 実行中の追加要求は予約せず、未引渡しの所有入力を回収します。
     /// </summary>
     internal bool TryEnqueue(DroppedInstallBatchRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        QueueProcessorContext queue = null;
-        DropInstallQueueProcessor.EnqueueTransition transition = null;
-        lock (syncRoot)
-        {
-            if (Volatile.Read(ref shutdownState) == 0)
-            {
-                QueueProcessorContext candidate = queueProcessors[queueProcessors.Count - 1];
-                if (candidate.AcceptingAdmissions && candidate.Library != null)
-                {
-                    IDisposable queueLease = candidate.OperationLease;
-                    bool acquiredLease = queueLease == null;
-                    if (!acquiredLease || chartFileOperations.TryEnter(out queueLease))
-                    {
-                        queue = candidate;
-                        transition = candidate.Processor.TryEnqueueCore(request);
-                        if (transition.Accepted)
-                        {
-                            candidate.OperationLease = queueLease;
-                        }
-                        else if (acquiredLease)
-                        {
-                            // この lease の解放は atomic state 更新だけで、callback を呼ばない。
-                            queueLease.Dispose();
-                        }
-                    }
-                }
-            }
-        }
-        if (queue == null || !transition.Accepted)
+        DroppedInstallIngressAcquisitionResult result = AcquireAndTryEnqueue(
+            () => DroppedInstallIngressAcquisitionResult.Success(request));
+        if (!result.Succeeded)
         {
             request.TryAbandonUnconsumedSources();
             return false;
         }
-
-        queue.Processor.PublishEnqueueTransition(transition);
         return true;
     }
 
-    /// <summary>単一 path の導入予約が受理されたかを返します。</summary>
+    /// <summary>単一パスの導入要求が受理されたかを返します。</summary>
     internal bool EnqueueSingle(string path)
     {
         return Enqueue(string.IsNullOrWhiteSpace(path) ? [] : [path]);
     }
 
     /// <summary>
-    /// Synchronously acquires borrowed FileDrop paths and queues only a complete durable batch.
+    /// 副作用前に共通受付で可否を決め、受理した短命なFileDrop入力を同期的に確保します。
+    /// 確保失敗では元の失敗分類・例外を返し、確保・回収の終端まで保持した受付を解放します。
     /// </summary>
     internal DroppedInstallIngressAcquisitionResult AcquireAndTryEnqueueDroppedPaths(
         IEnumerable<string> paths)
     {
-        DroppedInstallIngressAcquisitionResult acquisition =
-            droppedInstallIngressMaterializer.Acquire(paths);
-        if (!acquisition.Succeeded)
+        return AcquireAndTryEnqueue(() => droppedInstallIngressMaterializer.Acquire(paths));
+    }
+
+    /// <summary>入力確保から引渡しまで共通受付を保持し、世代切替時も未引渡し入力の回収を追跡します。</summary>
+    private DroppedInstallIngressAcquisitionResult AcquireAndTryEnqueue(
+        Func<DroppedInstallIngressAcquisitionResult> acquire)
+    {
+        QueueProcessorContext queue = null;
+        DropInstallQueueProcessor.EnqueueTransition transition = null;
+        DroppedInstallIngressAcquisitionResult acquisition = null;
+        TaskCompletionSource<bool> acquisitionCompletion = null;
+        lock (syncRoot)
         {
-            return acquisition;
+            QueueProcessorContext candidate = queueProcessors[queueProcessors.Count - 1];
+            if (Volatile.Read(ref shutdownState) == 0
+                && candidate.AcceptingAdmissions
+                && candidate.Library != null
+                && candidate.OperationLease == null
+                && chartFileOperations.TryEnter(out IDisposable operationLease))
+            {
+                queue = candidate;
+                queue.OperationLease = operationLease;
+                acquisitionCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                queue.InputAcquisitionCompletion = acquisitionCompletion;
+            }
         }
-        if (TryEnqueue(acquisition.Request))
+        if (queue != null)
         {
-            return acquisition;
+            try
+            {
+                acquisition = acquire();
+                if (!acquisition.Succeeded)
+                {
+                    return acquisition;
+                }
+                lock (syncRoot)
+                {
+                    if (Volatile.Read(ref shutdownState) == 0 && queue.AcceptingAdmissions)
+                    {
+                        transition = queue.Processor.TryEnqueueCore(acquisition.Request);
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (transition?.Accepted != true)
+                    {
+                        acquisition?.Request?.TryAbandonUnconsumedSources();
+                    }
+                }
+                finally
+                {
+                    lock (syncRoot)
+                    {
+                        queue.InputAcquisitionCompletion = null;
+                        if (transition?.Accepted != true)
+                        {
+                            queue.OperationLease.Dispose();
+                            queue.OperationLease = null;
+                        }
+                        // 継続は非同期で実行する。待機側が未完了の確保Taskを見失わないよう、記録解放と完了を一体で公開する。
+                        acquisitionCompletion.TrySetResult(true);
+                    }
+                }
+            }
+            if (transition?.Accepted == true)
+            {
+                queue.Processor.PublishEnqueueTransition(transition);
+                return acquisition;
+            }
         }
         return DroppedInstallIngressAcquisitionResult.Failure(
             DroppedInstallIngressFailureKind.QueueRejected,
-            new InvalidOperationException("The package install queue is busy or not accepting requests."));
+            new InvalidOperationException("The package install workflow is busy or not accepting requests."));
     }
 
     internal void CancelAll()
@@ -908,7 +953,8 @@ internal sealed class PackageInstallWorkflowOwner
     {
         for (int index = queueProcessors.Count - 2; index >= 0; index--)
         {
-            if (queueProcessors[index].Processor.IsIdleReceiptCompleted)
+            if (queueProcessors[index].InputAcquisitionCompletion == null
+                && queueProcessors[index].Processor.IsIdleReceiptCompleted)
             {
                 queueProcessors.RemoveAt(index);
             }
@@ -927,6 +973,9 @@ internal sealed class PackageInstallWorkflowOwner
 
         /// <summary>最初の受理から worker・未引渡し source cleanup の終端まで所有する共通受付。</summary>
         internal IDisposable OperationLease { get; set; }
+
+        /// <summary>短命な入力確保をロック外で実行し、終了・世代切替時にも回収終端まで追跡します。</summary>
+        internal TaskCompletionSource<bool> InputAcquisitionCompletion { get; set; }
 
         /// <summary>受理済み batch の結果を、共通受付の解放後に一度だけ発行するため保持します。</summary>
         internal List<(Action Notification, Exception Failure)> TerminalNotifications { get; } = [];

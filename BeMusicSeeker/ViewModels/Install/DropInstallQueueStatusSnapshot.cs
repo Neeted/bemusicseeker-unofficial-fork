@@ -10,8 +10,6 @@ internal sealed class DropInstallQueueStatusSnapshot
 
     public bool IsCancellationRequested { get; set; }
 
-    public int PendingBatchCount { get; set; }
-
     public int TotalPathCount { get; set; }
 
     public int CompletedPathCount { get; set; }

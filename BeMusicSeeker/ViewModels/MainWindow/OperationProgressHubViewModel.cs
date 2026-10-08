@@ -210,7 +210,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 int total = showWork ? workTotal : Math.Max(0, status.TotalPathCount);
                 int completed = showWork ? Math.Min(workIndex, total) : Math.Max(0, status.CompletedPathCount);
                 rows.Add(new("install", string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format,
-                    Math.Max(0, status.CompletedPathCount), Math.Max(0, status.TotalPathCount), Math.Max(0, status.PendingBatchCount)),
+                    Math.Max(0, status.CompletedPathCount), Math.Max(0, status.TotalPathCount)),
                     GetDropInstallQueueSubLabel(status), completed, Math.Max(1, total), total <= 0,
                     status.CanCancel ? OperationProgressAction.CancelInstall : OperationProgressAction.None));
             }

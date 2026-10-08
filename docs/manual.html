@@ -1651,6 +1651,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <li>Check <code>WARNING</code>, <code>TITLE</code>, <code>ARTIST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, and related columns. If necessary, manually enter <code>INSTL DST</code> or choose it from the suggested candidates.</li>
 <li>Select rows that look correct, then run <code>Install</code> -&gt; <code>Install to estimated install destination</code> from the context menu.</li>
 </ol>
+<p>You can drop multiple files or folders at once. To add more inputs during installation, wait for the current operation to finish and drop them again.</p>
 <p>Use <a href="#selecting-and-editing-rows">multiple-row selection</a> to estimate and install several packages together.</p>
 <h3 id="new">New</h3>
 <p><code>New</code> shows packages immediately after installation. Temporary warnings shown before installation are re-evaluated according to the post-installation state.
@@ -1658,7 +1659,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p><img alt="Install New" src="img/一覧_インストール_新規.PNG"/></p>
 <h3 id="pending">Pending</h3>
 <p><img alt="Install Pending" src="img/一覧_インストール_保留.PNG"/></p>
-<p><code>Pending</code> contains packages not yet installed. Check or correct their destination before installation. You can also re-estimate using <a href="#install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</a>.</p>
+<p><code>Pending</code> contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run <code>Install</code> → <code>Estimate install destination</code> from the context menu. You can also re-estimate using <a href="#install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</a>.</p>
 <h4 id="checking-destinations-and-warning">Checking Destinations and WARNING</h4>
 <div class="table-scroll"><table>
 <thead>

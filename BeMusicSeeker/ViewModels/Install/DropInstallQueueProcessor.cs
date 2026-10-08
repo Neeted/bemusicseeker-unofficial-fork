@@ -7,12 +7,12 @@ using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>受理済み導入を入力順に処理し、停止待ちを含む各バッチTaskと入力回収の終端まで所有します。</summary>
+/// <summary>一つの受理済み導入要求を処理し、停止待ちを含むTaskと入力回収の終端まで所有します。</summary>
 internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest, CancellationToken, Task> processBatch, Action<DropInstallQueueStatusSnapshot> statusChanged, Action<Exception> batchFailed = null)
 {
     private readonly object syncRoot = new();
 
-    private readonly Queue<DroppedInstallBatchRequest> pendingBatches = new();
+    private DroppedInstallBatchRequest pendingBatch;
 
     private readonly Func<DroppedInstallBatchRequest, CancellationToken, Task> processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
 
@@ -54,7 +54,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
                     && !cancelRequested
                     && !backgroundCleanupInProgress
                     && activeBatch == null
-                    && pendingBatches.Count == 0;
+                    && pendingBatch == null;
             }
         }
     }
@@ -89,7 +89,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
     }
 
     /// <summary>
-    /// Attempts to transfer an acquired request to this FIFO queue.
+    /// 取得済みの一要求を受理し、実行中の追加要求は予約せず拒否します。
     /// </summary>
     /// <returns><see langword="true"/> only when the request remains accepted by the queue.</returns>
     internal bool TryEnqueue(DroppedInstallBatchRequest request)
@@ -116,17 +116,13 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
 
         lock (syncRoot)
         {
-            if (cancelRequested)
+            if (!IsIdleUnsafe())
             {
                 return EnqueueTransition.Rejected;
             }
 
-            if (IsIdleUnsafe())
-            {
-                idleCompletion = CreatePendingCompletion();
-            }
-
-            pendingBatches.Enqueue(request);
+            idleCompletion = CreatePendingCompletion();
+            pendingBatch = request;
             bool startWorker = !workerRunning;
             if (startWorker)
             {
@@ -171,7 +167,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
         {
             if (cancelRequested
                 || (activeBatch == null
-                    && pendingBatches.Count == 0
+                    && pendingBatch == null
                     && !workerRunning))
             {
                 return;
@@ -179,8 +175,8 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
 
             cancelRequested = true;
             snapshot = CaptureStatusSnapshotUnsafe();
-            abandonedBatches = [.. pendingBatches];
-            pendingBatches.Clear();
+            abandonedBatches = pendingBatch == null ? [] : [pendingBatch];
+            pendingBatch = null;
             backgroundCleanupInProgress = abandonedBatches.Length > 0;
             cancellationTokenSource = activeCancellationTokenSource;
             activeBatch?.TryReserveAbandonmentBeforeInstallerHandoff();
@@ -257,7 +253,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
             bool shouldExit;
             lock (syncRoot)
             {
-                if (cancelRequested || pendingBatches.Count == 0)
+                if (cancelRequested || pendingBatch == null)
                 {
                     workerRunning = false;
                     activeBatch = null;
@@ -275,7 +271,8 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
                 }
                 else
                 {
-                    batch = pendingBatches.Dequeue();
+                    batch = pendingBatch;
+                    pendingBatch = null;
                     activeBatch = batch;
                     activeCompletedPathCount = 0;
                     ClearActiveCurrentWorkUnsafe();
@@ -321,7 +318,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
                     ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
-                    shouldExit = cancelRequested || pendingBatches.Count == 0;
+                    shouldExit = cancelRequested || pendingBatch == null;
                     if (shouldExit)
                     {
                         workerRunning = false;
@@ -406,7 +403,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
         if (!cancelRequested
             || workerRunning
             || activeBatch != null
-            || pendingBatches.Count > 0
+            || pendingBatch != null
             || backgroundCleanupInProgress)
         {
             return null;
@@ -419,18 +416,16 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
     private DropInstallQueueStatusSnapshot CaptureStatusSnapshotUnsafe()
     {
         DroppedInstallBatchRequest displayedBatch = activeBatch;
-        if (displayedBatch == null && pendingBatches.Count > 0)
+        if (displayedBatch == null && pendingBatch != null)
         {
-            displayedBatch = pendingBatches.Peek();
+            displayedBatch = pendingBatch;
         }
-        int pendingCount = (activeBatch != null) ? pendingBatches.Count : Math.Max(0, pendingBatches.Count - 1);
         return new DropInstallQueueStatusSnapshot
         {
             Sequence = ++statusSequence,
             IsActive = displayedBatch != null,
             CanCancel = displayedBatch != null && !cancelRequested,
             IsCancellationRequested = cancelRequested,
-            PendingBatchCount = pendingCount,
             TotalPathCount = displayedBatch?.PathCount ?? 0,
             CompletedPathCount = (activeBatch != null) ? activeCompletedPathCount : 0,
             CurrentDisplayName = displayedBatch?.DisplayName ?? string.Empty,
@@ -447,7 +442,7 @@ internal sealed class DropInstallQueueProcessor(Func<DroppedInstallBatchRequest,
             && !cancelRequested
             && !backgroundCleanupInProgress
             && activeBatch == null
-            && pendingBatches.Count == 0;
+            && pendingBatch == null;
     }
 
     private static TaskCompletionSource<bool> CreatePendingCompletion()

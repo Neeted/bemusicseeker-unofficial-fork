@@ -1393,7 +1393,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>閉じる</value>
   </data>
   <data name="Drop_install_queue_label_format" xml:space="preserve">
-    <value>パッケージ・フォルダの導入 {0}/{1}件 (待機 {2} バッチ)</value>
+    <value>パッケージ・フォルダの導入 {0}/{1}件</value>
   </data>
   <data name="Drop_install_queue_extracting_sub_label_format" xml:space="preserve">
     <value>解凍中: {0}/{1} {2}</value>
@@ -1406,9 +1406,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Playlist_external_package_lookup_progress_label_format" xml:space="preserve">
     <value>外部サービスでパッケージの入手先を検索 {0}/{1}件</value>
-  </data>
-  <data name="Pending_estimate_queue_startup_display_name" xml:space="preserve">
-    <value>起動時の保留</value>
   </data>
   <data name="Playlist_sync_progress_label_format" xml:space="preserve">
     <value>プレイリストの同期 {0}/{1}</value>

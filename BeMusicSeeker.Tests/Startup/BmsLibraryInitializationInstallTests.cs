@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -19,6 +21,99 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationInstallTests
 {
+    [TestMethod]
+    public async Task Initialize_RestoresPendingWithoutAutomaticEstimationAndAllowsManualEstimation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryInitializationInstallTests), Guid.NewGuid().ToString("N"));
+        string installed = Path.Combine(root, "Library", "Song");
+        string pending = Path.Combine(root, "Pending");
+        Directory.CreateDirectory(installed);
+        Directory.CreateDirectory(pending);
+        string installedChart = Path.Combine(installed, "chart.bms");
+        string pendingChart = Path.Combine(pending, "diff.bms");
+        string songDb = Path.Combine(root, "song.db");
+        File.WriteAllText(installedChart, CreateValidBmsText("Song"), Encoding.ASCII);
+        File.WriteAllText(pendingChart, CreateValidBmsText("Song") + "#PLAYLEVEL 12\r\n", Encoding.ASCII);
+        File.WriteAllBytes(Path.Combine(installed, "sound.wav"), [1]);
+        File.WriteAllBytes(songDb, []);
+        var backgroundWork = new ConcurrentQueue<Func<Task>>();
+        var observer = new CountingInstallEstimationObserver();
+        TestBmsLibrary? library = null;
+        try
+        {
+            ExecuteSongDbFixtureTransaction(songDb, connection =>
+            {
+                connection.CreateTable<LR2SongDBExtended.install>();
+                connection.InsertOrReplace(new LR2SongDBExtended.install { path = pending, delete_parent = false });
+            });
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                ScanBmsFilesOnStartup = true,
+                PendingInstallEstimateMaxParallelPackages = 1
+            };
+            library = new TestBmsLibrary(songDb, null, null, null, new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => options,
+                CapturedChartFileScanner.FromFixture([installedChart],
+                    new Dictionary<string, IEnumerable<string>>
+                    {
+                        [installed] = ["sound.wav"]
+                    }, [installed]), observer)
+            {
+                SearchTargets = [Path.Combine(root, "Library")],
+                StartupBackgroundTaskScheduler = (_, _, _, work) =>
+                {
+                    backgroundWork.Enqueue(work);
+                    return true;
+                }
+            };
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            Assert.IsFalse(library.GetPendingEstimateQueueStatusSnapshot().IsActive);
+            while (backgroundWork.TryDequeue(out Func<Task>? work))
+            {
+                await work();
+            }
+            Assert.AreEqual(0, observer.StartedCount, "復元と必須背景更新では評価を開始しません。");
+            ChartPackage restored = library.ChartPackagesPending.Single();
+            Assert.AreEqual(pending, restored.path);
+            Assert.IsTrue(restored.ChartEntries.All(entry => string.IsNullOrEmpty(entry.Chart.InstallDestination)));
+
+            library.SearchEstimatedInstallationDirectory(restored);
+
+            Assert.AreEqual(installed, restored.ChartEntries.Single().Chart.InstallDestination);
+        }
+        finally
+        {
+            while (backgroundWork.TryDequeue(out Func<Task>? work))
+            {
+                await work();
+            }
+            library?.RequestShutdown("startup-pending-restore-test");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class CountingInstallEstimationObserver : IInstallEstimationExecutionObserver
+    {
+        internal int StartedCount;
+
+        public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation)
+        {
+            Interlocked.Increment(ref StartedCount);
+            return new Scope();
+        }
+
+        public void ObserveProgress(InstallEstimationProgressObservation observation) { }
+
+        public void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation) { }
+
+        private sealed class Scope : IDisposable
+        {
+            public void Dispose() { }
+        }
+    }
+
     [TestMethod]
     public void UpsertSongs_FillsLr2FolderAndParentForInstalledBmsRows()
     {

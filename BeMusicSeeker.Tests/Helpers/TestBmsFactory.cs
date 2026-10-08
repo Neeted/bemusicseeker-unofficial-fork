@@ -116,6 +116,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// process-wide settings singleton.
     /// </summary>
     /// <param name="chartFileScanner">Optional captured scanner for tests that exercise the production file-diff ingress.</param>
+    /// <param name="installEstimationExecutionObserver">起動復元から明示推定までの評価開始を観測します。</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -124,7 +125,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IBmsLibraryDialogService dialogService,
         IUiScheduler uiScheduler,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
-        IChartFileScanner chartFileScanner = null)
+        IChartFileScanner chartFileScanner = null,
+        IInstallEstimationExecutionObserver installEstimationExecutionObserver = null)
         : base(
             songDbPath,
             getLR2Config,
@@ -135,7 +137,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
             optionsSnapshotProvider ?? CurrentOptions,
             uiScheduler,
             TestBmsFactory.MissingEverythingBridge,
-            installEstimationExecutionObserver: null,
+            installEstimationExecutionObserver: installEstimationExecutionObserver,
             chartFileScanner: chartFileScanner)
     {
         MarkCatalogPathConvergenceCompleted();

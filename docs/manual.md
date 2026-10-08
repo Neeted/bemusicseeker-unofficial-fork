@@ -930,6 +930,8 @@ Supported inputs are BMS / bmson charts, work folders, and `.zip`, `.7z`, `.rar`
 4. Check `WARNING`, `TITLE`, `ARTIST`, `INSTL DST TITLE`, `INSTL DST ARTIST`, and related columns. If necessary, manually enter `INSTL DST` or choose it from the suggested candidates.
 5. Select rows that look correct, then run `Install` -> `Install to estimated install destination` from the context menu.
 
+You can drop multiple files or folders at once. To add more inputs during installation, wait for the current operation to finish and drop them again.
+
 Use [multiple-row selection](#selecting-and-editing-rows) to estimate and install several packages together.
 
 ### New
@@ -943,7 +945,7 @@ For example, a differential chart by itself is typically added to `Pending` with
 
 ![Install Pending](img/一覧_インストール_保留.PNG)
 
-`Pending` contains packages not yet installed. Check or correct their destination before installation. You can also re-estimate using [Install-Destination and Merge-Destination Estimation](#install-destination-and-merge-destination-estimation).
+`Pending` contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run `Install` → `Estimate install destination` from the context menu. You can also re-estimate using [Install-Destination and Merge-Destination Estimation](#install-destination-and-merge-destination-estimation).
 
 #### Checking Destinations and WARNING
 

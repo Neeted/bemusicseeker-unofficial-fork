@@ -202,7 +202,7 @@ internal sealed class PendingInstallEstimateQueueProcessor(
         {
             Sequence = ++statusSequence,
             IsActive = displayedBatch != null,
-            Source = displayedBatch?.Source ?? PendingInstallEstimateBatchSource.StartupRestore,
+            Source = displayedBatch?.Source ?? PendingInstallEstimateBatchSource.AutoInstall,
             PendingBatchCount = pendingCount,
             CurrentPackageCount = displayedBatch?.PackageCount ?? 0,
             CompletedPackageCount = (activeBatch != null) ? activeCompletedPackageCount : 0,

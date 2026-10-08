@@ -31,7 +31,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
                 {
                     processed.Add(request.DisplayName);
                 }
-                if (request.DisplayName == "startup")
+                if (request.DisplayName == "auto")
                 {
                     firstStarted.Set();
                     processor!.ReportActiveBatchProgress(1);
@@ -54,7 +54,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
                 {
                     snapshots.Add(snapshot.Clone());
                 }
-                if (snapshot.IsActive && snapshot.CurrentDisplayName == "startup" && snapshot.CompletedPackageCount == 1)
+                if (snapshot.IsActive && snapshot.CurrentDisplayName == "auto" && snapshot.CompletedPackageCount == 1)
                 {
                     progressReported.Set();
                 }
@@ -68,9 +68,9 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             });
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
-            PendingInstallEstimateBatchSource.StartupRestore,
+            PendingInstallEstimateBatchSource.AutoInstall,
             [CreatePackage(@"C:\pending\startup\a"), CreatePackage(@"C:\pending\startup\b")],
-            "startup"));
+            "auto"));
         Assert.IsTrue(firstStarted.Wait(3000), "The first batch did not start.");
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
@@ -88,8 +88,8 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             {
                 throw backgroundFailure;
             }
-            CollectionAssert.AreEqual(new[] { "startup", "drop" }, processed);
-            Assert.IsTrue(snapshots.Any(snapshot => snapshot.IsActive && snapshot.CurrentDisplayName == "startup" && snapshot.PendingBatchCount == 1));
+            CollectionAssert.AreEqual(new[] { "auto", "drop" }, processed);
+            Assert.IsTrue(snapshots.Any(snapshot => snapshot.IsActive && snapshot.CurrentDisplayName == "auto" && snapshot.PendingBatchCount == 1));
         }
     }
 
@@ -112,9 +112,9 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             });
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
-            PendingInstallEstimateBatchSource.StartupRestore,
+            PendingInstallEstimateBatchSource.AutoInstall,
             [CreatePackage(@"C:\pending\startup\a")],
-            "startup"));
+            "auto"));
 
         Assert.IsTrue(completed.Wait(3000), "The batch did not complete.");
         Assert.IsTrue(inactivePublished.Wait(3000), "The queue did not publish its inactive status.");
@@ -146,9 +146,9 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             });
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
-            PendingInstallEstimateBatchSource.StartupRestore,
+            PendingInstallEstimateBatchSource.AutoInstall,
             [CreatePackage(@"C:\pending\startup\a")],
-            "startup",
+            "auto",
             performanceInteraction: expected));
 
         Assert.IsTrue(completed.Wait(3000), "The batch did not complete.");
@@ -170,9 +170,9 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             {
             });
         PendingInstallEstimateBatchRequest request = new(
-            PendingInstallEstimateBatchSource.StartupRestore,
+            PendingInstallEstimateBatchSource.AutoInstall,
             [CreatePackage(@"C:\pending\startup\a")],
-            "startup");
+            "auto");
 
         Task enqueueTask = Task.Factory.StartNew(
             () => processor.Enqueue(request, () =>

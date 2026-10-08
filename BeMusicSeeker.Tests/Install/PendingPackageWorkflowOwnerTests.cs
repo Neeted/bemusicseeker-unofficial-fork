@@ -2182,8 +2182,8 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>
-    /// worker 開始前と各 batch の実行中は保留導入を拒否し、
-    /// 追加 drop は FIFO で処理します。完了通知では全 batch の処理済みと受付解放を確認します。
+    /// worker開始前と一要求内の複数入力の実行中は保留導入を拒否します。
+    /// 追加dropを予約せず、完了通知では入力の処理済みと受付解放を確認します。
     /// 行選択 request と package 行からの手動・強制導入をそれぞれ通します。
     /// </summary>
     [DataTestMethod]
@@ -2191,7 +2191,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [DataRow(false, true)]
     [DataRow(true, false)]
     [DataRow(true, true)]
-    public async Task DropQueue_RejectsPendingInstallUntilAllAcceptedBatchesFinish(bool manual, bool selectedRows)
+    public async Task DropInstall_RejectsPendingInstallUntilAcceptedMultipleInputsFinish(bool manual, bool selectedRows)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -2258,7 +2258,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             Volatile.Write(ref blockEnqueue, 1);
             string firstPath = Path.Combine(root, "first.zip");
             string secondPath = Path.Combine(root, "second.zip");
-            enqueue = Task.Run(() => automatic.TryEnqueue(new DroppedInstallBatchRequest([firstPath])));
+            enqueue = Task.Run(() => automatic.TryEnqueue(new DroppedInstallBatchRequest([firstPath, secondPath])));
             await enqueueEntered.Task;
 
             PendingPackageMutationResult beforeWorker = await Install();
@@ -2266,13 +2266,13 @@ public sealed class PendingPackageWorkflowOwnerTests
             Assert.IsFalse(beforeWorker.ShouldApplyView);
             Assert.IsNull(dialogs.ConfirmationRequest);
             Assert.AreEqual(0, events.Count, "受付前に対象解決・確認・再生停止・store 変更を行わない。");
-            Assert.IsTrue(automatic.TryEnqueue(new DroppedInstallBatchRequest([secondPath])));
+            Assert.IsFalse(automatic.TryEnqueue(new DroppedInstallBatchRequest([Path.Combine(root, "rejected.zip")])));
             releaseEnqueue.Set();
             Assert.IsTrue(await enqueue);
             await automatic.WaitForIdleAsync();
 
             CollectionAssert.AreEqual(new[] { firstPath, secondPath }, paths);
-            Assert.AreEqual(2, rejectionsDuringBatch.Count);
+            Assert.AreEqual(1, rejectionsDuringBatch.Count);
             foreach (Task<PendingPackageMutationResult> attempt in rejectionsDuringBatch)
             {
                 PendingPackageMutationResult rejection = await attempt;
@@ -2280,11 +2280,11 @@ public sealed class PendingPackageWorkflowOwnerTests
                 Assert.IsFalse(rejection.ShouldApplyView);
                 Assert.IsNull(rejection.Failure, "Busy 拒否を実行失敗へ変換しない。");
             }
-            CollectionAssert.AreEqual(new[] { (2, true), (2, true) }, completionObservations,
-                "全受理 batch の処理と受付解放を終えてから、それぞれ一度だけ完了を通知する。");
+            CollectionAssert.AreEqual(new[] { (2, true) }, completionObservations,
+                "一要求の複数入力の処理と受付解放を終えてから、一度だけ完了を通知します。");
             Assert.IsNull(dialogs.ConfirmationRequest);
             Assert.AreEqual(0, events.Count, "拒否した手動操作を後で実行しない。");
-            Assert.AreEqual(3, dialogs.MessageRequests.Count);
+            Assert.AreEqual(2, dialogs.MessageRequests.Count);
             PendingPackageMutationResult fresh = await Install();
             Assert.IsTrue(fresh.Succeeded);
             Assert.AreEqual(1, events.Count(value => value == (manual ? "store-manual-install" : "store-force-install")));

@@ -24,7 +24,8 @@ internal sealed class TestUiScheduler : IUiScheduler
 {
     private readonly WpfUiScheduler scheduler;
 
-    internal TestUiScheduler(Func<Dispatcher> dispatcherProvider)
+    /// <summary>Dispatcherがない場合は本番アダプターのインライン実行契約で動くテスト窓口を作ります。</summary>
+    internal TestUiScheduler(Func<Dispatcher?> dispatcherProvider)
     {
         scheduler = new WpfUiScheduler(dispatcherProvider ?? throw new ArgumentNullException(nameof(dispatcherProvider)));
     }

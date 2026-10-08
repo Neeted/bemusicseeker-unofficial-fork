@@ -637,7 +637,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             statusValues.Clear();
 
-            owner.Enqueue(Enumerable.Range(1, 64).Select(index => "seal-second-" + index + ".zip"));
+            Assert.IsFalse(owner.Enqueue(Enumerable.Range(1, 64).Select(index => "rejected-" + index + ".zip")));
             DrainNotifications(notifications);
             while (notificationSignal.Wait(0))
             {
@@ -647,6 +647,11 @@ public sealed class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(
                 mutationPort.FirstReturned.Wait(TimeSpan.FromSeconds(5)),
                 "The first package progress mutation did not return after release.");
+            await owner.WaitForIdleAsync();
+            DrainNotifications(notifications);
+            terminalPublished.Reset();
+            statusValues.Clear();
+            Assert.IsTrue(owner.Enqueue(Enumerable.Range(1, 64).Select(index => "seal-second-" + index + ".zip")));
             Assert.IsTrue(
                 mutationPort.SecondStarted.Wait(TimeSpan.FromSeconds(5)),
                 "The second package progress mutation did not start.");
@@ -1009,6 +1014,145 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task AcquireAndTryEnqueueDroppedPaths_RejectsBusyBeforeAcquisitionWithoutReservation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var gate = new ChartFileOperationSynchronizer();
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim(false);
+        int acquisitionCalls = 0;
+        int mutationCalls = 0;
+        var observedInputs = new List<string[]>();
+        var materializer = new DroppedInstallIngressMaterializer(root, _ => false,
+            () => { Interlocked.Increment(ref acquisitionCalls); return root; }, _ => { },
+            getAttributes: path => { Interlocked.Increment(ref acquisitionCalls); return File.GetAttributes(path); });
+        PackageInstallWorkflowOwner owner = CreateOwner((_, paths, _, _) =>
+        {
+            Interlocked.Increment(ref mutationCalls);
+            observedInputs.Add(paths.ToArray());
+            started.TrySetResult(true);
+            release.Wait();
+            return new PackageInstallCommandResult([], null);
+        }, action => { action(); return true; },
+            droppedInstallIngressMaterializer: materializer, chartFileOperations: gate);
+        owner.AttachLibrary(new TestBmsLibrary(songDbPath));
+        try
+        {
+            Assert.IsTrue(gate.TryEnter(out IDisposable lease));
+            using (lease)
+            {
+                DroppedInstallIngressAcquisitionResult rejection = owner.AcquireAndTryEnqueueDroppedPaths([songDbPath]);
+                Assert.AreEqual(DroppedInstallIngressFailureKind.QueueRejected, rejection.FailureKind);
+                Assert.AreEqual(0, acquisitionCalls);
+                Assert.AreEqual(0, mutationCalls);
+            }
+            Assert.IsTrue(owner.Enqueue(["first.zip", "folder"]));
+            await started.Task;
+            CollectionAssert.AreEqual(new[] { "first.zip", "folder" }, observedInputs.Single());
+            Assert.AreEqual(DroppedInstallIngressFailureKind.QueueRejected,
+                owner.AcquireAndTryEnqueueDroppedPaths([songDbPath]).FailureKind);
+            Assert.AreEqual(0, acquisitionCalls);
+            release.Set();
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, mutationCalls, "拒否した要求は現在の操作の終端後にも実行しません。");
+            Assert.IsTrue(owner.Enqueue(["first.zip", "folder"]));
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(2, mutationCalls);
+        }
+        finally
+        {
+            release.Set();
+            await owner.WaitForIdleAsync();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AcquireAndTryEnqueueDroppedPaths_MissingSourcePreservesFailureAndReleasesAdmissionForFreshRequest()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string sourceRoot = Path.Combine(root, "system-temp");
+        string ingressRoot = Path.Combine(root, "managed-ingress");
+        Directory.CreateDirectory(sourceRoot);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        string missingSource = Path.Combine(sourceRoot, "disappeared.bms");
+        File.WriteAllText(missingSource, "borrowed-chart");
+        File.Delete(missingSource);
+        string freshSource = Path.Combine(sourceRoot, "fresh.bms");
+        File.WriteAllText(freshSource, "fresh-chart");
+        var gate = new ChartFileOperationSynchronizer();
+        Exception? sourceFailure = null;
+        int ingressRootsCreated = 0;
+        int mutationCalls = 0;
+        string? installedContents = null;
+        bool freshRequestAttempted = false;
+        var materializer = new DroppedInstallIngressMaterializer(sourceRoot, _ => false,
+            () =>
+            {
+                ingressRootsCreated++;
+                Directory.CreateDirectory(ingressRoot);
+                return ingressRoot;
+            }, DeleteOwnedRoot,
+            getAttributes: path =>
+            {
+                try { return File.GetAttributes(path); }
+                catch (FileNotFoundException exception)
+                {
+                    sourceFailure = exception;
+                    throw;
+                }
+            });
+        PackageInstallWorkflowOwner owner = CreateOwner((_, paths, _, _) =>
+        {
+            mutationCalls++;
+            installedContents = File.ReadAllText(paths.Single());
+            return new PackageInstallCommandResult([], null);
+        }, action => { action(); return true; },
+            droppedInstallIngressMaterializer: materializer, chartFileOperations: gate);
+        owner.AttachLibrary(new TestBmsLibrary(songDbPath));
+        try
+        {
+            DroppedInstallIngressAcquisitionResult failure = owner.AcquireAndTryEnqueueDroppedPaths([missingSource]);
+            Assert.IsFalse(failure.Succeeded);
+            Assert.AreEqual(DroppedInstallIngressFailureKind.SourceUnavailable, failure.FailureKind);
+            Assert.IsNotNull(sourceFailure);
+            Assert.AreSame(sourceFailure, failure.Exception);
+            Assert.AreEqual(0, ingressRootsCreated);
+            Assert.AreEqual(0, mutationCalls);
+            Assert.IsFalse(gate.IsActive);
+            Assert.IsTrue(owner.IsIdle);
+            Task failedRequestIdle = owner.WaitForIdleAsync();
+            Assert.IsTrue(failedRequestIdle.IsCompleted, "同期的な入力確保の失敗後は受付と待機Taskが終端します。");
+            await failedRequestIdle;
+
+            freshRequestAttempted = true;
+            DroppedInstallIngressAcquisitionResult fresh = owner.AcquireAndTryEnqueueDroppedPaths([freshSource]);
+            Assert.IsTrue(fresh.Succeeded, fresh.Exception?.ToString());
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, ingressRootsCreated);
+            Assert.AreEqual(1, mutationCalls);
+            Assert.AreEqual("fresh-chart", installedContents);
+            Assert.IsTrue(File.Exists(freshSource));
+            Assert.IsFalse(gate.IsActive);
+        }
+        finally
+        {
+            // 入力確保の失敗までは同期処理だけ。workerを開始し得る次の要求を試した場合は終端を待って回収する。
+            if (freshRequestAttempted)
+            {
+                await owner.WaitForIdleAsync();
+            }
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task AcquireAndTryEnqueueDroppedPaths_StagesTransientSourceThroughMutationPort()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1188,17 +1332,21 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.Enqueue([Path.Combine(root, "first.zip")]);
             workerStarted = true;
             await firstInstallEntered.Task;
-            owner.Enqueue([Path.Combine(root, "second.zip")]);
+            Assert.IsFalse(owner.Enqueue([Path.Combine(root, "second.zip")]));
             releaseFirstInstall.Set();
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, failures.Count);
+            terminalInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "second.zip")]));
 
             await secondInstallEntered.Task;
             lock (observationLock)
             {
-                Assert.AreEqual(0, failures.Count, "後続 batch の実行中に先行 batch の terminal を発行しない。");
+                Assert.AreEqual(1, failures.Count, "先行要求の失敗は受付解放後に通知済みです。");
             }
             bool admittedWhileRunning = chartFileOperations.TryEnter(out IDisposable duringInstall);
             duringInstall?.Dispose();
-            Assert.IsFalse(admittedWhileRunning, "受理済みの後続 batch まで共通受付を保持する。");
+            Assert.IsFalse(admittedWhileRunning, "新しい明示要求の実行中は共通受付を保持します。");
             Assert.IsFalse(completed.Task.IsCompleted, "Completion must not be published before the live install returns.");
             Assert.IsFalse(terminalInactive.Task.IsCompleted, "The queue must remain active while the following batch is running.");
             Assert.IsFalse(owner.IsIdle, "The workflow must not become idle before the live install returns.");
@@ -1220,7 +1368,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             await completed.Task;
             Assert.AreEqual(1, failureSnapshot.Length);
             CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, callSnapshot);
-            CollectionAssert.AreEqual(new[] { "failure", "completion", "inactive" }, eventOrderSnapshot);
+            CollectionAssert.AreEqual(new[] { "failure", "inactive", "completion", "inactive" }, eventOrderSnapshot);
             CollectionAssert.AreEqual(new[] { true, true }, terminalAdmissions,
                 "失敗・完了の subscriber を呼ぶ前に共通受付を解放する。");
             Assert.IsTrue(owner.IsIdle, "The workflow must be idle after its terminal inactive status.");
@@ -2060,6 +2208,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.StatusChanged += _ => throw new InvalidOperationException("status publication failed");
             owner.CompletionPublished += _ => throw new InvalidOperationException("completion publication failed");
             owner.Enqueue([Path.Combine(root, "first.zip")]);
+            await owner.WaitForIdleAsync();
             owner.Enqueue([Path.Combine(root, "second.zip")]);
 
             await secondFinished.Task;
@@ -2245,7 +2394,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task AttachLibrary_DeletesOldPendingIngressButPreservesHandedOffActiveIngress()
+    public async Task AdditionalRequest_IsRejectedAndReclaimedWhileHandedOffActiveIngressIsPreserved()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -2287,7 +2436,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(owner.TryEnqueue(activeRequest));
             activeStarted.Wait();
             DroppedInstallBatchRequest pendingRequest = CreateOwnedRequest(pendingRoot, "pending.zip");
-            Assert.IsTrue(owner.TryEnqueue(pendingRequest));
+            Assert.IsFalse(owner.TryEnqueue(pendingRequest));
 
             owner.AttachLibrary(secondLibrary);
 

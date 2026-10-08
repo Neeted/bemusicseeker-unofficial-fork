@@ -3249,15 +3249,7 @@ public partial class BMSLibrary : ObservableObject
         if (queued)
         {
             PendingInstallEstimateQueueStatusSnapshot snapshot = packageLifecycleOwner.GetPendingEstimateQueueStatusSnapshot();
-            int queuedBatchCount = GetPendingEstimateQueuedBatchCount(snapshot);
-            if (request.Source == PendingInstallEstimateBatchSource.StartupRestore)
-            {
-                LogInstallPerformance("startup_pending_estimate_queue queued batches=" + queuedBatchCount + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount);
-            }
-            else
-            {
-                LogInstallPerformance("pending_estimate_batch queued source=" + ToPendingEstimateBatchSourceLogValue(request.Source) + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " pendingBatches=" + snapshot.PendingBatchCount);
-            }
+            LogInstallPerformance("pending_estimate_batch queued source=" + ToPendingEstimateBatchSourceLogValue(request.Source) + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " pendingBatches=" + snapshot.PendingBatchCount);
         }
     }
 
@@ -4202,7 +4194,6 @@ public partial class BMSLibrary : ObservableObject
     {
         return source switch
         {
-            PendingInstallEstimateBatchSource.StartupRestore => "startup_restore",
             PendingInstallEstimateBatchSource.AutoInstall => "auto_install",
             PendingInstallEstimateBatchSource.ManualReestimate => "manual_reestimate",
             _ => "unknown"
@@ -4213,7 +4204,6 @@ public partial class BMSLibrary : ObservableObject
     {
         return source switch
         {
-            PendingInstallEstimateBatchSource.StartupRestore => InstallEstimationProgressSource.StartupRestore,
             PendingInstallEstimateBatchSource.AutoInstall => InstallEstimationProgressSource.AutoInstall,
             PendingInstallEstimateBatchSource.ManualReestimate => InstallEstimationProgressSource.ManualReestimate,
             _ => InstallEstimationProgressSource.None
@@ -5055,7 +5045,7 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// BMS ライブラリの初期化を行います。song.db からの譜面データ読み込み、ファイルスキャン、
-    /// スコア / 保守情報の取得を統合的に実行します。
+    /// スコア / 保守情報の取得を統合的に実行します。復元した保留は明示的な手動推定で扱います。
     /// </summary>
     /// <param name="tasksContinuation">初期化中に並行で実行する追加タスクのリスト。</param>
     /// <param name="semaphore">追加タスクの同期用セマフォ。</param>
@@ -5350,46 +5340,6 @@ public partial class BMSLibrary : ObservableObject
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,
                     MessageBoxResult.OK);
-            }
-        }
-        if (flag)
-        {
-            if (packageLifecycleOwner.StartupReadiness.CanStartInstallEstimation())
-            {
-                BackgroundPendingEstimatePreparationResult startupEstimatePreparation;
-                List<ChartPackage> startupPendingPackageSnapshot;
-                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                using (rwlockPendingInstallCharts.GetReaderGuard())
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    // Capture package references while the model is stable;
-                    // source-surface enumeration and hash materialization are
-                    // deliberately performed after these short snapshot guards
-                    // have been released.
-                    startupPendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
-                }
-                startupEstimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(
-                    startupPendingPackageSnapshot,
-                    PendingInstallEstimateBatchSource.StartupRestore);
-                foreach (ChartPackage deferredPackage in startupEstimatePreparation.DeferredPackages)
-                {
-                    startupEstimatePreparation.DeferredSourceHealthByPackage.TryGetValue(deferredPackage, out int sourceHealth);
-                    LogPendingEstimateSkippedPackage("startup_restore", deferredPackage, sourceHealth);
-                }
-                if (startupEstimatePreparation.EstimablePackages.Count > 0)
-                {
-                    QueuePendingInstallEstimateBatch(new PendingInstallEstimateBatchRequest(
-                        PendingInstallEstimateBatchSource.StartupRestore,
-                        startupEstimatePreparation.EstimablePackages,
-                        Resources.Pending_estimate_queue_startup_display_name,
-                        deferredPackageCount: startupEstimatePreparation.DeferredPackages.Count,
-                        batchSourceSnapshot: startupEstimatePreparation.BatchSourceSnapshot,
-                        performanceInteraction: performanceInteraction.ForRoute("install_estimation")));
-                }
-            }
-            else
-            {
-                LogInstallPerformance("startup_install_estimation_blocked reason=" + packageLifecycleOwner.StartupReadiness.GetInstallEstimationBlockedReason());
             }
         }
         DirectoryResourceLookupCache installableLookupCacheSnapshot = null;
