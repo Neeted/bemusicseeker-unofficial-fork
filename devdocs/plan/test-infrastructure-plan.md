@@ -1,65 +1,103 @@
-# 検証基盤の改善候補
+# テストの保証・配置・実行負担の整理
 
-## 目的と現状
+## 目的と作業範囲
 
-[検証仕様](../spec/development/testing.md)の共有期限、並列実行、失敗判定を維持しつつ、テストの調査・待機・資源分離の保守負担を下げます。通常検証の目標に不要な一括整理はしません。
+必要な保証を適切な担当へ集約し、残す各ケースから保証の意図と観測方法を読める状態にします。その後、不要な準備・共有資源・待機を減らし、通常検証の180秒目標への復帰を目指します。保証整理と時間目標は別々に判定します。
 
-## 残る検討
+採否・境界・コメントの正本は[テスト設計](../spec/development/test-authoring.md)、実行・測定・失敗判定は[検証仕様](../spec/development/testing.md)です。本計画は未完了の整理範囲と実施順を扱い、規則や全ケースの説明を複写しません。
 
-`DoNotParallelize` を実在する共有資源で再確認し、不要なクラス全体の直列化を減らします。固定待機を通常完了、失敗検出、性能測定に分け、通常完了だけを実際の状態通知へ置き換えます。外部プロセスの実行が必要な確認は、軽量な契約テストと分離します。
+今回の依頼範囲は計画と運用文書までです。以下のテスト整理、コメントの実装、実行時間の測定は次の作業として残します。本番の挙動・保存形式を変える計画ではありません。
 
-性能比較は明示実行に分け、同じ条件の測定値を比較できるようにします。個々の実行時間と不安定さは実行結果から確認し、手書きの恒久台帳を作りません。テストの検出結果から完全修飾名・カテゴリ・元ファイル・共有資源・実行区分を辿れる生成資料が必要か検討します。必要性の確認前に新しい保存状態・専用プロジェクトは増やしません。
+## 現状と不足
 
-## 次回調査の優先度を決めるための確認範囲
+調査基点は `dev` の `a1db6901fb9cfb498cbfb6b79fc44efa78591145`（2026年10月10日確認）です。添付会話「テスト方針整理案」の対象版と一致し、下表の候補を現行ソースで確認しています。静的検索ではテストメソッドを含むC#ファイルは321、補助処理等を含むC#ファイルは358です。これは展開後のケース数や必要なテスト数ではありません。
 
-### 適用する版と日時
+全ケースの採否・保証コメント・最適な移管先は未審査です。現行版のWindows実行時間、WPFの時間比率、各変更の短縮効果も未測定であり、WPFが最大の遅延原因とは断定しません。過去の部分調査・待機修正・準備量削減は全件審査の代わりにせず、その範囲も今回の一巡に含めます。
 
-- 整理・確認日：2026年9月20日（日本時間）。この範囲の記録時点は同日06:05 JST。
-- 整理前の基準コミット：`3b99191ba0f736e2e167eb64e1cc869acf37ea53`（2026-09-20 02:18:49 +09:00）。
-- 以下は、そのコミットに今回のテスト・検証スクリプト・仕様の**未コミット差分を加えた作業ツリー**についての判断。基準コミット自体が整理済みという意味ではない。整理後のコミットIDは記録時点で未確定であり、後日この文書を含む変更のGit履歴から特定する。
-- 最終確認は標準 `Functional`、実行開始識別子 `20260920-054104`。テストプロセス起動から実終了まで199.5秒、4,848件成功・既存スキップ11件。200秒未満の余裕は0.5秒で、180秒の運用目標は未達。安定して200秒未満になる保証ではない。`Full` は今回未実行。
+現在の通常検証は既に6プロセスへ分割され、WPFは共有Application・STA Dispatcherを遅延生成します。新しい共有ホストの追加から始めず、既存の `Invoke` と `RunWindowTest` の使い分けを見直します。実行条件の正本と実スクリプトを維持して着手します。
 
-今回の調査は200秒未満を目指して重い領域と実際の競合を優先したもので、全領域の全テストを横断的に再審査したものではない。以下の「確認済み」は記載した観点・ケースに限る。次回は整理を含むコミット以降の追加・変更を先に確認し、同じファイルにある新しいテストを確認済みと扱わない。この節は未調査範囲の選定に使い、調査が進んだら更新する。個別テストの時間ランキングや実行履歴は蓄積しない。
+### 最初に扱う候補
 
-### 仕様・必要性まで比較的深く確認した範囲
+候補の存在確認は全保証の削除判断ではありません。表明が混在するケースは必要な部分を分け、追加・意味変更・置換には[独立した判定基準と設計](../spec/development/agent-workflow.md#テスト設計の要否)を用意します。機械的変更・代替不要の削除には設計書を要求しません。
 
-テスト名は `BeMusicSeeker.Tests/` 配下。仕様上の保証、本番からの到達、重複、入力の組合せ、観測方法を検討した。該当ケースの再調査より、後から追加されたケースや次表の未確認範囲を先に見る目安になる。
-
-| 領域・主なテスト | 今回確認した内容 | 次回にも残る注意点 |
+| 対象 | 確認した整理対象 | 実施時の扱い |
 | --- | --- | --- |
-| 譜面情報の補完・再試行：`ChartInfoBackfillStorageTests`、`ChartInfoInstallFailureRetryTests`、`ChartInfoMetadataTestSupport` | 投影正規化の単体試験との重複、本番では形式別に分けられる入力、所持集合へ入らないMD5欠落主体、同一MD5の複数所有者、保存失敗と再試行。補助処理によるwriterの再実装を本番の保存経路へ統合した。 | 譜面解析そのものや互換性ケース全体は未監査。失敗・再試行の別条件を件数だけで削らない。 |
-| スキーマ・入出力：`AppSchemaPreflightServiceTests`、`ChartInfoMetadataSchemaExportImportTests` | 新規作成・修復、失敗時のロールバックと再試行、取込み・移転・キャッシュの連続操作を統合。定数・SQL文字列の形だけの確認を整理した。DBロック中の検査は因果関係で確認する形へ変更した。 | 他のDBスキーマや移行・保存機能まで確認したわけではない。 |
-| 所持集合・ハッシュ反映：`OwnedChartCollectionInlineDigestTests`、`OwnedChartCollectionLibraryMutationTests` | 到達不能な所有者、直接イベント操作との重複、親子削除結果、通知時の解決、旧スナップショット、連続2操作の局所更新を確認した。 | この2クラス以外の所持集合・プレイリスト索引試験全体は未監査。 |
-| フォルダ変更・統合：`BmsLibraryFolderRenameRefreshTests`、`BmsLibraryDuplicateServiceTests` | 手動・自動の入口、局所範囲、事前確認と実行時再確認の組合せ、連続操作を確認。完全一致キーや起動時走査なしの相互作用がある条件は残した。 | 両機能の関連クラス全部を監査したわけではない。残る各ケースの準備量は再検討可能。 |
-| 構築済み索引の導入・統合：`BmsLibraryPackageInstallServiceTests` のリソースのみの導入と自動・推定先・強制導入の `Warm` ケース、上記統合の `TwoWarmOperations` | 実処理の全件列挙観測と更新数上限により背景16件でも再構築を検出できるため、比較をしていなかった128件側を整理。連続2操作、永続結果、旧スナップショット等は維持した。 | 導入テスト全体の必要性を審査したという意味ではない。サイズ間の仕事量を実際に比較する試験は別扱い。 |
+| [`CustomTableColumnSettingsTests`](../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnSettingsTests.cs) | 初期列の全順序・幅・表示状態、`MainViewUpdateMode` の数値固定。 | 現在値だけの固定を削除する。enum値の保存・外部契約は別途確認する。欠損補完・利用者設定保持・保存復元を巻き込まない。[列仕様](../spec/ui/table-columns.md)の対応表も更新し、仕様に現在値が載っていることだけを存続理由にしない。 |
+| [`SettingDialogEditCompletionTests`](../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) | `PlaylistDialogs_UsePlaylistWorkspaceOwnerComposition` は自己代入した参照を確認。音量Bindingケースの準備は `SelectedIndex = 3` に依存。 | 自己代入確認を削除し、代わりの構成検査を自動的に追加しない。音量の実Binding・逆方向反映は固有の保証として扱い、準備の位置依存を外す。 |
+| [`ApplicationCompositionTests`](../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) | provider・子管理主体の非null・参照同一性の列挙。 | 内部構成の複写を削除する。実機能の開始・対象受渡し・受付競合・結果を検査する既存ケースとの分担を確認する。 |
+| [`PlaylistViewPipelineTests`](../../BeMusicSeeker.Tests/Playlist/PlaylistViewPipelineTests.cs) | `CapabilityMatrix` と各行の能力判定が重複。 | 能力条件の網羅を一か所へ集約する。行の形式・所持範囲・path・token・欠損状態・対象解決など固有の保証を残す。 |
+| [`BmsPlaylistExternalLoadTests`](../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) | 同じBOM付きheader・相対URLと期待結果を同期・非同期入口で検査。 | 解析保証を非同期側へ集約する。同期ラッパーに独自の保証がなければ重複を削除する。BOM・相対URLの受理や他の永続化・互換性ケースは別に判断する。 |
+| [`ShellShutdownWorkflowOwnerTests`](../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)、[`MainWindowViewHostTests`](../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) | 保存失敗通知やBusy時の保存拒否を、実Windowなしで `RunWindowTest` 内から検査。 | 判断・保存・失敗条件は管理主体等へ集約する。実Dispatcher所属の観測は必要な範囲に残し、共有状態が残るなら非並列指定も維持する。実Close・HWND・Dispatcher応答性を観測するケースとは分ける。 |
+| 同上の `CoordinatedShutdownIsMarkedBeforePreparationCompletes` | 準備完了前という名前に対し、終了要求の完了後にだけmarkを確認。 | 順序契約と既存の担当を確認し、必要なら未完了中の観測へ直す。コメントや名前だけを直訳して保証済みとはしない。 |
 
-### 待機・分離・準備を中心に確認した範囲
+## 全領域を一巡する単位
 
-ここは実行上の問題を確認した範囲であり、各クラスの機能ケースの必要性・重複を全件確認した範囲ではない。
+物理配置の変更から始めず、機能ごとに同じ保証を担うModel・ViewModel・管理主体・WPF・受入シナリオを横断して調べます。下表は未審査範囲の案内であり、各ケースの手書き台帳にはしません。着手時にソースと既存のテスト検出結果から対象集合を作業用に抽出し、追加・移動されたケースも含めます。終了時は残存ソースと照合して取りこぼしを確認します。
 
-| 範囲 | 確認した観点 | 未確認または再検討可能な観点 |
-| --- | --- | --- |
-| `MSTestSettings`、`verify-refactor.ps1`、`verification-test-discovery.ps1` | メソッド単位実行、実属性からの共有状態検出、実行集合の重複・漏れ、スレッド補充待ち。通常2ホストは全DB共通のプロセス内ロックを分離するために維持。 | `DoNotParallelize` 各指定の必要性を全件監査したわけではない。共有状態側の長時間ケースと、クラス全体を直列化する必要性は候補。 |
-| `AppHttpClientTests`、`SingleRequestHttpServer`、`PlaylistWorkspaceDetailRefreshTests`、`PlayHistoryReadModelTests`、`DropInstallQueueProcessorTests`、`ShellShutdownWorkflowOwnerTests`、`StartupPostInitializationWarmupOwnerTests`、`PackageInstallWorkflowOwnerTests` | 通常の通知・完了に設けた局所タイマーを整理し、実際のTask・イベントと、失敗時のゲート解放・開始済み処理の終結を確認。HTTP本来の期限や後始末の監視は区別した。 | 機能ケース同士の重複・組合せ全体は未監査。これら以外に残る局所待機も未整理。 |
-| `PlaylistWorkspaceExternalSourceTests`、`PlaylistWorkspacePersistenceCommandTests`、`MainWindowViewModelStartupProgressTests`、`FileDiffReloadWorkflowOwnerTests`、`ScoreOnlyReloadWorkflowOwnerTests` | 実際に問題となった取消通知、完了待ち、Dispatcher上の観測、非同期処理開始前の回数表明を修正。 | 対象外の待機・永続化・再読込みケース全体は未監査。 |
-| `ApplicationCompositionTests`、`ApplicationSettingsLifecycleTests`、`BmsLibraryInstallEstimationServiceTests` | 終了処理のプロセス共有資源、設定ファイルへの不要なアクセス・正規化を分離。 | 設定・推定・構成の全機能ケースの必要性は未監査。 |
-| `BmsLibraryInitializationFileScanTests`、`BmsLibraryPackageInstallServiceTests`、`BmsLibraryPendingPackageRegroupTests`、`CatalogMutationOwnerTests`、上表のフォルダ変更・統合・所持集合変更 | 明白なfixture準備の逐次commitを一括化し、SELECTだけの検査を読取り専用接続へ変更。`CatalogMutationOwnerTests` の16/128件によるSQL仕事量比較は必要性を確認して保持。 | 全DB準備箇所を置換したわけではない。ファイル生成・解析・保存の準備量、各機能ケースの重複には未確認部分がある。 |
+| 審査単位 | `BeMusicSeeker.Tests/` 配下の主な対象 |
+| --- | --- |
+| 共通基盤・実行環境 | `Runtime`、`Helpers`、直下のプロジェクト・アセンブリ設定。 |
+| 起動・終了・標準構成・主画面接続 | `Startup`、`MainWindow`。 |
+| ライブラリ・索引・走査 | `Catalog`、`Library`、`Scanning`。 |
+| 譜面・譜面情報・互換入力 | `Chart`、`ChartInfo`、リンクしている解析・出力ツールの検証。 |
+| リソース索引・健全性 | `Resources`、`ResourceHealth`。 |
+| 導入・パッケージ | `Install`。 |
+| 譜面変更・保守・ファイル操作 | `ChartOperations`、`Maintenance`、`FileOperations`。 |
+| プレイリスト・一覧・外部取得・出力 | `Playlist`。 |
+| LR2連携・履歴・IR | `Lr2`、`PlayHistory`、`Ir`。 |
+| 再生・音声・エンコーダー | `Playback`。 |
+| 一覧・列・検索・変換 | `ChartList`、`CustomTable`、`Search`、`Converters`。 |
+| 設定・外部操作・プロセス | `Settings`、`ExternalActions`、`Processes`。 |
+| ダイアログ・外観・翻訳 | `Dialogs`、`Themes`、`Localization`。 |
+| 更新・配布・検証契約 | `Update`、`Verification`、`Fixtures/UpdaterRestartApplication`、後述のPowerShell受入シナリオ。 |
+| 性能・測定用入力 | `Performance` と、各機能内の性能・大規模入力ケース。 |
 
-### 次回の着手順の目安
+共通補助処理、fixture、`TestData`、リンクされたコードは利用先の保証と一緒に判断します。専用データの削除前に全利用先を確認します。`Fixtures/UpdaterRestartApplication` はテストケースの集合ではなく、独立したWinExeの準備・接続として扱います。
 
-現在の遅さは再測定して判断する。並列テストの各所要時間には共通DBロック等の待ちが含まれ、クラス別の合計は全体経過時間にも、そのクラス単独の処理費用にもならない。過去の結果は保存範囲が不完全なので、今回の機能変更が長時間化の原因だったという推定にも使わない。
+`Functional` 外の `ProcessIntegration`、`ReleaseAcceptance`、`Performance`、`Net10Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow` も機能別審査から除外しません。既存スキップには実行条件で生じる `Inconclusive` も含め、必要性・条件・理由を確認します。明示実行フラグ、クロスボリューム、権限、外部エンコーダー・配布物等の不足を成功扱いにしません。
 
-| 優先度 | 候補 | 最初に確かめること |
-| --- | --- | --- |
-| 高 | 整理後に追加・変更されたテストと、新しい実測で長いケース | 本番入口から成立する入力か、既存試験と同じ保証か。待機時間を含む場合は同じ時間帯にロックを保持していた準備・処理も見る。 |
-| 高 | `BmsLibraryPackageInstallServiceTests`、`BmsLibraryPendingPackageRegroupTests`、`BmsLibraryInitializationFileScanTests` の未監査ケース | 今回は主に準備処理と一部ケースを改善した。大量の実ファイル・DB準備が必要か、同じ保証を入口ごとに過剰に繰り返していないかを仕様から検討する。 |
-| 高 | `Lr2SongDbSyncServiceTests`、`Lr2FolderFileDbSyncServiceTests`、`Lr2SongDbWriterTests`、`BmsLibraryStateApplierTests`、`FolderAutoRenameWorkflowOwnerTests`、`MaintenanceRescanWorkflowOwnerTests` | 今回の途中計測で所要時間の大きい領域として見えたが、必要性・到達性・重複の詳しい監査は未実施。現在も重いなら優先する。 |
-| 中 | 共有状態ホスト、プレイリストの永続化・要約・索引、各workflowの条件組合せ | 共有状態を扱う実経路、直列化の範囲、類似試験間の保証分担を確認。今回待機を直したことだけでケース整理済みとは扱わない。 |
-| 実測次第 | 譜面パーサーの挙動・互換性、設定の保存・移行、ローカライズ、画面表示、その他上表にない領域 | 今回は横断的な必要性監査をしていない。未確認であること自体を不要の根拠にせず、実測と仕様上の保証から調査順を決める。 |
-| Functional短縮とは別 | 更新・配布・外部プロセス、`Full` 専用区分、明示実行の性能・大規模fixture試験 | 通常Functionalには含まれない。上記Updaterの準備待ち等は、その区分を検証するときに整理する。 |
+PowerShellも保証コメントの対象です。[既存データの受入](../../scripts/accept-net10-existing-data.ps1)のstandalone・LR2プロファイルと再起動、[現行更新の受入](../../scripts/accept-net10-update.ps1)、[標準入口](../../scripts/verify-refactor.ps1)のツール基本確認等を、入口から辿ってシナリオ単位で審査します。これらの例だけに限定せず、標準入口と関連する明示実行入口から受入シナリオを確認します。[配布配置検査](../../scripts/portable-package-layout.ps1)などの共通判定は、受入側と責務を分担し、すべての `throw` を別ケースとして数えません。
 
-次回も、実行対象の除外・スキップ追加・期限延長で短縮せず、必要な保証と識別力を先に定める。今回深く確認した領域でも、追加差分、新しい遅延、仕様変更があれば優先度を上げる。
+## 実施順と残作業
 
-## 完了条件
+### 基準の確保
 
-採用した改善が、本来の保証、実行集合、共有期限を維持し、通常テストの外部入力非依存と[ユーザーに推奨する実機確認](../spec/development/testing.md#ユーザーに推奨する実機確認)の分担を守ること。実施と未実施の扱いは[検証方針](../spec/development/testing.md#検証方針)に従います。実行結果の収集は作業用の生成物に留め、完了した整理の履歴はGitへ委ねます。
+- 着手時の版・未コミット差分・対象集合と、利用できる実行結果の条件を確認する。過去の部分整理時の結果を現行基準には使わない。
+- [整理前後の比較](../spec/development/testing.md#テスト整理前後の時間比較)に従い、同条件の現行結果がなければ標準 `Functional` を一回実行する。失敗は既存の失敗分類で扱い、基準の成功を捏造しない。
+- 時間目標とは別に、全ケースの採否とコメント整備、必要な保証の維持を完了条件にする。測定前に短縮秒数を約束しない。
+
+### 不要保証の削除と機能別の集約
+
+- 最初の候補から着手し、全領域へ進む。各単位で保証要否、既存の担当と不足、適切な境界を決める。不要な保証は代替なしで削除し、必要な上位の接続保証は維持する。
+- 追加・意味変更・置換が必要な範囲は、仕様から独立した判定基準を先に確定する。現在の期待値や本調査の実装観察だけから正解を作らない。
+- 残すC#全ケースとPowerShell全受入シナリオに[保証コメント](../spec/development/test-authoring.md#各ケースの保証コメント)を整える。データ駆動・ループ内の条件差、実際の入力・表明・待機順序、広い境界の必要性を照合する。
+- 置換元のテスト・不要な補助処理・専用データを同じ整理単位で退役させ、機能仕様の対応表と参照を更新する。仕様に現在値が記載されていることと、その値を恒久テストで固定する必要性を区別する。
+
+### 残る実行負担の削減
+
+- 保証に関係しない実ファイル生成・全ライブラリ初期化・解析・DB書込みを削る。入力準備の一括投入と読取り専用の観測を使い、対象のcommit・rollback・実保存境界は迂回しない。
+- Windowなしのケースを適切な境界へ移し、設定・文化圏・テーマ・共有通知等の所有と復元を確認してから不要な `DoNotParallelize` を外す。
+- 通常完了の固定待機を実Taskや通知へ揃える。排他の否定観測、表示・閉鎖、時間超過契約、失敗・解放の観測を一律に削らない。
+- 実測で残る長時間ケースと同時刻の共有資源を調べる。導入・再グループ化・初期走査、LR2同期・書込み、状態反映、保守、共有状態ホスト等は準備と競合の確認候補だが、現在の遅さは未確定とする。
+- それでもホスト間の偏りがある場合だけ、分割・配分を検討する。ホスト増設、履歴を保存する自動配分、可変fixtureのプール、新しい専用プロジェクトは初期案に含めない。
+
+### 最終照合と検証
+
+- 整理対象集合と残存ソースを照合し、全領域・全展開ケース・既存スキップ・PowerShell受入の採否とコメントに未確認を残さない。未確認のままならその範囲は未完了として本計画へ残す。
+- 反復中は関連する `Quick`、最終統合は標準 `Functional` を一回実行する。配布・更新・リリースに関わる変更は `Full` とし、その共通 `Functional` 部分を時間比較に使う。明示実行区分の変更は必要な入力・環境と追加検証を選び、実行できない範囲・理由を明記する。静的審査の完了を実行済みとは扱わない。
+- 必須検証後は[エージェント運用](../spec/development/agent-workflow.md)に従って凍結・予備レビュー・独立最終レビューへ進む。保証の削除・置換は、その境界に応じて重大変更かを判断する。
+- 必要な保証の残存先、コメント未整備の有無、実行件数・スキップと理由・未実施区分・全体時間を報告する。180秒超過時も保証整理の状態と分け、未達時間と残る負担を示す。
+
+## 判断が必要になった場合
+
+今回確認した運用範囲に未回答の質問はありません。C#とPowerShellの両方をコメント対象にすることは利用者回答で確定しています。個々の保証の採否は全件確定した状態ではありません。
+
+実施時に、内部値に見える値が保存・外部契約を持つか資料から確定できない、保証の廃止が利用者の意図に依存する、本番の挙動や受理範囲の変更が必要になる、といった場合は、根拠・選択肢・影響をユーザー質問として提示します。回答に依存する削除・置換・期待結果は確定せず、独立した単位の作業を進めます。今回の候補一覧を未確定の保証を削除する許可には使いません。
+
+## 対象外と完了条件
+
+件数削減・WPF比率そのものを目標にせず、必要なケースの除外・スキップ追加・時間予算の緩和・成功までの再実行で短縮しません。保証ID、全件の手書き台帳、別管理の説明一覧、コメント文言を固定するテスト、エージェント種別や承認工程の追加も行いません。本番API・状態・復旧経路をテスト都合だけで増やしません。
+
+整理の完了は、全領域の採否判断、必要な保証と適切な境界への集約、残す全ケースのコメントと観測の一致、旧テスト・不要な基盤の退役、仕様の対応更新、必要な検証と独立レビューで判断します。180秒達成は同条件の実測値で別に報告し、未達を保証整理の未完了や検証成功に読み替えません。
+
+一部を完了したら、その単位の恒久契約と対応を正本へ移し、本計画には未完了範囲だけを残します。全体完了時は必要な残課題を移管し、[文書運用](../README.md#現行情報の維持)に従って本計画と案内を削除します。完了したケース一覧や測定履歴は蓄積しません。
